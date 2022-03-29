@@ -120,7 +120,6 @@ namespace CameraTools
 			AddMovement(KeyCode.J, Vector3.left);
 			AddMovement(KeyCode.O, Vector3.up);
 			AddMovement(KeyCode.U, Vector3.down);
-			AddMovement(KeyCode.U, Vector3.down);
 			Vector3 direction = transform.TransformVector(moveInput.normalized);
 
 			if (Input.GetKey(KeyCode.Semicolon))

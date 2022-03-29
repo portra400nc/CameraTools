@@ -24,17 +24,6 @@ namespace CameraTools
         {
             if (Input.GetKeyDown(KeyCode.F9))
             {
-                //if (hudFound == false)
-                //{
-                //    hud = GameObject.Find("/UICamera");
-                //    uid = GameObject.Find("/BetaWatermarkCanvas(Clone)/Panel");
-                //    camera = GameObject.Find("/EntityRoot/MainCamera(Clone)");
-                //    freecamera = GameObject.Instantiate(camera);
-                //    camera.SetActive(false);
-                //    camera.SetActive(true);
-                //    freecamera.AddComponent<Freecam>();
-                //    hudFound = true;
-                //}
                 if (freecamera)
                 {
                     LoggerInstance.Msg("Free camera is already injected.");
@@ -104,10 +93,6 @@ namespace CameraTools
             }
             if (Input.GetKeyDown(KeyCode.Insert))
             {
-                //if (camera.activeInHierarchy == true)
-                //    camera.SetActive(false);
-                //else
-                //    camera.SetActive(true);
                 if (freecamera)
                 {
                     if (camera.activeInHierarchy == true)
