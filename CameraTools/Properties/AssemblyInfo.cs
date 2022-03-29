@@ -14,7 +14,7 @@ using MelonLoader;
 [assembly: AssemblyCopyright("Copyright ©  2022")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
-[assembly: MelonInfo(typeof(CameraTools.CameraTools), "Camera Tools", "1.0.0", "portra")]
+[assembly: MelonInfo(typeof(CameraTools.CameraTools), "Camera Tools", "1.0.1", "portra")]
 [assembly: MelonGame(null, null)]
 
 // Setting ComVisible to false makes the types in this assembly not visible
