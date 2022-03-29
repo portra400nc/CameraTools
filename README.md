@@ -8,6 +8,7 @@ Just a simple free camera mod.
  - Field of view adjustments
  - Time controls
  - Toggle HUD
+ - Damping (smooth camera movement)
 
 ## Hotkeys
 | Key | Description |
@@ -24,7 +25,10 @@ Just a simple free camera mod.
 | 8 | Decrease field of view
 | 9 | Increase field of view
 | 0 | Reset field of view
-|Quote (') | Focus cursor
+| F11 | Decrease damping coefficient (less = smoother)
+| F12 | Increase damping coefficient (more = more responsive)
+| F10 | Reset damping coefficient
+| Quote (') | Focus cursor
 | Delete | Toggle pause
 | End | Reset game speed
 | Up | Increase game speed by 0.1

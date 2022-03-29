@@ -18,6 +18,8 @@ namespace CameraTools
 		public float accSprintMultiplier = 10; // how much faster you go when "sprinting"
 		public float lookSensitivity = 1; // mouse look sensitivity
 		public float dampingCoefficient = 20; // how quickly you break to a halt after you stop your input
+		public float fov = 0.5f;
+		public float targetFov = 45f;
 		public bool focusOnEnable = true; // whether or not to focus and lock cursor immediately on enable
 
 		Vector3 velocity; // current velocity
@@ -55,6 +57,27 @@ namespace CameraTools
 			// Physics
 			velocity = Vector3.Lerp(velocity, Vector3.zero, dampingCoefficient * Time.unscaledDeltaTime);
 			transform.position += velocity * Time.unscaledDeltaTime;
+
+			// FOV
+			if (Input.GetKey(KeyCode.Alpha8))
+			{
+				targetFov -= fov;
+			}
+			if (Input.GetKey(KeyCode.Alpha9))
+			{
+				targetFov += fov;
+			}
+			if (Input.GetKeyDown(KeyCode.Alpha0))
+			{
+				targetFov = 45f;
+			}
+			cam.fieldOfView = Mathf.Lerp(cam.fieldOfView, targetFov, Time.unscaledDeltaTime * dampingCoefficient);
+
+			// Damping limiter
+			if (dampingCoefficient < 2)
+				dampingCoefficient = 2;
+			if (dampingCoefficient > 30)
+				dampingCoefficient = 30;
 		}
 
 		public void UpdateInput()
@@ -62,31 +85,24 @@ namespace CameraTools
 			// Position
 			velocity += GetAccelerationVector() * Time.unscaledDeltaTime;
 
-			// Rotation
-			Vector2 mouseDelta = lookSensitivity * new Vector2(Input.GetAxis("Mouse X"), -Input.GetAxis("Mouse Y"));
-			Quaternion rotation = transform.rotation;
-			Quaternion horiz = Quaternion.AngleAxis(mouseDelta.x, Vector3.up);
-			Quaternion vert = Quaternion.AngleAxis(mouseDelta.y, Vector3.right);
-			transform.rotation = horiz * rotation * vert;
+            // Rotation
+            Vector2 mouseDelta = lookSensitivity * new Vector2(Input.GetAxis("Mouse X"), -Input.GetAxis("Mouse Y"));
+            Quaternion rotation = transform.rotation;
+            Quaternion horiz = Quaternion.AngleAxis(mouseDelta.x, Vector3.up);
+            Quaternion vert = Quaternion.AngleAxis(mouseDelta.y, Vector3.right);
+            transform.rotation = horiz * rotation * vert;
 
-			// Field of view
-			if (Input.GetKey(KeyCode.Alpha8))
-            {
-				cam.fieldOfView -= 0.5f;
-            }
-			if (Input.GetKey(KeyCode.Alpha9))
-			{
-				cam.fieldOfView += 0.5f;
-			}
-			if (Input.GetKeyDown(KeyCode.Alpha0))
-			{
-				cam.fieldOfView = 45f;
-			}
+            if (Input.GetKeyDown(KeyCode.F11))
+				dampingCoefficient -= 2;
+			if (Input.GetKeyDown(KeyCode.F12))
+				dampingCoefficient += 2;
+			if (Input.GetKeyDown(KeyCode.F10))
+				dampingCoefficient = 20;
 
-            // Leave cursor lock
-            //if (Input.GetKeyDown(KeyCode.Escape))
-            //	Focused = false;
-        }
+			// Leave cursor lock
+			//if (Input.GetKeyDown(KeyCode.Escape))
+			//	Focused = false;
+		}
 
 		Vector3 GetAccelerationVector()
 		{
