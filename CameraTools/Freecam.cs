@@ -50,7 +50,7 @@ namespace CameraTools
             {
 				// Movement Speed
 				GUI.Label(new Rect(20, 100, 200, 30), "Movement speed");
-				acceleration = GUI.HorizontalSlider(new Rect(10, 120, 200, 10), acceleration, 1.0f, 10000.0f);
+				acceleration = GUI.HorizontalSlider(new Rect(10, 120, 200, 10), acceleration, 1.0f, 1000.0f);
 				GUI.Label(new Rect(215, 120, 80, 30), acceleration.ToString());
 				if (GUI.Button(new Rect(20, 140, 80, 20), "Reset"))
 					acceleration = 50;
@@ -200,13 +200,15 @@ namespace CameraTools
 			delta.x -= Input.GetAxis("Mouse Y");
 			Quaternion deltaRotation = Quaternion.Euler(delta.x * lookSensitivity, delta.y * lookSensitivity, 0);
 
+			Vector3 eulerRotation = transform.rotation.eulerAngles;
+
 			// Roll camera
 			if (Input.GetKey(KeyCode.Comma))
 				deltaRotation *= Quaternion.Euler(0, 0, rollSpeed);
 			if (Input.GetKey(KeyCode.Period))
 				deltaRotation *= Quaternion.Euler(0, 0, -rollSpeed);
 			if (Input.GetKey(KeyCode.RightShift))
-				targetRotation = deltaRotation;
+				targetRotation = Quaternion.Euler(eulerRotation.x, eulerRotation.y, 0);
 
 			// Rotation
 			targetRotation *= deltaRotation;

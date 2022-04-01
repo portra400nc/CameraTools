@@ -24,6 +24,7 @@ Just a simple free camera mod.
 | O/U | Vertical camera movement
 | Comma (,) | Roll camera left
 | Period (.) | Roll camera right
+| RShift | Reset roll
 | Semicolon (;) | Slow camera movement (hold)
 | RAlt | Fast camera movement (hold)
 | 8 | Decrease field of view
