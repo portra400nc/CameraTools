@@ -150,6 +150,8 @@ namespace CameraTools
                 Time.timeScale += 0.5f;
                 lastTimeScale = Time.timeScale;
             }
+            if (Time.timeScale < 0)
+                Time.timeScale = 0;
         }
     }
 }

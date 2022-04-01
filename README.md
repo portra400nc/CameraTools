@@ -6,29 +6,29 @@ Just a simple free camera mod.
 
  - Free camera
  - Field of view adjustments
- - Time controls
+ - Game speed control (pause, slow-motion, speed up)
  - Toggle HUD
  - Damping (smooth camera movement)
 
 ## Hotkeys
 | Key | Description |
 |--|--|
-| F9 | Inject free camera |
+| F9 | Inject free camera
+| F10 | Toggle GUI (while in free camera only)
+| Quote (') | Focus cursor
 | PageDown | Toggle HUD
 | ] | Toggle damage overlay
 | [ | Remove enemy hp overlay
 | Insert | Toggle free camera
 | I/J/K/L | Camera movement
-| O/U | Go up/down
+| O/U | Vertical camera movement
+| Comma (,) | Roll camera left
+| Period (.) | Roll camera right
 | Semicolon (;) | Slow camera movement (hold)
 | RAlt | Fast camera movement (hold)
 | 8 | Decrease field of view
 | 9 | Increase field of view
 | 0 | Reset field of view
-| F11 | Decrease damping coefficient (less = smoother)
-| F12 | Increase damping coefficient (more = more responsive)
-| F10 | Reset damping coefficient
-| Quote (') | Focus cursor
 | Delete | Toggle pause
 | End | Reset game speed
 | Up | Increase game speed by 0.1

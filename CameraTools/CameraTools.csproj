@@ -60,6 +60,10 @@
     <Reference Include="UnityEngine.CoreModule">
       <HintPath>C:\Games\Genshin Impact\Genshin Impact game\MelonLoader\Managed\UnityEngine.CoreModule.dll</HintPath>
     </Reference>
+    <Reference Include="UnityEngine.IMGUIModule, Version=3.7.1.6, Culture=neutral, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>C:\Games\Genshin Impact\Genshin Impact game\MelonLoader\Managed\UnityEngine.IMGUIModule.dll</HintPath>
+    </Reference>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Freecam.cs" />
