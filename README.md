@@ -1,6 +1,6 @@
 # CameraTools
 
-Just a simple free camera mod.
+![](https://i.imgur.com/jPicFgO.png)
 
 ## Features
 
@@ -24,7 +24,7 @@ Just a simple free camera mod.
 | O/U | Vertical camera movement
 | Comma (,) | Roll camera left
 | Period (.) | Roll camera right
-| RShift | Reset roll
+| RShift | Reset z rotation (roll)
 | Semicolon (;) | Slow camera movement (hold)
 | RAlt | Fast camera movement (hold)
 | 8 | Decrease field of view
