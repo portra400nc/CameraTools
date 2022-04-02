@@ -10,11 +10,11 @@ using MelonLoader;
 [assembly: AssemblyDescription("")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("")]
-[assembly: AssemblyProduct("CameraTools")]
-[assembly: AssemblyCopyright("Copyright ©  2022")]
+[assembly: AssemblyProduct("Camera Tools")]
+[assembly: AssemblyCopyright("Copyright portra ©  2022")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
-[assembly: MelonInfo(typeof(CameraTools.CameraTools), "Camera Tools", "1.0.2", "portra")]
+[assembly: MelonInfo(typeof(CameraTools.CameraTools), "Camera Tools", "1.0.3", "portra")]
 [assembly: MelonGame(null, null)]
 
 // Setting ComVisible to false makes the types in this assembly not visible

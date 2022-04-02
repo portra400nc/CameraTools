@@ -1,6 +1,6 @@
 # CameraTools
 
-![](https://i.imgur.com/jPicFgO.png)
+![](https://i.imgur.com/DG2bOT9.png)
 
 ## Features
 
