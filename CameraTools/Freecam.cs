@@ -19,14 +19,17 @@ namespace CameraTools
 		public float targetFov = 45f;
 		public bool focusOnEnable = true; // whether or not to focus and lock cursor immediately on enable
 		public bool panelVisible = false;
-		public Rect MenuRect = new Rect(20, 100, 270, 600);
+		public bool rememberPos = false;
+		public Rect MenuRect = new Rect(20, 100, 270, 640);
 
 		private float translationSpeed = 0.5f;
 		private float rollSpeed = 1f;
 		private Vector3 targetPosition;
 		private Vector3 smoothPosition;
+		private Vector3 lastPosition;
 		public Quaternion targetRotation;
 		private Quaternion smoothRotation;
+		private Quaternion lastRotation;
 		public float smoothFOV;
 		private float smoothSpeed = 1.0f;
 
@@ -132,6 +135,7 @@ namespace CameraTools
 				if (GUI.Button(new Rect(170, 560, 50, 20), "+"))
 					targetFov += 1f;
 
+				rememberPos = GUI.Toggle(new Rect(20, 600, 200, 30), rememberPos, "Remember last position");
 			}
 			GUI.DragWindow();
 		}
@@ -139,11 +143,20 @@ namespace CameraTools
 		{
 			if (focusOnEnable) Focused = true;
 			cam.CopyFrom(maincam);
+			if (rememberPos)
+			{
+				transform.rotation = lastRotation;
+				transform.position = lastPosition;
+			}
 			targetRotation = transform.rotation;
 			targetPosition = transform.position;
 		}
 
-		//public void OnDisable() => Focused = false;
+		public void OnDisable()
+        {
+			lastPosition = transform.position;
+			lastRotation = transform.rotation;
+        }
 
 		public void Update()
 		{
@@ -159,9 +172,15 @@ namespace CameraTools
 			if (Input.GetKeyDown(KeyCode.F10))
             {
 				if (panelVisible == true)
+                {
 					panelVisible = false;
+					Focused = true;
+				}
 				else
+                {
 					panelVisible = true;
+					Focused = false;
+				}
 			}
 
 			// Limiters
