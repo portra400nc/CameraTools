@@ -163,13 +163,13 @@ namespace CameraTools
 			// Input
 			if (Focused)
 				UpdateInput();
-			if (Input.GetKeyDown(KeyCode.Quote))
+			if (Input.GetKeyDown(CameraTools.keyFocus))
             {
 				if (Focused == false)
 					Focused = true;
 				else Focused = false;
 			}
-			if (Input.GetKeyDown(KeyCode.F10))
+			if (Input.GetKeyDown(CameraTools.keyGUI))
             {
 				if (panelVisible == true)
                 {
@@ -210,41 +210,41 @@ namespace CameraTools
 			Vector3 eulerRotation = transform.rotation.eulerAngles;
 
 			// Roll camera
-			if (Input.GetKey(KeyCode.Comma))
+			if (Input.GetKey(CameraTools.keyRollLeft))
 				deltaRotation *= Quaternion.Euler(0, 0, rollSpeed);
-			if (Input.GetKey(KeyCode.Period))
+			if (Input.GetKey(CameraTools.keyRollRight))
 				deltaRotation *= Quaternion.Euler(0, 0, -rollSpeed);
-			if (Input.GetKey(KeyCode.RightShift))
+			if (Input.GetKey(CameraTools.keyRollReset))
 				targetRotation = Quaternion.Euler(eulerRotation.x, eulerRotation.y, 0);
 
 			// Rotation
 			targetRotation *= deltaRotation;
 
 			// Lateral Movement
-			if (Input.GetKey(KeyCode.I))
+			if (Input.GetKey(CameraTools.keyForward))
 				targetPosition += transform.forward * translationSpeed;
-			if (Input.GetKey(KeyCode.J))
+			if (Input.GetKey(CameraTools.keyLeft))
 				targetPosition -= transform.right * translationSpeed;
-			if (Input.GetKey(KeyCode.K))
+			if (Input.GetKey(CameraTools.keyBack))
 				targetPosition -= transform.forward * translationSpeed;
-			if (Input.GetKey(KeyCode.L))
+			if (Input.GetKey(CameraTools.keyRight))
 				targetPosition += transform.right * translationSpeed;
 
 			// Vertical movement
-			if (Input.GetKey(KeyCode.O))
+			if (Input.GetKey(CameraTools.keyUp))
 				targetPosition += transform.up * translationSpeed;
-			if (Input.GetKey(KeyCode.U))
+			if (Input.GetKey(CameraTools.keyDown))
 				targetPosition -= transform.up * translationSpeed;
 
 			// FOV
-			if (Input.GetKey(KeyCode.Alpha8))
+			if (Input.GetKey(CameraTools.keyFovDec))
 				targetFov -= fov;
-			if (Input.GetKey(KeyCode.Alpha9))
+			if (Input.GetKey(CameraTools.keyFovInc))
 				targetFov += fov;
-			if (Input.GetKeyDown(KeyCode.Alpha0))
+			if (Input.GetKeyDown(CameraTools.keyFovReset))
 				targetFov = 45f;
 
-			if (Input.GetKeyDown(KeyCode.RightAlt))
+			if (Input.GetKeyDown(CameraTools.keyFast))
             {
 				lasttranslationSpeed = translationSpeed;
 				lastrollSpeed = rollSpeed;
@@ -255,14 +255,14 @@ namespace CameraTools
 				lookSensitivity *= accSprintMultiplier;
 				fov *= accSprintMultiplier;
 			}
-			else if (Input.GetKeyUp(KeyCode.RightAlt))
+			else if (Input.GetKeyUp(CameraTools.keyFast))
 			{
 				translationSpeed = lasttranslationSpeed;
 				rollSpeed = lastrollSpeed;
 				lookSensitivity = lastlookSensitivity;
 				fov = lastfov;
 			}
-			if (Input.GetKeyDown(KeyCode.Semicolon))
+			if (Input.GetKeyDown(CameraTools.keySlow))
 			{
 				lasttranslationSpeed = translationSpeed;
 				lastrollSpeed = rollSpeed;
@@ -273,7 +273,7 @@ namespace CameraTools
 				lookSensitivity /= accSprintMultiplier;
 				fov /= accSprintMultiplier;
 			}
-			else if (Input.GetKeyUp(KeyCode.Semicolon))
+			else if (Input.GetKeyUp(CameraTools.keySlow))
 			{
 				translationSpeed = lasttranslationSpeed;
 				rollSpeed = lastrollSpeed;

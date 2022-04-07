@@ -9,6 +9,7 @@
  - Game speed control (pause, slow-motion, speed up)
  - Toggle HUD
  - Damping (smooth camera movement)
+ - Configurable hotkeys
 
 ## Hotkeys
 | Key | Description |
@@ -39,6 +40,8 @@
 | CapsLock | Toggle game speed to 5.0
 | Equals (=) | Set the screen resolution to 3840x2160
 | Minus (-) | Set the screen resolution to 1920x1080
+
+You can customize the hotkeys by editing `MelonPreferences.cfg` located in `\UserData`. Refer to this list key codes: https://docs.unity3d.com/ScriptReference/KeyCode.html 
 
 ## Credits
 Free camera script by FreyaHolmer: https://gist.github.com/FreyaHolmer/650ecd551562352120445513efa1d952
