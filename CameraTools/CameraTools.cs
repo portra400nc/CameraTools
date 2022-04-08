@@ -6,7 +6,6 @@ namespace CameraTools
 {
     public class CameraTools : MelonMod
     {
-
         public static float lastTimeScale = 1.0f;
         public GameObject hud;
         public GameObject uid;
@@ -82,19 +81,6 @@ namespace CameraTools
         public static MelonPreferences_Entry<KeyCode> keyFovResetpref;
         public static MelonPreferences_Entry<KeyCode> keyFastpref;
         public static MelonPreferences_Entry<KeyCode> keySlowpref;
-
-        //private readonly Dictionary<char, KeyCode> _keycodeCache = new Dictionary<char, KeyCode>();
-        //private KeyCode GetKeyCode(char character)
-        //{
-        //    // Get from cache if it was taken before to prevent unnecessary enum parse
-        //    KeyCode code;
-        //    if (_keycodeCache.TryGetValue(character, out code)) return code;
-        //    // Cast to it's integer value
-        //    int alphaValue = character;
-        //    code = (KeyCode)Enum.Parse(typeof(KeyCode), alphaValue.ToString());
-        //    _keycodeCache.Add(character, code);
-        //    return code;
-        //}
         public override void OnApplicationStart()
         {
             ClassInjector.RegisterTypeInIl2Cpp<Freecam>();
