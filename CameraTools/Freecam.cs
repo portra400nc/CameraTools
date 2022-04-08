@@ -17,7 +17,7 @@ namespace CameraTools
 		public float lookSensitivity = 1;
 		public float fov = 0.5f;
 		public float targetFov = 45f;
-		public bool focusOnEnable = true; // whether or not to focus and lock cursor immediately on enable
+		public bool focusOnEnable = true;
 		public bool panelVisible = false;
 		public bool rememberPos = false;
 		public Rect MenuRect = new Rect(20, 100, 270, 640);
@@ -27,9 +27,7 @@ namespace CameraTools
 		private Vector3 targetPosition;
 		private Vector3 smoothPosition;
 		private Vector3 lastPosition;
-		public Quaternion targetRotation;
-		private Quaternion smoothRotation;
-		private Quaternion lastRotation;
+		private Vector3 lastRotation;
 		public float smoothFOV;
 		private float smoothSpeed = 1.0f;
 
@@ -38,6 +36,31 @@ namespace CameraTools
 		private float lastrollSpeed;
 		private float lastfov;
 
+		class CameraRotation
+		{
+			public float yaw, pitch, roll;
+
+			public void InitializeFromTransform(Transform t)
+			{
+				pitch = t.eulerAngles.x;
+				yaw = t.eulerAngles.y;
+				roll = t.eulerAngles.z;
+			}
+
+			public void LerpTowards(CameraRotation target, float rotationLerpPct)
+			{
+				yaw = Mathf.Lerp(yaw, target.yaw, rotationLerpPct);
+				pitch = Mathf.Lerp(pitch, target.pitch, rotationLerpPct);
+				roll = Mathf.Lerp(roll, target.roll, rotationLerpPct);
+			}
+
+			public void UpdateTransform(Transform t)
+			{
+				t.eulerAngles = new Vector3(pitch, yaw, roll);
+			}
+		}
+		CameraRotation targetRotation = new CameraRotation();
+		CameraRotation currentRotation = new CameraRotation();
 		static bool Focused
 		{
 			get => Cursor.lockState == CursorLockMode.Locked;
@@ -141,21 +164,28 @@ namespace CameraTools
 		}
 		public void OnEnable()
 		{
+			targetRotation.InitializeFromTransform(transform);
+			currentRotation.InitializeFromTransform(transform);
 			if (focusOnEnable) Focused = true;
 			cam.CopyFrom(maincam);
 			if (rememberPos)
 			{
-				transform.rotation = lastRotation;
+				transform.eulerAngles = lastRotation;
 				transform.position = lastPosition;
 			}
-			targetRotation = transform.rotation;
+			else
+            {
+				targetRotation.pitch = maincam.transform.eulerAngles.x;
+				targetRotation.yaw = maincam.transform.eulerAngles.y;
+				targetRotation.roll = maincam.transform.eulerAngles.z;
+			}
 			targetPosition = transform.position;
 		}
 
 		public void OnDisable()
         {
 			lastPosition = transform.position;
-			lastRotation = transform.rotation;
+			lastRotation = transform.eulerAngles;
         }
 
 		public void Update()
@@ -190,6 +220,8 @@ namespace CameraTools
 				translationSpeed = 0.01f;
 			if (targetFov < 1f)
 				targetFov = 1f;
+			if (targetFov > 160f)
+				targetFov = 160f;
 			if (fov < 0.1f)
 				fov = 0.1f;
 			if (rollSpeed < 0.1f)
@@ -202,26 +234,24 @@ namespace CameraTools
 
 		public void UpdateInput()
 		{
-			Vector2 delta = Vector2.zero;
-			delta.y += Input.GetAxis("Mouse X");
-			delta.x -= Input.GetAxis("Mouse Y");
-			Quaternion deltaRotation = Quaternion.Euler(delta.x * lookSensitivity, delta.y * lookSensitivity, 0);
+			// Update the target rotation based on mouse input
+			var mouseInput = new Vector2(Input.GetAxis("Mouse X"), Input.GetAxis("Mouse Y") * -1);
+			targetRotation.yaw += mouseInput.x * lookSensitivity;
+			targetRotation.pitch += mouseInput.y * lookSensitivity;
 
-			Vector3 eulerRotation = transform.rotation.eulerAngles;
+			// Commit the rotation changes to the transform
+			currentRotation.UpdateTransform(transform);
 
-			// Roll camera
-			if (Input.GetKey(CameraTools.keyRollLeft))
-				deltaRotation *= Quaternion.Euler(0, 0, rollSpeed);
+            // Roll camera
+            if (Input.GetKey(CameraTools.keyRollLeft))
+				targetRotation.roll += rollSpeed;
 			if (Input.GetKey(CameraTools.keyRollRight))
-				deltaRotation *= Quaternion.Euler(0, 0, -rollSpeed);
+				targetRotation.roll -= rollSpeed;
 			if (Input.GetKey(CameraTools.keyRollReset))
-				targetRotation = Quaternion.Euler(eulerRotation.x, eulerRotation.y, 0);
+				targetRotation.roll = 0;
 
-			// Rotation
-			targetRotation *= deltaRotation;
-
-			// Lateral Movement
-			if (Input.GetKey(CameraTools.keyForward))
+            // Lateral Movement
+            if (Input.GetKey(CameraTools.keyForward))
 				targetPosition += transform.forward * translationSpeed;
 			if (Input.GetKey(CameraTools.keyLeft))
 				targetPosition -= transform.right * translationSpeed;
@@ -286,10 +316,9 @@ namespace CameraTools
         {
 			smoothPosition = Vector3.Lerp(transform.position, targetPosition, smoothSpeed);
 			transform.position = smoothPosition;
-			smoothRotation = Quaternion.Lerp(transform.rotation, targetRotation, smoothSpeed);
-			transform.rotation = smoothRotation;
 			smoothFOV = Mathf.Lerp(cam.fieldOfView, targetFov, smoothSpeed);
 			cam.fieldOfView = smoothFOV;
+			currentRotation.LerpTowards(targetRotation, smoothSpeed);
 		}
 	}
 }
