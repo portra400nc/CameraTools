@@ -1,6 +1,7 @@
-﻿using MelonLoader;
-using UnityEngine;
+﻿using Cinemachine;
+using MelonLoader;
 using UnhollowerRuntimeLib;
+using UnityEngine;
 
 namespace CameraTools
 {
@@ -10,10 +11,11 @@ namespace CameraTools
         public GameObject hud;
         public GameObject uid;
         public GameObject hp;
-        public GameObject camera;
-        public GameObject freecamera;
         public GameObject damage;
-        Camera maincam;
+        public static GameObject camera;
+        public static GameObject freecamera;
+        public static Camera maincam;
+        public static Camera cam;
 
         // Main
         public static KeyCode keyInject;
@@ -122,7 +124,7 @@ namespace CameraTools
             keyRollLeft = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "RollLeft");
             keyRollRightpref = cameraToolsHotkeys.CreateEntry("RollRight", KeyCode.Period);
             keyRollRight = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "RollRight");
-            keyRollResetpref= cameraToolsHotkeys.CreateEntry("ResetRoll", KeyCode.RightShift);
+            keyRollResetpref = cameraToolsHotkeys.CreateEntry("ResetRoll", KeyCode.RightShift);
             keyRollReset = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "ResetRoll");
             keyForwardpref = cameraToolsHotkeys.CreateEntry("Forward", KeyCode.I);
             keyForward = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "Forward");
@@ -166,7 +168,10 @@ namespace CameraTools
                     freecamera = GameObject.Instantiate(camera);
                     camera.SetActive(false);
                     camera.SetActive(true);
+                    cam = freecamera.GetComponent<Camera>();
                     freecamera.AddComponent<Freecam>();
+                    GameObject.Destroy(freecamera.GetComponent<CinemachineBrain>());
+                    GameObject.Destroy(freecamera.GetComponent<CinemachineExternalCamera>());
                     freecamera.SetActive(false);
                     LoggerInstance.Msg("Free camera injected.");
                 }
@@ -191,7 +196,7 @@ namespace CameraTools
                     uid.SetActive(false);
                 else
                     uid.SetActive(true);
-                
+
             }
             if (Input.GetKeyDown(keyHP))
             {

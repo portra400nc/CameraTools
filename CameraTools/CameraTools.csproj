@@ -34,6 +34,10 @@
     <Reference Include="Assembly-CSharp">
       <HintPath>C:\Games\Genshin Impact\Genshin Impact game\MelonLoader\Managed\Assembly-CSharp.dll</HintPath>
     </Reference>
+    <Reference Include="Assembly-CSharp-firstpass, Version=3.7.1.6, Culture=neutral, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>C:\Games\Genshin Impact\Genshin Impact game\MelonLoader\Managed\Assembly-CSharp-firstpass.dll</HintPath>
+    </Reference>
     <Reference Include="Il2Cppmscorlib">
       <HintPath>C:\Games\Genshin Impact\Genshin Impact game\MelonLoader\Managed\Il2Cppmscorlib.dll</HintPath>
     </Reference>

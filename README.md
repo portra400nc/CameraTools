@@ -1,13 +1,13 @@
 # Camera Tools
 
-![](https://i.imgur.com/MZC7uUY.png)
+![](https://i.imgur.com/ePECt6Q.png)
 
 ## Features
 
  - Free camera
  - Field of view adjustments
  - Game speed control (pause, slow-motion, speed up)
- - Toggle HUD
+ - HUD Toggle
  - Smooth camera movement (damping)
  - Configurable hotkeys
 
