@@ -156,25 +156,9 @@ namespace CameraTools
             if (Input.GetKeyDown(keyInject))
             {
                 if (freecamera)
-                {
                     LoggerInstance.Msg("Free camera is already injected.");
-                }
                 else
-                {
-                    hud = GameObject.Find("/UICamera");
-                    uid = GameObject.Find("/BetaWatermarkCanvas(Clone)/Panel");
-                    camera = GameObject.Find("/EntityRoot/MainCamera(Clone)");
-                    maincam = GameObject.Find("/EntityRoot/MainCamera(Clone)").GetComponent<Camera>();
-                    freecamera = GameObject.Instantiate(camera);
-                    camera.SetActive(false);
-                    camera.SetActive(true);
-                    cam = freecamera.GetComponent<Camera>();
-                    freecamera.AddComponent<Freecam>();
-                    GameObject.Destroy(freecamera.GetComponent<CinemachineBrain>());
-                    GameObject.Destroy(freecamera.GetComponent<CinemachineExternalCamera>());
-                    freecamera.SetActive(false);
-                    LoggerInstance.Msg("Free camera injected.");
-                }
+                    InjectFreecam();
             }
             if (Input.GetKeyDown(keyRes4k))
             {
@@ -188,69 +172,24 @@ namespace CameraTools
             }
             if (Input.GetKeyDown(keyHUD))
             {
-                if (hud.activeInHierarchy == true)
-                    hud.SetActive(false);
-                else
-                    hud.SetActive(true);
-                if (uid.activeInHierarchy == true)
-                    uid.SetActive(false);
-                else
-                    uid.SetActive(true);
-
+                hud.SetActive(!hud.activeInHierarchy);
+                uid.SetActive(!uid.activeInHierarchy);
             }
             if (Input.GetKeyDown(keyHP))
             {
-                hp = GameObject.Find("AvatarBoardCanvasV2(Clone)");
-                do
-                {
-                    hp.SetActive(false);
-                    hp = GameObject.Find("AvatarBoardCanvasV2(Clone)");
-                } while (hp != null);
+                RemoveHP();
             }
             if (Input.GetKeyDown(keyDamage))
             {
-                if (damage)
-                {
-                    if (damage.activeInHierarchy == true)
-                        damage.SetActive(false);
-                    else
-                        damage.SetActive(true);
-                }
-                else
-                {
-                    damage = GameObject.Find("/Canvas/Pages/InLevelMainPage/GrpMainPage/ParticleDamageTextContainer");
-                    if (damage.activeInHierarchy == true)
-                        damage.SetActive(false);
-                    else
-                        damage.SetActive(true);
-                }
+                ToggleDamage();
             }
             if (Input.GetKeyDown(keyFreecam))
             {
-                if (freecamera)
-                {
-                    if (camera.activeInHierarchy == true)
-                    {
-                        freecamera.SetActive(true);
-                        camera.SetActive(false);
-                    }
-                    else
-                    {
-                        camera.SetActive(true);
-                        freecamera.SetActive(false);
-                    }
-                }
-                else
-                {
-                    LoggerInstance.Msg("Free camera not found. Please inject it by pressing F9.");
-                }
+                ToggleFreecam();
             }
             if (Input.GetKeyDown(keyTimePause))
             {
-                if (Time.timeScale != 0.0f)
-                    Time.timeScale = 0.0f;
-                else
-                    Time.timeScale = lastTimeScale;
+                Time.timeScale = Time.timeScale != 0.0f ? 0.0f : lastTimeScale;
             }
             if (Input.GetKeyDown(keyTimeReset))
             {
@@ -259,10 +198,7 @@ namespace CameraTools
             }
             if (Input.GetKeyDown(keyTimeToggle5))
             {
-                if (Time.timeScale != 5.0f)
-                    Time.timeScale = 5.0f;
-                else
-                    Time.timeScale = lastTimeScale;
+                Time.timeScale = Time.timeScale != 5.0f ? 5.0f : lastTimeScale;
             }
             if (Input.GetKeyDown(keyTimeAdd1))
             {
@@ -286,6 +222,67 @@ namespace CameraTools
             }
             if (Time.timeScale < 0)
                 Time.timeScale = 0;
+        }
+
+        private void RemoveHP()
+        {
+            hp = GameObject.Find("AvatarBoardCanvasV2(Clone)");
+            do
+            {
+                hp.SetActive(false);
+                hp = GameObject.Find("AvatarBoardCanvasV2(Clone)");
+            } while (hp != null);
+        }
+
+        private void ToggleDamage()
+        {
+            if (damage)
+            {
+                damage.SetActive(!damage.activeInHierarchy);
+            }
+            else
+            {
+                damage = GameObject.Find("/Canvas/Pages/InLevelMainPage/GrpMainPage/ParticleDamageTextContainer");
+                damage.SetActive(!damage.activeInHierarchy);
+            }
+        }
+
+        private void ToggleFreecam()
+        {
+            if (freecamera)
+            {
+                if (camera.activeInHierarchy)
+                {
+                    freecamera.SetActive(true);
+                    camera.SetActive(false);
+                }
+                else
+                {
+                    camera.SetActive(true);
+                    freecamera.SetActive(false);
+                }
+            }
+            else
+            {
+                LoggerInstance.Msg("Free camera not found. Please inject it by pressing F9.");
+            }
+        }
+
+        private void InjectFreecam()
+        {
+            hud = GameObject.Find("/UICamera");
+            uid = GameObject.Find("/BetaWatermarkCanvas(Clone)/Panel");
+            camera = GameObject.Find("/EntityRoot/MainCamera(Clone)");
+            maincam = GameObject.Find("/EntityRoot/MainCamera(Clone)").GetComponent<Camera>();
+            freecamera = Object.Instantiate(camera);
+            camera.SetActive(false);
+            camera.SetActive(true);
+            cam = freecamera.GetComponent<Camera>();
+            freecamera.AddComponent<Freecam>();
+            Object.Destroy(freecamera.GetComponent<CinemachineBrain>());
+            Object.Destroy(freecamera.GetComponent<CinemachineExternalCamera>());
+            freecamera.SetActive(false);
+            LoggerInstance.Msg("Free camera injected.");
         }
     }
 }
