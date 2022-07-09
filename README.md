@@ -1,6 +1,6 @@
 # Camera Tools
 
-![](https://i.imgur.com/ePECt6Q.png)
+### This mod has been ported to [Akebi-GC](https://github.com/Akebi-Group/Akebi-GC). Use that instead.
 
 ## Features
 
