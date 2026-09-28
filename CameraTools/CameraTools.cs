@@ -1,7 +1,6 @@
 ﻿using Cinemachine;
 using MelonLoader;
 using UnityEngine;
-using Object = UnityEngine.Object;
 
 namespace CameraTools
 {
@@ -13,10 +12,14 @@ namespace CameraTools
         public GameObject hp;
         public GameObject damage;
         public static GameObject camera;
-        public static GameObject freecamera;
+        public static CinemachineBrain brain;
         public static Camera maincam;
         public static Camera cam;
         public static Freecam freecam;
+        public static bool freecamActive;
+        private static readonly Action<Camera> preCull = OnPreCull;
+        private static bool preCullRegistered;
+        private static bool preCullSeen;
 
         // Main
         public static KeyCode keyInject;
@@ -154,7 +157,7 @@ namespace CameraTools
         {
             if (Input.GetKeyDown(keyInject))
             {
-                if (freecamera)
+                if (camera)
                     LoggerInstance.Msg("Free camera is already injected.");
                 else
                     InjectFreecam();
@@ -224,7 +227,9 @@ namespace CameraTools
             if (Time.timeScale < 0)
                 Time.timeScale = 0;
 
-            if (freecam != null && freecamera && freecamera.activeSelf)
+            if (freecamActive && !camera)
+                freecamActive = false;
+            if (freecamActive)
             {
                 freecam.Update();
                 freecam.LateUpdate();
@@ -233,7 +238,7 @@ namespace CameraTools
 
         public override void OnGUI()
         {
-            if (freecam != null && freecamera && freecamera.activeSelf)
+            if (freecamActive)
                 freecam.OnGUI();
         }
 
@@ -259,20 +264,17 @@ namespace CameraTools
 
         private void ToggleFreecam()
         {
-            if (freecamera)
+            if (camera)
             {
-                if (camera.activeInHierarchy)
-                {
-                    freecamera.SetActive(true);
+                freecamActive = !freecamActive;
+                if (freecamActive)
                     freecam.OnEnable();
-                    camera.SetActive(false);
-                }
                 else
-                {
-                    camera.SetActive(true);
                     freecam.OnDisable();
-                    freecamera.SetActive(false);
-                }
+                // Cinemachine moves the game camera every frame; pausing it hands the camera to the free camera,
+                // and resuming it puts the camera back where the game wants it.
+                if (brain)
+                    brain.enabled = !freecamActive;
             }
             else
             {
@@ -287,16 +289,33 @@ namespace CameraTools
             camera = Find("/EntityRoot/MainCamera(Clone)");
             if (!camera)
                 return;
+            // Genshin's renderer is tied to its own main camera, so a cloned camera renders grey. The free camera
+            // drives the game camera instead.
             maincam = camera.GetComponent<Camera>();
-            freecamera = Object.Instantiate((Object)camera).TryCast<GameObject>();
-            camera.SetActive(false);
-            camera.SetActive(true);
-            cam = freecamera.GetComponent<Camera>();
-            freecam = new Freecam(freecamera.transform);
-            Object.Destroy(freecamera.GetComponent<CinemachineBrain>());
-            Object.Destroy(freecamera.GetComponent<CinemachineExternalCamera>());
-            freecamera.SetActive(false);
+            cam = maincam;
+            brain = camera.GetComponent<CinemachineBrain>();
+            if (!brain)
+                LoggerInstance.Warning("The main camera has no CinemachineBrain; the game may keep moving the camera.");
+            freecam = new Freecam(camera.transform);
+            freecamActive = false;
+            if (!preCullRegistered)
+            {
+                Camera.CameraCallback callback = preCull;
+                Camera.onPreCull = Camera.onPreCull == null ? callback : Camera.onPreCull + callback;
+                preCullRegistered = true;
+            }
             LoggerInstance.Msg("Free camera injected.");
+        }
+
+        private static void OnPreCull(Camera rendering)
+        {
+            if (!preCullSeen)
+            {
+                preCullSeen = true;
+                Melon<CameraTools>.Logger.Msg("Camera pre-cull callback reached.");
+            }
+            if (freecamActive && camera)
+                freecam.Apply();
         }
 
         // These paths date from an older game version; name any that no longer exist.

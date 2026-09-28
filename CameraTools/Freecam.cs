@@ -4,7 +4,7 @@ using static CameraTools.CameraTools;
 namespace CameraTools
 {
     // Genshin's MelonLoader cannot register custom MonoBehaviours yet, so the free camera is a plain
-    // class that CameraTools drives from OnUpdate and OnGUI while the free camera object is active.
+    // class that CameraTools drives from OnUpdate and OnGUI while the free camera is on.
     public class Freecam
     {
         private readonly Transform transform;
@@ -32,7 +32,9 @@ namespace CameraTools
         private Vector3 smoothPosition;
         private Vector3 lastPosition;
         private Vector3 lastRotation;
+        private bool hasLastPose;
         private float smoothFOV;
+        private float gameFov;
         private float smoothSpeed = 1.0f;
 
         private class CameraRotation
@@ -204,28 +206,44 @@ namespace CameraTools
 
         public void OnEnable()
         {
-            targetRotation.InitializeFromTransform(transform);
-            currentRotation.InitializeFromTransform(transform);
             if (focusOnEnable) Focused = true;
-            cam.CopyFrom(maincam);
-            if (rememberPos)
+            if (rememberPos && hasLastPose)
             {
                 transform.eulerAngles = lastRotation;
                 transform.position = lastPosition;
             }
-            else
-            {
-                targetRotation.pitch = maincam.transform.eulerAngles.x;
-                targetRotation.yaw = maincam.transform.eulerAngles.y;
-                targetRotation.roll = maincam.transform.eulerAngles.z;
-            }
-            targetPosition = transform.position;
+            targetRotation.InitializeFromTransform(transform);
+            currentRotation.InitializeFromTransform(transform);
+            smoothPosition = transform.position;
+            targetPosition = smoothPosition;
+            smoothFOV = cam.fieldOfView;
+            gameFov = smoothFOV;
         }
 
         public void OnDisable()
         {
-            lastPosition = transform.position;
-            lastRotation = transform.eulerAngles;
+            lastPosition = smoothPosition;
+            lastRotation = new Vector3(currentRotation.pitch, currentRotation.yaw, currentRotation.roll);
+            hasLastPose = true;
+            SetFieldOfView(gameFov);
+        }
+
+        // Genshin's own camera system rewrites the camera every frame after OnUpdate, so the pose is kept here
+        // and written again right before the camera renders.
+        public void Apply()
+        {
+            transform.position = smoothPosition;
+            currentRotation.UpdateTransform(transform);
+            SetFieldOfView(smoothFOV);
+        }
+
+        // Genshin's post-processing installs a jittered projection built from the game's field of view before this
+        // runs, and Unity ignores fieldOfView while a custom projection is set.
+        private void SetFieldOfView(float fov)
+        {
+            cam.fieldOfView = fov;
+            cam.ResetProjectionMatrix();
+            cam.nonJitteredProjectionMatrix = Matrix4x4.Perspective(fov, cam.aspect, cam.nearClipPlane, cam.farClipPlane);
         }
 
         public void Update()
@@ -267,8 +285,10 @@ namespace CameraTools
             targetRotation.yaw += mouseInput.x * GetSpeed(lookSensitivity);
             targetRotation.pitch += mouseInput.y * GetSpeed(lookSensitivity);
 
-            // Commit the rotation changes to the transform
-            currentRotation.UpdateTransform(transform);
+            var rotation = Quaternion.Euler(currentRotation.pitch, currentRotation.yaw, currentRotation.roll);
+            var forward = rotation * Vector3.forward;
+            var right = rotation * Vector3.right;
+            var up = rotation * Vector3.up;
 
             // Roll camera
             if (Input.GetKey(keyRollLeft))
@@ -280,19 +300,19 @@ namespace CameraTools
 
             // Lateral Movement
             if (Input.GetKey(keyForward))
-                targetPosition += transform.forward * GetSpeed(moveSpeed);
+                targetPosition += forward * GetSpeed(moveSpeed);
             if (Input.GetKey(keyLeft))
-                targetPosition -= transform.right * GetSpeed(moveSpeed);
+                targetPosition -= right * GetSpeed(moveSpeed);
             if (Input.GetKey(keyBack))
-                targetPosition -= transform.forward * GetSpeed(moveSpeed);
+                targetPosition -= forward * GetSpeed(moveSpeed);
             if (Input.GetKey(keyRight))
-                targetPosition += transform.right * GetSpeed(moveSpeed);
+                targetPosition += right * GetSpeed(moveSpeed);
 
             // Vertical movement
             if (Input.GetKey(keyUp))
-                targetPosition += transform.up * GetSpeed(moveSpeed);
+                targetPosition += up * GetSpeed(moveSpeed);
             if (Input.GetKey(keyDown))
-                targetPosition -= transform.up * GetSpeed(moveSpeed);
+                targetPosition -= up * GetSpeed(moveSpeed);
 
             // FOV
             if (Input.GetKey(keyFovDec))
@@ -305,11 +325,10 @@ namespace CameraTools
 
         public void LateUpdate()
         {
-            smoothPosition = Vector3.Lerp(transform.position, targetPosition, smoothSpeed);
-            transform.position = smoothPosition;
-            smoothFOV = Mathf.Lerp(cam.fieldOfView, targetFov, smoothSpeed);
-            cam.fieldOfView = smoothFOV;
+            smoothPosition = Vector3.Lerp(smoothPosition, targetPosition, smoothSpeed);
+            smoothFOV = Mathf.Lerp(smoothFOV, targetFov, smoothSpeed);
             currentRotation.LerpTowards(targetRotation, smoothSpeed);
+            Apply();
         }
 
         private float GetSpeed(float movementSpeed)
