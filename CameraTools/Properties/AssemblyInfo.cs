@@ -13,8 +13,9 @@ using MelonLoader;
 [assembly: AssemblyCopyright("Copyright © portra 2022")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
-[assembly: MelonInfo(typeof(CameraTools.CameraTools), "Camera Tools", "1.0.7", "portra")]
+[assembly: MelonInfo(typeof(CameraTools.CameraTools), "Camera Tools", "1.1.0", "portra")]
 [assembly: MelonGame]
+[assembly: MelonPlatformDomain(MelonPlatformDomainAttribute.CompatibleDomains.IL2CPP)]
 
 // Setting ComVisible to false makes the types in this assembly not visible
 // to COM components.  If you need to access a type in this assembly from

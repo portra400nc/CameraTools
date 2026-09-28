@@ -1,16 +1,19 @@
-﻿using System;
-using UnhollowerRuntimeLib;
 using UnityEngine;
 using static CameraTools.CameraTools;
 
 namespace CameraTools
 {
-    public class Freecam : MonoBehaviour
+    // Genshin's MelonLoader cannot register custom MonoBehaviours yet, so the free camera is a plain
+    // class that CameraTools drives from OnUpdate and OnGUI while the free camera object is active.
+    public class Freecam
     {
-        public Freecam(IntPtr ptr) : base(ptr) { }
-        public Freecam() : base(ClassInjector.DerivedConstructorPointer<Freecam>())
+        private readonly Transform transform;
+        private readonly GUI.WindowFunction window;
+
+        public Freecam(Transform transform)
         {
-            ClassInjector.DerivedConstructorBody(this);
+            this.transform = transform;
+            window = new Action<int>(CameraWindow);
         }
 
         private float speedModifier = 10;
@@ -21,6 +24,7 @@ namespace CameraTools
         private bool panelVisible;
         private bool rememberPos;
         private Rect menuRect = new Rect(20, (Screen.height - 600) / 2, 340, 20);
+        private Vector2 menuDrag;
 
         private float moveSpeed = 0.5f;
         private float rollSpeed = 1f;
@@ -66,13 +70,18 @@ namespace CameraTools
                 Cursor.visible = value == false;
             }
         }
+
         public void OnGUI()
         {
             if (panelVisible)
             {
-                menuRect = GUILayout.Window(0, menuRect, (GUI.WindowFunction)CameraWindow, "Camera Tools by portra", new GUILayoutOption[0]);
+                menuRect = GUILayout.Window(0, menuRect, window, "Camera Tools by portra", new GUILayoutOption[0]);
+                menuRect.x += menuDrag.x;
+                menuRect.y += menuDrag.y;
+                menuDrag = Vector2.zero;
             }
         }
+
         public void CameraWindow(int id)
         {
             if (id == 0)
@@ -90,7 +99,7 @@ namespace CameraTools
 
                 // Movement Speed
                 GUILayout.Label($"Movement Speed: {moveSpeed:F3}", new GUILayoutOption[0]);
-                moveSpeed = GUILayout.HorizontalSlider(moveSpeed, 0.001f, 10.0f, new GUILayoutOption[0]);
+                moveSpeed = GuiCompat.HorizontalSlider(moveSpeed, 0.001f, 10.0f);
                 GUILayout.BeginHorizontal(new GUILayoutOption[0]);
                 if (GUILayout.Button("Reset", buttonStyle))
                     moveSpeed = 1.0f;
@@ -104,7 +113,7 @@ namespace CameraTools
 
                 // FOV speed
                 GUILayout.Label($"FOV Speed: {fovSpeed:F2}", new GUILayoutOption[0]);
-                fovSpeed = GUILayout.HorizontalSlider(fovSpeed, 0.01f, 10.0f, new GUILayoutOption[0]);
+                fovSpeed = GuiCompat.HorizontalSlider(fovSpeed, 0.01f, 10.0f);
                 GUILayout.BeginHorizontal(new GUILayoutOption[0]);
                 if (GUILayout.Button("Reset", buttonStyle))
                     fovSpeed = 1.0f;
@@ -118,7 +127,7 @@ namespace CameraTools
 
                 // Roll speed
                 GUILayout.Label($"Roll Speed: {rollSpeed:F1}", new GUILayoutOption[0]);
-                rollSpeed = GUILayout.HorizontalSlider(rollSpeed, 0.1f, 10.0f, new GUILayoutOption[0]);
+                rollSpeed = GuiCompat.HorizontalSlider(rollSpeed, 0.1f, 10.0f);
                 GUILayout.BeginHorizontal(new GUILayoutOption[0]);
                 if (GUILayout.Button("Reset", buttonStyle))
                     rollSpeed = 1.0f;
@@ -132,7 +141,7 @@ namespace CameraTools
 
                 // Mouse sensitivity
                 GUILayout.Label($"Mouse Sensitivity: {lookSensitivity:F1}", new GUILayoutOption[0]);
-                lookSensitivity = GUILayout.HorizontalSlider(lookSensitivity, 0.1f, 10.0f, new GUILayoutOption[0]);
+                lookSensitivity = GuiCompat.HorizontalSlider(lookSensitivity, 0.1f, 10.0f);
                 GUILayout.BeginHorizontal(new GUILayoutOption[0]);
                 if (GUILayout.Button("Reset", buttonStyle))
                     lookSensitivity = 1.0f;
@@ -146,7 +155,7 @@ namespace CameraTools
 
                 // Game speed
                 GUILayout.Label($"Game Speed: {Time.timeScale:F2}", new GUILayoutOption[0]);
-                Time.timeScale = GUILayout.HorizontalSlider(Time.timeScale, 0.0f, 10.0f, new GUILayoutOption[0]);
+                Time.timeScale = GuiCompat.HorizontalSlider(Time.timeScale, 0.0f, 10.0f);
                 GUILayout.BeginHorizontal(new GUILayoutOption[0]);
                 if (GUILayout.Button("Reset", buttonStyle))
                     Time.timeScale = 1.0f;
@@ -160,7 +169,7 @@ namespace CameraTools
 
                 // Movement smoothness
                 GUILayout.Label($"Camera Damping: {smoothSpeed:F2}", new GUILayoutOption[0]);
-                smoothSpeed = GUILayout.HorizontalSlider(smoothSpeed, 0.01f, 1f, new GUILayoutOption[0]);
+                smoothSpeed = GuiCompat.HorizontalSlider(smoothSpeed, 0.01f, 1f);
                 GUILayout.BeginHorizontal(new GUILayoutOption[0]);
                 if (GUILayout.Button("Reset", buttonStyle))
                     smoothSpeed = 1.0f;
@@ -174,7 +183,7 @@ namespace CameraTools
 
                 // FOV
                 GUILayout.Label($"Field of View: {targetFov:F3}", new GUILayoutOption[0]);
-                targetFov = GUILayout.HorizontalSlider(targetFov, 1f, 160f, new GUILayoutOption[0]);
+                targetFov = GuiCompat.HorizontalSlider(targetFov, 1f, 160f);
                 GUILayout.BeginHorizontal(new GUILayoutOption[0]);
                 if (GUILayout.Button("Reset", buttonStyle))
                     targetFov = 45.0f;
@@ -190,8 +199,9 @@ namespace CameraTools
 
                 GUILayout.Space(20);
             }
-            GUI.DragWindow();
+            menuDrag += GuiCompat.DragWindow(menuRect.width, 20);
         }
+
         public void OnEnable()
         {
             targetRotation.InitializeFromTransform(transform);
@@ -222,10 +232,10 @@ namespace CameraTools
         {
             if (Focused)
                 UpdateInput();
-            
+
             if (Input.GetKeyDown(keyFocus))
                 Focused = Focused == false;
-            
+
             if (Input.GetKeyDown(keyGUI))
                 TogglePanel();
 
@@ -292,7 +302,7 @@ namespace CameraTools
             if (Input.GetKeyDown(keyFovReset))
                 targetFov = 45f;
         }
-        
+
         public void LateUpdate()
         {
             smoothPosition = Vector3.Lerp(transform.position, targetPosition, smoothSpeed);

@@ -1,7 +1,7 @@
 ﻿using Cinemachine;
 using MelonLoader;
-using UnhollowerRuntimeLib;
 using UnityEngine;
+using Object = UnityEngine.Object;
 
 namespace CameraTools
 {
@@ -16,6 +16,7 @@ namespace CameraTools
         public static GameObject freecamera;
         public static Camera maincam;
         public static Camera cam;
+        public static Freecam freecam;
 
         // Main
         public static KeyCode keyInject;
@@ -83,10 +84,8 @@ namespace CameraTools
         public static MelonPreferences_Entry<KeyCode> keyFovResetpref;
         public static MelonPreferences_Entry<KeyCode> keyFastpref;
         public static MelonPreferences_Entry<KeyCode> keySlowpref;
-        public override void OnApplicationStart()
+        public override void OnInitializeMelon()
         {
-            ClassInjector.RegisterTypeInIl2Cpp<Freecam>();
-
             cameraToolsHotkeys = MelonPreferences.CreateCategory("CameraTools");
             keyInjectpref = cameraToolsHotkeys.CreateEntry("Inject", KeyCode.F9);
             keyInject = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "Inject");
@@ -160,20 +159,22 @@ namespace CameraTools
                 else
                     InjectFreecam();
             }
-            if (Input.GetKeyDown(keyRes4k))
+            if (Input.GetKeyDown(keyRes4k) && maincam)
             {
                 Screen.SetResolution(3840, 2160, false);
                 maincam.rect = new Rect(0, 0, 3840, 2160);
             }
-            if (Input.GetKeyDown(keyRes1080p))
+            if (Input.GetKeyDown(keyRes1080p) && maincam)
             {
                 Screen.SetResolution(1920, 1080, false);
                 maincam.rect = new Rect(0, 0, 1920, 1080);
             }
             if (Input.GetKeyDown(keyHUD))
             {
-                hud.SetActive(!hud.activeInHierarchy);
-                uid.SetActive(!uid.activeInHierarchy);
+                if (hud)
+                    hud.SetActive(!hud.activeInHierarchy);
+                if (uid)
+                    uid.SetActive(!uid.activeInHierarchy);
             }
             if (Input.GetKeyDown(keyHP))
             {
@@ -222,16 +223,24 @@ namespace CameraTools
             }
             if (Time.timeScale < 0)
                 Time.timeScale = 0;
+
+            if (freecam != null && freecamera && freecamera.activeSelf)
+            {
+                freecam.Update();
+                freecam.LateUpdate();
+            }
+        }
+
+        public override void OnGUI()
+        {
+            if (freecam != null && freecamera && freecamera.activeSelf)
+                freecam.OnGUI();
         }
 
         private void RemoveHP()
         {
-            hp = GameObject.Find("AvatarBoardCanvasV2(Clone)");
-            do
-            {
+            for (hp = GameObject.Find("AvatarBoardCanvasV2(Clone)"); hp; hp = GameObject.Find("AvatarBoardCanvasV2(Clone)"))
                 hp.SetActive(false);
-                hp = GameObject.Find("AvatarBoardCanvasV2(Clone)");
-            } while (hp != null);
         }
 
         private void ToggleDamage()
@@ -242,8 +251,9 @@ namespace CameraTools
             }
             else
             {
-                damage = GameObject.Find("/Canvas/Pages/InLevelMainPage/GrpMainPage/ParticleDamageTextContainer");
-                damage.SetActive(!damage.activeInHierarchy);
+                damage = Find("/Canvas/Pages/InLevelMainPage/GrpMainPage/ParticleDamageTextContainer");
+                if (damage)
+                    damage.SetActive(!damage.activeInHierarchy);
             }
         }
 
@@ -254,11 +264,13 @@ namespace CameraTools
                 if (camera.activeInHierarchy)
                 {
                     freecamera.SetActive(true);
+                    freecam.OnEnable();
                     camera.SetActive(false);
                 }
                 else
                 {
                     camera.SetActive(true);
+                    freecam.OnDisable();
                     freecamera.SetActive(false);
                 }
             }
@@ -270,19 +282,30 @@ namespace CameraTools
 
         private void InjectFreecam()
         {
-            hud = GameObject.Find("/UICamera");
-            uid = GameObject.Find("/BetaWatermarkCanvas(Clone)/Panel");
-            camera = GameObject.Find("/EntityRoot/MainCamera(Clone)");
-            maincam = GameObject.Find("/EntityRoot/MainCamera(Clone)").GetComponent<Camera>();
-            freecamera = Object.Instantiate(camera);
+            hud = Find("/UICamera");
+            uid = Find("/BetaWatermarkCanvas(Clone)/Panel");
+            camera = Find("/EntityRoot/MainCamera(Clone)");
+            if (!camera)
+                return;
+            maincam = camera.GetComponent<Camera>();
+            freecamera = Object.Instantiate((Object)camera).TryCast<GameObject>();
             camera.SetActive(false);
             camera.SetActive(true);
             cam = freecamera.GetComponent<Camera>();
-            freecamera.AddComponent<Freecam>();
+            freecam = new Freecam(freecamera.transform);
             Object.Destroy(freecamera.GetComponent<CinemachineBrain>());
             Object.Destroy(freecamera.GetComponent<CinemachineExternalCamera>());
             freecamera.SetActive(false);
             LoggerInstance.Msg("Free camera injected.");
+        }
+
+        // These paths date from an older game version; name any that no longer exist.
+        private GameObject Find(string path)
+        {
+            GameObject found = GameObject.Find(path);
+            if (!found)
+                LoggerInstance.Warning($"{path} was not found in the current scene.");
+            return found;
         }
     }
 }
