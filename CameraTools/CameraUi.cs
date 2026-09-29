@@ -1,20 +1,34 @@
 using Il2CppInterop.Runtime;
 using UnityEngine;
 using UnityEngine.UI;
-using static CameraTools.UiTemplates;
 using Object = UnityEngine.Object;
 
 namespace CameraTools
 {
-    // CameraTools' UI is a copy of Genshin's photo mode page under /Canvas, so hiding /UICamera hides it with the HUD.
-    // Genshin cannot run custom MonoBehaviours, so nothing listens to the widgets: CameraTools disables them, reads the
-    // mouse and the pad itself, and writes each setting's current value to its widget every frame.
+    // CameraTools' UI mimics Genshin's photo mode page. It is built once from the recorded layout on a canvas of its own,
+    // which survives scene changes. Genshin cannot run custom MonoBehaviours, so it holds only plain graphics and layout
+    // components: CameraTools reads the mouse and the pad itself, and writes each setting's value, the selection, and every
+    // animation frame to the UI.
     internal static class CameraUi
     {
-        private const string LoadHint = "Open photo mode once to load the CameraTools UI";
-        private const string ReloadHint = "The CameraTools UI failed; open photo mode to reload it";
+        private const string LoadHint = "Open photo mode or the map once to load the CameraTools UI";
+        private const string ReloadHint = "The CameraTools UI failed; it reloads in a few seconds";
         private const float RepeatDelay = 0.4f;
         private const float RepeatInterval = 0.08f;
+        private const float RetryInterval = 10f;
+        private const float FollowInterval = 1f;
+        private const float FadeTime = 0.15f;
+        private const int SortingOrder = 30000;
+
+        private const string SetUp = "GrpCom/GrpLeft/GrpSetUp";
+        private const string Rows = SetUp + "/Content/ScrollView/Content";
+        private const string TabRow = "GrpCom/GrpTab/Tab/Viewport/Tab";
+        private const string PadBottom = "GrpCom/GrpAction_PS4";
+        private const string PadTop = "GrpCom/GrpActionTop_PS4";
+        private const string KeyBottom = "GrpCom/GrpAction_PC";
+        private const string ZoomBar = "GrpCom/GrpMain/Zoom_Slider";
+        private const string Switch = "Content/GrpToggle/Btn_Toggle/Content";
+        private const string Bar = "Content/Slider_W/Content";
 
         private static readonly string[] TabButtons = { "BtnSetup_PC", "BtnAct_PC", "BtnEmot_PC", "BtnActionAndEmot_PC" };
         private static readonly PadBinding PadA = new(PadButtons.A, PadAxis.None);
@@ -52,6 +66,8 @@ namespace CameraTools
         private static Live live;
         private static int failures;
         private static int builds;
+        private static float nextBuild;
+        private static bool hintPending;
         private static bool panelOpen;
         private static int tab;
         private static int selected;
@@ -62,7 +78,7 @@ namespace CameraTools
 
         public static View View => !CameraTools.freecamActive || CameraTools.uiHidden ? View.Hidden : panelOpen ? View.Panel : View.Hud;
 
-        // Drawn with IMGUI until the page has been copied.
+        // Drawn with IMGUI until the UI has been built.
         public static string FallbackToast => live == null && Time.unscaledTime < toastUntil ? toast : null;
 
         public static void Toast(string message)
@@ -71,27 +87,35 @@ namespace CameraTools
             toastUntil = Time.unscaledTime + 2f;
         }
 
-        private static string MissingHint => UiTemplates.AwaitingPhotoMode ? ReloadHint : LoadHint;
+        private static string MissingHint => Assets.LayoutReady ? ReloadHint : LoadHint;
 
         public static void FreecamChanged(bool active)
         {
             panelOpen = false;
-            if (active && !Page)
-                Toast(MissingHint);
+            if (!active)
+                return;
+            Assets.ScanSoon();
+            hintPending = true;
         }
 
         public static void Update()
         {
-            UiTemplates.Update();
-            string step = "build";
+            string step = "asset scan";
             try
             {
+                Assets.Update(CameraTools.freecamActive,
+                    CameraTools.freecamActive && Controls.Layout == InputDevice.Pad && View != View.Hidden);
+                step = "build";
                 if (!Ensure())
                 {
-                    if (CameraTools.freecamActive && Controls.Pressed(CamAction.ToggleGUI))
+                    if (hintPending || CameraTools.freecamActive && Controls.Pressed(CamAction.ToggleGUI))
                         Toast(MissingHint);
+                    hintPending = false;
                     return;
                 }
+                hintPending = false;
+                step = "layout";
+                Follow();
                 step = "input";
                 HandleInput();
                 step = "render";
@@ -100,101 +124,82 @@ namespace CameraTools
             catch (Exception e)
             {
                 failures++;
-                CameraTools.LogOnce($"UI: {step} failed (failure {failures}, {UiTemplates.Health()}); CameraTools reloads its UI "
-                    + $"the next time photo mode opens. {e}");
+                CameraTools.LogOnce($"UI: {step} failed (failure {failures}); CameraTools rebuilds its UI from the layout "
+                    + $"in {RetryInterval:0} s. {e}");
                 if (live != null && live.Root)
                     Object.Destroy(live.Root);
                 live = null;
                 ClosePanel();
-                UiTemplates.Discard();
+                nextBuild = Time.unscaledTime + RetryInterval;
                 Toast(ReloadHint);
             }
         }
 
-        // Scene changes destroy /Canvas and the live root with it.
         private static bool Ensure()
         {
-            if (live != null && live.Root)
-                return true;
-            live = null;
-            ClosePanel();
-            if (!Page)
+            if (live != null)
+                return live.Root ? true : throw new InvalidOperationException("The CameraTools canvas was destroyed.");
+            if (Time.unscaledTime < nextBuild || !Assets.LayoutReady)
                 return false;
-            // Builds 69 and 70 failed rebuilding mid-teleport, before the level's HUD page existed.
-            var canvas = GameObject.Find("/Canvas");
-            if (!canvas || !canvas.transform.Find("Pages/InLevelMainPage"))
-                return false;
-            live = Build(canvas);
+            live = Build(PhotoLayout.Current);
             builds++;
-            CameraTools.LogOnce($"UI: built the CameraTools UI under /Canvas (build {builds}).");
+            CameraTools.LogOnce($"UI: built the CameraTools UI (build {builds}).");
             return true;
         }
 
-        private static Live Build(GameObject canvas)
+        private static Live Build(PhotoLayout layout)
         {
-            var root = Clone(Page, canvas.transform);
+            var root = new GameObject("CameraTools UI");
             try
             {
-                root.name = "CameraTools";
-                root.transform.SetAsLastSibling();
-                var page = root.transform;
-                ShowOnly(page, "GrpCom");
+                Object.DontDestroyOnLoad(root);
+                var canvas = root.AddComponent<Canvas>();
+                canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+                canvas.sortingOrder = SortingOrder;
+                // CameraTools hit-tests the mouse itself. The raycaster only tells the game's EventSystem that the pointer is over
+                // UI, so a click on the panel is not also a click in the world, as it was for the copied page under /Canvas.
+                root.AddComponent<GraphicRaycaster>();
+                var scaler = root.AddComponent<CanvasScaler>();
+                scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+                scaler.referenceResolution = layout.ReferenceResolution;
+                scaler.screenMatchMode = layout.MatchMode;
+                scaler.matchWidthOrHeight = layout.Match;
+                scaler.referencePixelsPerUnit = layout.ReferencePixelsPerUnit;
+                var pages = new GameObject("Pages").AddComponent<RectTransform>();
+                pages.SetParent(root.transform, false);
+                PhotoLayout.Apply(pages, layout.Pages);
+
+                var recorded = layout.Root;
+                var page = PhotoLayout.Build(Page(recorded), pages);
                 var com = Child(page, "GrpCom");
-                ShowOnly(com, "Reminder_1", "GrpMain", "GrpLeft", "GrpTab", "GrpActionTop_PS4", "GrpAction_PS4", "GrpAction_PC");
-                ShowOnly(Child(com, "GrpMain"), "Zoom_Slider");
-                ShowOnly(Child(com, "GrpLeft"), "GrpSetUp");
-                var setUp = Child(com, "GrpLeft/GrpSetUp");
+                var setUp = Child(page, SetUp);
                 ShowOnly(setUp, "GrpBg", "Content", "GrpAction_PS4");
                 ShowOnly(Child(setUp, "GrpAction_PS4"), "BtnChange_PS4", "BtnReturn_PS4");
-                ShowOnly(Child(com, "GrpTab"), "Tab", "BtnBack");
                 var tabKeys = Child(com, "GrpTab/Tab/Tab_Key");
-                ShowOnly(Child(com, "Reminder_1"), "ShowPanel");
                 var toastPanel = Child(com, "Reminder_1/ShowPanel").gameObject;
                 toastPanel.SetActive(false);
 
-                var tabRow = Child(com, "GrpTab/Tab/Viewport/Tab");
+                var tabRow = Child(page, TabRow);
                 if (UiModel.Tabs.Length > TabButtons.Length)
                     throw new InvalidOperationException($"The page has {TabButtons.Length} tab buttons for {UiModel.Tabs.Length} tabs.");
                 ShowOnly(tabRow, TabButtons.Take(UiModel.Tabs.Length).ToArray());
-                var tabs = UiModel.Tabs.Select((_, index) => Child(tabRow, TabButtons[index] + "/Content")).ToArray();
 
-                var fovBar = Get<Slider>(com, "GrpMain/Zoom_Slider");
-                fovBar.interactable = false;
-
-                var padBottom = Child(com, "GrpAction_PS4");
-                var padTop = Child(com, "GrpActionTop_PS4");
-                var keyBottom = Child(com, "GrpAction_PC");
-                var padBottomTemplate = Child(padBottom, "BtnHideUI_PS4").gameObject;
-                var padTopTemplate = Child(padTop, "BtnCameraPush_PS4").gameObject;
-                var keyTemplate = Child(keyBottom, "BtnHideUI_PC").gameObject;
-                foreach (var group in new[] { padBottom, padTop, keyBottom })
-                    ShowOnly(group);
-
-                // The live copy carries its own row templates. They move to a hidden shelf, because the rows are rebuilt from
-                // them on every tab switch; copying them from the kept page failed in builds 66 and 67 (see UiTemplates.Watch).
-                var rows = Child(setUp, "Content/ScrollView/Content");
-                var shelf = new GameObject("RowTemplates");
-                shelf.transform.SetParent(root.transform, false);
-                shelf.SetActive(false);
-                var templates = new[] { "Text", "Space", "SetUp_05", "SetUp_0304/SetUp_03" }.Select(path => Child(rows, path)).ToArray();
-                foreach (var template in templates)
-                    template.SetParent(shelf.transform, false);
-
+                var rows = Child(page, Rows);
+                var templates = RowTemplates.Of(recorded.Find(Rows));
                 var built = new Live
                 {
                     Root = root,
-                    SectionTemplate = templates[0].gameObject,
-                    SpaceTemplate = templates[1].gameObject,
-                    ToggleTemplate = templates[2].gameObject,
-                    SliderTemplate = templates[3].gameObject,
-                    RenderCanvas = canvas.GetComponent<Canvas>(),
-                    Hud = new[] { Child(com, "GrpMain").gameObject, padTop.gameObject, padBottom.gameObject, keyBottom.gameObject },
+                    Pages = pages,
+                    Scaler = scaler,
+                    Hud = new[] { Child(com, "GrpMain").gameObject, Child(page, PadTop).gameObject, Child(page, PadBottom).gameObject,
+                        Child(page, KeyBottom).gameObject },
                     Panel = new[] { Child(com, "GrpLeft").gameObject, Child(com, "GrpTab").gameObject },
-                    Rows = rows,
                     RowsViewport = RectOf(Child(setUp, "Content/ScrollView")),
-                    TabButtons = tabs.Select(RectOf).ToArray(),
-                    TabLines = tabs.Select(button => Child(button, "ImgLine").gameObject).ToArray(),
-                    TabIcons = tabs.Select(button => Get<Image>(button, "Icon")).ToArray(),
+                    // The snapshots show photo mode with its first tab selected.
+                    SelectedTab = TabLook.Of(recorded.Find(TabRow + "/" + TabButtons[0] + "/Content")),
+                    OtherTab = TabLook.Of(recorded.Find(TabRow + "/" + TabButtons[1] + "/Content")),
+                    SwitchOff = SwitchLook.Of(templates.ToggleOff.Find(Switch)),
+                    SwitchOn = SwitchLook.Of(templates.ToggleOn.Find(Switch)),
                     TabKeys = tabKeys.gameObject,
                     TabKeyLeft = TabKey(tabKeys, "KeyL1"),
                     TabKeyRight = TabKey(tabKeys, "KeyR1"),
@@ -205,15 +210,22 @@ namespace CameraTools
                     Return = PadEntry.Of(Child(setUp, "GrpAction_PS4/BtnReturn_PS4").gameObject),
                     Toast = toastPanel,
                     ToastLabel = Get<Text>(toastPanel.transform, "Desc/Text"),
-                    FovBar = fovBar,
-                    Legends = Legends(UiModel.BottomHints, padBottomTemplate, padBottom, keyTemplate, keyBottom)
-                        .Concat(Legends(UiModel.TopHints, padTopTemplate, padTop, keyTemplate, padTop)).ToArray(),
+                    ZoomHandle = RectOf(Child(page, ZoomBar + "/HandleSlideArea")),
+                    ZoomHandleBox = recorded.Find(ZoomBar + "/HandleSlideArea").Box,
                 };
-                root.SetActive(true);
+                built.Legends = Legends(UiModel.BottomHints, recorded.Find(PadBottom + "/BtnHideUI_PS4"), Child(page, PadBottom),
+                        recorded.Find(KeyBottom + "/BtnHideUI_PC"), Child(page, KeyBottom))
+                    .Concat(Legends(UiModel.TopHints, recorded.Find(PadTop + "/BtnCameraPush_PS4"), Child(page, PadTop),
+                        recorded.Find(KeyBottom + "/BtnHideUI_PC"), Child(page, PadTop)))
+                    .ToArray();
+                built.Tabs = UiModel.Tabs.Select((model, index) => BindTab(built, model, Child(tabRow, TabButtons[index] + "/Content"),
+                    templates, rows)).ToArray();
                 ShowTab(built, Math.Min(tab, UiModel.Tabs.Length - 1));
-                SetWidgets(root, false);
-                // A Slider finds its handle and fill in OnEnable, so a row copied from a disabled template never draws its value.
-                SetWidgets(shelf, true);
+                foreach (var tabView in built.Tabs)
+                {
+                    tabView.Shown = tabView.Selected;
+                    ApplyTab(built, tabView);
+                }
                 return built;
             }
             catch
@@ -223,16 +235,29 @@ namespace CameraTools
             }
         }
 
-        private static void SetAlpha(Graphic graphic, float alpha)
-        {
-            if (!graphic)
-                return;
-            var color = graphic.color;
-            color.a = alpha;
-            graphic.color = color;
-        }
+        // The recorded page, changed where CameraTools draws its own parts or the snapshots caught the game mid-animation.
+        private static Node Page(Node recorded) => recorded
+            // Rows and legend entries are built per setting and per hint from the recorded ones.
+            .With(Rows, rows => rows with { Children = Array.Empty<Node>() })
+            .With(PadBottom, group => group with { Children = Array.Empty<Node>() })
+            .With(PadTop, group => group with { Children = Array.Empty<Node>() })
+            .With(KeyBottom, group => group with { Children = Array.Empty<Node>() })
+            // The game fades the zoom bar out while its settings panel is open, as it was in the snapshots.
+            .With(ZoomBar, bar => bar with { GroupAlpha = 1f });
 
         private static RectTransform RectOf(Transform transform) => transform.TryCast<RectTransform>();
+
+        private static Transform Child(Transform root, string path)
+        {
+            var child = root.Find(path);
+            return child ? child : throw new InvalidOperationException($"{root.name}/{path} is missing.");
+        }
+
+        private static T Get<T>(Transform root, string path) where T : Component
+        {
+            var component = Child(root, path).GetComponent(Il2CppType.Of<T>());
+            return component ? component.TryCast<T>() : throw new InvalidOperationException($"{root.name}/{path} has no {typeof(T).Name}.");
+        }
 
         private static void ShowOnly(Transform parent, params string[] names)
         {
@@ -243,20 +268,12 @@ namespace CameraTools
             }
         }
 
-        // The game's EventSystem skips disabled widgets, so only CameraTools changes them, and their graphics still take
-        // raycasts, so the game still sees the pointer over its UI. A disabled Toggle or Slider still shows the values
-        // CameraTools writes. A Slider finds its fill and handle in OnEnable, so a widget is disabled once it has been active.
-        private static void SetWidgets(GameObject root, bool enabled)
-        {
-            foreach (var widget in root.GetComponentsInChildren(Il2CppType.Of<Selectable>(), true))
-                widget.TryCast<Behaviour>().enabled = enabled;
-        }
-
-        // Each hint gets a copy of the page's pad legend entry and one of its keyboard entry; the page's entries stay hidden.
-        private static IEnumerable<Legend> Legends(Hint[] hints, GameObject pad, Transform padGroup, GameObject keyboard, Transform keyGroup)
+        // Each hint gets a pad legend entry and a keyboard one, built from the recorded entries.
+        private static IEnumerable<Legend> Legends(Hint[] hints, Node pad, Transform padGroup, Node keyboard, Transform keyGroup)
             => hints.Select(hint =>
             {
-                var legend = new Legend(hint, PadEntry.Of(Clone(pad, padGroup)), KeyEntry.Of(Clone(keyboard, keyGroup)));
+                var legend = new Legend(hint, PadEntry.Of(PhotoLayout.Build(pad, padGroup).gameObject),
+                    KeyEntry.Of(PhotoLayout.Build(keyboard, keyGroup).gameObject));
                 legend.Keyboard.Key.text = KeyName(Controls.Binding(hint.Action).Key);
                 legend.Keyboard.Label.text = hint.Label;
                 return legend;
@@ -281,7 +298,7 @@ namespace CameraTools
 
         private static void ShowTabKey(Transform content, PadButtons button)
         {
-            var glyph = Glyphs.Get(button);
+            var glyph = Assets.Glyph(button);
             Child(content, "Key_Group").gameObject.SetActive(glyph);
             Child(content, "Key_PC").gameObject.SetActive(!glyph);
             if (glyph)
@@ -290,82 +307,88 @@ namespace CameraTools
                 Get<Text>(content, "Key_PC/Text").text = button.ToString();
         }
 
-        // Rows are built while the panel shows, so their widgets have been active before they are disabled.
-        private static void ShowTab(Live target, int index)
+        // Every tab's rows are built once; switching tabs shows one tab's rows.
+        private static TabView BindTab(Live target, Tab model, Transform button, RowTemplates templates, Transform rows)
         {
-            tab = index;
-            dragging = null;
-            var rows = target.Rows;
-            for (int child = rows.childCount - 1; child >= 0; child--)
-                Object.DestroyImmediate(rows.GetChild(child).gameObject);
-            target.RowViews.Clear();
-            foreach (var row in UiModel.Tabs[index].Rows)
+            var view = new TabView
             {
-                if (row is Section && target.RowViews.Count > 0)
-                    Clone(target.SpaceTemplate, rows).SetActive(true);
-                target.RowViews.Add(Bind(target, row));
-            }
-            SetWidgets(rows.gameObject, false);
-            // The tab's Animator, which is disabled, dims the other tabs and fades the underline in.
-            for (int other = 0; other < target.TabLines.Length; other++)
+                Button = RectOf(button),
+                Bg = Get<Image>(button, "ImgBg"),
+                Icon = Get<Image>(button, "Icon"),
+                Line = Get<Image>(button, "ImgLine"),
+            };
+            foreach (var row in model.Rows)
             {
-                target.TabLines[other].SetActive(other == index);
-                SetAlpha(target.TabLines[other].GetComponent<Image>(), 1f);
-                SetAlpha(target.TabIcons[other], other == index ? 1f : 0.4f);
+                if (row is Section && view.Rows.Count > 0)
+                    view.Objects.Add(PhotoLayout.Build(templates.Space, rows).gameObject);
+                var bound = BindRow(target, row, templates, rows);
+                view.Objects.Add(bound.Root);
+                view.Rows.Add(bound);
             }
-            selected = target.RowViews.FindIndex(view => view.Row is not Section);
-            target.ShownSelected = -1;
+            return view;
         }
 
-        private static RowView Bind(Live target, Row row)
+        private static RowView BindRow(Live target, Row row, RowTemplates templates, Transform rows)
         {
             var template = row switch
             {
-                Section => target.SectionTemplate,
-                ToggleRow => target.ToggleTemplate,
-                SliderRow => target.SliderTemplate,
+                Section => templates.Section,
+                ToggleRow => templates.ToggleOff,
+                SliderRow => templates.Slider,
                 _ => throw new InvalidOperationException($"No template for {row.GetType().Name}."),
             };
-            var root = Clone(template, target.Rows);
-            root.SetActive(true);
-            var transform = root.transform;
+            var transform = PhotoLayout.Build(template, rows);
+            var view = new RowView { Row = row, Root = transform.gameObject };
             if (row is Section)
             {
-                var header = root.GetComponent(Il2CppType.Of<Text>()).TryCast<Text>();
-                header.text = row.Label;
-                return new RowView { Row = row, Root = root };
+                transform.GetComponent<Text>().text = row.Label;
+                return view;
             }
 
-            var view = new RowView
-            {
-                Row = row,
-                Root = root,
-                Rect = RectOf(transform),
-                Highlight = Child(transform, "Content/ImgHighlight").gameObject,
-                // Selected_Arrow is an empty container; the page switches the arrow images in ClickTips on and off.
-                Arrow = Child(transform, "Content/Selected_Arrow/ClickTips").gameObject,
-                Label = Get<Text>(transform, "Content/Text"),
-            };
+            view.Rect = transform;
+            view.Highlight = Child(transform, "Content/ImgHighlight").gameObject;
+            view.Arrow = Child(transform, "Content/Selected_Arrow/ClickTips").gameObject;
+            view.Label = Get<Text>(transform, "Content/Text");
             if (row is ToggleRow toggle)
             {
-                view.Toggle = Get<Toggle>(transform, "Content/GrpToggle/Btn_Toggle/Content");
-                view.Switch = Get<Animator>(transform, "Content/GrpToggle/Btn_Toggle/Content");
-                view.Toggle.isOn = toggle.Get();
+                var content = Child(transform, Switch);
+                view.Knob = RectOf(Child(content, "Image"));
+                view.Fill = Get<Image>(content, "ImgColor");
+                view.IconOn = Child(content, "Image/IconOn");
+                view.IconOff = Child(content, "Image/IconOff");
+                view.Light = Get<Image>(content, "Image/ImgLight");
                 view.Label.text = row.Label;
+                view.Shown = toggle.Get() ? 1f : 0f;
+                ApplySwitch(target, view);
             }
             else if (row is SliderRow slider)
             {
-                view.Slider = Get<Slider>(transform, "Content/Slider_W/Content");
-                view.SliderRect = RectOf(view.Slider.transform);
-                view.Slider.wholeNumbers = false;
-                view.Slider.minValue = slider.Min;
-                view.Slider.maxValue = slider.Max;
+                view.Track = RectOf(Child(transform, Bar));
+                view.HandleArea = RectOf(Child(transform, Bar + "/HandleSlideArea"));
+                view.BarFill = RectOf(Child(transform, Bar + "/FillArea/Fill"));
+                view.Handle = RectOf(Child(transform, Bar + "/HandleSlideArea/Handle"));
                 WriteSlider(view, slider, slider.Get());
             }
             view.Highlight.SetActive(false);
             view.Arrow.SetActive(false);
             return view;
         }
+
+        private static void ShowTab(Live target, int index)
+        {
+            tab = index;
+            dragging = null;
+            for (int other = 0; other < target.Tabs.Length; other++)
+            {
+                foreach (var part in target.Tabs[other].Objects)
+                    part.SetActive(other == index);
+                target.Tabs[other].Selected = other == index ? 1f : 0f;
+            }
+            selected = target.Tabs[index].Rows.FindIndex(view => view.Row is not Section);
+            target.ShownSelected = -1;
+        }
+
+        private static List<RowView> CurrentRows => live.Tabs[tab].Rows;
 
         private static void HandleInput()
         {
@@ -427,7 +450,7 @@ namespace CameraTools
             bool stepLeft = left.Fire(DpadLeft.Held(now));
             if (selected < 0)
                 return;
-            switch (live.RowViews[selected].Row)
+            switch (CurrentRows[selected].Row)
             {
                 case ToggleRow toggle when PadA.Pressed(now, before) || DpadLeft.Pressed(now, before) || DpadRight.Pressed(now, before):
                     toggle.Set(!toggle.Get());
@@ -440,8 +463,9 @@ namespace CameraTools
 
         private static int NextRow(int direction)
         {
-            for (int index = selected + direction; index >= 0 && index < live.RowViews.Count; index += direction)
-                if (live.RowViews[index].Row is not Section)
+            var rows = CurrentRows;
+            for (int index = selected + direction; index >= 0 && index < rows.Count; index += direction)
+                if (rows[index].Row is not Section)
                     return index;
             return selected;
         }
@@ -449,46 +473,43 @@ namespace CameraTools
         private static void Step(SliderRow slider, int direction)
             => slider.Set(Math.Clamp(slider.Get() + direction * slider.Step, slider.Min, slider.Max));
 
-        // Genshin's EventSystem reaches the copy in some runs and not in others, so CameraTools hit-tests the mouse itself.
+        // Nothing on the canvas is visible to the game's EventSystem, so CameraTools hit-tests the mouse itself. An overlay
+        // canvas maps screen points without a camera.
         private static void HandleMouse()
         {
-            var canvas = live.RenderCanvas;
-            var camera = canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : canvas.worldCamera;
-            CameraTools.LogOnce($"UI: /Canvas renders in {canvas.renderMode} mode with {(camera ? $"camera {camera.name}" : "no camera")}.");
             var mouse = Input.mousePosition;
             var point = new Vector2(mouse.x, mouse.y);
             bool moved = point.x != lastMouse.x || point.y != lastMouse.y;
             lastMouse = point;
 
-            int row = RowAt(point, camera);
+            int row = RowAt(point);
             if (moved && row >= 0 && dragging == null)
                 selected = row;
             float wheel = Input.mouseScrollDelta.y;
-            if (wheel != 0f && row >= 0 && live.RowViews[row].Row is SliderRow wheeled)
+            if (wheel != 0f && row >= 0 && CurrentRows[row].Row is SliderRow wheeled)
                 Step(wheeled, wheel > 0f ? 1 : -1);
             if (Input.GetMouseButtonDown(0))
-                Click(point, camera, row);
+                Click(point, row);
             if (dragging == null)
                 return;
             if (Input.GetMouseButton(0))
-                Drag(dragging, point, camera);
+                Drag(dragging, point);
             else
                 dragging = null;
         }
 
-        private static bool Contains(RectTransform rect, Vector2 point, Camera camera)
-            => RectTransformUtility.RectangleContainsScreenPoint(rect, point, camera);
+        private static bool Contains(RectTransform rect, Vector2 point) => RectTransformUtility.RectangleContainsScreenPoint(rect, point, null);
 
         // Rows scrolled out of the list's viewport do not count.
-        private static int RowAt(Vector2 point, Camera camera)
-            => Contains(live.RowsViewport, point, camera)
-                ? live.RowViews.FindIndex(view => view.Row is not Section && Contains(view.Rect, point, camera))
+        private static int RowAt(Vector2 point)
+            => Contains(live.RowsViewport, point)
+                ? CurrentRows.FindIndex(view => view.Row is not Section && Contains(view.Rect, point))
                 : -1;
 
-        private static void Click(Vector2 point, Camera camera, int row)
+        private static void Click(Vector2 point, int row)
         {
-            int tabIndex = Array.FindIndex(live.TabButtons, button => Contains(button, point, camera));
-            bool back = live.Back.activeSelf && Contains(live.BackButton, point, camera);
+            int tabIndex = Array.FindIndex(live.Tabs, view => Contains(view.Button, point));
+            bool back = live.Back.activeSelf && Contains(live.BackButton, point);
             if (tabIndex < 0 && !back && row < 0)
                 return;
             CameraTools.LogOnce("UI: CameraTools handled a mouse click on its panel.");
@@ -504,21 +525,21 @@ namespace CameraTools
                 return;
             }
             selected = row;
-            var view = live.RowViews[row];
+            var view = CurrentRows[row];
             if (view.Row is ToggleRow toggle)
                 toggle.Set(!toggle.Get());
-            else if (Contains(view.SliderRect, point, camera))
+            else if (Contains(view.Track, point))
                 dragging = view;
         }
 
-        // The interop passes ScreenPointToLocalPointInRectangle's out value by value, so the slider's ends are projected to
+        // The interop passes ScreenPointToLocalPointInRectangle's out value by value, so the handle's travel is projected to
         // the screen instead.
-        private static void Drag(RowView view, Vector2 point, Camera camera)
+        private static void Drag(RowView view, Vector2 point)
         {
-            var rect = view.SliderRect;
+            var rect = view.HandleArea;
             var area = rect.rect;
-            float left = RectTransformUtility.WorldToScreenPoint(camera, rect.TransformPoint(new Vector3(area.xMin, 0f, 0f))).x;
-            float right = RectTransformUtility.WorldToScreenPoint(camera, rect.TransformPoint(new Vector3(area.xMax, 0f, 0f))).x;
+            float left = RectTransformUtility.WorldToScreenPoint(null, rect.TransformPoint(new Vector3(area.xMin, 0f, 0f))).x;
+            float right = RectTransformUtility.WorldToScreenPoint(null, rect.TransformPoint(new Vector3(area.xMax, 0f, 0f))).x;
             if (right <= left)
                 return;
             float t = Math.Clamp((point.x - left) / (right - left), 0f, 1f);
@@ -526,9 +547,44 @@ namespace CameraTools
             slider.Set(slider.Min + (slider.Max - slider.Min) * t);
         }
 
+        // The game's layout adaptor insets /Canvas/Pages, and the game changes its canvas scaling with the input device it
+        // shows hints for. CameraTools' canvas follows both, and keeps the recorded values until the game's canvas exists.
+        private static void Follow()
+        {
+            if (Time.unscaledTime < live.NextFollow)
+                return;
+            live.NextFollow = Time.unscaledTime + FollowInterval;
+            var canvas = GameObject.Find("/Canvas");
+            var source = canvas ? canvas.transform.Find("Pages") : null;
+            var scaler = canvas ? canvas.GetComponent<CanvasScaler>() : null;
+            if (!source || !scaler)
+                return;
+            var pages = RectOf(source);
+            Vector2 anchorMin = pages.anchorMin, anchorMax = pages.anchorMax, pivot = pages.pivot;
+            Vector2 position = pages.anchoredPosition, size = pages.sizeDelta, reference = scaler.referenceResolution;
+            var mode = scaler.screenMatchMode;
+            float match = scaler.matchWidthOrHeight;
+            string followed = $"reference {reference.x}x{reference.y} ({mode}, match {match}); pages anchors ({anchorMin.x}, "
+                + $"{anchorMin.y})-({anchorMax.x}, {anchorMax.y}), pivot ({pivot.x}, {pivot.y}), position ({position.x}, "
+                + $"{position.y}), size delta ({size.x}, {size.y})";
+            if (followed == live.Followed)
+                return;
+            live.Followed = followed;
+            CameraTools.LogOnce($"UI: following the game's layout: {followed}.");
+            live.Scaler.referenceResolution = reference;
+            live.Scaler.screenMatchMode = mode;
+            live.Scaler.matchWidthOrHeight = match;
+            live.Pages.anchorMin = anchorMin;
+            live.Pages.anchorMax = anchorMax;
+            live.Pages.pivot = pivot;
+            live.Pages.anchoredPosition = position;
+            live.Pages.sizeDelta = size;
+        }
+
         private static void Render()
         {
             var view = View;
+            bool opened = live.Shown != view && view == View.Panel;
             if (live.Shown != view)
             {
                 foreach (var part in live.Hud)
@@ -538,11 +594,9 @@ namespace CameraTools
                 live.Shown = view;
             }
             var layout = Controls.Layout;
-            if (layout == InputDevice.Pad && view != View.Hidden)
-                Glyphs.Update();
-            if (live.ShownLayout != (layout, Glyphs.Count))
+            if (live.ShownLayout != (layout, Assets.Version))
             {
-                live.ShownLayout = (layout, Glyphs.Count);
+                live.ShownLayout = (layout, Assets.Version);
                 RenderLayout(layout);
             }
             if (view == View.Hud)
@@ -550,23 +604,30 @@ namespace CameraTools
                 var fov = CameraTools.settings.Fov;
                 if (live.FovShown != fov.Value)
                 {
-                    // BtnZoomNear sits at the bar's top, so a narrow field of view fills the bar.
-                    live.FovBar.normalizedValue = (fov.Max - fov.Value) / (fov.Max - fov.Min);
+                    // BtnZoomNear sits at the bar's top, so a narrow field of view moves the handle up.
+                    float value = (fov.Max - fov.Value) / (fov.Max - fov.Min);
+                    var box = live.ZoomHandleBox;
+                    live.ZoomHandle.anchorMin = new Vector2 { x = box.AnchorMin.x, y = value };
+                    live.ZoomHandle.anchorMax = new Vector2 { x = box.AnchorMax.x, y = value };
                     live.FovShown = fov.Value;
                 }
             }
             if (view == View.Panel)
             {
-                foreach (var row in live.RowViews)
-                    Sync(row);
+                // Values that changed while the panel or their tab was hidden show without animating.
+                float step = opened ? 1f : Time.unscaledDeltaTime / FadeTime;
+                float rowStep = live.RenderedTab != tab ? 1f : step;
+                live.RenderedTab = tab;
+                foreach (var row in CurrentRows)
+                    Sync(row, rowStep);
+                foreach (var tabView in live.Tabs)
+                {
+                    if (tabView.Shown == tabView.Selected)
+                        continue;
+                    tabView.Shown = MoveTowards(tabView.Shown, tabView.Selected, step);
+                    ApplyTab(live, tabView);
+                }
                 RenderSelection();
-                // Genshin strips Animator.updateMode, so the switches animate on game time and would hold their old pose
-                // while the game is slowed or paused. They get the time the game speed took away.
-                float lost = Time.unscaledDeltaTime - Time.deltaTime;
-                if (lost > 0f)
-                    foreach (var row in live.RowViews)
-                        if (row.Switch)
-                            row.Switch.Update(lost);
             }
 
             bool showToast = !CameraTools.uiHidden && Time.unscaledTime < toastUntil;
@@ -608,15 +669,17 @@ namespace CameraTools
         }
 
         // CameraTools owns every value, so the widgets only show them.
-        private static void Sync(RowView view)
+        private static void Sync(RowView view, float step)
         {
             switch (view.Row)
             {
                 case ToggleRow toggle:
                 {
-                    bool on = toggle.Get();
-                    if (view.Toggle.isOn != on)
-                        view.Toggle.isOn = on;
+                    float target = toggle.Get() ? 1f : 0f;
+                    if (view.Shown == target)
+                        break;
+                    view.Shown = MoveTowards(view.Shown, target, step);
+                    ApplySwitch(live, view);
                     break;
                 }
                 case SliderRow slider:
@@ -629,12 +692,15 @@ namespace CameraTools
             }
         }
 
-        // Slider.value clamps to the slider's range, which is the row's. Hotkeys can push game speed past the row's range;
-        // the label shows the real value.
+        // Hotkeys can push game speed past the row's range; the bar stops at its end and the label shows the real value.
         private static void WriteSlider(RowView view, SliderRow slider, float value)
         {
             view.Value = value;
-            view.Slider.value = value;
+            float t = Math.Clamp((value - slider.Min) / (slider.Max - slider.Min), 0f, 1f);
+            view.BarFill.anchorMin = new Vector2 { x = 0f, y = 0f };
+            view.BarFill.anchorMax = new Vector2 { x = t, y = 1f };
+            view.Handle.anchorMin = new Vector2 { x = t, y = 0f };
+            view.Handle.anchorMax = new Vector2 { x = t, y = 1f };
             string text = $"{slider.Label}  {value.ToString(slider.Format)}";
             if (text != view.Text)
             {
@@ -643,13 +709,44 @@ namespace CameraTools
             }
         }
 
+        // The switch slides between the recorded off and on rows.
+        private static void ApplySwitch(Live target, RowView view)
+        {
+            float t = Ease(view.Shown);
+            var off = target.SwitchOff;
+            var on = target.SwitchOn;
+            view.Knob.anchorMin = Lerp(off.Knob.AnchorMin, on.Knob.AnchorMin, t);
+            view.Knob.anchorMax = Lerp(off.Knob.AnchorMax, on.Knob.AnchorMax, t);
+            view.Knob.pivot = Lerp(off.Knob.Pivot, on.Knob.Pivot, t);
+            view.Knob.anchoredPosition = Lerp(off.Knob.Position, on.Knob.Position, t);
+            view.Fill.color = Lerp(off.Fill, on.Fill, t);
+            view.Light.color = Lerp(off.Light, on.Light, t);
+            view.IconOn.localScale = Lerp(off.IconOn, on.IconOn, t);
+            view.IconOff.localScale = Lerp(off.IconOff, on.IconOff, t);
+        }
+
+        // Tabs fade between the recorded selected and unselected tab.
+        private static void ApplyTab(Live target, TabView view)
+        {
+            float t = Ease(view.Shown);
+            var other = target.OtherTab;
+            var selectedTab = target.SelectedTab;
+            view.Bg.color = Lerp(other.Bg, selectedTab.Bg, t);
+            view.Bg.rectTransform.localScale = Lerp(other.BgScale, selectedTab.BgScale, t);
+            view.Icon.color = Lerp(other.Icon, selectedTab.Icon, t);
+            view.Icon.rectTransform.localScale = Lerp(other.IconScale, selectedTab.IconScale, t);
+            view.Line.color = Lerp(other.Line, selectedTab.Line, t);
+            view.Line.rectTransform.sizeDelta = Lerp(other.LineSize, selectedTab.LineSize, t);
+        }
+
         private static void RenderSelection()
         {
+            var rows = CurrentRows;
             if (live.ShownSelected != selected)
             {
-                for (int index = 0; index < live.RowViews.Count; index++)
+                for (int index = 0; index < rows.Count; index++)
                 {
-                    var row = live.RowViews[index];
+                    var row = rows[index];
                     if (row.Row is Section)
                         continue;
                     row.Highlight.SetActive(index == selected);
@@ -658,7 +755,7 @@ namespace CameraTools
                 live.ShownSelected = selected;
             }
             // The footer names what A does to the selected row.
-            string change = selected >= 0 && live.RowViews[selected].Row is ToggleRow toggle ? toggle.Get() ? "Off" : "On" : null;
+            string change = selected >= 0 && rows[selected].Row is ToggleRow toggle ? toggle.Get() ? "Off" : "On" : null;
             if (change != live.ChangeText)
             {
                 live.Change.Root.SetActive(change != null);
@@ -671,7 +768,7 @@ namespace CameraTools
         // A glyph stands in for a binding that is one button with a known glyph; any other binding is spelled out.
         private static void ShowPadKey(PadEntry entry, PadButtons button, string binding, string label)
         {
-            var glyph = Glyphs.Get(button);
+            var glyph = Assets.Glyph(button);
             entry.Key.SetActive(glyph);
             if (glyph)
                 entry.Glyph.sprite = glyph;
@@ -685,6 +782,22 @@ namespace CameraTools
             PadAxis.None when System.Numerics.BitOperations.IsPow2((uint)pad.Chord) => pad.Chord,
             _ => PadButtons.None,
         };
+
+        private static float MoveTowards(float current, float target, float step)
+            => current < target ? Math.Min(current + step, target) : Math.Max(current - step, target);
+
+        private static float Ease(float t) => t * t * (3f - 2f * t);
+
+        // Unity's own Lerp and struct constructors are IL2CPP calls; these are plain arithmetic.
+        private static float Lerp(float a, float b, float t) => a + (b - a) * t;
+
+        private static Vector2 Lerp(Vector2 a, Vector2 b, float t) => new() { x = Lerp(a.x, b.x, t), y = Lerp(a.y, b.y, t) };
+
+        private static Vector3 Lerp(Vector3 a, Vector3 b, float t)
+            => new() { x = Lerp(a.x, b.x, t), y = Lerp(a.y, b.y, t), z = Lerp(a.z, b.z, t) };
+
+        private static Color Lerp(Color a, Color b, float t)
+            => new() { r = Lerp(a.r, b.r, t), g = Lerp(a.g, b.g, t), b = Lerp(a.b, b.b, t), a = Lerp(a.a, b.a, t) };
 
         // Fires on press, then repeats while held, on unscaled time so it works while the game is paused.
         private sealed class Repeater
@@ -709,6 +822,53 @@ namespace CameraTools
                 next = now + RepeatInterval;
                 return true;
             }
+        }
+
+        // The recorded rows the settings are built from. The slider rows sit in a container of their own in the game, so the
+        // slider row takes the toggle row's width and anchors. The game's Animators fade a selected row's highlight and arrow
+        // in; CameraTools switches them on, with the highlight at the recorded selected row's size and a faint strength.
+        private sealed record RowTemplates(Node Section, Node Space, Node ToggleOff, Node ToggleOn, Node Slider)
+        {
+            private const string Highlight = "Content/ImgHighlight";
+
+            public static RowTemplates Of(Node rows)
+            {
+                var selected = rows.Find("SetUp_02/" + Highlight).Box;
+                var toggle = Row(rows.Find("SetUp_05"), selected);
+                var slider = Row(rows.Find("SetUp_0304/SetUp_03"), selected);
+                var box = slider.Box with
+                {
+                    AnchorMin = toggle.Box.AnchorMin,
+                    AnchorMax = toggle.Box.AnchorMax,
+                    Pivot = toggle.Box.Pivot,
+                    SizeDelta = new Vector2 { x = toggle.Box.SizeDelta.x, y = slider.Box.SizeDelta.y },
+                };
+                return new RowTemplates(rows.Find("Text"), rows.Find("Space"), toggle,
+                    Row(rows.Find("SetUp_0304/SetUp_08"), selected), slider with { Box = box });
+            }
+
+            private static Node Row(Node row, Box selected) => (row with { Active = true })
+                .With(Highlight, highlight => highlight with
+                {
+                    Box = highlight.Box with { Scale = selected.Scale },
+                    Image = highlight.Image with { Color = highlight.Image.Color with { a = 0.15f } },
+                })
+                .With("Content/Selected_Arrow/ClickTips", arrow => arrow with { GroupAlpha = 1f });
+        }
+
+        private sealed record TabLook(Color Bg, Vector3 BgScale, Color Icon, Vector3 IconScale, Color Line, Vector2 LineSize)
+        {
+            public static TabLook Of(Node button)
+            {
+                Node bg = button.Find("ImgBg"), icon = button.Find("Icon"), line = button.Find("ImgLine");
+                return new TabLook(bg.Image.Color, bg.Box.Scale, icon.Image.Color, icon.Box.Scale, line.Image.Color, line.Box.SizeDelta);
+            }
+        }
+
+        private sealed record SwitchLook(Box Knob, Color Fill, Color Light, Vector3 IconOn, Vector3 IconOff)
+        {
+            public static SwitchLook Of(Node content) => new(content.Find("Image").Box, content.Find("ImgColor").Image.Color,
+                content.Find("Image/ImgLight").Image.Color, content.Find("Image/IconOn").Box.Scale, content.Find("Image/IconOff").Box.Scale);
         }
 
         // A pad hint: a glyph in Content/Key and a label.
@@ -743,30 +903,46 @@ namespace CameraTools
             public GameObject Highlight;
             public GameObject Arrow;
             public Text Label;
-            public Toggle Toggle;
-            public Animator Switch;
-            public Slider Slider;
-            public RectTransform SliderRect;
+            public RectTransform Knob;
+            public Image Fill;
+            public Image Light;
+            public Transform IconOn;
+            public Transform IconOff;
+            public float Shown;
+            public RectTransform Track;
+            public RectTransform HandleArea;
+            public RectTransform BarFill;
+            public RectTransform Handle;
             public float Value;
             public string Text;
+        }
+
+        private sealed class TabView
+        {
+            public RectTransform Button;
+            public Image Bg;
+            public Image Icon;
+            public Image Line;
+            public readonly List<GameObject> Objects = new();
+            public readonly List<RowView> Rows = new();
+            public float Selected;
+            // Follows Selected, from 0 for unselected to 1 for selected.
+            public float Shown;
         }
 
         private sealed class Live
         {
             public GameObject Root;
-            public GameObject SectionTemplate;
-            public GameObject SpaceTemplate;
-            public GameObject ToggleTemplate;
-            public GameObject SliderTemplate;
-            public Canvas RenderCanvas;
+            public RectTransform Pages;
+            public CanvasScaler Scaler;
             public GameObject[] Hud;
             public GameObject[] Panel;
-            public Transform Rows;
+            public TabView[] Tabs;
             public RectTransform RowsViewport;
-            public readonly List<RowView> RowViews = new();
-            public RectTransform[] TabButtons;
-            public GameObject[] TabLines;
-            public Image[] TabIcons;
+            public TabLook SelectedTab;
+            public TabLook OtherTab;
+            public SwitchLook SwitchOff;
+            public SwitchLook SwitchOn;
             public GameObject TabKeys;
             public Transform TabKeyLeft;
             public Transform TabKeyRight;
@@ -777,7 +953,8 @@ namespace CameraTools
             public PadEntry Return;
             public GameObject Toast;
             public Text ToastLabel;
-            public Slider FovBar;
+            public RectTransform ZoomHandle;
+            public Box ZoomHandleBox;
             public Legend[] Legends;
             public View? Shown;
             public (InputDevice, int)? ShownLayout;
@@ -786,6 +963,9 @@ namespace CameraTools
             public string ChangeText = "";
             public string ToastText;
             public bool ToastShown;
+            public int RenderedTab = -1;
+            public float NextFollow;
+            public string Followed;
         }
     }
 }

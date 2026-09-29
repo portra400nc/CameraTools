@@ -12,7 +12,7 @@
 
 ## Settings panel
 
-CameraTools uses Genshin's photo mode UI, so open photo mode once after starting the game.
+CameraTools draws a copy of Genshin's photo mode UI with the game's own sprites, which load when you open photo mode or the map, so open either once after starting the game.
 
 - F10 (Start on a controller) opens the settings panel while the free camera is on. Click or drag with the mouse, or use the controller.
 - Button hints follow the device you used last.
