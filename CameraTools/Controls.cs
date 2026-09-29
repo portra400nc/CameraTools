@@ -45,6 +45,12 @@ namespace CameraTools
         CameraTools,
     }
 
+    public enum InputDevice
+    {
+        Keyboard,
+        Pad,
+    }
+
     public static class Controls
     {
         private static readonly (CamAction action, KeyCode key, string pad)[] Defaults =
@@ -86,8 +92,14 @@ namespace CameraTools
         private static readonly PadBinding[] pads = new PadBinding[Defaults.Length];
         private static readonly PadBinding OwnerSwitch = new PadBinding(PadButtons.L3 | PadButtons.R3, PadAxis.None);
 
+        private static InputDevice lastUsed;
+
         // While the game owns the pad, only the L3+R3 switch is read from it.
         public static PadOwner Owner { get; set; }
+
+        // Hints follow the device used last, like the game's own, but only the keyboard reaches CameraTools while the game
+        // owns the pad.
+        public static InputDevice Layout => Owner == PadOwner.CameraTools && lastUsed == InputDevice.Pad ? InputDevice.Pad : InputDevice.Keyboard;
 
         // While the settings panel is open it reads the pad itself, so the camera ignores the pad.
         private static bool PadActive => Owner == PadOwner.CameraTools && CameraUi.View != View.Panel;
@@ -115,6 +127,16 @@ namespace CameraTools
             if (Defaults.Length != Enum.GetValues<CamAction>().Length)
                 throw new InvalidOperationException("Controls.Defaults is missing a CamAction.");
             MelonPreferences.Save();
+        }
+
+        // After Gamepad.Poll. Unity may also report a pad button as a key, so the pad wins a tie. On the Deck, holding LB or
+        // RB switched the hints to the keyboard until release, so a held button or tilted stick counts as pad use every frame.
+        public static void Update()
+        {
+            if (Input.anyKeyDown || Input.GetAxis("Mouse X") != 0f || Input.GetAxis("Mouse Y") != 0f)
+                lastUsed = InputDevice.Keyboard;
+            if (Gamepad.Current != Gamepad.Previous || Gamepad.Current != default)
+                lastUsed = InputDevice.Pad;
         }
 
         public static (KeyCode Key, PadBinding Pad) Binding(CamAction action) => (keys[(int)action], pads[(int)action]);

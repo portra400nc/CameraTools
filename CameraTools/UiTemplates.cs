@@ -14,57 +14,103 @@ namespace CameraTools
         private const string SetUp = "GrpCom/GrpLeft/GrpSetUp";
         private const string Rows = SetUp + "/Content/ScrollView/Content";
 
-        // The first source with a sprite wins. Photo mode always opens on its main view, so its legend comes first; a
-        // slot CameraTools filled itself holds the prefab's placeholder glyph.
-        private static readonly (PadButtons Button, string Path)[] GlyphSources =
-        {
-            (PadButtons.A, "GrpCom/GrpAction_PS4/BtnShoot_PS4/Content/Key/ImgKey"),
-            (PadButtons.A, SetUp + "/GrpAction_PS4/BtnChange_PS4/Content/Key/ImgKey"),
-            (PadButtons.B, "GrpCom/GrpAction_PS4/BtnClose_PS4/Content/Key/ImgKey"),
-            (PadButtons.B, SetUp + "/GrpAction_PS4/BtnReturn_PS4/Content/Key/ImgKey"),
-            (PadButtons.X, "GrpCom/GrpShoot_Extra/GrpAction_PS/BtnShoot_PS_Extra/Content/Key/ImgKey"),
-            (PadButtons.Y, "GrpCom/GrpAction_PS4/BtnHideUI_PS4/Content/Key/ImgKey"),
-            (PadButtons.LT, "GrpCom/GrpActionTop_PS4/BtnCameraPush_PS4/Content/Key/ImgKey"),
-            (PadButtons.RT, "GrpCom/GrpActionTop_PS4/BtnCameraPull_PS4/Content/Key/ImgKey"),
-            (PadButtons.R3, "GrpCom/GrpActionTop_PS4/BtnReset_PS4/Content/Key/ImgKey"),
-            (PadButtons.LB, "GrpCom/GrpTab/Tab/Tab_Key/KeyL1/Content/Key_Group/Icon1"),
-            (PadButtons.RB, "GrpCom/GrpTab/Tab/Tab_Key/KeyR1/Content/Key_Group/Icon1"),
-            // The page's "Zoom in/out" hint shows the left stick, and L3 stands for it. BtnZoomIn_PS4 has no children.
-            (PadButtons.L3, "GrpCom/GrpAction_PS4/BtnZoomOut_PS4/Content/Key/ImgKey"),
-        };
-
-        private static readonly Dictionary<PadButtons, Sprite> glyphs = new();
         private static float nextLook;
 
+        private static GameObject holder;
+        private static int copies;
+
         public static GameObject Page { get; private set; }
-        public static GameObject Section { get; private set; }
-        public static GameObject Space { get; private set; }
-        public static GameObject ToggleRow { get; private set; }
-        public static GameObject SliderRow { get; private set; }
-        public static IReadOnlyDictionary<PadButtons, Sprite> Glyphs => glyphs;
+        // Set after the UI failed: the next copy waits until the player opens photo mode again, so a failure is not
+        // retried every second and the copy starts from a page the game has just refreshed.
+        public static bool AwaitingPhotoMode { get; private set; }
+        private static GameObject Section;
+        private static GameObject Space;
+        private static GameObject ToggleRow;
+        private static GameObject SliderRow;
+        private static float copiedAt;
 
         public static void Update()
         {
-            if (Page || Time.unscaledTime < nextLook)
+            if (Time.unscaledTime < nextLook)
                 return;
             nextLook = Time.unscaledTime + 1f;
+            if (holder != null)
+            {
+                Watch();
+                return;
+            }
             var pages = GameObject.Find("/Canvas/Pages");
             var source = pages ? pages.transform.Find("InLevelPhotographContext") : null;
-            if (source)
+            if (source && (!AwaitingPhotoMode || source.gameObject.activeInHierarchy))
                 Capture(source.gameObject);
+        }
+
+        // In builds 66 and 67 the UI failed 70 to 90 s after the copy, while instantiating a row template from it. The copy
+        // is checked every second, and the first part found destroyed names what the game removes and when.
+        private static void Watch()
+        {
+            var lost = Lost();
+            if (lost.Length == 0)
+            {
+                // A quiet log cannot tell a surviving copy from a short session.
+                if (Time.unscaledTime - copiedAt >= 120f)
+                    CameraTools.LogOnce($"UI: copy {copies} is still intact 120 s after the copy.");
+                return;
+            }
+            CameraTools.LogOnce($"UI: {string.Join(", ", lost)} of copy {copies} was destroyed "
+                + $"{Time.unscaledTime - copiedAt:0} s after the copy; the page is copied again the next time photo mode opens.");
+            Discard();
+        }
+
+        // For a failure report: whether the kept copy or only the new copy made from it lacks a part.
+        public static string Health()
+        {
+            if (holder == null)
+                return "no copy is kept";
+            var lost = Lost();
+            return lost.Length == 0 ? $"copy {copies} is intact" : $"copy {copies} has lost {string.Join(", ", lost)}";
+        }
+
+        private static string[] Lost()
+        {
+            var parts = new (string Name, bool Alive)[]
+            {
+                ("the holder", holder), ("the page", Page), ("the section template", Section), ("the space template", Space),
+                ("the toggle row template", ToggleRow), ("the slider row template", SliderRow),
+                ("the zoom bar's Slider", Has<Slider>(Page, "GrpCom/GrpMain/Zoom_Slider")),
+                ("the toggle row's Toggle", Has<Toggle>(ToggleRow, "Content/GrpToggle/Btn_Toggle/Content")),
+                ("the slider row's Slider", Has<Slider>(SliderRow, "Content/Slider_W/Content")),
+            };
+            return parts.Where(part => !part.Alive).Select(part => part.Name).ToArray();
+        }
+
+        private static bool Has<T>(GameObject root, string path) where T : Component
+        {
+            var child = root ? root.transform.Find(path) : null;
+            return child && (bool)child.GetComponent(Il2CppType.Of<T>());
+        }
+
+        public static void Discard()
+        {
+            if (holder)
+                Object.Destroy(holder);
+            holder = null;
+            Page = null;
+            AwaitingPhotoMode = true;
         }
 
         private static void Capture(GameObject source)
         {
-            var holder = new GameObject("CameraTools Templates");
+            holder = new GameObject("CameraTools Templates");
             try
             {
                 Object.DontDestroyOnLoad(holder);
                 holder.SetActive(false);
                 var page = Clone(source, holder.transform);
                 page.SetActive(false);
-                CameraTools.LogOnce($"UI: copied the photo mode page ({Components<Transform>(page).Length} objects).");
-                CaptureGlyphs(page.transform);
+                copies++;
+                copiedAt = Time.unscaledTime;
+                CameraTools.LogOnce($"UI: copied the photo mode page ({Components<Transform>(page).Length} objects, copy {copies}).");
                 FillContainers(page);
                 Strip(page);
                 var root = page.transform;
@@ -74,11 +120,12 @@ namespace CameraTools
                 SliderRow = Child(root, Rows + "/SetUp_0304/SetUp_03").gameObject;
                 FitSliderRow();
                 Page = page;
+                AwaitingPhotoMode = false;
             }
             catch (Exception e)
             {
-                CameraTools.LogOnce($"UI: copying the photo mode page failed: {e}");
-                Object.Destroy(holder);
+                CameraTools.LogOnce($"UI: copying the photo mode page failed (copy {copies}): {e}");
+                Discard();
             }
         }
 
@@ -198,24 +245,15 @@ namespace CameraTools
             slider.sizeDelta = new Vector2(toggle.sizeDelta.x, height > 1f ? height : toggle.sizeDelta.y);
         }
 
-        private static void CaptureGlyphs(Transform root)
-        {
-            var found = new List<string>();
-            foreach (var (button, path) in GlyphSources)
-            {
-                var target = root.Find(path);
-                var image = target ? target.GetComponent(Il2CppType.Of<Image>())?.TryCast<Image>() : null;
-                var sprite = image ? image.sprite : null;
-                if (sprite)
-                    glyphs.TryAdd(button, sprite);
-                found.Add($"{button}={(!target ? "no object" : !image ? "no image" : sprite ? sprite.name : "none")}");
-            }
-            CameraTools.LogOnce($"UI: glyph sprites: {string.Join(", ", found)}.");
-        }
-
         // Instantiate<T> has no native code in Genshin's build; the cast selects the Object overload.
+        // Instantiate returns nothing for a destroyed source instead of throwing, so this names the cause.
         public static GameObject Clone(GameObject source, Transform parent)
-            => Object.Instantiate((Object)source, parent, false).TryCast<GameObject>();
+        {
+            var copy = Object.Instantiate((Object)source, parent, false);
+            return copy ? copy.TryCast<GameObject>()
+                : throw new InvalidOperationException($"Copying {(source ? source.name : "a destroyed object")} under "
+                    + $"{(parent ? parent.name : "a destroyed parent")} returned nothing.");
+        }
 
         public static Transform Child(Transform root, string path)
         {

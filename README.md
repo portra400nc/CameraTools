@@ -12,9 +12,11 @@
 
 ## Settings panel
 
-CameraTools draws its settings panel, button hints, and field of view bar with Genshin's own photo mode UI. It copies that UI from the game, and the game only creates it once you open photo mode. So open photo mode once after starting the game, then leave it. Until you do, the free camera works, but turning it on shows "Open photo mode once to load the CameraTools UI" and there is no settings panel.
+CameraTools uses Genshin's photo mode UI, so open photo mode once after starting the game.
 
-While the free camera is on, press F10 (or Start on a controller) to open the settings panel. It has two tabs. Camera holds movement speed, look sensitivity, roll speed, zoom speed, field of view, damping, and "Remember last position". World holds game speed, pause, max detail, and damage numbers. With a keyboard, the panel frees the cursor, and you click the switches and drag the sliders. Turning on the free camera hides the game's HUD, except damage numbers, which have their own switch. Hide UI (PageDown, or B on a controller) then hides CameraTools' hints and the UID for a clean shot, and pressing it again brings them back. With the free camera off, Hide UI hides the game's HUD and the UID instead.
+- F10 (Start on a controller) opens the settings panel while the free camera is on. Click or drag with the mouse, or use the controller.
+- Button hints follow the device you used last.
+- The free camera hides the game's HUD. Hide UI (PageDown, or B) hides CameraTools' hints for a clean shot.
 
 ## Hotkeys
 | Key | Description |

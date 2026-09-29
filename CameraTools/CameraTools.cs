@@ -43,6 +43,7 @@ namespace CameraTools
         public override void OnLateUpdate()
         {
             Gamepad.Poll();
+            Controls.Update();
             if (Controls.OwnerSwitchPressed)
                 SetPadOwner(Controls.Owner == PadOwner.Game ? PadOwner.CameraTools : PadOwner.Game);
             // A pad that disconnects while CameraTools owns it would leave the game's player input switched off.
