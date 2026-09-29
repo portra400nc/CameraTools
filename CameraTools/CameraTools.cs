@@ -1,5 +1,6 @@
 ﻿using Cinemachine;
 using MelonLoader;
+using MoleMole;
 using UnityEngine;
 
 namespace CameraTools
@@ -18,208 +19,102 @@ namespace CameraTools
         public static Freecam freecam;
         public static bool freecamActive;
         private static readonly Action<Camera> preCull = OnPreCull;
-        private static bool preCullRegistered;
+        private static readonly Action willRenderCanvases = OnWillRenderCanvases;
+        private static bool callbacksRegistered;
         private static bool preCullSeen;
+        private static readonly HashSet<string> logged = new();
+        private static string toast;
+        private static float toastUntil;
 
-        // Main
-        public static KeyCode keyInject;
-        public static KeyCode keyFreecam;
-        public static KeyCode keyRes4k;
-        public static KeyCode keyRes1080p;
-        public static KeyCode keyHUD;
-        public static KeyCode keyHP;
-        public static KeyCode keyDamage;
-        public static KeyCode keyTimeAdd1;
-        public static KeyCode keyTimeAdd5;
-        public static KeyCode keyTimeSub1;
-        public static KeyCode keyTimeSub5;
-        public static KeyCode keyTimeToggle5;
-        public static KeyCode keyTimePause;
-        public static KeyCode keyTimeReset;
-
-        // Freecam
-        public static KeyCode keyGUI;
-        public static KeyCode keyFocus;
-        public static KeyCode keyRollLeft;
-        public static KeyCode keyRollRight;
-        public static KeyCode keyRollReset;
-        public static KeyCode keyForward;
-        public static KeyCode keyBack;
-        public static KeyCode keyLeft;
-        public static KeyCode keyRight;
-        public static KeyCode keyUp;
-        public static KeyCode keyDown;
-        public static KeyCode keyFovInc;
-        public static KeyCode keyFovDec;
-        public static KeyCode keyFovReset;
-        public static KeyCode keyFast;
-        public static KeyCode keySlow;
-
-        public static MelonPreferences_Category cameraToolsHotkeys;
-        public static MelonPreferences_Entry<KeyCode> keyFreecampref;
-        public static MelonPreferences_Entry<KeyCode> keyInjectpref;
-        public static MelonPreferences_Entry<KeyCode> keyRes4kpref;
-        public static MelonPreferences_Entry<KeyCode> keyRes1080ppref;
-        public static MelonPreferences_Entry<KeyCode> keyHUDpref;
-        public static MelonPreferences_Entry<KeyCode> keyHPpref;
-        public static MelonPreferences_Entry<KeyCode> keyDamagepref;
-        public static MelonPreferences_Entry<KeyCode> keyTimeAdd1pref;
-        public static MelonPreferences_Entry<KeyCode> keyTimeAdd5pref;
-        public static MelonPreferences_Entry<KeyCode> keyTimeSub1pref;
-        public static MelonPreferences_Entry<KeyCode> keyTimeSub5pref;
-        public static MelonPreferences_Entry<KeyCode> keyTimeToggle5pref;
-        public static MelonPreferences_Entry<KeyCode> keyTimePausepref;
-        public static MelonPreferences_Entry<KeyCode> keyTimeResetpref;
-
-        public static MelonPreferences_Entry<KeyCode> keyGUIpref;
-        public static MelonPreferences_Entry<KeyCode> keyFocuspref;
-        public static MelonPreferences_Entry<KeyCode> keyRollLeftpref;
-        public static MelonPreferences_Entry<KeyCode> keyRollRightpref;
-        public static MelonPreferences_Entry<KeyCode> keyRollResetpref;
-        public static MelonPreferences_Entry<KeyCode> keyForwardpref;
-        public static MelonPreferences_Entry<KeyCode> keyBackpref;
-        public static MelonPreferences_Entry<KeyCode> keyLeftpref;
-        public static MelonPreferences_Entry<KeyCode> keyRightpref;
-        public static MelonPreferences_Entry<KeyCode> keyUppref;
-        public static MelonPreferences_Entry<KeyCode> keyDownpref;
-        public static MelonPreferences_Entry<KeyCode> keyFovIncpref;
-        public static MelonPreferences_Entry<KeyCode> keyFovDecpref;
-        public static MelonPreferences_Entry<KeyCode> keyFovResetpref;
-        public static MelonPreferences_Entry<KeyCode> keyFastpref;
-        public static MelonPreferences_Entry<KeyCode> keySlowpref;
         public override void OnInitializeMelon()
         {
-            cameraToolsHotkeys = MelonPreferences.CreateCategory("CameraTools");
-            keyInjectpref = cameraToolsHotkeys.CreateEntry("Inject", KeyCode.F9);
-            keyInject = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "Inject");
-            keyFreecampref = cameraToolsHotkeys.CreateEntry("ToggleFreecam", KeyCode.Insert);
-            keyFreecam = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "ToggleFreecam");
-            keyRes4kpref = cameraToolsHotkeys.CreateEntry("SetResolutionTo4K", KeyCode.Equals);
-            keyRes4k = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "SetResolutionTo4K");
-            keyRes1080ppref = cameraToolsHotkeys.CreateEntry("SetResolutionTo1080p", KeyCode.Minus);
-            keyRes1080p = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "SetResolutionTo1080p");
-            keyHUDpref = cameraToolsHotkeys.CreateEntry("ToggleHUD", KeyCode.PageDown);
-            keyHUD = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "ToggleHUD");
-            keyHPpref = cameraToolsHotkeys.CreateEntry("RemoveHP", KeyCode.LeftBracket);
-            keyHP = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "RemoveHP");
-            keyDamagepref = cameraToolsHotkeys.CreateEntry("ToggleDamage", KeyCode.RightBracket);
-            keyDamage = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "ToggleDamage");
-            keyTimeAdd1pref = cameraToolsHotkeys.CreateEntry("SpeedInc1", KeyCode.UpArrow);
-            keyTimeAdd1 = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "SpeedInc1");
-            keyTimeAdd5pref = cameraToolsHotkeys.CreateEntry("SpeedInc5", KeyCode.RightArrow);
-            keyTimeAdd5 = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "SpeedInc5");
-            keyTimeSub1pref = cameraToolsHotkeys.CreateEntry("SpeedDec1", KeyCode.DownArrow);
-            keyTimeSub1 = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "SpeedDec1");
-            keyTimeSub5pref = cameraToolsHotkeys.CreateEntry("SpeedDec5", KeyCode.LeftArrow);
-            keyTimeSub5 = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "SpeedDec5");
-            keyTimeToggle5pref = cameraToolsHotkeys.CreateEntry("ToggleSpeedTo5", KeyCode.CapsLock);
-            keyTimeToggle5 = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "ToggleSpeedTo5");
-            keyTimePausepref = cameraToolsHotkeys.CreateEntry("TogglePause", KeyCode.Delete);
-            keyTimePause = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "TogglePause");
-            keyTimeResetpref = cameraToolsHotkeys.CreateEntry("ResetSpeed", KeyCode.End);
-            keyTimeReset = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "ResetSpeed");
-            keyGUIpref = cameraToolsHotkeys.CreateEntry("ToggleGUI", KeyCode.F10);
-            keyGUI = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "ToggleGUI");
-            keyFocuspref = cameraToolsHotkeys.CreateEntry("ToggleCursorFocus", KeyCode.Quote);
-            keyFocus = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "ToggleCursorFocus");
-            keyRollLeftpref = cameraToolsHotkeys.CreateEntry("RollLeft", KeyCode.Comma);
-            keyRollLeft = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "RollLeft");
-            keyRollRightpref = cameraToolsHotkeys.CreateEntry("RollRight", KeyCode.Period);
-            keyRollRight = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "RollRight");
-            keyRollResetpref = cameraToolsHotkeys.CreateEntry("ResetRoll", KeyCode.RightShift);
-            keyRollReset = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "ResetRoll");
-            keyForwardpref = cameraToolsHotkeys.CreateEntry("Forward", KeyCode.I);
-            keyForward = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "Forward");
-            keyBackpref = cameraToolsHotkeys.CreateEntry("Back", KeyCode.K);
-            keyBack = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "Back");
-            keyLeftpref = cameraToolsHotkeys.CreateEntry("Left", KeyCode.J);
-            keyLeft = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "Left");
-            keyRightpref = cameraToolsHotkeys.CreateEntry("Right", KeyCode.L);
-            keyRight = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "Right");
-            keyUppref = cameraToolsHotkeys.CreateEntry("Up", KeyCode.O);
-            keyUp = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "Up");
-            keyDownpref = cameraToolsHotkeys.CreateEntry("Down", KeyCode.U);
-            keyDown = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "Down");
-            keyFovIncpref = cameraToolsHotkeys.CreateEntry("IncreaseFOV", KeyCode.Alpha9);
-            keyFovInc = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "IncreaseFOV");
-            keyFovDecpref = cameraToolsHotkeys.CreateEntry("DecreaseFOV", KeyCode.Alpha8);
-            keyFovDec = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "DecreaseFOV");
-            keyFovResetpref = cameraToolsHotkeys.CreateEntry("ResetFOV", KeyCode.Alpha0);
-            keyFovReset = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "ResetFOV");
-            keyFastpref = cameraToolsHotkeys.CreateEntry("FastMovement", KeyCode.RightAlt);
-            keyFast = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "FastMovement");
-            keySlowpref = cameraToolsHotkeys.CreateEntry("SlowMovement", KeyCode.Semicolon);
-            keySlow = MelonPreferences.GetEntryValue<KeyCode>("CameraTools", "SlowMovement");
-
-            MelonPreferences.Save();
+            Controls.Load();
         }
-        public override void OnUpdate()
+
+        public override void OnApplicationQuit()
         {
-            if (Input.GetKeyDown(keyInject))
+            Gamepad.StopRumble();
+        }
+
+        // Genshin's OnUpdate comes from a frame hook that appears to stop while the game speed is 0, and the game moves
+        // the camera after it. OnLateUpdate comes from a real LateUpdate, which Unity calls every frame.
+        public override void OnLateUpdate()
+        {
+            Gamepad.Poll();
+            if (Controls.OwnerSwitchPressed)
+                SetPadOwner(Controls.Owner == PadOwner.Game ? PadOwner.CameraTools : PadOwner.Game);
+            // A pad that disconnects while CameraTools owns it would leave the game's player input switched off.
+            if (Controls.Owner == PadOwner.CameraTools && !Gamepad.Connected)
+                SetPadOwner(PadOwner.Game);
+            if (Controls.Pressed(CamAction.Inject))
             {
                 if (camera)
                     LoggerInstance.Msg("Free camera is already injected.");
                 else
                     InjectFreecam();
             }
-            if (Input.GetKeyDown(keyRes4k) && maincam)
+            if (Controls.Pressed(CamAction.SetResolutionTo4K) && maincam)
             {
                 Screen.SetResolution(3840, 2160, false);
                 maincam.rect = new Rect(0, 0, 3840, 2160);
             }
-            if (Input.GetKeyDown(keyRes1080p) && maincam)
+            if (Controls.Pressed(CamAction.SetResolutionTo1080p) && maincam)
             {
                 Screen.SetResolution(1920, 1080, false);
                 maincam.rect = new Rect(0, 0, 1920, 1080);
             }
-            if (Input.GetKeyDown(keyHUD))
+            if (Controls.Pressed(CamAction.ToggleHUD))
             {
                 if (hud)
                     hud.SetActive(!hud.activeInHierarchy);
                 if (uid)
                     uid.SetActive(!uid.activeInHierarchy);
             }
-            if (Input.GetKeyDown(keyHP))
+            if (Controls.Pressed(CamAction.RemoveHP))
             {
                 RemoveHP();
             }
-            if (Input.GetKeyDown(keyDamage))
+            if (Controls.Pressed(CamAction.ToggleDamage))
             {
                 ToggleDamage();
             }
-            if (Input.GetKeyDown(keyFreecam))
+            if (Controls.Pressed(CamAction.ToggleFreecam))
             {
-                ToggleFreecam();
+                SetFreecam(!freecamActive);
             }
-            if (Input.GetKeyDown(keyTimePause))
+            if (Controls.Pressed(CamAction.ToggleMaxDetail))
+            {
+                Lod.SetMaxDetail(!Lod.MaxDetail);
+            }
+            if (Controls.Pressed(CamAction.TogglePause))
             {
                 Time.timeScale = Time.timeScale != 0.0f ? 0.0f : lastTimeScale;
             }
-            if (Input.GetKeyDown(keyTimeReset))
+            if (Controls.Pressed(CamAction.ResetSpeed))
             {
                 Time.timeScale = 1.0f;
                 lastTimeScale = Time.timeScale;
             }
-            if (Input.GetKeyDown(keyTimeToggle5))
+            if (Controls.Pressed(CamAction.ToggleSpeedTo5))
             {
                 Time.timeScale = Time.timeScale != 5.0f ? 5.0f : lastTimeScale;
             }
-            if (Input.GetKeyDown(keyTimeAdd1))
+            if (Controls.Pressed(CamAction.SpeedInc1))
             {
                 Time.timeScale += 0.1f;
                 lastTimeScale = Time.timeScale;
             }
-            if (Input.GetKeyDown(keyTimeSub1))
+            if (Controls.Pressed(CamAction.SpeedDec1))
             {
                 Time.timeScale -= 0.1f;
                 lastTimeScale = Time.timeScale;
             }
-            if (Input.GetKeyDown(keyTimeSub5))
+            if (Controls.Pressed(CamAction.SpeedDec5))
             {
                 Time.timeScale -= 0.5f;
                 lastTimeScale = Time.timeScale;
             }
-            if (Input.GetKeyDown(keyTimeAdd5))
+            if (Controls.Pressed(CamAction.SpeedInc5))
             {
                 Time.timeScale += 0.5f;
                 lastTimeScale = Time.timeScale;
@@ -227,10 +122,17 @@ namespace CameraTools
             if (Time.timeScale < 0)
                 Time.timeScale = 0;
 
+            Lod.Update();
+
             if (freecamActive && !camera)
+            {
                 freecamActive = false;
+                Lod.Follow(false);
+                GameCamera.Attach();
+            }
             if (freecamActive)
             {
+                GameCamera.Update(maincam);
                 freecam.Update();
                 freecam.LateUpdate();
             }
@@ -240,6 +142,8 @@ namespace CameraTools
         {
             if (freecamActive)
                 freecam.OnGUI();
+            if (Time.unscaledTime < toastUntil)
+                GUI.Box(new Rect(Screen.width / 2f - 120f, 40f, 240f, 28f), toast);
         }
 
         private void RemoveHP()
@@ -262,24 +166,62 @@ namespace CameraTools
             }
         }
 
-        private void ToggleFreecam()
+        private void SetFreecam(bool active)
         {
-            if (camera)
-            {
-                freecamActive = !freecamActive;
-                if (freecamActive)
-                    freecam.OnEnable();
-                else
-                    freecam.OnDisable();
-                // Cinemachine moves the game camera every frame; pausing it hands the camera to the free camera,
-                // and resuming it puts the camera back where the game wants it.
-                if (brain)
-                    brain.enabled = !freecamActive;
-            }
-            else
+            if (!camera)
             {
                 LoggerInstance.Msg("Free camera not found. Please inject it by pressing F9.");
+                return;
             }
+            if (active == freecamActive)
+                return;
+            freecamActive = active;
+            if (freecamActive)
+                freecam.OnEnable();
+            else
+                freecam.OnDisable();
+            // Cinemachine moves the game camera every frame; pausing it hands the camera to the free camera,
+            // and resuming it puts the camera back where the game wants it.
+            if (brain)
+                brain.enabled = !freecamActive;
+            Lod.Follow(freecamActive);
+            if (freecamActive)
+                GameCamera.Detach(maincam);
+            else
+                GameCamera.Attach();
+        }
+
+        // Taking the pad turns the free camera on; giving it back leaves the free camera where it is, so the
+        // character can be walked through a fixed shot.
+        private void SetPadOwner(PadOwner owner)
+        {
+            if (owner == PadOwner.CameraTools)
+            {
+                if (!camera)
+                    InjectFreecam();
+                if (camera)
+                    SetFreecam(true);
+            }
+            Controls.Owner = owner;
+            bool gameInput = owner == PadOwner.Game;
+            try
+            {
+                ActorUtils.EnablePlayerInput(gameInput, false);
+                LogOnce($"Controller: EnablePlayerInput({gameInput}, false) succeeded.");
+            }
+            catch (Exception e)
+            {
+                LogOnce($"Controller: EnablePlayerInput({gameInput}, false) failed: {e.Message}");
+            }
+            Gamepad.Rumble();
+            toast = $"Controller: {owner}";
+            toastUntil = Time.unscaledTime + 2f;
+        }
+
+        internal static void LogOnce(string message)
+        {
+            if (logged.Add(message))
+                Melon<CameraTools>.Logger.Msg(message);
         }
 
         private void InjectFreecam()
@@ -293,16 +235,25 @@ namespace CameraTools
             // drives the game camera instead.
             maincam = camera.GetComponent<Camera>();
             cam = maincam;
+            Lod.Attach(maincam);
             brain = camera.GetComponent<CinemachineBrain>();
             if (!brain)
                 LoggerInstance.Warning("The main camera has no CinemachineBrain; the game may keep moving the camera.");
             freecam = new Freecam(camera.transform);
             freecamActive = false;
-            if (!preCullRegistered)
+            if (!callbacksRegistered)
             {
                 Camera.CameraCallback callback = preCull;
                 Camera.onPreCull = Camera.onPreCull == null ? callback : Camera.onPreCull + callback;
-                preCullRegistered = true;
+                callbacksRegistered = true;
+                try
+                {
+                    Canvas.add_willRenderCanvases(willRenderCanvases);
+                }
+                catch (Exception e)
+                {
+                    LoggerInstance.Warning($"Canvas.willRenderCanvases could not be registered: {e.Message}");
+                }
             }
             LoggerInstance.Msg("Free camera injected.");
         }
@@ -316,6 +267,15 @@ namespace CameraTools
             }
             if (freecamActive && camera)
                 freecam.Apply();
+        }
+
+        // Genshin's camera system writes the gameplay pose after every script LateUpdate, and scenery culling reads the
+        // camera before Camera.onPreCull. willRenderCanvases fires in PostLateUpdate, possibly ahead of those readers.
+        private static void OnWillRenderCanvases()
+        {
+            if (!freecamActive || !camera)
+                return;
+            freecam.Apply();
         }
 
         // These paths date from an older game version; name any that no longer exist.

@@ -4,7 +4,7 @@ using static CameraTools.CameraTools;
 namespace CameraTools
 {
     // Genshin's MelonLoader cannot register custom MonoBehaviours yet, so the free camera is a plain
-    // class that CameraTools drives from OnUpdate and OnGUI while the free camera is on.
+    // class that CameraTools drives from OnLateUpdate and OnGUI while the free camera is on.
     public class Freecam
     {
         private readonly Transform transform;
@@ -16,6 +16,7 @@ namespace CameraTools
             window = new Action<int>(CameraWindow);
         }
 
+        private const float PadLookSpeed = 120f;
         private float speedModifier = 10;
         private float lookSensitivity = 1;
         private float fovSpeed = 0.5f;
@@ -96,6 +97,13 @@ namespace CameraTools
                 {
                     GUILayout.Width(50)
                 };
+
+                GUILayout.Space(20);
+
+                GUILayout.Label($"Controller: {(Gamepad.Connected ? Controls.Owner.ToString() : "not connected")}", new GUILayoutOption[0]);
+                bool maxDetail = GUILayout.Toggle(Lod.MaxDetail, "Max detail", new GUILayoutOption[0]);
+                if (maxDetail != Lod.MaxDetail)
+                    Lod.SetMaxDetail(maxDetail);
 
                 GUILayout.Space(20);
 
@@ -228,7 +236,7 @@ namespace CameraTools
             SetFieldOfView(gameFov);
         }
 
-        // Genshin's own camera system rewrites the camera every frame after OnUpdate, so the pose is kept here
+        // Genshin's own camera system rewrites the camera every frame after OnLateUpdate, so the pose is kept here
         // and written again right before the camera renders.
         public void Apply()
         {
@@ -248,13 +256,12 @@ namespace CameraTools
 
         public void Update()
         {
-            if (Focused)
-                UpdateInput();
+            UpdateInput(Focused);
 
-            if (Input.GetKeyDown(keyFocus))
+            if (Controls.Pressed(CamAction.ToggleCursorFocus))
                 Focused = Focused == false;
 
-            if (Input.GetKeyDown(keyGUI))
+            if (Controls.Pressed(CamAction.ToggleGUI))
                 TogglePanel();
 
             // Limiters
@@ -278,48 +285,43 @@ namespace CameraTools
                 Time.timeScale = 0f;
         }
 
-        public void UpdateInput()
+        // Keyboard and mouse only count while the cursor is focused on the game; the controller always counts.
+        public void UpdateInput(bool keyboard)
         {
-            // Update the target rotation based on mouse input
-            var mouseInput = new Vector2(Input.GetAxis("Mouse X"), Input.GetAxis("Mouse Y") * -1);
-            targetRotation.yaw += mouseInput.x * GetSpeed(lookSensitivity);
-            targetRotation.pitch += mouseInput.y * GetSpeed(lookSensitivity);
+            if (keyboard)
+            {
+                var mouseInput = new Vector2(Input.GetAxis("Mouse X"), Input.GetAxis("Mouse Y") * -1);
+                targetRotation.yaw += mouseInput.x * GetSpeed(lookSensitivity);
+                targetRotation.pitch += mouseInput.y * GetSpeed(lookSensitivity);
+            }
+            // Degrees per second at full deflection, on unscaled time so the stick still turns while the game is paused.
+            var (lookX, lookY) = Controls.Look;
+            float lookRate = GetSpeed(PadLookSpeed * lookSensitivity) * Time.unscaledDeltaTime;
+            targetRotation.yaw += lookX * lookRate;
+            targetRotation.pitch -= lookY * lookRate;
 
             var rotation = Quaternion.Euler(currentRotation.pitch, currentRotation.yaw, currentRotation.roll);
             var forward = rotation * Vector3.forward;
             var right = rotation * Vector3.right;
             var up = rotation * Vector3.up;
 
-            // Roll camera
-            if (Input.GetKey(keyRollLeft))
+            if (Controls.Held(CamAction.RollLeft, keyboard))
                 targetRotation.roll += GetSpeed(rollSpeed);
-            if (Input.GetKey(keyRollRight))
+            if (Controls.Held(CamAction.RollRight, keyboard))
                 targetRotation.roll -= GetSpeed(rollSpeed);
-            if (Input.GetKey(keyRollReset))
+            if (Controls.Held(CamAction.ResetRoll, keyboard))
                 targetRotation.roll = 0;
 
-            // Lateral Movement
-            if (Input.GetKey(keyForward))
-                targetPosition += forward * GetSpeed(moveSpeed);
-            if (Input.GetKey(keyLeft))
-                targetPosition -= right * GetSpeed(moveSpeed);
-            if (Input.GetKey(keyBack))
-                targetPosition -= forward * GetSpeed(moveSpeed);
-            if (Input.GetKey(keyRight))
-                targetPosition += right * GetSpeed(moveSpeed);
+            float speed = GetSpeed(moveSpeed);
+            targetPosition += forward * ((Controls.Value(CamAction.Forward, keyboard) - Controls.Value(CamAction.Back, keyboard)) * speed);
+            targetPosition += right * ((Controls.Value(CamAction.Right, keyboard) - Controls.Value(CamAction.Left, keyboard)) * speed);
+            targetPosition += up * ((Controls.Value(CamAction.Up, keyboard) - Controls.Value(CamAction.Down, keyboard)) * speed);
 
-            // Vertical movement
-            if (Input.GetKey(keyUp))
-                targetPosition += up * GetSpeed(moveSpeed);
-            if (Input.GetKey(keyDown))
-                targetPosition -= up * GetSpeed(moveSpeed);
-
-            // FOV
-            if (Input.GetKey(keyFovDec))
+            if (Controls.Held(CamAction.DecreaseFOV, keyboard))
                 targetFov -= GetSpeed(fovSpeed);
-            if (Input.GetKey(keyFovInc))
+            if (Controls.Held(CamAction.IncreaseFOV, keyboard))
                 targetFov += GetSpeed(fovSpeed);
-            if (Input.GetKeyDown(keyFovReset))
+            if (Controls.Pressed(CamAction.ResetFOV, keyboard))
                 targetFov = 45f;
         }
 
@@ -329,13 +331,14 @@ namespace CameraTools
             smoothFOV = Mathf.Lerp(smoothFOV, targetFov, smoothSpeed);
             currentRotation.LerpTowards(targetRotation, smoothSpeed);
             Apply();
+            Lod.Sync(smoothPosition, Quaternion.Euler(currentRotation.pitch, currentRotation.yaw, currentRotation.roll), smoothFOV);
         }
 
         private float GetSpeed(float movementSpeed)
         {
-            if (Input.GetKey(keyFast))
+            if (Controls.Held(CamAction.FastMovement))
                 return movementSpeed * speedModifier;
-            if (Input.GetKey(keySlow))
+            if (Controls.Held(CamAction.SlowMovement))
                 return movementSpeed / speedModifier;
             return movementSpeed;
         }
