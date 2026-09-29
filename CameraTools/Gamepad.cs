@@ -92,6 +92,16 @@ namespace CameraTools
             return true;
         }
 
+        // The text TryParse reads back, with the Back modifier first as the defaults write it.
+        public override string ToString()
+        {
+            var chord = Chord;
+            return Axis != PadAxis.None ? Axis.ToString()
+                : string.Join("+", Enum.GetValues<PadButtons>()
+                    .Where(button => button != PadButtons.None && (chord & button) != 0)
+                    .OrderBy(button => button != PadButtons.Back));
+        }
+
         public float Value(PadState state) => Axis != PadAxis.None ? state.Axis(Axis) : Held(state) ? 1f : 0f;
 
         // Back is a modifier: a chord with Back needs it held, and a chord without Back is silent while it is.

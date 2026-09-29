@@ -7,11 +7,15 @@ namespace CameraTools
 {
     public class CameraTools : MelonMod
     {
+        public static readonly CameraSettings settings = new();
+        // The speed that unpausing returns to; it is never 0.
         public static float lastTimeScale = 1.0f;
-        public GameObject hud;
-        public GameObject uid;
+        public static GameObject uid;
+        // Hide UI clears the screen: the game HUD with the free camera off, CameraTools' UI with it on (the free camera
+        // already hides the HUD), and the UID either way.
+        public static bool uiHidden;
         public GameObject hp;
-        public GameObject damage;
+        public static GameObject damage;
         public static GameObject camera;
         public static CinemachineBrain brain;
         public static Camera maincam;
@@ -23,8 +27,6 @@ namespace CameraTools
         private static bool callbacksRegistered;
         private static bool preCullSeen;
         private static readonly HashSet<string> logged = new();
-        private static string toast;
-        private static float toastUntil;
 
         public override void OnInitializeMelon()
         {
@@ -65,10 +67,7 @@ namespace CameraTools
             }
             if (Controls.Pressed(CamAction.ToggleHUD))
             {
-                if (hud)
-                    hud.SetActive(!hud.activeInHierarchy);
-                if (uid)
-                    uid.SetActive(!uid.activeInHierarchy);
+                SetUiHidden(!uiHidden);
             }
             if (Controls.Pressed(CamAction.RemoveHP))
             {
@@ -76,7 +75,7 @@ namespace CameraTools
             }
             if (Controls.Pressed(CamAction.ToggleDamage))
             {
-                ToggleDamage();
+                DamageNumbers = !DamageNumbers;
             }
             if (Controls.Pressed(CamAction.ToggleFreecam))
             {
@@ -86,14 +85,14 @@ namespace CameraTools
             {
                 Lod.SetMaxDetail(!Lod.MaxDetail);
             }
+            float speed = Time.timeScale;
             if (Controls.Pressed(CamAction.TogglePause))
             {
-                Time.timeScale = Time.timeScale != 0.0f ? 0.0f : lastTimeScale;
+                SetPaused(Time.timeScale != 0.0f);
             }
             if (Controls.Pressed(CamAction.ResetSpeed))
             {
-                Time.timeScale = 1.0f;
-                lastTimeScale = Time.timeScale;
+                SetGameSpeed(1.0f);
             }
             if (Controls.Pressed(CamAction.ToggleSpeedTo5))
             {
@@ -101,27 +100,26 @@ namespace CameraTools
             }
             if (Controls.Pressed(CamAction.SpeedInc1))
             {
-                Time.timeScale += 0.1f;
-                lastTimeScale = Time.timeScale;
+                SetGameSpeed(Time.timeScale + 0.1f);
             }
             if (Controls.Pressed(CamAction.SpeedDec1))
             {
-                Time.timeScale -= 0.1f;
-                lastTimeScale = Time.timeScale;
+                SetGameSpeed(Time.timeScale - 0.1f);
             }
             if (Controls.Pressed(CamAction.SpeedDec5))
             {
-                Time.timeScale -= 0.5f;
-                lastTimeScale = Time.timeScale;
+                SetGameSpeed(Time.timeScale - 0.5f);
             }
             if (Controls.Pressed(CamAction.SpeedInc5))
             {
-                Time.timeScale += 0.5f;
-                lastTimeScale = Time.timeScale;
+                SetGameSpeed(Time.timeScale + 0.5f);
             }
-            if (Time.timeScale < 0)
-                Time.timeScale = 0;
+            if (Time.timeScale != speed)
+                CameraUi.Toast(Time.timeScale == 0.0f ? "Paused" : $"Game speed {Time.timeScale:0.##}x");
 
+            // After the hotkeys, so the key that closes the settings panel does not also fire its camera action.
+            CameraUi.Update();
+            GameHud.Update(freecamActive || uiHidden);
             Lod.Update();
 
             if (freecamActive && !camera)
@@ -140,10 +138,30 @@ namespace CameraTools
 
         public override void OnGUI()
         {
-            if (freecamActive)
-                freecam.OnGUI();
-            if (Time.unscaledTime < toastUntil)
-                GUI.Box(new Rect(Screen.width / 2f - 120f, 40f, 240f, 28f), toast);
+            string toast = CameraUi.FallbackToast;
+            if (toast != null)
+                GUI.Box(new Rect(Screen.width / 2f - 180f, 40f, 360f, 28f), toast);
+        }
+
+        internal static void SetUiHidden(bool hidden)
+        {
+            uiHidden = hidden;
+            if (!uid)
+                uid = Find("/BetaWatermarkCanvas(Clone)/Panel");
+            if (uid)
+                uid.SetActive(!hidden);
+        }
+
+        internal static void SetGameSpeed(float speed)
+        {
+            Time.timeScale = Math.Max(speed, 0.0f);
+            if (Time.timeScale > 0.0f)
+                lastTimeScale = Time.timeScale;
+        }
+
+        internal static void SetPaused(bool paused)
+        {
+            Time.timeScale = paused ? 0.0f : lastTimeScale;
         }
 
         private void RemoveHP()
@@ -152,17 +170,16 @@ namespace CameraTools
                 hp.SetActive(false);
         }
 
-        private void ToggleDamage()
+        // Reads as shown until the container is found, because the game shows damage numbers by default.
+        internal static bool DamageNumbers
         {
-            if (damage)
+            get => !damage || damage.activeSelf;
+            set
             {
-                damage.SetActive(!damage.activeInHierarchy);
-            }
-            else
-            {
-                damage = Find("/Canvas/Pages/InLevelMainPage/GrpMainPage/ParticleDamageTextContainer");
+                if (!damage)
+                    damage = Find("/Canvas/Pages/InLevelMainPage/GrpMainPage/ParticleDamageTextContainer");
                 if (damage)
-                    damage.SetActive(!damage.activeInHierarchy);
+                    damage.SetActive(value);
             }
         }
 
@@ -180,6 +197,7 @@ namespace CameraTools
                 freecam.OnEnable();
             else
                 freecam.OnDisable();
+            CameraUi.FreecamChanged(freecamActive);
             // Cinemachine moves the game camera every frame; pausing it hands the camera to the free camera,
             // and resuming it puts the camera back where the game wants it.
             if (brain)
@@ -214,8 +232,7 @@ namespace CameraTools
                 LogOnce($"Controller: EnablePlayerInput({gameInput}, false) failed: {e.Message}");
             }
             Gamepad.Rumble();
-            toast = $"Controller: {owner}";
-            toastUntil = Time.unscaledTime + 2f;
+            CameraUi.Toast($"Controller: {owner}");
         }
 
         internal static void LogOnce(string message)
@@ -226,8 +243,6 @@ namespace CameraTools
 
         private void InjectFreecam()
         {
-            hud = Find("/UICamera");
-            uid = Find("/BetaWatermarkCanvas(Clone)/Panel");
             camera = Find("/EntityRoot/MainCamera(Clone)");
             if (!camera)
                 return;
@@ -279,11 +294,11 @@ namespace CameraTools
         }
 
         // These paths date from an older game version; name any that no longer exist.
-        private GameObject Find(string path)
+        private static GameObject Find(string path)
         {
             GameObject found = GameObject.Find(path);
             if (!found)
-                LoggerInstance.Warning($"{path} was not found in the current scene.");
+                Melon<CameraTools>.Logger.Warning($"{path} was not found in the current scene.");
             return found;
         }
     }

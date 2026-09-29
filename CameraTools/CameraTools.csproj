@@ -20,6 +20,8 @@
     <Reference Include="$(Il2CppAssemblies)\UnityEngine.CoreModule.dll" Private="false" />
     <Reference Include="$(Il2CppAssemblies)\UnityEngine.IMGUIModule.dll" Private="false" />
     <Reference Include="$(Il2CppAssemblies)\UnityEngine.UIModule.dll" Private="false" />
+    <Reference Include="$(Il2CppAssemblies)\UnityEngine.AnimationModule.dll" Private="false" />
+    <Reference Include="$(Il2CppAssemblies)\UnityEngine.UI.dll" Private="false" />
     <Reference Include="$(Il2CppAssemblies)\Assembly-CSharp-firstpass.dll" Private="false" />
     <Reference Include="$(Il2CppAssemblies)\Assembly-CSharp.dll" Private="false" />
     <Reference Include="$(Il2CppAssemblies)\UnityEngine.MiHoYoExtensionModule.dll" Private="false" />

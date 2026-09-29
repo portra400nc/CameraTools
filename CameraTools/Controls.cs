@@ -89,7 +89,8 @@ namespace CameraTools
         // While the game owns the pad, only the L3+R3 switch is read from it.
         public static PadOwner Owner { get; set; }
 
-        private static bool PadActive => Owner == PadOwner.CameraTools;
+        // While the settings panel is open it reads the pad itself, so the camera ignores the pad.
+        private static bool PadActive => Owner == PadOwner.CameraTools && CameraUi.View != View.Panel;
 
         public static void Load()
         {
@@ -115,6 +116,8 @@ namespace CameraTools
                 throw new InvalidOperationException("Controls.Defaults is missing a CamAction.");
             MelonPreferences.Save();
         }
+
+        public static (KeyCode Key, PadBinding Pad) Binding(CamAction action) => (keys[(int)action], pads[(int)action]);
 
         public static bool OwnerSwitchPressed => OwnerSwitch.Pressed(Gamepad.Current, Gamepad.Previous);
 
