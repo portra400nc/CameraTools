@@ -58,6 +58,8 @@ namespace CameraTools
             new ToggleRow("Lock time of day", () => TimeOfDay.Locked, TimeOfDay.SetLocked),
             new SliderRow("Time", 0f, 24f, 0.25f, "0.00", () => TimeOfDay.Hour, TimeOfDay.SetHour, Display: TimeOfDay.Clock),
             new SliderRow("Time-lapse speed", 0f, 120f, 1f, "0'×'", () => TimeOfDay.Speed, TimeOfDay.SetSpeed),
+            new Section("Weather"),
+            new ChoiceRow("Weather", Weather.Labels, () => Weather.Choice, Weather.SetChoice, null),
         });
 
         // The Graphics tab's game settings rows depend on the option lists the game offers on this machine, so the tabs are

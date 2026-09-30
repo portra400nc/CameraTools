@@ -9,6 +9,7 @@
  - Smooth camera movement (damping)
  - Change graphics settings and resolution while in free cam
  - Lock the time of day or run a time-lapse (only your screen changes; the world's time and other players are unaffected)
+ - Override the weather with sunny, cloudy, rain, thunderstorm, snow, or mist (only your screen changes; the world's weather and other players are unaffected)
  - Configurable hotkeys
  - Controller support (XInput, including the Steam Deck)
 

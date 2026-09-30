@@ -123,6 +123,7 @@ namespace CameraTools
             Lod.Update();
             Graphics.Update();
             TimeOfDay.Update();
+            Weather.Update();
 
             if (freecamActive && !camera)
             {
