@@ -1,5 +1,7 @@
 using Il2CppInterop.Runtime;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using UnityEngine;
+using UnityEngine.U2D;
 
 namespace CameraTools
 {
@@ -16,6 +18,11 @@ namespace CameraTools
         private const float HealthInterval = 1f;
         private const float ResolutionSettle = 1f;
         private const string GlyphPrefix = "UI_KeyXbox_";
+
+        // The game loads a sprite only when some UI shows it (Start's glyph came minutes after the others), and a teleport
+        // unloaded every sprite of the photo mode page's atlas. A loaded atlas hands out copies of all its sprites, so these
+        // atlases are read first; whether the copies outlive the game's unload shows in the "unloaded" log line.
+        private static readonly string[] Atlases = { "ui_atlas_key_xbox", "ui_sprite_photograph_page" };
 
         // All but Start are confirmed on the Deck; Start follows the naming of Back, LB and RB.
         private static readonly (PadButtons Button, string Sprite)[] Glyphs =
@@ -152,6 +159,28 @@ namespace CameraTools
             wanted ??= layout.RequiredSprites.Concat(layout.OptionalSprites).Concat(Glyphs.Select(glyph => glyph.Sprite))
                 .ToHashSet(StringComparer.Ordinal);
             float started = Time.realtimeSinceStartup;
+            foreach (var item in Resources.FindObjectsOfTypeAll(Il2CppType.Of<SpriteAtlas>()))
+            {
+                if (!Atlases.Contains(item.name))
+                    continue;
+                var atlas = item.TryCast<SpriteAtlas>();
+                var copies = new Il2CppReferenceArray<Sprite>(atlas.spriteCount);
+                atlas.GetSprites(copies);
+                int taken = 0;
+                foreach (var copy in copies)
+                {
+                    if (!copy)
+                        continue;
+                    string name = copy.name.EndsWith("(Clone)", StringComparison.Ordinal) ? copy.name[..^"(Clone)".Length] : copy.name;
+                    if (wanted.Contains(name) && !Sprite(name))
+                    {
+                        sprites[name] = copy;
+                        Version++;
+                        taken++;
+                    }
+                }
+                CameraTools.LogOnce($"UI: the {atlas.name} atlas has {copies.Length} sprites; CameraTools took {taken} copies.");
+            }
             var found = Resources.FindObjectsOfTypeAll(Il2CppType.Of<Sprite>());
             var xbox = new SortedSet<string>(StringComparer.Ordinal);
             foreach (var item in found)
