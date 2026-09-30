@@ -8,6 +8,7 @@ namespace CameraTools
     {
         Inject,
         ToggleFreecam,
+        // Apply resolution slots 2 and 1.
         SetResolutionTo4K,
         SetResolutionTo1080p,
         ToggleHUD,
@@ -101,6 +102,9 @@ namespace CameraTools
         // owns the pad.
         public static InputDevice Layout => Owner == PadOwner.CameraTools && lastUsed == InputDevice.Pad ? InputDevice.Pad : InputDevice.Keyboard;
 
+        // While a text field takes typing, the keyboard fires no actions, so typing 8 does not narrow the field of view.
+        public static bool TextCapture { get; set; }
+
         // While the settings panel is open it reads the pad itself, so the camera ignores the pad.
         private static bool PadActive => Owner == PadOwner.CameraTools && CameraUi.View != View.Panel;
 
@@ -133,7 +137,7 @@ namespace CameraTools
         // RB switched the hints to the keyboard until release, so a held button or tilted stick counts as pad use every frame.
         public static void Update()
         {
-            if (Input.anyKeyDown || Input.GetAxis("Mouse X") != 0f || Input.GetAxis("Mouse Y") != 0f)
+            if (!TextCapture && Input.anyKeyDown || Input.GetAxis("Mouse X") != 0f || Input.GetAxis("Mouse Y") != 0f)
                 lastUsed = InputDevice.Keyboard;
             if (Gamepad.Current != Gamepad.Previous || Gamepad.Current != default)
                 lastUsed = InputDevice.Pad;
@@ -147,15 +151,15 @@ namespace CameraTools
             => PadActive ? (Gamepad.Current.RightX, Gamepad.Current.RightY) : (0f, 0f);
 
         public static bool Pressed(CamAction action, bool keyboard = true)
-            => keyboard && Input.GetKeyDown(keys[(int)action])
+            => keyboard && !TextCapture && Input.GetKeyDown(keys[(int)action])
                 || PadActive && pads[(int)action].Pressed(Gamepad.Current, Gamepad.Previous);
 
         public static bool Held(CamAction action, bool keyboard = true)
-            => keyboard && Input.GetKey(keys[(int)action])
+            => keyboard && !TextCapture && Input.GetKey(keys[(int)action])
                 || PadActive && pads[(int)action].Held(Gamepad.Current);
 
         public static float Value(CamAction action, bool keyboard = true)
-            => keyboard && Input.GetKey(keys[(int)action]) ? 1f
+            => keyboard && !TextCapture && Input.GetKey(keys[(int)action]) ? 1f
                 : PadActive ? pads[(int)action].Value(Gamepad.Current) : 0f;
     }
 }

@@ -21,9 +21,12 @@ namespace CameraTools
         private const float ReferenceHeight = 800f;
         // Wider than any legend, which packs its hints against one end.
         private const float LegendWidth = 1200f;
+        // "16384x16384", the largest size a slot takes.
+        private const int MaxTyped = 11;
 
         private static readonly PadBinding PadA = new(PadButtons.A, PadAxis.None);
         private static readonly PadBinding PadB = new(PadButtons.B, PadAxis.None);
+        private static readonly PadBinding PadY = new(PadButtons.Y, PadAxis.None);
         private static readonly PadBinding PadLB = new(PadButtons.LB, PadAxis.None);
         private static readonly PadBinding PadRB = new(PadButtons.RB, PadAxis.None);
         private static readonly PadBinding DpadUp = new(PadButtons.DpadUp, PadAxis.None);
@@ -32,6 +35,14 @@ namespace CameraTools
         private static readonly PadBinding DpadRight = new(PadButtons.DpadRight, PadAxis.None);
         private static readonly PadBinding StickUp = new(PadButtons.None, PadAxis.LeftStickUp);
         private static readonly PadBinding StickDown = new(PadButtons.None, PadAxis.LeftStickDown);
+
+        // The game's build has no Input.inputString, so typing is read key by key: digits from both rows, and x or the keypad's
+        // * between the width and the height.
+        private static readonly (KeyCode Key, char Typed)[] TypedKeys = Enumerable.Range(0, 10)
+            .SelectMany(digit => new[] { (KeyCode.Alpha0 + digit, (char)('0' + digit)), (KeyCode.Keypad0 + digit, (char)('0' + digit)) })
+            .Append((KeyCode.X, 'x'))
+            .Append((KeyCode.KeypadMultiply, 'x'))
+            .ToArray();
 
         private static readonly Repeater up = new(), down = new(), left = new(), right = new();
         private static Live live;
@@ -46,6 +57,7 @@ namespace CameraTools
         private static float toastUntil;
         private static Vector2 lastMouse;
         private static SliderView dragging;
+        private static ResolutionView editing;
 
         public static View View => !CameraTools.freecamActive || CameraTools.uiHidden ? View.Hidden : panelOpen ? View.Panel : View.Hud;
 
@@ -62,6 +74,7 @@ namespace CameraTools
 
         public static void FreecamChanged(bool active)
         {
+            StopEditing();
             panelOpen = false;
             hintPending = active;
         }
@@ -134,11 +147,12 @@ namespace CameraTools
                 scaler.referenceResolution = V(ReferenceWidth, ReferenceHeight);
                 scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.Expand;
                 scaler.referencePixelsPerUnit = 100f;
-                var built = new Live { Root = root, Font = font };
+                var built = new Live { Root = root, Font = font, MissingSettings = !Graphics.HasSettings };
+                var model = UiModel.Tabs();
                 BuildHud(ui, built, root.transform);
-                BuildPanel(ui, built, root.transform);
+                BuildPanel(ui, built, root.transform, model);
                 BuildToast(ui, built, root.transform);
-                ShowTab(Math.Min(tab, UiModel.Tabs.Length - 1), built);
+                ShowTab(Math.Min(tab, model.Length - 1), built);
                 built.ShownTab = tab;
                 for (int index = 0; index < built.Tabs.Length; index++)
                 {
@@ -188,7 +202,7 @@ namespace CameraTools
             return new Legend(ui.PadHint(row, pad, hint.Label), pad != default, ui.KeyHint(row, key, hint.Label), key != KeyCode.None);
         }
 
-        private static void BuildPanel(Builder ui, Live target, Transform root)
+        private static void BuildPanel(Builder ui, Live target, Transform root, Tab[] model)
         {
             var panel = Node("Panel", root);
             Place(panel, V(0f, 0f), V(0f, 1f), V(0f, 0.5f), V(0f, 0f), V(Style.PanelWidth, 0f));
@@ -214,39 +228,52 @@ namespace CameraTools
             Fill(target.Strip);
             target.StripGroup = Flow(target.Strip.gameObject, Style.TabGap, TextAnchor.MiddleCenter);
 
+            // The list is a viewport: a tab taller than the panel scrolls inside it, clipped to it.
             target.List = Node("List", panel);
             Place(target.List, V(0f, 0f), V(1f, 1f), V(0.5f, 0.5f), V(0f, (Style.FooterHeight - Style.TabBarHeight) / 2f),
                 V(0f, -Style.FooterHeight - Style.TabBarHeight));
-            var rows = Node("Rows", panel);
-            TopLeft(rows, 0f, Style.ListTop, Style.PanelWidth, 0f);
+            target.List.gameObject.AddComponent<RectMask2D>();
+            var rows = Node("Rows", target.List);
+            TopLeft(rows, 0f, Style.ListPadding, Style.PanelWidth, 0f);
             target.Rows = rows.gameObject.AddComponent<CanvasGroup>();
-            target.Tabs = UiModel.Tabs.Select(model =>
+            target.Tabs = model.Select(tabModel =>
             {
-                var view = ui.Tab(target.Strip, model.Name);
-                var tabRows = Node(model.Name, rows);
+                var view = ui.Tab(target.Strip, tabModel.Name);
+                var tabRows = Node(tabModel.Name, rows);
                 TopLeft(tabRows, 0f, 0f, Style.PanelWidth, 0f);
                 view.Rows = tabRows.gameObject;
+                view.RowsRect = tabRows;
                 float y = 0f;
-                foreach (var row in model.Rows)
+                foreach (var row in tabModel.Rows)
                 {
                     RowView built = row switch
                     {
                         Section section => ui.Section(tabRows, section, y),
                         SliderRow slider => ui.Slider(tabRows, slider, y),
                         ToggleRow toggle => ui.Toggle(tabRows, toggle, y),
+                        ChoiceRow choice => ui.Choice(tabRows, choice, y),
+                        ActionRow action => ui.Action(tabRows, action, y),
+                        ResolutionRow resolution => ui.Resolution(tabRows, resolution, y),
                         _ => throw new InvalidOperationException($"No widget for {row.GetType().Name}."),
                     };
-                    y += built.Rect.sizeDelta.y;
+                    built.Top = y;
+                    built.Height = built.Rect.sizeDelta.y;
+                    y += built.Height;
                     view.RowViews.Add(built);
                 }
+                view.Height = y;
                 return view;
             }).ToArray();
+            target.Thumb = Picture(target.List, "Thumb", Shapes.Bar, Style.Thumb).rectTransform;
+            target.Thumb.gameObject.SetActive(false);
 
             var footer = HintRow(panel, "Footer", TextAnchor.MiddleCenter);
             Place(footer, V(0f, 0f), V(1f, 0f), V(0.5f, 0f), V(0f, Style.FooterBottom), V(0f, Style.HintHeight));
             target.Footer = footer.gameObject;
             target.Change = ui.PadHint(footer, PadA, "On");
-            ui.PadHint(footer, PadB, "Return");
+            target.Steps = ui.GlyphHint(footer, PadButtons.DpadLeft | PadButtons.DpadRight, "Change");
+            target.Edit = ui.PadHint(footer, PadY, "Edit");
+            target.Return = ui.PadHint(footer, PadB, "Return");
         }
 
         private static void BuildToast(Builder ui, Live target, Transform root)
@@ -266,9 +293,39 @@ namespace CameraTools
 
         private static void ShowTab(int index, Live target)
         {
+            StopEditing();
             tab = index;
             dragging = null;
             selected = target.Tabs[index].RowViews.FindIndex(view => view.Row is not Section);
+            ScrollTo(target, target.Tabs[index], 0f);
+        }
+
+        private static float ViewHeight(Live target) => target.List.rect.height - 2f * Style.ListPadding;
+
+        private static void ScrollTo(Live target, TabView view, float scroll)
+        {
+            scroll = Math.Clamp(scroll, 0f, Math.Max(view.Height - ViewHeight(target), 0f));
+            if (scroll == view.Scroll)
+                return;
+            view.Scroll = scroll;
+            TopLeft(view.RowsRect, 0f, -scroll, Style.PanelWidth, 0f);
+        }
+
+        // The section header right above the selected row comes into view with it.
+        private static void Reveal()
+        {
+            if (selected < 0)
+                return;
+            var view = live.Tabs[tab];
+            var rows = view.RowViews;
+            var row = rows[selected];
+            float top = selected > 0 && rows[selected - 1].Row is Section ? rows[selected - 1].Top : row.Top;
+            float bottom = row.Top + row.Height;
+            float height = ViewHeight(live);
+            if (top < view.Scroll)
+                ScrollTo(live, view, top);
+            else if (bottom > view.Scroll + height)
+                ScrollTo(live, view, bottom - height);
         }
 
         private static List<RowView> CurrentRows => live.Tabs[tab].RowViews;
@@ -284,19 +341,36 @@ namespace CameraTools
                 // Opening the panel brings back a hidden UI.
                 if (CameraTools.uiHidden)
                     CameraTools.SetUiHidden(false);
+                if (!panelOpen)
+                    BuildSettingRows();
                 SetPanel(!panelOpen);
                 return;
             }
             if (panelOpen && CameraTools.uiHidden)
                 SetPanel(false);
+            if (editing != null)
+                Type();
             if (panelOpen && padOwned)
                 Navigate();
             if (panelOpen && !Freecam.Focused)
                 HandleMouse();
         }
 
+        // The game's option lists may not be readable yet when its font first loads, so the UI is built again once they are.
+        private static void BuildSettingRows()
+        {
+            if (!live.MissingSettings || !Graphics.HasSettings)
+                return;
+            var font = live.Font;
+            live.Root.SetActive(false);
+            Object.Destroy(live.Root);
+            live = Build(font);
+            CameraTools.LogOnce("UI: rebuilt the CameraTools UI now that the game's settings can be read.");
+        }
+
         private static void SetPanel(bool open)
         {
+            StopEditing();
             panelOpen = open;
             dragging = null;
             Freecam.Focused = !open;
@@ -313,12 +387,20 @@ namespace CameraTools
         {
             var now = Gamepad.Current;
             var before = Gamepad.Previous;
+            if (editing != null)
+            {
+                if (PadA.Pressed(now, before))
+                    Commit();
+                else if (PadB.Pressed(now, before))
+                    StopEditing();
+                return;
+            }
             if (PadB.Pressed(now, before))
             {
                 SetPanel(false);
                 return;
             }
-            int tabs = UiModel.Tabs.Length;
+            int tabs = live.Tabs.Length;
             if (PadLB.Pressed(now, before))
                 ShowTab((tab + tabs - 1) % tabs, live);
             if (PadRB.Pressed(now, before))
@@ -327,19 +409,43 @@ namespace CameraTools
             int move = up.Fire(DpadUp.Held(now) || StickUp.Held(now)) ? -1
                 : down.Fire(DpadDown.Held(now) || StickDown.Held(now)) ? 1 : 0;
             if (move != 0)
+            {
                 selected = NextRow(move);
+                Reveal();
+            }
 
             bool stepRight = right.Fire(DpadRight.Held(now));
             bool stepLeft = left.Fire(DpadLeft.Held(now));
+            // Choices and slots change once per press: each game setting change is saved, and each slot change is written
+            // to MelonPreferences.cfg.
+            bool pressRight = DpadRight.Pressed(now, before);
+            bool pressLeft = DpadLeft.Pressed(now, before);
+            bool pressA = PadA.Pressed(now, before);
             if (selected < 0)
                 return;
-            switch (CurrentRows[selected].Row)
+            var view = CurrentRows[selected];
+            switch (view.Row)
             {
-                case ToggleRow toggle when PadA.Pressed(now, before) || DpadLeft.Pressed(now, before) || DpadRight.Pressed(now, before):
+                case ToggleRow toggle when pressA || pressLeft || pressRight:
                     toggle.Set(!toggle.Get());
                     break;
                 case SliderRow slider when stepLeft != stepRight:
                     Step(slider, stepRight ? 1 : -1);
+                    break;
+                case ChoiceRow choice when pressLeft != pressRight:
+                    Choose(choice, pressRight ? 1 : -1);
+                    break;
+                case ActionRow action when pressA:
+                    action.Run();
+                    break;
+                case ResolutionRow slot when pressA:
+                    Graphics.ApplySlot(slot.Slot);
+                    break;
+                case ResolutionRow slot when pressLeft != pressRight:
+                    Graphics.CycleSlot(slot.Slot, pressRight ? 1 : -1);
+                    break;
+                case ResolutionRow when PadY.Pressed(now, before):
+                    StartEditing((ResolutionView)view);
                     break;
             }
         }
@@ -356,6 +462,67 @@ namespace CameraTools
         private static void Step(SliderRow slider, int direction)
             => slider.Set(Math.Clamp(slider.Get() + direction * slider.Step, slider.Min, slider.Max));
 
+        private static void Choose(ChoiceRow choice, int direction)
+        {
+            int now = choice.Get();
+            int next = Math.Clamp(now + direction, 0, choice.Options.Length - 1);
+            if (next != now)
+                choice.Set(next);
+        }
+
+        private static void StartEditing(ResolutionView view)
+        {
+            if (editing == view)
+                return;
+            StopEditing();
+            editing = view;
+            view.Buffer = "";
+            Controls.TextCapture = true;
+            // The game reads the keyboard under the free camera too, and 1 to 4 would switch party members.
+            CameraTools.SetPlayerInput(false, "Typing");
+        }
+
+        private static void StopEditing()
+        {
+            if (editing == null)
+                return;
+            editing.Buffer = null;
+            editing = null;
+            Controls.TextCapture = false;
+            CameraTools.SetPlayerInput(Controls.Owner == PadOwner.Game, "Typing");
+        }
+
+        private static void Type()
+        {
+            foreach (var (key, typed) in TypedKeys)
+                if (Input.GetKeyDown(key) && editing.Buffer.Length < MaxTyped)
+                    editing.Buffer += typed;
+            if (Input.GetKeyDown(KeyCode.Backspace) && editing.Buffer.Length > 0)
+                editing.Buffer = editing.Buffer[..^1];
+            if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
+                Commit();
+            else if (Input.GetKeyDown(KeyCode.Escape))
+                StopEditing();
+        }
+
+        // An empty field keeps the slot as it was.
+        private static void Commit()
+        {
+            var view = editing;
+            string text = view.Buffer;
+            StopEditing();
+            if (text.Length == 0)
+                return;
+            int slot = ((ResolutionRow)view.Row).Slot;
+            if (!ScreenSize.TryParse(text, out var size))
+            {
+                Toast($"Type a size like 2560x1600, from {ScreenSize.MinWidth}x{ScreenSize.MinHeight} to {ScreenSize.MaxSide}x{ScreenSize.MaxSide}");
+                return;
+            }
+            Graphics.SetSlot(slot, size);
+            Toast($"Slot {slot}: {size.Display}");
+        }
+
         // Nothing on the canvas is visible to the game's EventSystem, so CameraTools hit-tests the mouse itself. An overlay
         // canvas maps screen points without a camera.
         private static void HandleMouse()
@@ -368,9 +535,12 @@ namespace CameraTools
             int row = RowAt(point);
             if (moved && row >= 0 && dragging == null)
                 selected = row;
+            // The wheel steps the slider under the pointer, and scrolls the list anywhere else in it.
             float wheel = Input.mouseScrollDelta.y;
             if (wheel != 0f && row >= 0 && CurrentRows[row].Row is SliderRow wheeled)
                 Step(wheeled, wheel > 0f ? 1 : -1);
+            else if (wheel != 0f && live.ShownTab == tab && Contains(live.List, point))
+                ScrollTo(live, live.Tabs[tab], live.Tabs[tab].Scroll - wheel * Style.WheelStep);
             if (Input.GetMouseButtonDown(0))
                 Click(point, row);
             if (dragging == null)
@@ -391,6 +561,9 @@ namespace CameraTools
 
         private static void Click(Vector2 point, int row)
         {
+            // Clicking anywhere but the field being typed in saves it, as leaving a text field does.
+            if (editing != null && !Contains(editing.Value.rectTransform, point))
+                Commit();
             int tabIndex = Array.FindIndex(live.Tabs, view => Contains(view.Button, point));
             bool back = live.Layout == InputDevice.Keyboard && Contains(live.Back, point);
             if (tabIndex < 0 && !back && row < 0)
@@ -408,11 +581,31 @@ namespace CameraTools
                 return;
             }
             selected = row;
-            var view = CurrentRows[row];
-            if (view.Row is ToggleRow toggle)
-                toggle.Set(!toggle.Get());
-            else if (view is SliderView slider && Contains(slider.Track, point))
-                dragging = slider;
+            // A slot's label only selects it: its size starts typing, and its button applies it.
+            switch (CurrentRows[row])
+            {
+                case ToggleView { Row: ToggleRow toggle }:
+                    toggle.Set(!toggle.Get());
+                    break;
+                case SliderView slider when Contains(slider.Track, point):
+                    dragging = slider;
+                    break;
+                case ActionView { Row: ActionRow action }:
+                    action.Run();
+                    break;
+                case ChoiceView { Row: ChoiceRow choice } stepper when Contains(stepper.Previous.rectTransform, point):
+                    Choose(choice, -1);
+                    break;
+                case ChoiceView { Row: ChoiceRow choice } stepper when Contains(stepper.Next.rectTransform, point):
+                    Choose(choice, 1);
+                    break;
+                case ResolutionView { Row: ResolutionRow slot } resolution when Contains(resolution.Apply, point):
+                    Graphics.ApplySlot(slot.Slot);
+                    break;
+                case ResolutionView resolution when Contains(resolution.Value.rectTransform, point):
+                    StartEditing(resolution);
+                    break;
+            }
         }
 
         // The interop passes ScreenPointToLocalPointInRectangle's out value by value, so the slider's ends are projected to
@@ -508,7 +701,10 @@ namespace CameraTools
                 live.RowsAlpha = alpha;
             }
 
-            var rows = live.Tabs[live.ShownTab].RowViews;
+            var shownTab = live.Tabs[live.ShownTab];
+            ScrollTo(live, shownTab, shownTab.Scroll);
+            RenderThumb(shownTab);
+            var rows = shownTab.RowViews;
             float step = opened || swapped ? 1f : deltaTime / Style.SwitchSlide;
             foreach (var row in rows)
                 row.Sync(step);
@@ -518,14 +714,40 @@ namespace CameraTools
                     rows[index].Select(index == selected);
                 live.ShownSelected = selected;
             }
-            // The footer names what A does to the selected row.
-            string change = selected >= 0 && CurrentRows[selected].Row is ToggleRow toggle ? toggle.Get() ? "Off" : "On" : null;
-            if (change == live.ChangeText)
+            // The footer names what the buttons do to the selected row.
+            var footer = editing != null ? new Footer("Save", false, false, "Cancel") : (selected >= 0 ? CurrentRows[selected].Row : null) switch
+            {
+                ToggleRow toggle => new Footer(toggle.Get() ? "Off" : "On", false, false, "Return"),
+                ActionRow action => new Footer(action.Hint, false, false, "Return"),
+                ChoiceRow => new Footer(null, true, false, "Return"),
+                ResolutionRow => new Footer("Apply", false, true, "Return"),
+                _ => new Footer(null, false, false, "Return"),
+            };
+            if (footer == live.FooterShown)
                 return;
-            live.Change.Root.SetActive(change != null);
-            if (change != null)
-                live.Change.Label.text = change;
-            live.ChangeText = change;
+            live.Change.Root.SetActive(footer.A != null);
+            if (footer.A != null)
+                live.Change.Label.text = footer.A;
+            live.Steps.Root.SetActive(footer.Steps);
+            live.Edit.Root.SetActive(footer.Edit);
+            live.Return.Label.text = footer.B;
+            live.FooterShown = footer;
+        }
+
+        private static void RenderThumb(TabView view)
+        {
+            float height = ViewHeight(live);
+            var shown = (view.Scroll, view.Height, height);
+            if (live.ThumbShown == shown)
+                return;
+            live.ThumbShown = shown;
+            bool scrolls = view.Height > height;
+            live.Thumb.gameObject.SetActive(scrolls);
+            if (!scrolls)
+                return;
+            float size = Math.Max(height * height / view.Height, Style.ThumbMin);
+            float t = view.Scroll / (view.Height - height);
+            Pin(live.Thumb, 1f, 1f, -Style.ThumbRight, -(Style.ListPadding + t * (height - size)), Style.ThumbWidth, size);
         }
 
         private static void RenderToast(float deltaTime)
@@ -564,6 +786,9 @@ namespace CameraTools
             }
         }
 
+        // A: what A does, or null. Steps: D-pad left and right change the row. Edit: Y starts typing. B: what B does.
+        private readonly record struct Footer(string A, bool Steps, bool Edit, string B);
+
         // A hint's controller and keyboard versions; only one shows, and only if the action has a binding for it.
         private sealed record Legend(HintView Pad, bool HasPad, HintView Key, bool HasKey);
 
@@ -585,6 +810,12 @@ namespace CameraTools
             public CanvasGroup Rows;
             public GameObject Footer;
             public HintView Change;
+            public HintView Steps;
+            public HintView Edit;
+            public HintView Return;
+            public RectTransform Thumb;
+            // The game's option lists could not be read when this UI was built, so its Graphics tab has no settings rows.
+            public bool MissingSettings;
             public Text ToastLabel;
             public View? Shown;
             public InputDevice? Layout;
@@ -593,7 +824,8 @@ namespace CameraTools
             public Tween RowsFade = new() { Value = 1f };
             public float RowsAlpha = 1f;
             public int ShownSelected = -1;
-            public string ChangeText = "";
+            public Footer? FooterShown;
+            public (float Scroll, float Height, float View)? ThumbShown;
             public string ToastText;
         }
     }

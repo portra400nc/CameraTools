@@ -69,6 +69,9 @@ namespace CameraTools
     {
         public Row Row;
         public RectTransform Rect;
+        // From the top of the tab's rows, in canvas units.
+        public float Top;
+        public float Height;
 
         public virtual void Select(bool selected)
         {
@@ -146,13 +149,61 @@ namespace CameraTools
         }
     }
 
+    internal sealed class ActionView : ItemView
+    {
+    }
+
+    internal sealed class ChoiceView : ItemView
+    {
+        public Text Value;
+        public Image Previous;
+        public Image Next;
+        private int? shown;
+
+        public override void Sync(float step)
+        {
+            var choice = (ChoiceRow)Row;
+            int position = choice.Get();
+            if (position == shown)
+                return;
+            shown = position;
+            Value.text = position >= 0 && position < choice.Options.Length ? choice.Options[position] : "?";
+            Previous.color = Style.WithAlpha(Style.White, position > 0 ? 1f : Style.StepDimmed);
+            Next.color = Style.WithAlpha(Style.White, position < choice.Options.Length - 1 ? 1f : Style.StepDimmed);
+        }
+    }
+
+    internal sealed class ResolutionView : ItemView
+    {
+        public Text Value;
+        public RectTransform Apply;
+        // The text being typed, or null while the row shows its slot.
+        public string Buffer;
+        private ScreenSize shownSize;
+        private string shownBuffer = "";
+
+        public override void Sync(float step)
+        {
+            var size = Graphics.Slot(((ResolutionRow)Row).Slot);
+            if (size == shownSize && Buffer == shownBuffer)
+                return;
+            shownSize = size;
+            shownBuffer = Buffer;
+            Value.text = Buffer != null ? Buffer.Replace("x", " × ") + "|" : size.Display;
+            Value.color = Buffer != null ? Style.Text : Style.Dim;
+        }
+    }
+
     internal sealed class TabView
     {
         public RectTransform Button;
         public Text Label;
         public Image Line;
         public GameObject Rows;
+        public RectTransform RowsRect;
         public readonly List<RowView> RowViews = new();
+        public float Height;
+        public float Scroll;
         private Tween tween;
         private bool drawn;
 
@@ -192,6 +243,7 @@ namespace CameraTools
             [PadButtons.DpadDown] = new(Shapes.DpadDown),
             [PadButtons.DpadLeft] = new(Shapes.DpadLeft),
             [PadButtons.DpadRight] = new(Shapes.DpadRight),
+            [PadButtons.DpadLeft | PadButtons.DpadRight] = new(Shapes.DpadSides),
         };
 
         private static readonly Dictionary<KeyCode, string> KeyNames = new()
@@ -330,8 +382,10 @@ namespace CameraTools
         public HintView PadHint(Transform parent, PadBinding binding, string label)
         {
             var button = GlyphButton(binding);
-            return HasGlyph(button) ? Hint(parent, rect => Glyph(rect, button), label) : Hint(parent, null, $"{binding}  {label}");
+            return HasGlyph(button) ? GlyphHint(parent, button, label) : Hint(parent, null, $"{binding}  {label}");
         }
+
+        public HintView GlyphHint(Transform parent, PadButtons button, string label) => Hint(parent, rect => Glyph(rect, button), label);
 
         public HintView KeyHint(Transform parent, KeyCode key, string label) => Hint(parent, rect => Keycap(rect, KeyName(key)), label);
 
@@ -366,13 +420,16 @@ namespace CameraTools
         public SliderView Slider(Transform parent, SliderRow row, float y)
         {
             var view = new SliderView();
-            var rect = Item(parent, view, row, y, Style.SliderRowHeight);
+            float noted = row.Note != null ? Style.NoteExtra : 0f;
+            var rect = Item(parent, view, row, y, Style.SliderRowHeight + noted);
             var label = Label(rect, "Label", row.Label, Style.RowSize, Style.Text, TextAnchor.LowerLeft);
             TopLeft(label.rectTransform, Style.RowLeft, Style.RowTextY, Style.RowWidth, Style.RowTextHeight);
             view.Value = Label(rect, "Value", "", Style.ValueSize, Style.Dim, TextAnchor.LowerRight);
             TopLeft(view.Value.rectTransform, Style.RowLeft, Style.RowTextY, Style.RowWidth, Style.RowTextHeight);
+            if (row.Note != null)
+                Note(rect, row.Note);
             view.Track = Node("Slider", rect);
-            TopLeft(view.Track, Style.RowLeft, Style.SliderY, Style.RowWidth, Style.SliderHeight);
+            TopLeft(view.Track, Style.RowLeft, Style.SliderY + noted, Style.RowWidth, Style.SliderHeight);
             var rail = Picture(view.Track, "Rail", Shapes.Bar, Style.Track).rectTransform;
             Place(rail, V(0f, 0.5f), V(1f, 0.5f), V(0f, 0.5f), V(0f, 0f), V(0f, Style.RailHeight));
             view.Fill = Picture(view.Track, "Fill", Shapes.Bar, Style.Cream).rectTransform;
@@ -400,6 +457,70 @@ namespace CameraTools
             view.Sync(1f);
             return view;
         }
+
+        // With a note, the label and the stepper share the first line and the note runs under both, so a long note never
+        // meets the stepper.
+        public ChoiceView Choice(Transform parent, ChoiceRow row, float y)
+        {
+            var view = new ChoiceView();
+            bool noted = row.Note != null;
+            float height = noted ? Style.ChoiceRowHeight : Style.ToggleRowHeight;
+            var rect = Item(parent, view, row, y, height);
+            float lineY = noted ? Style.RowTextY : 0f;
+            float lineHeight = noted ? Style.RowTextHeight : height;
+            float stepY = -(lineY + (lineHeight - Style.StepSize) / 2f);
+            float stepper = 2f * (Style.StepSize + Style.StepGap) + Style.ChoiceValueWidth;
+            var label = Label(rect, "Label", row.Label, Style.RowSize, Style.Text, TextAnchor.MiddleLeft);
+            TopLeft(label.rectTransform, Style.RowLeft, lineY, Style.RowWidth - stepper, lineHeight);
+            view.Next = Picture(rect, "Next", Shapes.StepRight, Style.White);
+            Pin(view.Next.rectTransform, 1f, 1f, -Style.RowRight, stepY, Style.StepSize, Style.StepSize);
+            view.Value = Label(rect, "Value", "", Style.ValueSize, Style.Text, TextAnchor.MiddleCenter);
+            Pin(view.Value.rectTransform, 1f, 1f, -(Style.RowRight + Style.StepSize + Style.StepGap), -lineY, Style.ChoiceValueWidth, lineHeight);
+            view.Previous = Picture(rect, "Previous", Shapes.StepLeft, Style.White);
+            Pin(view.Previous.rectTransform, 1f, 1f, -(Style.RowRight + stepper - Style.StepSize), stepY, Style.StepSize, Style.StepSize);
+            if (noted)
+                Note(rect, row.Note);
+            view.Sync(1f);
+            return view;
+        }
+
+        public ActionView Action(Transform parent, ActionRow row, float y)
+        {
+            var view = new ActionView();
+            var rect = Item(parent, view, row, y, Style.ToggleRowHeight);
+            var label = Label(rect, "Label", row.Label, Style.RowSize, Style.Text, TextAnchor.MiddleLeft);
+            TopLeft(label.rectTransform, Style.RowLeft, 0f, Style.RowWidth - Shapes.Chevron.Width, Style.ToggleRowHeight);
+            var go = Picture(rect, "Go", Shapes.Chevron, Style.Cream);
+            Pin(go.rectTransform, 1f, 0.5f, -Style.RowRight, 0f, Shapes.Chevron.Width, Shapes.Chevron.Height);
+            return view;
+        }
+
+        public ResolutionView Resolution(Transform parent, ResolutionRow row, float y)
+        {
+            var view = new ResolutionView();
+            var rect = Item(parent, view, row, y, Style.ToggleRowHeight);
+            float right = Style.RowRight + Style.ButtonWidth + Style.ButtonGap;
+            var label = Label(rect, "Label", row.Label, Style.RowSize, Style.Text, TextAnchor.MiddleLeft);
+            TopLeft(label.rectTransform, Style.RowLeft, 0f, Style.PanelWidth - Style.RowLeft - right - Style.SlotValueWidth, Style.ToggleRowHeight);
+            view.Apply = Picture(rect, "Apply", Shapes.Button, Style.White).rectTransform;
+            Pin(view.Apply, 1f, 0.5f, -Style.RowRight, 0f, Style.ButtonWidth, Style.ButtonHeight);
+            Fill(Label(view.Apply, "Text", "Apply", Style.ButtonSize, Style.LightInk, TextAnchor.MiddleCenter).rectTransform);
+            view.Value = Label(rect, "Value", "", Style.ValueSize, Style.Dim, TextAnchor.MiddleRight);
+            Pin(view.Value.rectTransform, 1f, 0.5f, -right, 0f, Style.SlotValueWidth, Style.ToggleRowHeight);
+            view.Sync(1f);
+            return view;
+        }
+
+        private void Note(Transform parent, PresetNote note)
+        {
+            var text = Label(parent, "Note", "", Style.NoteSize, Style.Dim, TextAnchor.MiddleLeft);
+            TopLeft(text.rectTransform, Style.RowLeft, Style.NoteY, Style.RowWidth, Style.NoteHeight);
+            text.supportRichText = true;
+            text.text = $"Max {Colored(note.Max, Style.Cream)} · Min {Colored(note.Min, Style.Cream)}"
+                + (note.Restart ? $" · {Colored("applies after a restart", Style.XboxY)}" : "");
+        }
+
+        private static string Colored(string text, Color color) => $"<color={Style.Html(color)}>{text}</color>";
 
         // The band and arrow that show which row is selected, under the row's own parts.
         private static RectTransform Item(Transform parent, ItemView view, Row row, float y, float height)

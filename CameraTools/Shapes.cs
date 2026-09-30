@@ -31,6 +31,7 @@ namespace CameraTools
         public static readonly Shape DpadDown = Dpad("DpadDown", Box(10f, 14f, 4f, 5f, 1f));
         public static readonly Shape DpadLeft = Dpad("DpadLeft", Box(5f, 10f, 5f, 4f, 1f));
         public static readonly Shape DpadRight = Dpad("DpadRight", Box(14f, 10f, 5f, 4f, 1f));
+        public static readonly Shape DpadSides = Dpad("DpadSides", Union(Box(5f, 10f, 5f, 4f, 1f), Box(14f, 10f, 5f, 4f, 1f)));
         public static readonly Shape Key = Framed("Key", 10f + Stretch, 10f + Stretch, 5f, 5f, 1.5f, Style.KeyFill, Style.Cream);
         public static readonly Shape Toast = Framed("Toast", Style.ToastHeight + Stretch, Style.ToastHeight + Stretch,
             Style.ToastHeight / 2f, Style.ToastHeight / 2f, 1f, Style.ToastFill, Style.ToastRing);
@@ -54,6 +55,14 @@ namespace CameraTools
         public static readonly Shape Arrow = Solid("Arrow", 7f, 10f, 0f, Triangle(0f, 0f, 7f, 5f, 0f, 10f), Style.White);
         public static readonly Shape Back = new("Back", 34f, 34f, 0f, Layers((Circle(17f, 17f, 17f), Style.Light),
             (Union(Line(19.2f, 12.2f, 14.6f, 17f, 1.15f), Line(14.6f, 17f, 19.2f, 21.8f, 1.15f)), Style.BackInk)));
+        public static readonly Shape Chevron = Solid("Chevron", 8f, 12f, 0f, Union(Line(2.2f, 1.8f, 6f, 6f, 1.1f), Line(6f, 6f, 2.2f, 10.2f, 1.1f)), Style.White);
+        // The stepper's buttons: the Back button's chevron on a faint 22 unit disc.
+        public static readonly Shape StepLeft = new("StepLeft", Style.StepSize, Style.StepSize, 0f, Layers((Circle(11f, 11f, 11f), Style.StepFill),
+            (Union(Line(12.4f, 7.9f, 9.4f, 11f, 0.9f), Line(9.4f, 11f, 12.4f, 14.1f, 0.9f)), Style.Text)));
+        public static readonly Shape StepRight = new("StepRight", Style.StepSize, Style.StepSize, 0f, Layers((Circle(11f, 11f, 11f), Style.StepFill),
+            (Union(Line(9.6f, 7.9f, 12.6f, 11f, 0.9f), Line(12.6f, 11f, 9.6f, 14.1f, 0.9f)), Style.Text)));
+        public static readonly Shape Button = Solid("Button", Style.ButtonWidth, Style.ButtonHeight, 0f,
+            Box(0f, 0f, Style.ButtonWidth, Style.ButtonHeight, Style.ButtonHeight / 2f), Style.Light);
         public static readonly Shape PanelFill = new("PanelFill", 1f, 64f, 0f, (_, y) => Style.Lerp(Style.PanelTop, Style.PanelBottom, y / 64f));
         // box-shadow 8px 0 30px: the panel's edge offset by 8 and blurred with a standard deviation of 15.
         public static readonly Shape PanelShadow = new("PanelShadow", Style.PanelShadowWidth, 1f, 0f,
@@ -61,8 +70,8 @@ namespace CameraTools
 
         public static readonly Shape[] All =
         {
-            Face, Bumper, Trigger, Menu, View, DpadUp, DpadDown, DpadLeft, DpadRight, Key, Toast, Bar, FovTrack, SwitchOff,
-            SwitchOn, Knob, Check, Cross, Plus, Minus, Handle, Arrow, Back, PanelFill, PanelShadow,
+            Face, Bumper, Trigger, Menu, View, DpadUp, DpadDown, DpadLeft, DpadRight, DpadSides, Key, Toast, Bar, FovTrack, SwitchOff,
+            SwitchOn, Knob, Check, Cross, Plus, Minus, Handle, Arrow, Back, Chevron, StepLeft, StepRight, Button, PanelFill, PanelShadow,
         };
 
         private static readonly Dictionary<Shape, Sprite> sprites = new();

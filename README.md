@@ -7,6 +7,8 @@
  - Game speed control (pause, slow-motion, speed up)
  - Hide UI for clean shots
  - Smooth camera movement (damping)
+ - Graphics presets for screenshots and for performance, every graphics setting in one list, and values past the game's own limits
+ - Two resolution slots
  - Configurable hotkeys
  - Controller support (XInput, including the Steam Deck)
 
@@ -17,6 +19,25 @@ CameraTools draws its own UI in the style of Genshin's, with the game's font. Th
 - F10 (Start on a controller) opens the settings panel while the free camera is on. Click or drag with the mouse, or use the controller.
 - Button hints follow the device you used last.
 - The free camera hides the game's HUD. Hide UI (PageDown, or B) hides CameraTools' hints for a clean shot.
+- A tab longer than the panel scrolls. Scroll with the mouse wheel, or move the selection with the controller.
+
+## Graphics tab
+
+Under each setting, a second line shows what the two presets set it to ("Max" and "Min"). "Keep" means the preset leaves that setting alone.
+
+- **Presets.** "Max quality (screenshots)" sets every setting to its highest option, keeps your frame rate, V-Sync and co-op teammate effects, and turns motion blur off. "Min for performance" sets every setting to its lowest option, turns V-Sync off and raises the frame rate to the highest option. It also sets the values in "Beyond the game's limits" listed below. "Restore my settings" puts back the game settings you had before CameraTools first changed one, and sets everything in "Beyond the game's limits" back to Game.
+- **Resolution.** Two slots, each with a size and an Apply button. Click the size to type a new one, such as `1920x1200`, and press Enter to save it or Esc to cancel. On a controller, press Y to start typing, open the Steam keyboard with Steam+X, and press A to save it or B to cancel. D-pad left and right step through common 16:10 sizes. Apply, or A, switches the game to the slot's size and keeps the current window mode.
+- **Game settings.** The game's own graphics settings, one row each. A change is saved like a change in the game's settings menu, and the game's menu shows it. Environment detail applies after a restart. A setting the game offers only one option for on your machine has no row.
+- **Beyond the game's limits.** Values the game's menu cannot reach. They start at "Game", which leaves the value to the game, and they go back to Game when the game restarts.
+  - Render scale: the resolution the game renders at before it scales to the screen, from 0.25 to 2.00. Min sets 0.50.
+  - Shadows: Off turns off all shadows. Min sets Off.
+  - Shadow distance: 20, 50, 150 or 300 meters. Max sets 300 m and Min sets 20 m.
+  - Distant shadows: Min sets Off.
+  - Fog and god rays: Min sets Off.
+  - Particles: Fewest emits the fewest particles. Min sets Fewest.
+  - Detail level: Highest holds every object at its most detailed level, and Lowest at its least detailed. Max sets Highest and Min sets Lowest. It is the same state as the World tab's Max detail switch.
+
+CameraTools saves your own game settings in `MelonPreferences.cfg`, in `SavedGameSettings` under `[CameraToolsGraphics]`, the first time it changes one. Restore empties it again, so the next preset saves your settings anew.
 
 ## Hotkeys
 | Key | Description |
@@ -45,11 +66,27 @@ CameraTools draws its own UI in the style of Genshin's, with the game's font. Th
 | Left | Decrease game speed by 0.5
 | Right | Increase game speed by 0.5
 | CapsLock | Toggle game speed to 5.0
-| Equals (=) | Set the screen resolution to 3840x2160
-| Minus (-) | Set the screen resolution to 1920x1080
+| Equals (=) | Apply resolution slot 2 (2560x1600 unless you change it)
+| Minus (-) | Apply resolution slot 1 (1280x800 unless you change it)
 | Home | Toggle max detail (keeps every LOD at its most detailed level)
 
 You can customize the hotkeys by editing `MelonPreferences.cfg` located in `\UserData`. Refer to this list of key codes: https://docs.unity3d.com/ScriptReference/KeyCode.html 
+
+The `=` and `-` hotkeys keep their old names, `SetResolutionTo4K` and `SetResolutionTo1080p`, so bindings you already changed keep working.
+
+While you type a resolution, the hotkeys are off, so typing 8 or 9 does not change the field of view.
+
+## Graphics preferences
+
+The `[CameraToolsGraphics]` section of `MelonPreferences.cfg` holds:
+
+| Entry | Default | Description |
+|--|--|--|
+| `ResolutionSlot1` | `1280x800` | The size the `-` hotkey and Slot 1 apply, as WxH |
+| `ResolutionSlot2` | `2560x1600` | The size the `=` hotkey and Slot 2 apply, as WxH |
+| `SavedGameSettings` | empty | Your game settings from before CameraTools first changed one, for Restore. CameraTools writes and empties it. |
+
+A slot from 320x200 to 16384x16384 is accepted. A slot that does not parse falls back to its default, and the log names it.
 
 ## Controller
 
@@ -77,10 +114,11 @@ While the settings panel is open, the controller drives the panel instead of the
 | Controller | Settings panel |
 |--|--|
 | D-pad up / down, or left stick up / down | Select the previous / next setting (hold to repeat) |
-| D-pad left / right | Decrease / increase a slider (hold to repeat), or flip a switch |
-| A | Flip a switch |
+| D-pad left / right | Decrease / increase a slider (hold to repeat), flip a switch, change a setting, or step a resolution slot through common sizes |
+| A | Flip a switch, run a preset, or apply a resolution slot |
+| Y | Type a resolution slot's size |
 | LB / RB | Previous / next tab |
-| B, or the ToggleGUI button (Start by default) | Close the panel |
+| B, or the ToggleGUI button (Start by default) | Close the panel, or cancel typing a size |
 
 Controller bindings are in the `[CameraToolsController]` section of `MelonPreferences.cfg`, under the same names as the hotkeys. A binding is either buttons joined with `+` (`A`, `B`, `X`, `Y`, `LB`, `RB`, `LT`, `RT`, `Back`, `Start`, `L3`, `R3`, `DpadUp`, `DpadDown`, `DpadLeft`, `DpadRight`), for example `Back+A`, or one analog direction: `LeftStickUp`, `LeftStickDown`, `LeftStickLeft`, `LeftStickRight`, `RightStickUp`, `RightStickDown`, `RightStickLeft`, `RightStickRight`, `LT`, or `RT`. An empty binding does nothing. A binding that does not parse falls back to its default, and the log names it.
 

@@ -41,6 +41,8 @@ namespace CameraTools
         public static readonly Color SwitchRingOn = Hex(0xffffff, 0.40f);
         public static readonly Color KnobInkOff = Hex(0x7a7f8c);
         public static readonly Color KnobInkOn = Hex(0x9b7d45);
+        public static readonly Color StepFill = Hex(0xece5d8, 0.12f);
+        public static readonly Color Thumb = Hex(0xd3bc8e, 0.55f);
 
         public const float Margin = 44f;
         public const float TopLegendY = 28f;
@@ -59,7 +61,7 @@ namespace CameraTools
         public const float FovInset = 24f;
         public const float FovEndY = 7f;
 
-        public const float PanelWidth = 360f;
+        public const float PanelWidth = 440f;
         public const float PanelSlide = 16f;
         public const float PanelShadowWidth = 56f;
         public const float TabBarHeight = 64f;
@@ -77,7 +79,7 @@ namespace CameraTools
         public const float LineRestScale = 0.4f;
         public const float BackSize = 34f;
 
-        public const float ListTop = TabBarHeight + 14f;
+        public const float ListPadding = 14f;
         public const float FooterHeight = 68f;
         public const float FooterBottom = 26f;
         public const float SectionHeight = 40f;
@@ -104,6 +106,25 @@ namespace CameraTools
         public const float KnobInset = 3f;
         public const float KnobSize = 20f;
         public const float MarkSize = 10f;
+        // A preset note is a second, smaller line under a row's label.
+        public const float NoteY = 30f;
+        public const float NoteHeight = 16f;
+        public const float NoteExtra = 17f;
+        public const int NoteSize = 11;
+        public const float ChoiceRowHeight = RowTextY + RowTextHeight + NoteExtra + 8f;
+        public const float StepSize = 22f;
+        public const float StepGap = 6f;
+        public const float ChoiceValueWidth = 92f;
+        public const float StepDimmed = 0.3f;
+        public const float SlotValueWidth = 110f;
+        public const float ButtonWidth = 60f;
+        public const float ButtonHeight = 24f;
+        public const float ButtonGap = 10f;
+        public const int ButtonSize = 12;
+        public const float ThumbWidth = 4f;
+        public const float ThumbRight = 4f;
+        public const float ThumbMin = 24f;
+        public const float WheelStep = 60f;
 
         public const float KeyHeight = 22f;
         public const float KeyMinWidth = 24f;
@@ -128,6 +149,11 @@ namespace CameraTools
             => new() { r = a.r + (b.r - a.r) * t, g = a.g + (b.g - a.g) * t, b = a.b + (b.b - a.b) * t, a = a.a + (b.a - a.a) * t };
 
         public static Color WithAlpha(Color color, float alpha) => new() { r = color.r, g = color.g, b = color.b, a = alpha };
+
+        // For a <color> tag in rich text.
+        public static string Html(Color color) => $"#{Channel(color.r):x2}{Channel(color.g):x2}{Channel(color.b):x2}";
+
+        private static int Channel(float value) => (int)MathF.Round(Math.Clamp(value, 0f, 1f) * 255f);
 
         // CSS's default transition timing, cubic-bezier(0.25, 0.1, 0.25, 1), solved for x by bisection.
         public static float Ease(float t)

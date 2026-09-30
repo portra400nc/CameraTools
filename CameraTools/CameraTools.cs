@@ -31,6 +31,7 @@ namespace CameraTools
         public override void OnInitializeMelon()
         {
             Controls.Load();
+            Graphics.Load();
         }
 
         public override void OnApplicationQuit()
@@ -56,15 +57,13 @@ namespace CameraTools
                 else
                     InjectFreecam();
             }
-            if (Controls.Pressed(CamAction.SetResolutionTo4K) && maincam)
+            if (Controls.Pressed(CamAction.SetResolutionTo4K))
             {
-                Screen.SetResolution(3840, 2160, false);
-                maincam.rect = new Rect(0, 0, 3840, 2160);
+                Graphics.ApplySlot(2);
             }
-            if (Controls.Pressed(CamAction.SetResolutionTo1080p) && maincam)
+            if (Controls.Pressed(CamAction.SetResolutionTo1080p))
             {
-                Screen.SetResolution(1920, 1080, false);
-                maincam.rect = new Rect(0, 0, 1920, 1080);
+                Graphics.ApplySlot(1);
             }
             if (Controls.Pressed(CamAction.ToggleHUD))
             {
@@ -122,6 +121,7 @@ namespace CameraTools
             CameraUi.Update();
             GameHud.Update(freecamActive || uiHidden);
             Lod.Update();
+            Graphics.Update();
 
             if (freecamActive && !camera)
             {
@@ -222,18 +222,22 @@ namespace CameraTools
                     SetFreecam(true);
             }
             Controls.Owner = owner;
-            bool gameInput = owner == PadOwner.Game;
+            SetPlayerInput(owner == PadOwner.Game, "Controller");
+            Gamepad.Rumble();
+            CameraUi.Toast($"Controller: {owner}");
+        }
+
+        internal static void SetPlayerInput(bool on, string why)
+        {
             try
             {
-                ActorUtils.EnablePlayerInput(gameInput, false);
-                LogOnce($"Controller: EnablePlayerInput({gameInput}, false) succeeded.");
+                ActorUtils.EnablePlayerInput(on, false);
+                LogOnce($"{why}: EnablePlayerInput({on}, false) succeeded.");
             }
             catch (Exception e)
             {
-                LogOnce($"Controller: EnablePlayerInput({gameInput}, false) failed: {e.Message}");
+                LogOnce($"{why}: EnablePlayerInput({on}, false) failed: {e.Message}");
             }
-            Gamepad.Rumble();
-            CameraUi.Toast($"Controller: {owner}");
         }
 
         internal static void LogOnce(string message)

@@ -3,6 +3,8 @@ using UnityEngine;
 
 namespace CameraTools
 {
+    public enum LodLevel { MostDetail, LeastDetail }
+
     // Genshin's LOD system samples its camera mid-frame, while the game's own pose is still on the main camera, so
     // detail follows the gameplay camera. A disabled proxy camera that never renders carries the free camera's pose.
     internal static class Lod
@@ -12,11 +14,16 @@ namespace CameraTools
         private static Camera proxy;
         private static Transform proxyTransform;
         private static readonly Dictionary<IntPtr, MiHoYoLodLoader> paused = new();
+        private static readonly HashSet<LodLevel> sampled = new();
         private static List<MiHoYoLodLoader> sample;
-        private static bool sampled;
+        private static LodLevel sampleLevel;
         private static float nextScan;
 
-        public static bool MaxDetail { get; private set; }
+        // The level every loader is held at, or null to leave LOD to the game. The World tab's Max detail switch and the
+        // Graphics tab's Detail level both set it.
+        public static LodLevel? Forced { get; private set; }
+
+        public static bool MaxDetail => Forced == LodLevel.MostDetail;
 
         public static void Attach(Camera main)
         {
@@ -79,24 +86,24 @@ namespace CameraTools
             }
         }
 
-        public static void SetMaxDetail(bool on)
+        public static void SetMaxDetail(bool on) => Force(on ? LodLevel.MostDetail : null);
+
+        public static void Force(LodLevel? level)
         {
-            MaxDetail = on;
-            if (on)
-            {
-                nextScan = 0;
+            if (level == Forced)
                 return;
-            }
             foreach (var loader in paused.Values)
                 if (loader)
                     loader.ResumeLodLoader();
             paused.Clear();
+            Forced = level;
+            nextScan = 0;
         }
 
-        // Newly streamed-in objects bring their own loaders, so max detail rescans every two seconds.
+        // Newly streamed-in objects bring their own loaders, so a forced level rescans every two seconds.
         public static void Update()
         {
-            if (!MaxDetail || Time.unscaledTime < nextScan)
+            if (Forced is not LodLevel level || Time.unscaledTime < nextScan)
                 return;
             nextScan = Time.unscaledTime + 2f;
 
@@ -104,7 +111,7 @@ namespace CameraTools
                 paused.Remove(dead);
             if (sample != null)
             {
-                CameraTools.LogOnce($"Max detail: 2 s later: {Describe(sample, false)}.");
+                CameraTools.LogOnce($"{Name(sampleLevel)}: 2 s later: {Describe(sample, false)}.");
                 sample = null;
             }
 
@@ -112,19 +119,22 @@ namespace CameraTools
                 .Select(found => found.TryCast<MiHoYoLodLoader>())
                 .Where(loader => loader != null)
                 .ToList();
-            bool first = !sampled;
+            bool first = !sampled.Contains(level);
             string before = first ? Describe(loaders.Take(SampleSize), true) : null;
             foreach (var loader in loaders)
                 if (paused.TryAdd(loader.Pointer, loader))
-                    loader.PauseLodLoaderWithSpecificLodLevel(0);
+                    loader.PauseLodLoaderWithSpecificLodLevel(level == LodLevel.MostDetail ? 0 : Math.Max(loader.GetLodLevelCount() - 1, 0));
             if (first)
             {
-                sampled = true;
+                sampled.Add(level);
                 sample = loaders.Take(SampleSize).ToList();
-                CameraTools.LogOnce($"Max detail: paused {loaders.Count} LOD loaders at level 0. Before (level of count): {before}. "
-                    + $"Right after: {Describe(sample, false)}.");
+                sampleLevel = level;
+                CameraTools.LogOnce($"{Name(level)}: paused {loaders.Count} LOD loaders at {(level == LodLevel.MostDetail ? "level 0" : "their last level")}. "
+                    + $"Before (level of count): {before}. Right after: {Describe(sample, false)}.");
             }
         }
+
+        private static string Name(LodLevel level) => level == LodLevel.MostDetail ? "Max detail" : "Min detail";
 
         private static string Describe(IEnumerable<MiHoYoLodLoader> loaders, bool withCount)
             => string.Join("; ", loaders.Where(loader => loader).Select(loader =>
