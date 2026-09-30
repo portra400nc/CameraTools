@@ -7,8 +7,7 @@
  - Game speed control (pause, slow-motion, speed up)
  - Hide UI for clean shots
  - Smooth camera movement (damping)
- - Graphics presets for screenshots and for performance, every graphics setting in one list, and values past the game's own limits
- - Two resolution slots
+ - Change graphics settings and resolution while in free cam
  - Configurable hotkeys
  - Controller support (XInput, including the Steam Deck)
 
