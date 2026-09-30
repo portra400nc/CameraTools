@@ -25,14 +25,9 @@ CameraTools draws its own UI in the style of Genshin's, with the game's font. Th
 
 ## Camera paths
 
-A camera path is a list of nodes. Each node records the free camera's position, rotation, and field of view. Playback flies the camera through every node on a smooth curve, in the time you set for that path. You can keep any number of paths. Numpad 1 to 9 pick the first nine.
+Record camera positions as nodes, and fly the free camera through them in one smooth shot.
 
-- Build a path in the Paths tab of the settings panel: add a node at the end, insert one before or after the selected node, replace a node with the current view, jump the camera to a node, or delete it. Deleting a path asks you to press again within 3 seconds.
-- Play needs at least 2 nodes and the free camera on. It closes the panel, counts down from 3 unless you turn the countdown off, then hides CameraTools' UI. Press Numpad Enter (Back+RT) again to stop. Turn off "Hide UI while playing" to see a play bar with the time and a tick for each node instead.
-- Loop starts the path again from its first node. Constant speed moves the camera at an even speed however far apart the nodes are. Ease in and Ease out start and end the flight gently.
-- Paths play while the game is paused. "Unpause game while playing" runs the game during playback and pauses it again after.
-- Shake adds a handheld wobble. Strength 0 turns it off; about 0.5 at a frequency of 1.5 to 2 looks like a handheld camera, and 5 is strong.
-- Paths and their settings are saved to `UserData/CameraTools/CameraPaths.json` after every change. Nodes are saved as world positions, so a path stays in place when Genshin moves its world origin. If the file cannot be read, CameraTools renames it to `CameraPaths.json.bak` and starts with no paths.
+[Make your first camera path](CAMERA-PATHS.md)
 
 ## Hotkeys
 | Key | Description |
