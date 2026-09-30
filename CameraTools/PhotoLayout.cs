@@ -263,12 +263,35 @@ namespace CameraTools
             rect.localEulerAngles = box.Rotation;
         }
 
+        // Every image built with a sprite, so a sprite the game destroys (a resolution change did) can be replaced.
+        private static readonly List<(Image Image, string Sprite)> drawn = new();
+
+        // An image whose sprite was destroyed draws as a plain square, so it stays hidden until the sprite is loaded again.
+        // The view sets glyph sprites itself and redraws them after this, on the same Assets.Version change.
+        public static void Repair()
+        {
+            drawn.RemoveAll(entry => !entry.Image);
+            foreach (var (image, name) in drawn)
+            {
+                if (image.sprite)
+                    continue;
+                var sprite = Assets.Sprite(name);
+                if (sprite)
+                    image.sprite = sprite;
+                image.enabled = sprite;
+            }
+        }
+
         private static void Draw(Image image, ImageStyle style)
         {
             image.enabled = style.Enabled;
             if (style.Sprite != null)
+            {
                 image.sprite = Assets.Sprite(style.Sprite) ?? (Current.OptionalSprites.Contains(style.Sprite) ? null
                     : throw new InvalidOperationException($"The sprite {style.Sprite} is not loaded."));
+                if (style.Enabled && image.sprite)
+                    drawn.Add((image, style.Sprite));
+            }
             image.type = style.Type;
             image.fillCenter = style.FillCenter;
             image.fillMethod = style.FillMethod;

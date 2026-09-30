@@ -87,6 +87,8 @@ namespace CameraTools
             toastUntil = Time.unscaledTime + 2f;
         }
 
+        private static int repairedVersion = -1;
+
         private static string MissingHint => Assets.LayoutReady ? ReloadHint : LoadHint;
 
         public static void FreecamChanged(bool active)
@@ -115,6 +117,11 @@ namespace CameraTools
                 }
                 hintPending = false;
                 step = "layout";
+                if (repairedVersion != Assets.Version)
+                {
+                    PhotoLayout.Repair();
+                    repairedVersion = Assets.Version;
+                }
                 Follow();
                 step = "input";
                 HandleInput();
@@ -302,7 +309,11 @@ namespace CameraTools
             Child(content, "Key_Group").gameObject.SetActive(glyph);
             Child(content, "Key_PC").gameObject.SetActive(!glyph);
             if (glyph)
-                Get<Image>(content, "Key_Group/Icon1").sprite = glyph;
+            {
+                var icon = Get<Image>(content, "Key_Group/Icon1");
+                icon.sprite = glyph;
+                icon.enabled = true;
+            }
             else
                 Get<Text>(content, "Key_PC/Text").text = button.ToString();
         }
@@ -596,6 +607,9 @@ namespace CameraTools
             var layout = Controls.Layout;
             if (live.ShownLayout != (layout, Assets.Version))
             {
+                // A glyph the game had not loaded at the last scan may be loaded now.
+                if (layout == InputDevice.Pad && live.ShownLayout?.Item1 != InputDevice.Pad)
+                    Assets.ScanSoon();
                 live.ShownLayout = (layout, Assets.Version);
                 RenderLayout(layout);
             }
@@ -771,7 +785,10 @@ namespace CameraTools
             var glyph = Assets.Glyph(button);
             entry.Key.SetActive(glyph);
             if (glyph)
+            {
                 entry.Glyph.sprite = glyph;
+                entry.Glyph.enabled = true;
+            }
             entry.Label.text = glyph ? label : $"{binding}  {label}";
         }
 

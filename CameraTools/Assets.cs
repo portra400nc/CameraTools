@@ -6,11 +6,15 @@ namespace CameraTools
     // The game's sprites and fonts by name, for the photo mode layout and the controller glyphs. They are found by reading
     // the name of every loaded sprite, which takes about 200 ms on the Deck, so a scan runs only while something wanted is
     // missing: at most every 10 s, plus once when the free camera turns on and once when the game's photo mode page appears.
-    // After login most photo mode sprites are not loaded yet; photo mode, the map, and teleporting load them.
+    // After login most photo mode sprites are not loaded yet; photo mode, the map, and teleporting load them. A resolution
+    // change destroyed the tab icons' sprites on the Deck, so cached assets are checked every second, and a lost one is
+    // looked up again one second after the change and then with the other missing assets.
     internal static class Assets
     {
         private const float ScanInterval = 10f;
         private const float PageLookInterval = 1f;
+        private const float HealthInterval = 1f;
+        private const float ResolutionSettle = 1f;
         private const string GlyphPrefix = "UI_KeyXbox_";
 
         // All but Start are confirmed on the Deck; Start follows the naming of Back, LB and RB.
@@ -32,9 +36,11 @@ namespace CameraTools
 
         private static readonly Dictionary<string, Sprite> sprites = new(StringComparer.Ordinal);
         private static readonly Dictionary<string, Font> fonts = new(StringComparer.Ordinal);
-        // Glyphs a scan that saw Xbox sprites did not find. The sprites load together, so these do not exist and are not
-        // looked for again until a found glyph is unloaded.
+        // Glyphs a scan that saw Xbox sprites did not find. The game loads each glyph when some prompt first shows it (Start
+        // loaded later than the rest), so they are looked for again on the next ScanSoon, not every 10 s.
         private static readonly HashSet<PadButtons> absent = new();
+        private static float nextHealth;
+        private static (int Width, int Height) screen;
         private static HashSet<string> wanted;
         private static string[] missing;
         private static float nextScan;
@@ -77,11 +83,31 @@ namespace CameraTools
             return null;
         }
 
-        public static void ScanSoon() => nextScan = 0f;
+        public static void ScanSoon()
+        {
+            nextScan = 0f;
+            absent.Clear();
+        }
 
         // layout: the free camera is on. glyphs: controller hints are showing.
         public static void Update(bool layout, bool glyphs)
         {
+            float time = Time.unscaledTime;
+            if (time >= nextHealth)
+            {
+                nextHealth = time + HealthInterval;
+                CheckHealth();
+            }
+            var size = (Screen.width, Screen.height);
+            if (size != screen)
+            {
+                if (screen != default)
+                {
+                    nextScan = time + ResolutionSettle;
+                    absent.Clear();
+                }
+                screen = size;
+            }
             bool layoutMissing = !LayoutReady;
             bool glyphsMissing = Glyphs.Any(glyph => !sprites.ContainsKey(glyph.Sprite) && !absent.Contains(glyph.Button));
             if (!layoutMissing && !glyphsMissing)
@@ -100,8 +126,18 @@ namespace CameraTools
                 Scan();
         }
 
+        private static void CheckHealth()
+        {
+            foreach (var name in sprites.Where(entry => !entry.Value).Select(entry => entry.Key).ToList())
+                Sprite(name);
+            foreach (var name in fonts.Where(entry => !entry.Value).Select(entry => entry.Key).ToList())
+                Font(name);
+        }
+
         private static void Lost(string name)
         {
+            CameraTools.LogOnce($"UI: the game unloaded {name} at {Time.unscaledTime:0} s (screen {Screen.width}x{Screen.height}); "
+                + "CameraTools looks for it again.");
             Version++;
             if (name.StartsWith(GlyphPrefix, StringComparison.Ordinal))
                 absent.Clear();
