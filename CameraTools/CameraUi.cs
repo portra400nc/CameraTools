@@ -16,6 +16,7 @@ namespace CameraTools
         private const float RepeatDelay = 0.4f;
         private const float RepeatInterval = 0.08f;
         private const float RetryInterval = 10f;
+        private const float ConfirmTime = 3f;
         private const int SortingOrder = 30000;
         private const float ReferenceWidth = 1280f;
         private const float ReferenceHeight = 800f;
@@ -58,8 +59,13 @@ namespace CameraTools
         private static Vector2 lastMouse;
         private static SliderView dragging;
         private static ResolutionView editing;
+        private static ActionView armed;
+        private static float armedUntil;
 
-        public static View View => !CameraTools.freecamActive || CameraTools.uiHidden ? View.Hidden : panelOpen ? View.Panel : View.Hud;
+        public static View View => !CameraTools.freecamActive || CameraTools.uiHidden ? View.Hidden
+            : panelOpen ? View.Panel
+            : PathPlayback.State is PlaybackState.Playing ? View.Playing
+            : View.Hud;
 
         // Drawn with IMGUI until the UI has been built.
         public static string FallbackToast => live == null && Time.unscaledTime < toastUntil ? toast : null;
@@ -150,6 +156,7 @@ namespace CameraTools
                 var built = new Live { Root = root, Font = font, MissingSettings = !Graphics.HasSettings };
                 var model = UiModel.Tabs();
                 BuildHud(ui, built, root.transform);
+                BuildPlayBar(ui, built, root.transform);
                 BuildPanel(ui, built, root.transform, model);
                 BuildToast(ui, built, root.transform);
                 ShowTab(Math.Min(tab, model.Length - 1), built);
@@ -194,6 +201,26 @@ namespace CameraTools
             DropShadow(minus, Style.FovEndShadow);
             target.FovHandle = Picture(fov, "Handle", Shapes.Handle, Style.White).rectTransform;
             Place(target.FovHandle, V(0.5f, 1f), V(0.5f, 1f), V(0.5f, 0.5f), V(0f, -Style.FovInset), V(Shapes.Handle.Width, Shapes.Handle.Height));
+        }
+
+        // Across the top, like the mockup's: the path and its time, a rail with a tick per node, and the Stop hint.
+        private static void BuildPlayBar(Builder ui, Live target, Transform root)
+        {
+            var bar = Node("PlayBar", root);
+            Place(bar, V(0f, 1f), V(1f, 1f), V(0.5f, 1f), V(0f, -Style.PlayBarY), V(-2f * Style.Margin, Style.HintHeight));
+            Flow(bar.gameObject, Style.PlayBarGap, TextAnchor.MiddleLeft);
+            target.PlayBar = new Fader(bar, V(0f, 0f), Style.HudFade);
+            target.PlayMeta = ui.Label(bar, "Meta", "", Style.HintSize, Style.Text, TextAnchor.MiddleLeft);
+            target.PlayMeta.rectTransform.sizeDelta = V(0f, Style.HintHeight);
+            DropShadow(target.PlayMeta, Style.TextShadow);
+            target.PlayMetaWidth = target.PlayMeta.gameObject.AddComponent<LayoutElement>();
+            // The rail's image carries a one unit ring outside the track, like the field of view track's.
+            target.PlayRail = Picture(bar, "Rail", Shapes.FovTrack, Style.White).rectTransform;
+            target.PlayRail.sizeDelta = V(0f, Style.RailHeight + 2f);
+            target.PlayRail.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
+            target.PlayFill = Picture(target.PlayRail, "Fill", Shapes.Bar, Style.Cream).rectTransform;
+            Place(target.PlayFill, V(0f, 0.5f), V(0f, 0.5f), V(0f, 0.5f), V(0f, 0f), V(0f, Style.RailHeight));
+            target.Legends = target.Legends.Append(BuildLegend(ui, bar, new Hint(CamAction.PlayPath, "Stop"))).ToArray();
         }
 
         private static Legend BuildLegend(Builder ui, Transform row, Hint hint)
@@ -252,6 +279,7 @@ namespace CameraTools
                         SliderRow slider => ui.Slider(tabRows, slider, y),
                         ToggleRow toggle => ui.Toggle(tabRows, toggle, y),
                         ChoiceRow choice => ui.Choice(tabRows, choice, y),
+                        StepperRow stepper => ui.Stepper(tabRows, stepper, y),
                         ActionRow action => ui.Action(tabRows, action, y),
                         ResolutionRow resolution => ui.Resolution(tabRows, resolution, y),
                         _ => throw new InvalidOperationException($"No widget for {row.GetType().Name}."),
@@ -376,7 +404,7 @@ namespace CameraTools
             Freecam.Focused = !open;
         }
 
-        private static void ClosePanel()
+        public static void ClosePanel()
         {
             if (panelOpen)
                 SetPanel(false);
@@ -435,8 +463,11 @@ namespace CameraTools
                 case ChoiceRow choice when pressLeft != pressRight:
                     Choose(choice, pressRight ? 1 : -1);
                     break;
-                case ActionRow action when pressA:
-                    action.Run();
+                case StepperRow stepper when pressLeft != pressRight:
+                    Browse(stepper, pressRight ? 1 : -1);
+                    break;
+                case ActionRow when pressA:
+                    Run((ActionView)view);
                     break;
                 case ResolutionRow slot when pressA:
                     Graphics.ApplySlot(slot.Slot);
@@ -468,6 +499,54 @@ namespace CameraTools
             int next = Math.Clamp(now + direction, 0, choice.Options.Length - 1);
             if (next != now)
                 choice.Set(next);
+        }
+
+        private static void Browse(StepperRow stepper, int direction)
+        {
+            int next = stepper.Get() + direction;
+            if (next >= 0 && next < stepper.Count())
+                stepper.Set(next);
+        }
+
+        private static void Change(Row row, int direction)
+        {
+            if (row is ChoiceRow choice)
+                Choose(choice, direction);
+            else if (row is StepperRow stepper)
+                Browse(stepper, direction);
+        }
+
+        // A row that asks for confirmation runs on a second press within ConfirmTime; the first only arms it.
+        private static void Run(ActionView view)
+        {
+            var action = (ActionRow)view.Row;
+            if (action.Enabled != null && !action.Enabled())
+                return;
+            if (action.Confirm != null && armed != view)
+            {
+                Disarm();
+                armed = view;
+                armed.Armed = true;
+                armedUntil = Time.unscaledTime + ConfirmTime;
+                return;
+            }
+            Disarm();
+            action.Run();
+        }
+
+        private static void Disarm()
+        {
+            if (armed == null)
+                return;
+            armed.Armed = false;
+            armed = null;
+        }
+
+        // Moving the selection, switching tabs, closing the panel, or waiting too long cancels a confirmation.
+        private static void ExpireConfirm()
+        {
+            if (armed != null && (!panelOpen || Time.unscaledTime >= armedUntil || selected < 0 || CurrentRows[selected] != armed))
+                Disarm();
         }
 
         private static void StartEditing(ResolutionView view)
@@ -590,14 +669,14 @@ namespace CameraTools
                 case SliderView slider when Contains(slider.Track, point):
                     dragging = slider;
                     break;
-                case ActionView { Row: ActionRow action }:
-                    action.Run();
+                case ActionView action:
+                    Run(action);
                     break;
-                case ChoiceView { Row: ChoiceRow choice } stepper when Contains(stepper.Previous.rectTransform, point):
-                    Choose(choice, -1);
+                case ArrowsView arrows when Contains(arrows.Previous.rectTransform, point):
+                    Change(arrows.Row, -1);
                     break;
-                case ChoiceView { Row: ChoiceRow choice } stepper when Contains(stepper.Next.rectTransform, point):
-                    Choose(choice, 1);
+                case ArrowsView arrows when Contains(arrows.Next.rectTransform, point):
+                    Change(arrows.Row, 1);
                     break;
                 case ResolutionView { Row: ResolutionRow slot } resolution when Contains(resolution.Apply, point):
                     Graphics.ApplySlot(slot.Slot);
@@ -625,12 +704,14 @@ namespace CameraTools
 
         private static void Render()
         {
+            ExpireConfirm();
             var view = View;
             float deltaTime = Time.unscaledDeltaTime;
             // Values that changed while the panel or their tab was hidden show without animating.
             bool opened = view == View.Panel && live.Shown != View.Panel;
             live.Shown = view;
             live.Hud.Update(view == View.Hud, deltaTime);
+            live.PlayBar.Update(view == View.Playing, deltaTime);
             live.Panel.Update(view == View.Panel, deltaTime);
             var layout = Controls.Layout;
             if (live.Layout != layout)
@@ -640,6 +721,8 @@ namespace CameraTools
             }
             if (live.Hud.Visible)
                 RenderFov();
+            if (live.PlayBar.Visible)
+                RenderPlayBar();
             if (live.Panel.Visible)
                 RenderPanel(opened, deltaTime);
             RenderToast(deltaTime);
@@ -672,6 +755,42 @@ namespace CameraTools
             live.FovHandle.anchoredPosition = V(0f, -(Style.FovInset + t * (Style.FovHeight - 2f * Style.FovInset)));
             live.FovShown = fov.Value;
         }
+
+        // The fill follows time, and each tick marks when the camera reaches a node. The bar keeps its last frame while it
+        // fades out after playback.
+        private static void RenderPlayBar()
+        {
+            if (PathPlayback.State is not PlaybackState.Playing playing)
+                return;
+            if (live.PlayShown != playing.Sampler)
+            {
+                live.PlayShown = playing.Sampler;
+                var times = playing.Sampler.NodeTimes(playing.EaseIn, playing.EaseOut);
+                while (live.Ticks.Count < times.Length)
+                    live.Ticks.Add(Picture(live.PlayRail, "Tick", null, Style.Tick).rectTransform);
+                for (int index = 0; index < live.Ticks.Count; index++)
+                {
+                    var tick = live.Ticks[index];
+                    tick.gameObject.SetActive(index < times.Length);
+                    if (index < times.Length)
+                        Place(tick, V(times[index], 0.5f), V(times[index], 0.5f), V(0.5f, 0.5f), V(0f, 0f), V(Style.TickWidth, Style.TickHeight));
+                }
+                // As wide as this playback's longest text, so the rail does not move as the seconds count up.
+                live.PlayMeta.text = PlayText(playing.Number, playing.Duration, playing.Duration);
+                live.PlayMetaWidth.preferredWidth = live.PlayMeta.preferredWidth + Style.PlayMetaSlack;
+                live.PlayText = null;
+            }
+            float seconds = playing.PassTime;
+            string text = PlayText(playing.Number, seconds, playing.Duration);
+            if (text != live.PlayText)
+            {
+                live.PlayMeta.text = text;
+                live.PlayText = text;
+            }
+            live.PlayFill.anchorMax = V(seconds / playing.Duration, 0.5f);
+        }
+
+        private static string PlayText(int number, float seconds, float duration) => $"Path {number} · {seconds:0.0} / {duration:0.0} s";
 
         // A tab switch fades the shown rows out, swaps in the selected tab's, and fades them in.
         private static void RenderPanel(bool opened, float deltaTime)
@@ -715,20 +834,23 @@ namespace CameraTools
                 live.ShownSelected = selected;
             }
             // The footer names what the buttons do to the selected row.
-            var footer = editing != null ? new Footer("Save", false, false, "Cancel") : (selected >= 0 ? CurrentRows[selected].Row : null) switch
+            var footer = editing != null ? new Footer("Save", null, false, "Cancel") : (selected >= 0 ? CurrentRows[selected].Row : null) switch
             {
-                ToggleRow toggle => new Footer(toggle.Get() ? "Off" : "On", false, false, "Return"),
-                ActionRow action => new Footer(action.Hint, false, false, "Return"),
-                ChoiceRow => new Footer(null, true, false, "Return"),
-                ResolutionRow => new Footer("Apply", false, true, "Return"),
-                _ => new Footer(null, false, false, "Return"),
+                ToggleRow toggle => new Footer(toggle.Get() ? "Off" : "On", null, false, "Return"),
+                ActionRow action => new Footer(action.Enabled == null || action.Enabled() ? action.Hint : null, null, false, "Return"),
+                ChoiceRow => new Footer(null, "Change", false, "Return"),
+                StepperRow => new Footer(null, "Browse", false, "Return"),
+                ResolutionRow => new Footer("Apply", null, true, "Return"),
+                _ => new Footer(null, null, false, "Return"),
             };
             if (footer == live.FooterShown)
                 return;
             live.Change.Root.SetActive(footer.A != null);
             if (footer.A != null)
                 live.Change.Label.text = footer.A;
-            live.Steps.Root.SetActive(footer.Steps);
+            live.Steps.Root.SetActive(footer.Steps != null);
+            if (footer.Steps != null)
+                live.Steps.Label.text = footer.Steps;
             live.Edit.Root.SetActive(footer.Edit);
             live.Return.Label.text = footer.B;
             live.FooterShown = footer;
@@ -786,8 +908,9 @@ namespace CameraTools
             }
         }
 
-        // A: what A does, or null. Steps: D-pad left and right change the row. Edit: Y starts typing. B: what B does.
-        private readonly record struct Footer(string A, bool Steps, bool Edit, string B);
+        // A: what A does, or null. Steps: what D-pad left and right do to the row, or null. Edit: Y starts typing. B: what B
+        // does.
+        private readonly record struct Footer(string A, string Steps, bool Edit, string B);
 
         // A hint's controller and keyboard versions; only one shows, and only if the action has a binding for it.
         private sealed record Legend(HintView Pad, bool HasPad, HintView Key, bool HasKey);
@@ -814,6 +937,15 @@ namespace CameraTools
             public HintView Edit;
             public HintView Return;
             public RectTransform Thumb;
+            public Fader PlayBar;
+            public Text PlayMeta;
+            public LayoutElement PlayMetaWidth;
+            public RectTransform PlayRail;
+            public RectTransform PlayFill;
+            public readonly List<RectTransform> Ticks = new();
+            // The playback the play bar was laid out for.
+            public PathSampler PlayShown;
+            public string PlayText;
             // The game's option lists could not be read when this UI was built, so its Graphics tab has no settings rows.
             public bool MissingSettings;
             public Text ToastLabel;

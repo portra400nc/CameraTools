@@ -149,15 +149,52 @@ namespace CameraTools
         }
     }
 
+    // Only a row with Enabled or Confirm changes after it is built.
     internal sealed class ActionView : ItemView
     {
+        public Text Label;
+        public Image Go;
+        public Text Note;
+        public CanvasGroup Group;
+        // The first press of a row that asks for confirmation sets this, until the second press or the selection moves.
+        public bool Armed;
+        private (string Label, bool Enabled)? shown;
+
+        public override void Sync(float step)
+        {
+            var action = (ActionRow)Row;
+            if (action.Enabled == null && action.Confirm == null)
+                return;
+            bool enabled = action.Enabled?.Invoke() ?? true;
+            string label = Armed ? $"{(Controls.Layout == InputDevice.Pad ? "Press A" : "Click")} again to {action.Confirm()}" : action.Label;
+            if (shown == (label, enabled))
+                return;
+            shown = (label, enabled);
+            Label.text = label;
+            Label.color = Armed ? Style.XboxB : Style.Text;
+            Go.color = Armed ? Style.XboxB : Style.Cream;
+            if (Group != null)
+                Group.alpha = enabled ? 1f : Style.RowDimmed;
+            if (Note == null)
+                return;
+            // The label is centred in the row, and moves up to make room while the note shows.
+            Note.gameObject.SetActive(!enabled);
+            float height = Rect.sizeDelta.y;
+            Builder.TopLeft(Label.rectTransform, Style.RowLeft, enabled ? 0f : Style.RowTextY, Style.RowWidth - Shapes.Chevron.Width,
+                enabled ? height : Style.RowTextHeight);
+        }
     }
 
-    internal sealed class ChoiceView : ItemView
+    // A value between a previous and a next arrow.
+    internal abstract class ArrowsView : ItemView
     {
         public Text Value;
         public Image Previous;
         public Image Next;
+    }
+
+    internal sealed class ChoiceView : ArrowsView
+    {
         private int? shown;
 
         public override void Sync(float step)
@@ -170,6 +207,33 @@ namespace CameraTools
             Value.text = position >= 0 && position < choice.Options.Length ? choice.Options[position] : "?";
             Previous.color = Style.WithAlpha(Style.White, position > 0 ? 1f : Style.StepDimmed);
             Next.color = Style.WithAlpha(Style.White, position < choice.Options.Length - 1 ? 1f : Style.StepDimmed);
+        }
+    }
+
+    internal sealed class StepperView : ArrowsView
+    {
+        public Text Note;
+        private (int Index, int Count)? shown;
+        private string note;
+
+        public override void Sync(float step)
+        {
+            var stepper = (StepperRow)Row;
+            var position = (Index: stepper.Get(), Count: stepper.Count());
+            if (shown != position)
+            {
+                shown = position;
+                Value.text = position.Count == 0 ? "None" : $"{position.Index + 1} / {position.Count}";
+                Previous.color = Style.WithAlpha(Style.White, position.Index > 0 ? 1f : Style.StepDimmed);
+                Next.color = Style.WithAlpha(Style.White, position.Index < position.Count - 1 ? 1f : Style.StepDimmed);
+            }
+            if (Note == null)
+                return;
+            string text = stepper.Note();
+            if (text == note)
+                return;
+            Note.text = text;
+            note = text;
         }
     }
 
@@ -264,6 +328,8 @@ namespace CameraTools
             [KeyCode.DownArrow] = "Down",
             [KeyCode.LeftArrow] = "Left",
             [KeyCode.RightArrow] = "Right",
+            [KeyCode.KeypadEnter] = "Num Enter",
+            [KeyCode.KeypadPlus] = "Num +",
         };
 
         private readonly Font font;
@@ -378,11 +444,27 @@ namespace CameraTools
             return rect;
         }
 
-        // A glyph for a binding that is one button, or the binding spelled out before the label.
+        // A glyph for a binding that is one button, Back + a glyph for a Back chord of one other button, or the binding
+        // spelled out before the label.
         public HintView PadHint(Transform parent, PadBinding binding, string label)
         {
             var button = GlyphButton(binding);
-            return HasGlyph(button) ? GlyphHint(parent, button, label) : Hint(parent, null, $"{binding}  {label}");
+            if (HasGlyph(button))
+                return GlyphHint(parent, button, label);
+            var withBack = binding.Chord & ~PadButtons.Back;
+            if (binding.Axis == PadAxis.None && withBack != binding.Chord && HasGlyph(withBack))
+                return Hint(parent, rect => Combo(rect, withBack), label);
+            return Hint(parent, null, $"{binding}  {label}");
+        }
+
+        private void Combo(Transform parent, PadButtons button)
+        {
+            var combo = Node("Combo", parent);
+            combo.sizeDelta = V(0f, Style.HintHeight);
+            Flow(combo.gameObject, Style.ComboGap, TextAnchor.MiddleCenter);
+            Glyph(combo, PadButtons.Back);
+            Label(combo, "Plus", "+", Style.ComboSize, Style.Dim, TextAnchor.MiddleCenter).rectTransform.sizeDelta = V(0f, Style.HintHeight);
+            Glyph(combo, button);
         }
 
         public HintView GlyphHint(Transform parent, PadButtons button, string label) => Hint(parent, rect => Glyph(rect, button), label);
@@ -458,12 +540,30 @@ namespace CameraTools
             return view;
         }
 
-        // With a note, the label and the stepper share the first line and the note runs under both, so a long note never
-        // meets the stepper.
         public ChoiceView Choice(Transform parent, ChoiceRow row, float y)
         {
             var view = new ChoiceView();
-            bool noted = row.Note != null;
+            var rect = Arrows(parent, view, row, y, row.Note != null);
+            if (row.Note != null)
+                Note(rect, row.Note);
+            view.Sync(1f);
+            return view;
+        }
+
+        public StepperView Stepper(Transform parent, StepperRow row, float y)
+        {
+            var view = new StepperView();
+            var rect = Arrows(parent, view, row, y, row.Note != null);
+            if (row.Note != null)
+                view.Note = NoteLabel(rect);
+            view.Sync(1f);
+            return view;
+        }
+
+        // With a note, the label and the arrows share the first line and the note runs under both, so a long note never
+        // meets the arrows.
+        private RectTransform Arrows(Transform parent, ArrowsView view, Row row, float y, bool noted)
+        {
             float height = noted ? Style.ChoiceRowHeight : Style.ToggleRowHeight;
             var rect = Item(parent, view, row, y, height);
             float lineY = noted ? Style.RowTextY : 0f;
@@ -478,20 +578,27 @@ namespace CameraTools
             Pin(view.Value.rectTransform, 1f, 1f, -(Style.RowRight + Style.StepSize + Style.StepGap), -lineY, Style.ChoiceValueWidth, lineHeight);
             view.Previous = Picture(rect, "Previous", Shapes.StepLeft, Style.White);
             Pin(view.Previous.rectTransform, 1f, 1f, -(Style.RowRight + stepper - Style.StepSize), stepY, Style.StepSize, Style.StepSize);
-            if (noted)
-                Note(rect, row.Note);
-            view.Sync(1f);
-            return view;
+            return rect;
         }
 
+        // A row with a DisabledNote is a little taller, so the note fits under the label while the row is dimmed.
         public ActionView Action(Transform parent, ActionRow row, float y)
         {
             var view = new ActionView();
-            var rect = Item(parent, view, row, y, Style.ToggleRowHeight);
-            var label = Label(rect, "Label", row.Label, Style.RowSize, Style.Text, TextAnchor.MiddleLeft);
-            TopLeft(label.rectTransform, Style.RowLeft, 0f, Style.RowWidth - Shapes.Chevron.Width, Style.ToggleRowHeight);
-            var go = Picture(rect, "Go", Shapes.Chevron, Style.Cream);
-            Pin(go.rectTransform, 1f, 0.5f, -Style.RowRight, 0f, Shapes.Chevron.Width, Shapes.Chevron.Height);
+            float height = row.DisabledNote != null ? Style.ChoiceRowHeight : Style.ToggleRowHeight;
+            var rect = Item(parent, view, row, y, height);
+            view.Label = Label(rect, "Label", row.Label, Style.RowSize, Style.Text, TextAnchor.MiddleLeft);
+            TopLeft(view.Label.rectTransform, Style.RowLeft, 0f, Style.RowWidth - Shapes.Chevron.Width, height);
+            view.Go = Picture(rect, "Go", Shapes.Chevron, Style.Cream);
+            Pin(view.Go.rectTransform, 1f, 0.5f, -Style.RowRight, 0f, Shapes.Chevron.Width, Shapes.Chevron.Height);
+            if (row.Enabled != null)
+                view.Group = rect.gameObject.AddComponent<CanvasGroup>();
+            if (row.DisabledNote != null)
+            {
+                view.Note = NoteLabel(rect);
+                view.Note.text = row.DisabledNote;
+            }
+            view.Sync(1f);
             return view;
         }
 
@@ -511,10 +618,16 @@ namespace CameraTools
             return view;
         }
 
-        private void Note(Transform parent, PresetNote note)
+        private Text NoteLabel(Transform parent)
         {
             var text = Label(parent, "Note", "", Style.NoteSize, Style.Dim, TextAnchor.MiddleLeft);
             TopLeft(text.rectTransform, Style.RowLeft, Style.NoteY, Style.RowWidth, Style.NoteHeight);
+            return text;
+        }
+
+        private void Note(Transform parent, PresetNote note)
+        {
+            var text = NoteLabel(parent);
             text.supportRichText = true;
             text.text = $"Max {Colored(note.Max, Style.Cream)} · Min {Colored(note.Min, Style.Cream)}"
                 + (note.Restart ? $" · {Colored("applies after a restart", Style.XboxY)}" : "");

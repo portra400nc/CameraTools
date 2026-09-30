@@ -43,6 +43,7 @@ namespace CameraTools
         public static readonly Color KnobInkOn = Hex(0x9b7d45);
         public static readonly Color StepFill = Hex(0xece5d8, 0.12f);
         public static readonly Color Thumb = Hex(0xd3bc8e, 0.55f);
+        public static readonly Color Tick = Hex(0xece5d8, 0.70f);
 
         public const float Margin = 44f;
         public const float TopLegendY = 28f;
@@ -66,14 +67,15 @@ namespace CameraTools
         public const float PanelShadowWidth = 56f;
         public const float TabBarHeight = 64f;
         public const float TabBarPadding = 16f;
-        public const float TabGap = 8f;
+        // The mockup's spacing, which leaves room for four tabs between the LB and RB glyphs.
+        public const float TabGap = 4f;
         public const float TabsAfterBack = 72f;
-        public const int TabPadX = 14;
+        public const int TabPadX = 10;
         public const int TabPadTop = 10;
         public const int TabPadBottom = 12;
         public const float TabHeight = 39f;
         public const int TabSize = 17;
-        public const float LineInset = 14f;
+        public const float LineInset = 10f;
         public const float LineBottom = 2f;
         public const float LineHeight = 3f;
         public const float LineRestScale = 0.4f;
@@ -116,6 +118,7 @@ namespace CameraTools
         public const float StepGap = 6f;
         public const float ChoiceValueWidth = 92f;
         public const float StepDimmed = 0.3f;
+        public const float RowDimmed = 0.4f;
         public const float SlotValueWidth = 110f;
         public const float ButtonWidth = 60f;
         public const float ButtonHeight = 24f;
@@ -126,6 +129,14 @@ namespace CameraTools
         public const float ThumbMin = 24f;
         public const float WheelStep = 60f;
 
+        public const float PlayBarY = 24f;
+        public const float PlayBarGap = 18f;
+        public const float TickWidth = 2f;
+        public const float TickHeight = 10f;
+        public const float PlayMetaSlack = 6f;
+
+        public const float ComboGap = 3f;
+        public const int ComboSize = 12;
         public const float KeyHeight = 22f;
         public const float KeyMinWidth = 24f;
         public const int KeyPadding = 7;

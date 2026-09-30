@@ -102,17 +102,22 @@ namespace CameraTools
                     .OrderBy(button => button != PadButtons.Back));
         }
 
-        public float Value(PadState state) => Axis != PadAxis.None ? state.Axis(Axis) : Held(state) ? 1f : 0f;
+        public float Value(PadState state) => Axis != PadAxis.None ? AxisValue(state) : Held(state) ? 1f : 0f;
 
         // Back is a modifier: a chord with Back needs it held, and a chord without Back is silent while it is.
         public bool Held(PadState state)
         {
             if (Axis != PadAxis.None)
-                return state.Axis(Axis) >= 0.5f;
+                return AxisValue(state) >= 0.5f;
             return Chord != PadButtons.None
                 && (state.Buttons & Chord) == Chord
                 && ((Chord & PadButtons.Back) != 0 || (state.Buttons & PadButtons.Back) == 0);
         }
+
+        // A trigger is also a button in Back chords such as Back+LT, so its axis reads 0 while Back is held. The sticks keep
+        // working, because Back+LB slow movement is used with the left stick.
+        private float AxisValue(PadState state)
+            => Axis is PadAxis.LT or PadAxis.RT && (state.Buttons & PadButtons.Back) != 0 ? 0f : state.Axis(Axis);
 
         // A chord fires when one of its own buttons goes down, so releasing Back while A is held does not fire A.
         public bool Pressed(PadState state, PadState previous)

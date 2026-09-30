@@ -10,6 +10,7 @@
  - Change graphics settings and resolution while in free cam
  - Change the time of day + time-lapse
  - Override the weather with sunny, cloudy, rain, thunderstorm, snow, or mist
+ - Camera paths: record views as nodes and fly the camera through them
  - Configurable hotkeys
  - Controller support (XInput, including the Steam Deck)
 
@@ -21,6 +22,17 @@ CameraTools draws its own UI in the style of Genshin's, with the game's font. Th
 - Button hints follow the device you used last.
 - The free camera hides the game's HUD. Hide UI (PageDown, or B) hides CameraTools' hints for a clean shot.
 - A tab longer than the panel scrolls. Scroll with the mouse wheel, or move the selection with the controller.
+
+## Camera paths
+
+A camera path is a list of nodes. Each node records the free camera's position, rotation, and field of view. Playback flies the camera through every node on a smooth curve, in the time you set for that path. You can keep any number of paths. Numpad 1 to 9 pick the first nine.
+
+- Build a path in the Paths tab of the settings panel: add a node at the end, insert one before or after the selected node, replace a node with the current view, jump the camera to a node, or delete it. Deleting a path asks you to press again within 3 seconds.
+- Play needs at least 2 nodes and the free camera on. It closes the panel, counts down from 3 unless you turn the countdown off, then hides CameraTools' UI. Press Numpad Enter (Back+RT) again to stop. Turn off "Hide UI while playing" to see a play bar with the time and a tick for each node instead.
+- Loop starts the path again from its first node. Constant speed moves the camera at an even speed however far apart the nodes are. Ease in and Ease out start and end the flight gently.
+- Paths play while the game is paused. "Unpause game while playing" runs the game during playback and pauses it again after.
+- Shake adds a handheld wobble. Strength 0 turns it off; about 0.5 at a frequency of 1.5 to 2 looks like a handheld camera, and 5 is strong.
+- Paths and their settings are saved to `UserData/CameraTools/CameraPaths.json` after every change. Nodes are saved as world positions, so a path stays in place when Genshin moves its world origin. If the file cannot be read, CameraTools renames it to `CameraPaths.json.bak` and starts with no paths.
 
 ## Hotkeys
 | Key | Description |
@@ -52,6 +64,9 @@ CameraTools draws its own UI in the style of Genshin's, with the game's font. Th
 | Equals (=) | Apply resolution slot 2 (2560x1600 unless you change it)
 | Minus (-) | Apply resolution slot 1 (1280x800 unless you change it)
 | Home | Toggle max detail (keeps every LOD at its most detailed level)
+| Numpad + | Add a node at the end of the selected camera path (starts a path if there is none)
+| Numpad Enter | Play or stop the selected camera path
+| Numpad 1-9 | Select camera path 1 to 9 (during playback, play that path from its start)
 
 You can customize the hotkeys by editing `MelonPreferences.cfg` located in `\UserData`. Refer to this list of key codes: https://docs.unity3d.com/ScriptReference/KeyCode.html 
 
@@ -75,13 +90,13 @@ A slot from 320x200 to 16384x16384 is accepted. A slot that does not parse falls
 
 CameraTools reads an XInput controller, such as the Steam Deck's built-in controls. The game owns the controller until you press L3+R3 (both sticks) together. That hands the controller to CameraTools: it injects and turns on the free camera if needed, stops the game from reading the controller, rumbles, and shows "Controller: CameraTools" at the top of the screen. Press L3+R3 again to give the controller back to the game. The free camera stays where it is, so you can walk the character through a fixed shot. The L3+R3 switch cannot be rebound.
 
-Back (View) is a modifier. Hold it for the actions in the right-hand column.
+Back (View) is a modifier. Hold it for the actions in the right-hand column. While Back is held, LT and RT do not move the camera down or up, so Back+LT and Back+RT do not also move it.
 
 | Controller | Action | Back + controller |
 |--|--|--|
 | Left stick | Camera movement (analog) | |
 | Right stick | Look around | |
-| LT / RT | Down / up (analog) | |
+| LT / RT | Down / up (analog) | Add a camera path node / play or stop the camera path |
 | LB / RB | Roll left / right | Slow / fast camera movement (hold) |
 | R3 | Reset roll | |
 | D-pad up / down | Increase / decrease field of view | Increase / decrease game speed by 0.5 |
@@ -97,8 +112,8 @@ While the settings panel is open, the controller drives the panel instead of the
 | Controller | Settings panel |
 |--|--|
 | D-pad up / down, or left stick up / down | Select the previous / next setting (hold to repeat) |
-| D-pad left / right | Decrease / increase a slider (hold to repeat), flip a switch, change a setting, or step a resolution slot through common sizes |
-| A | Flip a switch, run a preset, or apply a resolution slot |
+| D-pad left / right | Decrease / increase a slider (hold to repeat), flip a switch, change a setting, browse camera paths and nodes, or step a resolution slot through common sizes |
+| A | Flip a switch, run a preset or a camera path action, or apply a resolution slot |
 | Y | Type a resolution slot's size |
 | LB / RB | Previous / next tab |
 | B, or the ToggleGUI button (Start by default) | Close the panel, or cancel typing a size |

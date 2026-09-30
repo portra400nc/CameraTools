@@ -1,3 +1,4 @@
+using MelonLoader;
 using UnityEngine;
 using static CameraTools.CameraTools;
 
@@ -20,11 +21,14 @@ namespace CameraTools
 
         private Vector3 targetPosition;
         private Vector3 smoothPosition;
+        // Absolute, so the remembered position survives a world shift while the free camera is off.
         private Vector3 lastPosition;
         private Vector3 lastRotation;
         private bool hasLastPose;
         private float smoothFOV;
         private float gameFov;
+        // Where the world's absolute origin was last frame, in scene coordinates.
+        private Vector3 worldOrigin;
 
         private class CameraRotation
         {
@@ -35,6 +39,14 @@ namespace CameraTools
                 pitch = t.eulerAngles.x;
                 yaw = t.eulerAngles.y;
                 roll = t.eulerAngles.z;
+            }
+
+            // Within -180 to 180, so resetting the roll afterwards turns the short way back to 0.
+            public void Set(Vector3 euler)
+            {
+                pitch = Mathf.DeltaAngle(0f, euler.x);
+                yaw = Mathf.DeltaAngle(0f, euler.y);
+                roll = Mathf.DeltaAngle(0f, euler.z);
             }
 
             public void LerpTowards(CameraRotation target, float rotationLerpPct)
@@ -68,7 +80,7 @@ namespace CameraTools
             if (settings.RememberPosition && hasLastPose)
             {
                 transform.eulerAngles = lastRotation;
-                transform.position = lastPosition;
+                transform.position = WorldShift.Relative(lastPosition);
             }
             targetRotation.InitializeFromTransform(transform);
             currentRotation.InitializeFromTransform(transform);
@@ -76,14 +88,46 @@ namespace CameraTools
             targetPosition = smoothPosition;
             smoothFOV = cam.fieldOfView;
             gameFov = smoothFOV;
+            worldOrigin = WorldShift.Relative(default);
         }
 
         public void OnDisable()
         {
-            lastPosition = smoothPosition;
+            lastPosition = WorldShift.Absolute(smoothPosition);
             lastRotation = new Vector3(currentRotation.pitch, currentRotation.yaw, currentRotation.roll);
             hasLastPose = true;
             SetFieldOfView(gameFov);
+        }
+
+        // What is on screen, which a camera path node records.
+        public (Vector3 Position, Quaternion Rotation, float Fov) Pose
+            => (smoothPosition, Quaternion.Euler(currentRotation.pitch, currentRotation.yaw, currentRotation.roll), smoothFOV);
+
+        // Moves the camera there at once: the target and the smoothed pose both change, so damping neither lags behind nor
+        // pulls back afterwards.
+        public void Snap(Vector3 position, Quaternion rotation, float fov)
+        {
+            targetPosition = position;
+            smoothPosition = position;
+            var euler = rotation.eulerAngles;
+            targetRotation.Set(euler);
+            currentRotation.Set(euler);
+            settings.Fov.Value = fov;
+            smoothFOV = settings.Fov.Value;
+        }
+
+        // When Genshin shifts its world origin, everything in the scene jumps by the same offset; moving the camera with it
+        // keeps the shot where it was.
+        public void FollowWorldShift()
+        {
+            var origin = WorldShift.Relative(default);
+            if (origin.x == worldOrigin.x && origin.y == worldOrigin.y && origin.z == worldOrigin.z)
+                return;
+            var moved = new Vector3 { x = origin.x - worldOrigin.x, y = origin.y - worldOrigin.y, z = origin.z - worldOrigin.z };
+            worldOrigin = origin;
+            targetPosition += moved;
+            smoothPosition += moved;
+            Melon<CameraTools>.Logger.Msg($"World shift: the origin moved by ({moved.x:0.0}, {moved.y:0.0}, {moved.z:0.0}); the free camera moved with it.");
         }
 
         // Genshin's own camera system rewrites the camera every frame after OnLateUpdate, so the pose is kept here

@@ -22,7 +22,15 @@ namespace CameraTools
     // Get is the shown option's position in Options, or -1 when the current value is none of them.
     public sealed record ChoiceRow(string Label, string[] Options, Func<int> Get, Action<int> Set, PresetNote Note) : Row(Label);
 
-    public sealed record ActionRow(string Label, Action Run, string Hint) : Row(Label);
+    // Enabled, when set, dims the row and ignores A while it returns false, and DisabledNote then shows under the label.
+    // Confirm, when set, makes the first A arm the row and a second A within a few seconds run it; it names what running
+    // does, such as "delete path 2".
+    public sealed record ActionRow(string Label, Action Run, string Hint, Func<bool> Enabled = null, string DisabledNote = null,
+        Func<string> Confirm = null) : Row(Label);
+
+    // Browses a list whose length changes, showing "2 / 3", or "None" while it is empty. Note, when set, is read every frame
+    // for a line under the label.
+    public sealed record StepperRow(string Label, Func<int> Count, Func<int> Get, Action<int> Set, Func<string> Note = null) : Row(Label);
 
     public sealed record ResolutionRow(string Label, int Slot) : Row(Label);
 
@@ -30,8 +38,9 @@ namespace CameraTools
 
     public sealed record Hint(CamAction Action, string Label);
 
-    // Hidden: the free camera is off. Hud: legends and the field of view bar. Panel: settings.
-    public enum View { Hidden, Hud, Panel }
+    // Hidden: the free camera is off. Hud: legends and the field of view bar. Playing: a camera path's play bar. Panel:
+    // settings.
+    public enum View { Hidden, Hud, Playing, Panel }
 
     internal static class UiModel
     {
@@ -62,6 +71,49 @@ namespace CameraTools
             new ChoiceRow("Weather", Weather.Labels, () => Weather.Choice, Weather.SetChoice, null),
         });
 
+        private static readonly Tab Paths = new("Paths", new Row[]
+        {
+            new Section("Path"),
+            new StepperRow("Path", () => CameraPaths.Paths.Count, () => CameraPaths.Active, CameraPaths.SelectPath, () => CameraPaths.PathNote),
+            new ActionRow("New path", CameraPaths.NewPath, "Create"),
+            new ActionRow("Delete path", CameraPaths.DeletePath, "Delete", () => CameraPaths.HasPath,
+                Confirm: () => $"delete path {CameraPaths.Active + 1}"),
+            new Section("Nodes"),
+            new StepperRow("Node", () => CameraPaths.Current?.Nodes.Count ?? 0, () => CameraPaths.Node, CameraPaths.SelectNode),
+            new ActionRow("Add node at end", CameraPaths.AddNode, "Add"),
+            new ActionRow("Insert before this node", CameraPaths.InsertBefore, "Insert", () => CameraPaths.HasNode),
+            new ActionRow("Insert after this node", CameraPaths.InsertAfter, "Insert", () => CameraPaths.HasNode),
+            new ActionRow("Replace with current view", CameraPaths.ReplaceNode, "Replace", () => CameraPaths.HasNode),
+            new ActionRow("Go to node", CameraPaths.GoToNode, "Go", () => CameraPaths.HasNode),
+            new ActionRow("Delete node", CameraPaths.DeleteNode, "Delete", () => CameraPaths.HasNode),
+            new Section("Playback"),
+            new ActionRow("Play", PathPlayback.Play, "Play", () => CameraPaths.CanPlay, "Add at least 2 nodes"),
+            new SliderRow("Duration", CameraPath.MinDuration, CameraPath.MaxDuration, 0.5f, "0.0' s'", () => CameraPaths.Duration, CameraPaths.SetDuration),
+            PathToggle("Loop", options => options.Loop, (options, on) => options.Loop = on),
+            PathToggle("Constant speed", options => options.ConstantSpeed, (options, on) => options.ConstantSpeed = on),
+            PathToggle("Ease in", options => options.EaseIn, (options, on) => options.EaseIn = on),
+            PathToggle("Ease out", options => options.EaseOut, (options, on) => options.EaseOut = on),
+            PathToggle("Unpause game while playing", options => options.UnpauseGame, (options, on) => options.UnpauseGame = on),
+            PathToggle("Hide UI while playing", options => options.HideUi, (options, on) => options.HideUi = on),
+            PathToggle("3-second countdown", options => options.Countdown, (options, on) => options.Countdown = on),
+            new Section("Shake"),
+            Shake("Movement frequency", options => options.MoveShakeFrequency, (options, value) => options.MoveShakeFrequency = value),
+            Shake("Rotation frequency", options => options.RotateShakeFrequency, (options, value) => options.RotateShakeFrequency = value),
+            Shake("Movement strength", options => options.MoveShakeStrength, (options, value) => options.MoveShakeStrength = value),
+            Shake("Rotation strength", options => options.RotateShakeStrength, (options, value) => options.RotateShakeStrength = value),
+        });
+
+        private static ToggleRow PathToggle(string label, Func<PathOptions, bool> get, Action<PathOptions, bool> set)
+            => new(label, () => get(CameraPaths.Options), on => CameraPaths.ChangeOptions(options => set(options, on)));
+
+        // A held mouse drag sets the slider every frame, and each change is saved.
+        private static SliderRow Shake(string label, Func<PathOptions, float> get, Action<PathOptions, float> set)
+            => new(label, 0f, PathOptions.MaxShake, 0.05f, "0.00", () => get(CameraPaths.Options), value =>
+            {
+                if (value != get(CameraPaths.Options))
+                    CameraPaths.ChangeOptions(options => set(options, value));
+            });
+
         // The Graphics tab's game settings rows depend on the option lists the game offers on this machine, so the tabs are
         // built with the UI.
         public static Tab[] Tabs()
@@ -82,7 +134,7 @@ namespace CameraTools
             rows.AddRange(gameSettings);
             rows.Add(new Section("Beyond the game's limits"));
             rows.AddRange(Graphics.BeyondRows());
-            return new[] { Camera, World, new Tab("Graphics", rows.ToArray()) };
+            return new[] { Camera, World, Paths, new Tab("Graphics", rows.ToArray()) };
         }
 
         public static readonly Hint[] BottomHints =

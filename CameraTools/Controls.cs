@@ -38,6 +38,17 @@ namespace CameraTools
         FastMovement,
         SlowMovement,
         ToggleMaxDetail,
+        AddPathNode,
+        PlayPath,
+        SelectPath1,
+        SelectPath2,
+        SelectPath3,
+        SelectPath4,
+        SelectPath5,
+        SelectPath6,
+        SelectPath7,
+        SelectPath8,
+        SelectPath9,
     }
 
     public enum PadOwner
@@ -87,6 +98,17 @@ namespace CameraTools
             (CamAction.FastMovement, KeyCode.RightAlt, "Back+RB"),
             (CamAction.SlowMovement, KeyCode.Semicolon, "Back+LB"),
             (CamAction.ToggleMaxDetail, KeyCode.Home, "Back+Start"),
+            (CamAction.AddPathNode, KeyCode.KeypadPlus, "Back+LT"),
+            (CamAction.PlayPath, KeyCode.KeypadEnter, "Back+RT"),
+            (CamAction.SelectPath1, KeyCode.Keypad1, ""),
+            (CamAction.SelectPath2, KeyCode.Keypad2, ""),
+            (CamAction.SelectPath3, KeyCode.Keypad3, ""),
+            (CamAction.SelectPath4, KeyCode.Keypad4, ""),
+            (CamAction.SelectPath5, KeyCode.Keypad5, ""),
+            (CamAction.SelectPath6, KeyCode.Keypad6, ""),
+            (CamAction.SelectPath7, KeyCode.Keypad7, ""),
+            (CamAction.SelectPath8, KeyCode.Keypad8, ""),
+            (CamAction.SelectPath9, KeyCode.Keypad9, ""),
         };
 
         private static readonly KeyCode[] keys = new KeyCode[Defaults.Length];

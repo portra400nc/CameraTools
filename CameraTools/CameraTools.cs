@@ -32,6 +32,7 @@ namespace CameraTools
         {
             Controls.Load();
             Graphics.Load();
+            CameraPaths.Load();
         }
 
         public override void OnApplicationQuit()
@@ -116,6 +117,8 @@ namespace CameraTools
             }
             if (Time.timeScale != speed)
                 CameraUi.Toast(Time.timeScale == 0.0f ? "Paused" : $"Game speed {Time.timeScale:0.##}x");
+            // After the speed notice, so unpausing the game for playback does not show one.
+            PathPlayback.Update();
 
             // After the hotkeys, so the key that closes the settings panel does not also fire its camera action.
             CameraUi.Update();
@@ -134,7 +137,10 @@ namespace CameraTools
             if (freecamActive)
             {
                 GameCamera.Update(maincam);
-                freecam.Update();
+                // Before playback poses the camera, which already accounts for the current shift.
+                freecam.FollowWorldShift();
+                if (!PathPlayback.Drive(freecam))
+                    freecam.Update();
                 freecam.LateUpdate();
             }
         }
