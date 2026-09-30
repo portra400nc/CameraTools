@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using MelonLoader;
 using MoleMole;
 using UnityEngine;
@@ -12,12 +13,13 @@ namespace CameraTools
         // Above the scene and domain slots and below Cutscene, so cutscenes keep their own lighting and the lock returns
         // after them.
         private const EnviroTimeType Slot = EnviroTimeType.BakeForceTime;
-        // A new sky after a teleport or a domain may start without the slot, so a frozen lock is sent again this often.
-        private const float ApplyInterval = 1f;
+        // The sky's Milky Way shown flag, at +0xEA0 in this game build.
+        private const int GalaxyShownFlag = 0xEA0;
 
         private static float hour;
+        // The sky and hour last sent; IntPtr.Zero when nothing is held.
         private static IntPtr sky;
-        private static float nextApply;
+        private static float sentHour;
 
         public static bool Locked { get; private set; }
 
@@ -61,8 +63,6 @@ namespace CameraTools
                 return;
             if (Speed > 0f)
                 hour = Wrap(hour + Speed * Time.unscaledDeltaTime / 60f);
-            else if (Time.unscaledTime < nextApply && current.Pointer == sky)
-                return;
             Apply(current);
         }
 
@@ -100,22 +100,41 @@ namespace CameraTools
 
         private static void Apply(EnviroSky current)
         {
+            if (!NeedsSend(current))
+                return;
             if (current.Pointer != sky)
             {
                 if (sky != IntPtr.Zero)
                     Log($"the sky changed; holding {Clock(hour)} on the new one.");
                 sky = current.Pointer;
             }
-            nextApply = Time.unscaledTime + ApplyInterval;
+            sentHour = hour;
             Send(current, true);
         }
+
+        // Every send refreshes the sky, so send only what it lacks: a new sky, a new hour, or our slot lost to a reset.
+        // The sky reports its highest enabled slot, so a Cutscene or MoonCannon above ours is left alone; ours shows
+        // again when they release the sky.
+        private static bool NeedsSend(EnviroSky current) =>
+            current.Pointer != sky || hour != sentHour || current.enviroTimeType < Slot;
 
         // A failing game call unlocks, so it is not repeated every frame.
         private static void Send(EnviroSky current, bool enable)
         {
             try
             {
+                var components = current.Components;
+                var galaxy = components != null ? components.Galaxy : null;
+                bool galaxyShown = galaxy != null && galaxy.activeSelf;
+                bool wasNight = current.IsNight;
+                byte shownFlag = Marshal.ReadByte(current.Pointer, GalaxyShownFlag);
                 current.SetEnvironmentFixTime(Slot, enable, enable ? hour : 0f);
+                // Each send re-rolls the Milky Way, but the game rolls once at nightfall, so keep only a nightfall's roll.
+                if (!wasNight && current.IsNight)
+                    return;
+                Marshal.WriteByte(current.Pointer, GalaxyShownFlag, shownFlag);
+                if (galaxy != null && galaxy.activeSelf != galaxyShown)
+                    galaxy.SetActive(galaxyShown);
             }
             catch (Exception e)
             {
