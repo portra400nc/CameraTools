@@ -21,24 +21,6 @@ CameraTools draws its own UI in the style of Genshin's, with the game's font. Th
 - The free camera hides the game's HUD. Hide UI (PageDown, or B) hides CameraTools' hints for a clean shot.
 - A tab longer than the panel scrolls. Scroll with the mouse wheel, or move the selection with the controller.
 
-## Graphics tab
-
-Under each setting, a second line shows what the two presets set it to ("Max" and "Min"). "Keep" means the preset leaves that setting alone.
-
-- **Presets.** "Max quality (screenshots)" sets every setting to its highest option, keeps your frame rate, V-Sync and co-op teammate effects, and turns motion blur off. "Min for performance" sets every setting to its lowest option, turns V-Sync off and raises the frame rate to the highest option. It also sets the values in "Beyond the game's limits" listed below. "Restore my settings" puts back the game settings you had before CameraTools first changed one, and sets everything in "Beyond the game's limits" back to Game.
-- **Resolution.** Two slots, each with a size and an Apply button. Click the size to type a new one, such as `1920x1200`, and press Enter to save it or Esc to cancel. On a controller, press Y to start typing, open the Steam keyboard with Steam+X, and press A to save it or B to cancel. D-pad left and right step through common 16:10 sizes. Apply, or A, switches the game to the slot's size and keeps the current window mode.
-- **Game settings.** The game's own graphics settings, one row each. A change is saved like a change in the game's settings menu, and the game's menu shows it. Environment detail applies after a restart. A setting the game offers only one option for on your machine has no row.
-- **Beyond the game's limits.** Values the game's menu cannot reach. They start at "Game", which leaves the value to the game, and they go back to Game when the game restarts.
-  - Render scale: the resolution the game renders at before it scales to the screen, from 0.25 to 2.00. Min sets 0.50.
-  - Shadows: Off turns off all shadows. Min sets Off.
-  - Shadow distance: 20, 50, 150 or 300 meters. Max sets 300 m and Min sets 20 m.
-  - Distant shadows: Min sets Off.
-  - Fog and god rays: Min sets Off.
-  - Particles: Fewest emits the fewest particles. Min sets Fewest.
-  - Detail level: Highest holds every object at its most detailed level. Lowest holds every object except characters at its least detailed level that still draws. Max sets Highest and Min sets Lowest. It is the same state as the World tab's Max detail switch.
-
-CameraTools saves your own game settings in `MelonPreferences.cfg`, in `SavedSettings` under `[CameraToolsGraphics]`, the first time it changes one. Restore empties it again, so the next preset saves your settings anew.
-
 ## Hotkeys
 | Key | Description |
 |--|--|
