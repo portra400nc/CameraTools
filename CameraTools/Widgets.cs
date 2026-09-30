@@ -267,7 +267,8 @@ namespace CameraTools
             var label = Node(name, parent).gameObject.AddComponent<Text>();
             label.font = font;
             label.fontSize = size;
-            label.fontStyle = FontStyle.Bold;
+            // The game's font is already heavy, and Unity fakes bold on a dynamic font by smearing it, which read as blurry.
+            label.fontStyle = FontStyle.Normal;
             label.color = color;
             label.alignment = alignment;
             label.horizontalOverflow = HorizontalWrapMode.Overflow;

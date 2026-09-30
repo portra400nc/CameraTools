@@ -122,6 +122,8 @@ namespace CameraTools
                 Object.DontDestroyOnLoad(root);
                 var canvas = root.AddComponent<Canvas>();
                 canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+                // Text placed between pixels is sampled soft; snapping keeps it sharp at the Deck's 1:1 scale.
+                canvas.pixelPerfect = true;
                 canvas.sortingOrder = SortingOrder;
                 // CameraTools hit-tests the mouse itself. The raycaster only tells the game's EventSystem that the pointer is over
                 // UI, so a click on the panel is not also a click in the world.

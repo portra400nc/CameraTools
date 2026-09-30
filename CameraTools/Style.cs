@@ -18,7 +18,7 @@ namespace CameraTools
         public static readonly Color TabBar = Hex(0x12151c, 0.55f);
         public static readonly Color ToastFill = Hex(0x181c25, 0.78f);
         public static readonly Color ToastRing = Hex(0xd3bc8e, 0.35f);
-        public static readonly Color TextShadow = Hex(0x000000, 0.55f);
+        public static readonly Color TextShadow = Hex(0x000000, 0.35f);
         public static readonly Color GlyphFill = Hex(0x1c2029);
         public static readonly Color GlyphRing = Hex(0xffffff, 0.18f);
         public static readonly Color Light = Hex(0xeae6de);
