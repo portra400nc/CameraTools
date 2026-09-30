@@ -8,6 +8,7 @@
  - Hide UI for clean shots
  - Smooth camera movement (damping)
  - Change graphics settings and resolution while in free cam
+ - Lock the time of day or run a time-lapse (only your screen changes; the world's time and other players are unaffected)
  - Configurable hotkeys
  - Controller support (XInput, including the Steam Deck)
 

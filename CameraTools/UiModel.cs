@@ -13,7 +13,7 @@ namespace CameraTools
     public sealed record PresetNote(string Max, string Min, bool Restart);
 
     public sealed record SliderRow(string Label, float Min, float Max, float Step, string Format,
-        Func<float> Get, Action<float> Set, PresetNote Note = null) : Row(Label)
+        Func<float> Get, Action<float> Set, PresetNote Note = null, Func<float, string> Display = null) : Row(Label)
     {
         public static SliderRow For(string label, Setting setting, float step, string format)
             => new(label, setting.Min, setting.Max, step, format, () => setting.Value, value => setting.Value = value);
@@ -54,6 +54,10 @@ namespace CameraTools
             new ToggleRow("Paused", () => Time.timeScale == 0f, SetPaused),
             new ToggleRow("Max detail", () => Lod.MaxDetail, Lod.SetMaxDetail),
             new ToggleRow("Damage numbers", () => DamageNumbers, on => DamageNumbers = on),
+            new Section("Time of day"),
+            new ToggleRow("Lock time of day", () => TimeOfDay.Locked, TimeOfDay.SetLocked),
+            new SliderRow("Time", 0f, 24f, 0.25f, "0.00", () => TimeOfDay.Hour, TimeOfDay.SetHour, Display: TimeOfDay.Clock),
+            new SliderRow("Time-lapse speed", 0f, 120f, 1f, "0'×'", () => TimeOfDay.Speed, TimeOfDay.SetSpeed),
         });
 
         // The Graphics tab's game settings rows depend on the option lists the game offers on this machine, so the tabs are

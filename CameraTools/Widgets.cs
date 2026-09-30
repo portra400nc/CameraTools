@@ -116,7 +116,7 @@ namespace CameraTools
             Fill.anchorMax = new Vector2 { x = t, y = 0.5f };
             Handle.anchorMin = new Vector2 { x = t, y = 0.5f };
             Handle.anchorMax = new Vector2 { x = t, y = 0.5f };
-            string formatted = value.ToString(slider.Format);
+            string formatted = slider.Display != null ? slider.Display(value) : value.ToString(slider.Format);
             if (formatted == text)
                 return;
             Value.text = formatted;

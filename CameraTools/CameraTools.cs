@@ -122,6 +122,7 @@ namespace CameraTools
             GameHud.Update(freecamActive || uiHidden);
             Lod.Update();
             Graphics.Update();
+            TimeOfDay.Update();
 
             if (freecamActive && !camera)
             {
