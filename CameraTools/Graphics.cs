@@ -25,17 +25,12 @@ namespace CameraTools
     // Lod is held with the World tab's Max detail switch rather than in Overrides.
     public sealed record Preset(string Name, Func<SettingRow, Pick> Pick, Overrides Overrides, LodLevel? Lod);
 
-    // One setting's option list: how many options it has, their text keys, and the option each position of the settings
-    // menu's dropdown shows. Menu is null when the game's mapping failed.
-    public sealed record OptionList(int Count, string[] Texts, int[] Menu)
+    // One setting's options in the settings menu's order, lowest first. Menu[position] is the option index the game stores
+    // for that menu position; the two differ where the game appended an option later, such as 45 FPS.
+    public sealed record OptionList(int[] Menu)
     {
-        // Some options may not be offered on PC, so a row steps through the options the menu reaches, in menu order.
-        public int[] Reachable => Menu?.Where(index => index >= 0 && index < Count).Distinct().ToArray() is { Length: > 0 } reached
-            ? reached
-            : Enumerable.Range(0, Count).ToArray();
-
-        public int Lowest => Reachable.DefaultIfEmpty().Min();
-        public int Highest => Reachable.DefaultIfEmpty().Max();
+        public int Lowest => Menu[0];
+        public int Highest => Menu[^1];
     }
 
     // A resolution slot's size, parsed from its "WxH" preference.
@@ -73,18 +68,18 @@ namespace CameraTools
         private static readonly string[] OffOn = { "Off", "On" };
         private static readonly string[] Quality = { "Lowest", "Low", "Medium", "High" };
 
-        // Index 0 is assumed to be each list's low end; the log shows each list's text keys to confirm it.
+        // Labels are in menu order, which the log confirms against each setting's option count.
         private static readonly SettingRow[] Table =
         {
             new(SettingKey.TargetFrameRate, "Frame rate", new[] { "30", "45", "60" }, Pick.Keep, Pick.Highest),
             new(SettingKey.VSync, "V-Sync", OffOn, Pick.Keep, Pick.Lowest),
             new(SettingKey.RenderResolution, "Render resolution", new[] { "0.6", "0.8", "0.9", "1.0", "1.1", "1.2", "1.3", "1.4", "1.5" },
                 Pick.Highest, Pick.Lowest),
-            new(SettingKey.AntiAliasing, "Anti-aliasing", new[] { "Off", "FSR 2", "SMAA", "TAA" }, Pick.Highest, Pick.Lowest),
+            new(SettingKey.AntiAliasing, "Anti-aliasing", new[] { "Off", "FSR 2", "SMAA" }, Pick.Highest, Pick.Lowest),
             new(SettingKey.ShadowQuality, "Shadow quality", Quality, Pick.Highest, Pick.Lowest),
             new(SettingKey.PostprocessEffect, "Visual effects", Quality, Pick.Highest, Pick.Lowest),
             new(SettingKey.ParticleEffect, "SFX quality", Quality, Pick.Highest, Pick.Lowest),
-            new(SettingKey.ComprehensiveQuality, "Environment detail", new[] { "Lowest", "Low", "Medium", "High", "Very high" },
+            new(SettingKey.ComprehensiveQuality, "Environment detail", new[] { "Lowest", "Low", "Medium", "High", "Highest" },
                 Pick.Highest, Pick.Lowest),
             new(SettingKey.VolumetricFog, "Volumetric fog", OffOn, Pick.Highest, Pick.Lowest),
             new(SettingKey.Reflection, "Reflections", OffOn, Pick.Highest, Pick.Lowest),
@@ -143,12 +138,15 @@ namespace CameraTools
         private static float nextWorldLook;
         private static bool worldLogged;
         private static (float At, string When)? pendingLog;
+        private static (float At, ScreenSize Wanted, bool Refreshed)? pendingSize;
 
         public static void Load()
         {
             var category = MelonPreferences.CreateCategory("CameraToolsGraphics");
-            saved = category.CreateEntry("SavedGameSettings", "",
-                description: "Your own game settings, saved by CameraTools before it first changes one. Restore puts them back and empties this.");
+            // Build 82 saved each setting's last option index here instead of the setting, so Restore must not use it.
+            category.DeleteEntry("SavedGameSettings");
+            saved = category.CreateEntry("SavedSettings", "",
+                description: "Your own game settings as setting number=option index, saved by CameraTools before it first changes one. Restore puts them back and empties this.");
             slotEntries = new MelonPreferences_Entry<string>[SlotDefaults.Length];
             slots = new ScreenSize[SlotDefaults.Length];
             for (int i = 0; i < SlotDefaults.Length; i++)
@@ -193,6 +191,11 @@ namespace CameraTools
                     pendingLog = null;
                     LogState(when, false);
                 }
+                if (pendingSize is var (sizeAt, wanted, refreshed) && now >= sizeAt)
+                {
+                    pendingSize = null;
+                    CheckSize(wanted, refreshed);
+                }
             }
             catch (Exception e)
             {
@@ -200,37 +203,31 @@ namespace CameraTools
             }
         }
 
-        public static bool HasSettings => GameSettings.OptionLists().Count > 0;
+        public static bool HasSettings => OptionLists().Count > 0;
 
-        // A row for each setting whose menu reaches more than one option on this machine.
+        // A row for each setting the game offers more than one option for on this machine.
         public static IEnumerable<Row> SettingRows()
         {
-            var lists = GameSettings.OptionLists();
+            var lists = OptionLists();
             if (lists.Count == 0)
-                CameraTools.LogOnce("Graphics: the game's option lists were not readable when the UI was built; the Graphics tab has no game settings rows.");
+                CameraTools.LogOnce("Graphics: the game's options were not readable when the UI was built; the Graphics tab has no game settings rows.");
             foreach (var row in Table)
             {
-                if (!lists.TryGetValue(row.Key, out var list))
+                if (!lists.TryGetValue(row.Key, out var list) || list.Menu.Length < 2)
                 {
-                    CameraTools.LogOnce($"Graphics: no row for {row.Key}; the game has no option list for it.");
-                    continue;
-                }
-                int[] reachable = list.Reachable;
-                if (reachable.Length < 2)
-                {
-                    CameraTools.LogOnce($"Graphics: no row for {row.Key}; its menu reaches {reachable.Length} of {list.Count} options.");
+                    CameraTools.LogOnce($"Graphics: no row for {row.Label}; the game offers {(list == null ? 0 : list.Menu.Length)} options for it.");
                     continue;
                 }
                 var labels = OptionLabels(row, list);
                 string Note(Pick pick) => pick switch
                 {
-                    Pick.Lowest => labels[list.Lowest],
-                    Pick.Highest => labels[list.Highest],
+                    Pick.Lowest => labels[0],
+                    Pick.Highest => labels[^1],
                     _ => "Keep",
                 };
-                yield return new ChoiceRow(row.Label, reachable.Select(index => labels[index]).ToArray(),
-                    () => GameSettings.Get(row.Key) is int now ? Array.IndexOf(reachable, now) : -1,
-                    position => Change(row.Key, reachable[position]),
+                yield return new ChoiceRow(row.Label, labels,
+                    () => GameSettings.Get(row.Key) is int now ? Array.IndexOf(list.Menu, now) : -1,
+                    position => Change(row, list.Menu[position]),
                     new PresetNote(Note(row.Screenshot), Note(row.Performance), row.Key == SettingKey.ComprehensiveQuality));
             }
         }
@@ -256,7 +253,7 @@ namespace CameraTools
 
         public static void Apply(Preset preset)
         {
-            var lists = GameSettings.OptionLists();
+            var lists = OptionLists();
             if (lists.Count == 0)
             {
                 CameraUi.Toast("Graphics presets are unavailable; see the log");
@@ -267,7 +264,7 @@ namespace CameraTools
             bool environment = false;
             foreach (var row in Table)
             {
-                if (!lists.TryGetValue(row.Key, out var list) || list.Reachable.Length < 2 || GameSettings.Get(row.Key) is not int now)
+                if (!lists.TryGetValue(row.Key, out var list) || list.Menu.Length < 2 || GameSettings.Get(row.Key) is not int now)
                     continue;
                 int? target = preset.Pick(row) switch
                 {
@@ -277,7 +274,7 @@ namespace CameraTools
                 };
                 if (target is not int index || index == now || !GameSettings.Set(row.Key, index))
                     continue;
-                changes.Add($"{row.Key} {now}->{index}");
+                changes.Add($"{row.Label} {now}->{index}");
                 environment |= row.Key == SettingKey.ComprehensiveQuality;
             }
             GameSettings.Save();
@@ -316,7 +313,7 @@ namespace CameraTools
                 CameraUi.Toast("Restoring your settings failed; see the log");
                 return;
             }
-            Melon<CameraTools>.Logger.Msg($"Graphics: restored your game settings: {saved.Value}.");
+            Melon<CameraTools>.Logger.Msg($"Graphics: restored your game settings (setting=index): {saved.Value}.");
             saved.Value = "";
             MelonPreferences.Save();
             pendingLog = (Time.unscaledTime + LogDelay, $"{LogDelay:0} s after Restore");
@@ -351,7 +348,42 @@ namespace CameraTools
         {
             var size = Slot(slot);
             Screen.SetResolution(size.Width, size.Height, Screen.fullScreen);
+            pendingSize = (Time.unscaledTime + 1f, size, false);
             CameraUi.Toast($"Resolution {size}");
+        }
+
+        // Wine only offers the display modes of the screen it runs on, so a size past them is cut down. The game sizes its
+        // render targets when it applies its render resolution setting, not when the window changes, so CameraTools
+        // applies that setting again once the window has its new size.
+        private static void CheckSize(ScreenSize wanted, bool refreshed)
+        {
+            var got = new ScreenSize(Screen.width, Screen.height);
+            var camera = CameraTools.maincam ? CameraTools.maincam : GameObject.Find(MainCameraPath)?.GetComponent<Camera>();
+            string rendered = camera ? $"{camera.pixelWidth}x{camera.pixelHeight}" : "no camera";
+            if (refreshed)
+            {
+                Melon<CameraTools>.Logger.Msg($"Graphics: after re-applying render resolution, the window is {got} and the camera renders {rendered}, "
+                    + $"innerResolutionScale {ReadScale()?.ToString("0.00") ?? "unreadable"}.");
+                return;
+            }
+            string modes;
+            try
+            {
+                modes = $"current {Screen.currentResolution.width}x{Screen.currentResolution.height}; offered "
+                    + string.Join(", ", Screen.resolutions.Select(mode => $"{mode.width}x{mode.height}").Distinct());
+            }
+            catch (Exception e)
+            {
+                modes = $"unreadable ({e.Message})";
+            }
+            Melon<CameraTools>.Logger.Msg($"Graphics: asked for {wanted}, the window is {got}, fullscreen {Screen.fullScreen}, the camera renders {rendered}; "
+                + $"display modes: {modes}.");
+            if (got != wanted)
+                CameraUi.Toast($"The display allows {got.Display}, not {wanted.Display}");
+            GameSettings.Reapply(SettingKey.RenderResolution);
+            if (Layer() is { } found)
+                found.RefreshInnerResolution();
+            pendingSize = (Time.unscaledTime + 1f, wanted, true);
         }
 
         // A "Beyond the game's limits" row. Its first option is "Game", which holds nothing.
@@ -364,35 +396,28 @@ namespace CameraTools
                 new PresetNote(texts[Position(preset(Screenshot))], texts[Position(preset(Performance))], false));
         }
 
-        // The game's own words when its text map resolves every option, else the PC menu's, else numbers.
+        private static Dictionary<SettingKey, OptionList> OptionLists() => GameSettings.OptionLists(Table.Select(row => row.Key));
+
+        // The PC menu's labels, in menu order, when the game has as many options; else numbers.
         private static string[] OptionLabels(SettingRow row, OptionList list)
         {
-            var mapped = list.Texts.Select(GameSettings.Text).ToArray();
-            if (mapped.Length == list.Count && mapped.All(text => text != null))
-            {
-                CameraTools.LogOnce($"Graphics: {row.Key} options from the game's text map: {string.Join(", ", mapped)}.");
-                return mapped;
-            }
-            if (row.Options.Length == list.Count)
-            {
-                CameraTools.LogOnce($"Graphics: {row.Key} options from CameraTools' table; the text map resolved {mapped.Count(text => text != null)} of {list.Count}.");
+            if (row.Options.Length == list.Menu.Length)
                 return row.Options;
-            }
-            CameraTools.LogOnce($"Graphics: {row.Key} has {list.Count} options where CameraTools' table has {row.Options.Length}; numbering them.");
-            return Enumerable.Range(1, list.Count).Select(number => number.ToString()).ToArray();
+            CameraTools.LogOnce($"Graphics: {row.Label} has {list.Menu.Length} options where CameraTools' table has {row.Options.Length}; numbering them.");
+            return Enumerable.Range(1, list.Menu.Length).Select(number => number.ToString()).ToArray();
         }
 
-        private static void Change(SettingKey key, int index)
+        private static void Change(SettingRow row, int index)
         {
-            SaveSettings(GameSettings.OptionLists());
-            int? before = GameSettings.Get(key);
-            if (!GameSettings.Set(key, index) || !GameSettings.Save())
+            SaveSettings(OptionLists());
+            int? before = GameSettings.Get(row.Key);
+            if (!GameSettings.Set(row.Key, index) || !GameSettings.Save())
             {
                 CameraUi.Toast("Changing the setting failed; see the log");
                 return;
             }
-            Melon<CameraTools>.Logger.Msg($"Graphics: {key} {before}->{index}.");
-            if (key == SettingKey.ComprehensiveQuality)
+            Melon<CameraTools>.Logger.Msg($"Graphics: {row.Label} {before}->{index}.");
+            if (row.Key == SettingKey.ComprehensiveQuality)
                 CameraUi.Toast("Environment detail applies after a restart");
         }
 
@@ -404,9 +429,9 @@ namespace CameraTools
             saved.Value = string.Join(";", Table.Where(row => lists.ContainsKey(row.Key))
                 .Select(row => (row.Key, Index: GameSettings.Get(row.Key)))
                 .Where(pair => pair.Index != null)
-                .Select(pair => $"{pair.Key}={pair.Index}"));
+                .Select(pair => $"{(int)pair.Key}={pair.Index}"));
             MelonPreferences.Save();
-            Melon<CameraTools>.Logger.Msg($"Graphics: saved your game settings for Restore: {saved.Value}.");
+            Melon<CameraTools>.Logger.Msg($"Graphics: saved your game settings for Restore (setting=index): {saved.Value}.");
         }
 
         private static void Override(Overrides overrides, string what)
@@ -450,27 +475,27 @@ namespace CameraTools
             found.RefreshInnerResolution();
         }
 
+        // The interop's enum names do not survive at runtime (PostprocessEffect printed as Reflection), so settings are logged
+        // by label and number.
         private static void LogState(string when, bool options)
         {
             var log = Melon<CameraTools>.Logger;
-            var lists = GameSettings.OptionLists();
+            var lists = OptionLists();
             var indices = new List<string>();
-            foreach (var key in Enum.GetValues<SettingKey>())
+            foreach (var row in Table)
             {
-                if (key == SettingKey.Invalid || !lists.TryGetValue(key, out var list))
+                if (!lists.TryGetValue(row.Key, out var list))
+                {
+                    indices.Add($"{row.Label}=none");
                     continue;
-                string index = GameSettings.Get(key) is int now ? now.ToString() : "?";
-                indices.Add($"{key}={index}/{list.Count}");
+                }
+                string index = GameSettings.Get(row.Key) is int now ? now.ToString() : "?";
+                indices.Add($"{row.Label}={index}");
                 if (options)
-                    log.Msg($"Graphics {when}: {key} index {index} of {list.Count}; text keys [{string.Join(", ", list.Texts)}]; "
-                        + $"menu position->index {(list.Menu == null ? "failed" : string.Join(" ", list.Menu.Select((index, position) => $"{position}->{index}")))}; "
-                        + $"lowest {list.Lowest}, highest {list.Highest}.");
+                    log.Msg($"Graphics {when}: {row.Label} ({(int)row.Key}) {GameSettings.Describe(row.Key)}; {list.Menu.Length} options, "
+                        + $"option index by menu position: {string.Join(" ", list.Menu)}.");
             }
-            if (options)
-                log.Msg($"Graphics {when}: settings without an option list: "
-                    + string.Join(", ", Enum.GetValues<SettingKey>().Where(key => key != SettingKey.Invalid && !lists.ContainsKey(key))) + ".");
-            else
-                log.Msg($"Graphics {when}: settings (index/count) {string.Join(", ", indices)}.");
+            log.Msg($"Graphics {when}: settings (option index) {string.Join(", ", indices)}.");
             log.Msg($"Graphics {when}: {string.Join(", ", Knobs.Select(knob => knob.Describe()))}; LOD {Lod.Forced?.ToString() ?? "game"}.");
         }
 
@@ -480,10 +505,10 @@ namespace CameraTools
             foreach (var part in text.Split(';', StringSplitOptions.RemoveEmptyEntries))
             {
                 var halves = part.Split('=');
-                if (halves.Length == 2 && Enum.TryParse(halves[0].Trim(), out SettingKey key) && int.TryParse(halves[1].Trim(), out int index))
-                    pairs.Add((key, index));
+                if (halves.Length == 2 && int.TryParse(halves[0].Trim(), out int key) && int.TryParse(halves[1].Trim(), out int index))
+                    pairs.Add(((SettingKey)key, index));
                 else
-                    CameraTools.LogOnce($"Graphics: SavedGameSettings has \"{part}\", which is not setting=index; skipping it.");
+                    CameraTools.LogOnce($"Graphics: SavedSettings has \"{part}\", which is not setting=index; skipping it.");
             }
             return pairs;
         }
@@ -585,23 +610,31 @@ namespace CameraTools
     // and logged once, so a game update makes the presets fail visibly and leaves the rest of CameraTools running.
     internal static class GameSettings
     {
-        // The Graphics tab reads every shown setting each frame, so this builds no closure or message unless it fails.
+        // The saved option index, or the game's default for a setting that was never changed. The Graphics tab reads every
+        // shown setting each frame, so this builds no closure or message unless it fails.
         public static int? Get(SettingKey key)
         {
             try
             {
-                return FMMBOLGMJGM.MPDLNNKGPCP(key);
+                var saved = FMMBOLGMJGM.MGCADENEBCP(key);
+                return saved != null ? saved.index : FMMBOLGMJGM.ADNAKKLFMHG(key);
             }
             catch (Exception e)
             {
-                CameraTools.LogOnce($"Graphics: reading {key} (FMMBOLGMJGM.MPDLNNKGPCP) failed: {e.Message}");
+                CameraTools.LogOnce($"Graphics: reading setting {(int)key} (FMMBOLGMJGM.MGCADENEBCP, ADNAKKLFMHG) failed: {e.Message}");
                 return null;
             }
         }
 
+        public static string Describe(SettingKey key) => Call($"describing setting {(int)key}", () =>
+        {
+            var saved = FMMBOLGMJGM.MGCADENEBCP(key);
+            return $"saved {(saved != null ? saved.index.ToString() : "none")}, default {FMMBOLGMJGM.ADNAKKLFMHG(key)}";
+        }, "unreadable");
+
         // The settings menu's dropdown handler: the index in the current store, the 1-based grade in the older store, then
         // apply.
-        public static bool Set(SettingKey key, int index) => Call($"setting {key} to {index}", () =>
+        public static bool Set(SettingKey key, int index) => Call($"setting {(int)key} to {index}", () =>
         {
             FMMBOLGMJGM.ENHADOCFABO(key, index, true, true);
             DFNEKCNFEDF.FDHDFCLKFBJ(key, index + 1, true, false);
@@ -611,7 +644,7 @@ namespace CameraTools
             return true;
         }, false);
 
-        public static bool Reapply(SettingKey key) => Call($"re-applying {key} (DFNEKCNFEDF.PENEIPFNKHB)", () =>
+        public static bool Reapply(SettingKey key) => Call($"re-applying setting {(int)key} (DFNEKCNFEDF.PENEIPFNKHB)", () =>
         {
             DFNEKCNFEDF.PENEIPFNKHB(key);
             return true;
@@ -625,32 +658,38 @@ namespace CameraTools
             return true;
         }, false);
 
-        public static Dictionary<SettingKey, OptionList> OptionLists() => Call("reading the option lists (DFNEKCNFEDF.KKJCDGBNBOJ)", () =>
+        // MPDLNNKGPCP returns a setting's last option index, or -1 for a setting the game has no options for. The options are
+        // stored in the order they were added to the game; CHONAFGBIKI maps an option index to its position in the menu, and
+        // returns the index itself for a setting whose menu shows the stored order.
+        public static Dictionary<SettingKey, OptionList> OptionLists(IEnumerable<SettingKey> keys) => Call(
+            "reading the options (FMMBOLGMJGM.MPDLNNKGPCP, LLJPCNPPHIO.CEJHBLKFKCH.CHONAFGBIKI)", () =>
         {
             var lists = new Dictionary<SettingKey, OptionList>();
-            var entries = DFNEKCNFEDF.KKJCDGBNBOJ()?.HDPKADAMLAO;
-            if (entries == null)
-                return lists;
-            foreach (var entry in entries)
+            foreach (var key in keys)
             {
-                if (entry == null)
-                    continue;
-                var key = entry.DKOKOOGIBML;
-                int count = entry.AHALONJFNEJ?.Length ?? 0;
-                lists[key] = new OptionList(count, entry.OAOJLNPHFPI?.ToArray() ?? Array.Empty<string>(), Menu(key, count));
+                int count = FMMBOLGMJGM.MPDLNNKGPCP(key) + 1;
+                if (count > 0)
+                    lists[key] = new OptionList(Menu(key, count));
             }
             return lists;
         }, new Dictionary<SettingKey, OptionList>());
 
-        // MonoLocalizedText resolves its text IDs with FBPIAOMICJL(id, false). Null when the key does not resolve.
-        public static string Text(string key)
+        private static int[] Menu(SettingKey key, int count)
         {
-            string text = Call("looking up option text in the text map (AEPDNIAIMBA.FBPIAOMICJL)", () => AEPDNIAIMBA.FBPIAOMICJL(key, false), null);
-            return string.IsNullOrWhiteSpace(text) || text == key ? null : text;
+            var menu = new int[count];
+            Array.Fill(menu, -1);
+            for (int index = 0; index < count; index++)
+            {
+                int position = LLJPCNPPHIO.CEJHBLKFKCH.CHONAFGBIKI(index, key);
+                if (position < 0 || position >= count || menu[position] >= 0)
+                {
+                    CameraTools.LogOnce($"Graphics: setting {(int)key}'s menu positions are not one per option (index {index} -> {position}); using the stored order.");
+                    return Enumerable.Range(0, count).ToArray();
+                }
+                menu[position] = index;
+            }
+            return menu;
         }
-
-        private static int[] Menu(SettingKey key, int count) => Call($"mapping {key}'s menu positions (LLJPCNPPHIO.CEJHBLKFKCH.CHONAFGBIKI)",
-            () => Enumerable.Range(0, count).Select(position => LLJPCNPPHIO.CEJHBLKFKCH.CHONAFGBIKI(position, key)).ToArray(), null);
 
         private static T Call<T>(string what, Func<T> call, T failed)
         {

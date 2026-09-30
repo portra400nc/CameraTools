@@ -122,17 +122,21 @@ namespace CameraTools
             bool first = !sampled.Contains(level);
             string before = first ? Describe(loaders.Take(SampleSize), true) : null;
             foreach (var loader in loaders)
-                if (paused.TryAdd(loader.Pointer, loader))
-                    loader.PauseLodLoaderWithSpecificLodLevel(level == LodLevel.MostDetail ? 0 : Math.Max(loader.GetLodLevelCount() - 1, 0));
+                if ((level == LodLevel.MostDetail || !loader.name.StartsWith("Avatar_")) && paused.TryAdd(loader.Pointer, loader))
+                    loader.PauseLodLoaderWithSpecificLodLevel(level == LodLevel.MostDetail ? 0 : LeastDetailLevel(loader));
             if (first)
             {
                 sampled.Add(level);
                 sample = loaders.Take(SampleSize).ToList();
                 sampleLevel = level;
-                CameraTools.LogOnce($"{Name(level)}: paused {loaders.Count} LOD loaders at {(level == LodLevel.MostDetail ? "level 0" : "their last level")}. "
+                CameraTools.LogOnce($"{Name(level)}: paused {paused.Count} of {loaders.Count} LOD loaders at {(level == LodLevel.MostDetail ? "level 0" : "their second-to-last level, characters excepted")}. "
                     + $"Before (level of count): {before}. Right after: {Describe(sample, false)}.");
             }
         }
+
+        // Build 82 held loaders at their last level, and the player's character disappeared: a character's last level draws
+        // nothing. The level before it is the least detailed one that draws, and characters keep the game's LOD.
+        private static int LeastDetailLevel(MiHoYoLodLoader loader) => Math.Max(loader.GetLodLevelCount() - 2, 0);
 
         private static string Name(LodLevel level) => level == LodLevel.MostDetail ? "Max detail" : "Min detail";
 

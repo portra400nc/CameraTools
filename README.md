@@ -35,9 +35,9 @@ Under each setting, a second line shows what the two presets set it to ("Max" an
   - Distant shadows: Min sets Off.
   - Fog and god rays: Min sets Off.
   - Particles: Fewest emits the fewest particles. Min sets Fewest.
-  - Detail level: Highest holds every object at its most detailed level, and Lowest at its least detailed. Max sets Highest and Min sets Lowest. It is the same state as the World tab's Max detail switch.
+  - Detail level: Highest holds every object at its most detailed level. Lowest holds every object except characters at its least detailed level that still draws. Max sets Highest and Min sets Lowest. It is the same state as the World tab's Max detail switch.
 
-CameraTools saves your own game settings in `MelonPreferences.cfg`, in `SavedGameSettings` under `[CameraToolsGraphics]`, the first time it changes one. Restore empties it again, so the next preset saves your settings anew.
+CameraTools saves your own game settings in `MelonPreferences.cfg`, in `SavedSettings` under `[CameraToolsGraphics]`, the first time it changes one. Restore empties it again, so the next preset saves your settings anew.
 
 ## Hotkeys
 | Key | Description |
@@ -84,7 +84,7 @@ The `[CameraToolsGraphics]` section of `MelonPreferences.cfg` holds:
 |--|--|--|
 | `ResolutionSlot1` | `1280x800` | The size the `-` hotkey and Slot 1 apply, as WxH |
 | `ResolutionSlot2` | `2560x1600` | The size the `=` hotkey and Slot 2 apply, as WxH |
-| `SavedGameSettings` | empty | Your game settings from before CameraTools first changed one, for Restore. CameraTools writes and empties it. |
+| `SavedSettings` | empty | Your game settings from before CameraTools first changed one, as setting number=option index, for Restore. CameraTools writes and empties it. |
 
 A slot from 320x200 to 16384x16384 is accepted. A slot that does not parse falls back to its default, and the log names it.
 
