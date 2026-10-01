@@ -67,8 +67,14 @@ namespace CameraTools
         public const float PanelShadowWidth = 56f;
         public const float TabBarHeight = 64f;
         public const float TabBarPadding = 16f;
-        // The mockup's spacing, which leaves room for four tabs between the LB and RB glyphs.
+        // The mockup's spacing. Tabs that do not fit between the LB and RB glyphs scroll sideways.
         public const float TabGap = 4f;
+        public const float TabClipGap = 8f;
+        // How much past the selected tab comes into view with it, so the next tab shows that the strip scrolls.
+        public const float TabPeek = 28f;
+        // Wider than every tab together, so the strip's layout never squeezes one.
+        public const float StripWidth = 1600f;
+        public const float TabSlide = 0.08f;
         public const float TabsAfterBack = 72f;
         public const int TabPadX = 10;
         public const int TabPadTop = 10;

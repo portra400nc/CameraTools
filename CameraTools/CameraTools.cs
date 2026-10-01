@@ -33,6 +33,7 @@ namespace CameraTools
             Controls.Load();
             Graphics.Load();
             CameraPaths.Load();
+            Screenshot.Load();
         }
 
         public override void OnApplicationQuit()
@@ -119,9 +120,12 @@ namespace CameraTools
                 CameraUi.Toast(Time.timeScale == 0.0f ? "Paused" : $"Game speed {Time.timeScale:0.##}x");
             // After the speed notice, so unpausing the game for playback does not show one.
             PathPlayback.Update();
+            ReShade.Update();
 
             // After the hotkeys, so the key that closes the settings panel does not also fire its camera action.
             CameraUi.Update();
+            // After the UI, so the B press that cancels a screenshot does not also close the panel that cancelling reopens.
+            Screenshot.Update();
             GameHud.Update(freecamActive || uiHidden);
             Lod.Update();
             Graphics.Update();

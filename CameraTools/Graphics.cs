@@ -33,6 +33,9 @@ namespace CameraTools
         public int Highest => Menu[^1];
     }
 
+    // The game settings, overrides and forced LOD at one moment, which PutBack returns to.
+    public sealed record GraphicsState(IReadOnlyList<(SettingRow Row, int Index)> Settings, Overrides Overrides, LodLevel? Lod);
+
     // A resolution slot's size, parsed from its "WxH" preference.
     public readonly record struct ScreenSize(int Width, int Height)
     {
@@ -138,7 +141,14 @@ namespace CameraTools
         private static float nextWorldLook;
         private static bool worldLogged;
         private static (float At, string When)? pendingLog;
-        private static (float At, ScreenSize Wanted, bool Refreshed)? pendingSize;
+        private static (float At, ScreenSize Wanted, bool Refreshed, bool Quiet)? pendingSize;
+
+        // The unscaled time CameraTools last changed a game setting or the window size, or applied the render resolution
+        // again after a size change.
+        public static float Changed { get; private set; }
+
+        // A new window size has not had its render resolution applied again yet.
+        public static bool SizePending => pendingSize is { Refreshed: false };
 
         public static void Load()
         {
@@ -191,10 +201,10 @@ namespace CameraTools
                     pendingLog = null;
                     LogState(when, false);
                 }
-                if (pendingSize is var (sizeAt, wanted, refreshed) && now >= sizeAt)
+                if (pendingSize is var (sizeAt, wanted, refreshed, quiet) && now >= sizeAt)
                 {
                     pendingSize = null;
-                    CheckSize(wanted, refreshed);
+                    CheckSize(wanted, refreshed, quiet);
                 }
             }
             catch (Exception e)
@@ -251,14 +261,14 @@ namespace CameraTools
                 preset => preset.Lod, ("Game", null), ("Highest", LodLevel.MostDetail), ("Lowest", LodLevel.LeastDetail));
         }
 
-        public static void Apply(Preset preset)
+        public static void Apply(Preset preset) => CameraUi.Toast(ApplyQuietly(preset));
+
+        // Returns the notice Apply shows. The screenshot button applies a preset while nothing may be on screen.
+        public static string ApplyQuietly(Preset preset)
         {
             var lists = OptionLists();
             if (lists.Count == 0)
-            {
-                CameraUi.Toast("Graphics presets are unavailable; see the log");
-                return;
-            }
+                return "Graphics presets are unavailable; see the log";
             SaveSettings(lists);
             var changes = new List<string>();
             bool environment = false;
@@ -280,9 +290,29 @@ namespace CameraTools
             GameSettings.Save();
             Override(preset.Overrides, preset.Name);
             Lod.Force(preset.Lod);
+            Changed = Time.unscaledTime;
             Melon<CameraTools>.Logger.Msg($"Graphics: {preset.Name} changed {changes.Count} settings ({string.Join(", ", changes)}); "
                 + $"{active}; LOD {preset.Lod}.");
-            CameraUi.Toast($"{preset.Name}: {changes.Count} game settings changed" + (environment ? ". Environment detail applies after a restart" : ""));
+            return $"{preset.Name}: {changes.Count} game settings changed" + (environment ? ". Environment detail applies after a restart" : "");
+        }
+
+        public static GraphicsState Capture() => new(Indices(OptionLists()), active, Lod.Forced);
+
+        // Unlike Restore, this returns to the captured moment, not to the user's own settings, and it leaves SavedSettings
+        // as it is. A knob whose override ends here hands its engine value back to the game on the next Update.
+        public static void PutBack(GraphicsState state)
+        {
+            var changes = new List<string>();
+            foreach (var (row, index) in state.Settings)
+                if (GameSettings.Get(row.Key) is int now && now != index && GameSettings.Set(row.Key, index))
+                    changes.Add($"{row.Label} {now}->{index}");
+            if (changes.Count > 0)
+                GameSettings.Save();
+            Override(state.Overrides, "putting the settings back");
+            Lod.Force(state.Lod);
+            Changed = Time.unscaledTime;
+            Melon<CameraTools>.Logger.Msg($"Graphics: put back {changes.Count} settings ({string.Join(", ", changes)}); "
+                + $"{active}; LOD {state.Lod?.ToString() ?? "game"}.");
         }
 
         public static void Restore()
@@ -344,18 +374,22 @@ namespace CameraTools
                 SetSlot(slot, next);
         }
 
-        public static void ApplySlot(int slot)
+        public static void ApplySlot(int slot) => Resize(Slot(slot));
+
+        // quiet: no notice now or when the size is checked, for the screenshot button.
+        public static void Resize(ScreenSize size, bool quiet = false)
         {
-            var size = Slot(slot);
             Screen.SetResolution(size.Width, size.Height, Screen.fullScreen);
-            pendingSize = (Time.unscaledTime + 1f, size, false);
-            CameraUi.Toast($"Resolution {size}");
+            Changed = Time.unscaledTime;
+            pendingSize = (Changed + 1f, size, false, quiet);
+            if (!quiet)
+                CameraUi.Toast($"Resolution {size}");
         }
 
         // Wine only offers the display modes of the screen it runs on, so a size past them is cut down. The game sizes its
         // render targets when it applies its render resolution setting, not when the window changes, so CameraTools
         // applies that setting again once the window has its new size.
-        private static void CheckSize(ScreenSize wanted, bool refreshed)
+        private static void CheckSize(ScreenSize wanted, bool refreshed, bool quiet)
         {
             var got = new ScreenSize(Screen.width, Screen.height);
             var camera = CameraTools.maincam ? CameraTools.maincam : GameObject.Find(MainCameraPath)?.GetComponent<Camera>();
@@ -378,12 +412,13 @@ namespace CameraTools
             }
             Melon<CameraTools>.Logger.Msg($"Graphics: asked for {wanted}, the window is {got}, fullscreen {Screen.fullScreen}, the camera renders {rendered}; "
                 + $"display modes: {modes}.");
-            if (got != wanted)
+            if (got != wanted && !quiet)
                 CameraUi.Toast($"The display allows {got.Display}, not {wanted.Display}");
             GameSettings.Reapply(SettingKey.RenderResolution);
             if (Layer() is { } found)
                 found.RefreshInnerResolution();
-            pendingSize = (Time.unscaledTime + 1f, wanted, true);
+            Changed = Time.unscaledTime;
+            pendingSize = (Changed + 1f, wanted, true, quiet);
         }
 
         // A "Beyond the game's limits" row. Its first option is "Game", which holds nothing.
@@ -426,13 +461,17 @@ namespace CameraTools
         {
             if (saved.Value.Length > 0)
                 return;
-            saved.Value = string.Join(";", Table.Where(row => lists.ContainsKey(row.Key))
-                .Select(row => (row.Key, Index: GameSettings.Get(row.Key)))
-                .Where(pair => pair.Index != null)
-                .Select(pair => $"{(int)pair.Key}={pair.Index}"));
+            saved.Value = string.Join(";", Indices(lists).Select(pair => $"{(int)pair.Row.Key}={pair.Index}"));
             MelonPreferences.Save();
             Melon<CameraTools>.Logger.Msg($"Graphics: saved your game settings for Restore (setting=index): {saved.Value}.");
         }
+
+        private static List<(SettingRow Row, int Index)> Indices(Dictionary<SettingKey, OptionList> lists)
+            => Table.Where(row => lists.ContainsKey(row.Key))
+                .Select(row => (Row: row, Index: GameSettings.Get(row.Key)))
+                .Where(pair => pair.Index != null)
+                .Select(pair => (pair.Row, pair.Index.Value))
+                .ToList();
 
         private static void Override(Overrides overrides, string what)
         {

@@ -103,6 +103,13 @@ namespace CameraTools
             Shake("Rotation strength", options => options.RotateShakeStrength, (options, value) => options.RotateShakeStrength = value),
         });
 
+        private static readonly Tab ReShadeTab = new("ReShade", new Row[]
+        {
+            new Section("Screenshot"),
+            new ActionRow("Take screenshot", Screenshot.Take, "Shoot", () => ReShade.Connected, "ReShade bridge not found"),
+            new ToggleRow("3-second countdown", () => Screenshot.Countdown, on => Screenshot.Countdown = on),
+        });
+
         private static ToggleRow PathToggle(string label, Func<PathOptions, bool> get, Action<PathOptions, bool> set)
             => new(label, () => get(CameraPaths.Options), on => CameraPaths.ChangeOptions(options => set(options, on)));
 
@@ -134,7 +141,7 @@ namespace CameraTools
             rows.AddRange(gameSettings);
             rows.Add(new Section("Beyond the game's limits"));
             rows.AddRange(Graphics.BeyondRows());
-            return new[] { Camera, World, Paths, new Tab("Graphics", rows.ToArray()) };
+            return new[] { Camera, World, Paths, new Tab("Graphics", rows.ToArray()), ReShadeTab };
         }
 
         public static readonly Hint[] BottomHints =

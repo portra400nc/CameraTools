@@ -56,6 +56,7 @@ namespace CameraTools
         private static int selected;
         private static string toast;
         private static float toastUntil;
+        private static bool toastWhileHidden;
         private static Vector2 lastMouse;
         private static SliderView dragging;
         private static ResolutionView editing;
@@ -70,11 +71,22 @@ namespace CameraTools
         // Drawn with IMGUI until the UI has been built.
         public static string FallbackToast => live == null && Time.unscaledTime < toastUntil ? toast : null;
 
-        public static void Toast(string message)
+        // whileHidden: shown even while the UI is hidden, as the screenshot countdown is.
+        public static void Toast(string message, bool whileHidden = false)
         {
             toast = message;
             toastUntil = Time.unscaledTime + Style.ToastTime;
+            toastWhileHidden = whileHidden;
         }
+
+        public static void ClearToast() => toastUntil = 0f;
+
+        // Whether anything of CameraTools' is on screen, a part that is still fading out included.
+        public static bool OnScreen => live != null
+            ? live.Hud.Visible || live.PlayBar.Visible || live.Panel.Visible || live.Toast.Visible
+            : FallbackToast != null;
+
+        public static bool PanelOpen => panelOpen;
 
         private static string MissingHint => Time.unscaledTime < nextBuild ? ReloadHint : WaitHint;
 
@@ -251,9 +263,13 @@ namespace CameraTools
             target.TabKeys = new[] { lb.gameObject, rb.gameObject };
             target.Back = Picture(bar, "Back", Shapes.Back, Style.White).rectTransform;
             Pin(target.Back, 0f, 0.5f, Style.TabBarPadding, 0f, Style.BackSize, Style.BackSize);
-            target.Strip = Node("Strip", bar);
-            Fill(target.Strip);
-            target.StripGroup = Flow(target.Strip.gameObject, Style.TabGap, TextAnchor.MiddleCenter);
+            // The tabs are a viewport like the list: more tabs than fit between the glyphs scroll sideways, clipped to it.
+            target.TabClip = Node("Clip", bar);
+            Fill(target.TabClip);
+            target.TabClip.gameObject.AddComponent<RectMask2D>();
+            target.Strip = Node("Strip", target.TabClip);
+            Place(target.Strip, V(0f, 0f), V(0f, 1f), V(0f, 0.5f), V(0f, 0f), V(Style.StripWidth, 0f));
+            Flow(target.Strip.gameObject, Style.TabGap, TextAnchor.MiddleLeft);
 
             // The list is a viewport: a tab taller than the panel scrolls inside it, clipped to it.
             target.List = Node("List", panel);
@@ -323,6 +339,7 @@ namespace CameraTools
         {
             StopEditing();
             tab = index;
+            target.StripReveal = true;
             dragging = null;
             selected = target.Tabs[index].RowViews.FindIndex(view => view.Row is not Section);
             ScrollTo(target, target.Tabs[index], 0f);
@@ -408,6 +425,13 @@ namespace CameraTools
         {
             if (panelOpen)
                 SetPanel(false);
+        }
+
+        // On the tab and row it was closed on.
+        public static void OpenPanel()
+        {
+            if (!panelOpen)
+                SetPanel(true);
         }
 
         // The panel reads the pad with fixed buttons, like the L3+R3 switch, so rebinding camera actions cannot strand it.
@@ -620,6 +644,8 @@ namespace CameraTools
                 Step(wheeled, wheel > 0f ? 1 : -1);
             else if (wheel != 0f && live.ShownTab == tab && Contains(live.List, point))
                 ScrollTo(live, live.Tabs[tab], live.Tabs[tab].Scroll - wheel * Style.WheelStep);
+            else if (wheel != 0f && Contains(live.TabClip, point))
+                live.StripScroll -= wheel * Style.WheelStep;
             if (Input.GetMouseButtonDown(0))
                 Click(point, row);
             if (dragging == null)
@@ -643,7 +669,8 @@ namespace CameraTools
             // Clicking anywhere but the field being typed in saves it, as leaving a text field does.
             if (editing != null && !Contains(editing.Value.rectTransform, point))
                 Commit();
-            int tabIndex = Array.FindIndex(live.Tabs, view => Contains(view.Button, point));
+            // A tab scrolled out of the strip's viewport is not there to click.
+            int tabIndex = Contains(live.TabClip, point) ? Array.FindIndex(live.Tabs, view => Contains(view.Button, point)) : -1;
             bool back = live.Layout == InputDevice.Keyboard && Contains(live.Back, point);
             if (tabIndex < 0 && !back && row < 0)
                 return;
@@ -735,8 +762,9 @@ namespace CameraTools
                 key.SetActive(pad);
             live.Back.gameObject.SetActive(!pad);
             live.Footer.SetActive(pad);
-            live.Strip.offsetMin = V(pad ? 0f : Style.TabsAfterBack, 0f);
-            live.StripGroup.childAlignment = pad ? TextAnchor.MiddleCenter : TextAnchor.MiddleLeft;
+            float glyph = Style.TabBarPadding + Shapes.Bumper.Width + Style.TabClipGap;
+            live.TabClip.offsetMin = V(pad ? glyph : Style.TabsAfterBack, 0f);
+            live.TabClip.offsetMax = V(pad ? -glyph : -Style.TabBarPadding, 0f);
             foreach (var legend in live.Legends)
             {
                 legend.Pad.Root.SetActive(pad && legend.HasPad);
@@ -797,6 +825,7 @@ namespace CameraTools
         {
             for (int index = 0; index < live.Tabs.Length; index++)
                 live.Tabs[index].Show(index == tab, opened ? 1f : deltaTime / Style.TabFade);
+            RenderStrip(opened, deltaTime);
             float fade = opened ? 1f : deltaTime / Style.RowsFade;
             bool swapped = false;
             if (live.ShownTab != tab)
@@ -856,6 +885,43 @@ namespace CameraTools
             live.FooterShown = footer;
         }
 
+        // Tabs that fit sit in the middle for the pad and after the back button for the keyboard. Tabs that do not fit
+        // scroll, and a tab change brings the selected tab into view. The tabs' sizes come from the layout, which runs
+        // after the panel is first shown, so the strip is placed from the frame after that.
+        private static void RenderStrip(bool opened, float deltaTime)
+        {
+            float content = Right(live.Tabs[^1].Button);
+            float room = live.TabClip.rect.width;
+            if (content <= 0f || room <= 0f)
+                return;
+            bool resized = live.StripLaidOut != (content, room);
+            if (resized || live.StripReveal)
+            {
+                live.StripLaidOut = (content, room);
+                live.StripReveal = false;
+                var button = live.Tabs[tab].Button;
+                float left = Left(button) - Style.TabPeek;
+                float right = Right(button) + Style.TabPeek;
+                if (left < live.StripScroll)
+                    live.StripScroll = left;
+                else if (right > live.StripScroll + room)
+                    live.StripScroll = right - room;
+            }
+            live.StripScroll = Math.Clamp(live.StripScroll, 0f, Math.Max(content - room, 0f));
+            float target = MathF.Round(content > room ? -live.StripScroll : live.Layout == InputDevice.Pad ? (room - content) / 2f : 0f);
+            float shown = opened || resized || Math.Abs(target - live.StripShown) < 0.5f ? target
+                : live.StripShown + (target - live.StripShown) * Math.Min(deltaTime / Style.TabSlide, 1f);
+            if (shown == live.StripShown)
+                return;
+            live.StripShown = shown;
+            live.Strip.anchoredPosition = V(shown, 0f);
+        }
+
+        // A tab's edges from the strip's left edge.
+        private static float Left(RectTransform button) => button.localPosition.x + button.rect.xMin;
+
+        private static float Right(RectTransform button) => button.localPosition.x + button.rect.xMax;
+
         private static void RenderThumb(TabView view)
         {
             float height = ViewHeight(live);
@@ -874,7 +940,7 @@ namespace CameraTools
 
         private static void RenderToast(float deltaTime)
         {
-            bool show = !CameraTools.uiHidden && Time.unscaledTime < toastUntil;
+            bool show = (toastWhileHidden || !CameraTools.uiHidden) && Time.unscaledTime < toastUntil;
             if (show && live.ToastText != toast)
             {
                 live.ToastLabel.text = toast;
@@ -926,8 +992,14 @@ namespace CameraTools
             public RectTransform FovHandle;
             public GameObject[] TabKeys;
             public RectTransform Back;
+            public RectTransform TabClip;
             public RectTransform Strip;
-            public HorizontalLayoutGroup StripGroup;
+            // How far the strip is scrolled, and where it is drawn while it slides there.
+            public float StripScroll;
+            public float StripShown;
+            public bool StripReveal;
+            // The tabs' width and the viewport's when the strip was last placed.
+            public (float Content, float Room)? StripLaidOut;
             public TabView[] Tabs;
             public RectTransform List;
             public CanvasGroup Rows;

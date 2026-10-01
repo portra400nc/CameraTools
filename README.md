@@ -11,6 +11,7 @@
  - Change the time of day + time-lapse
  - Override the weather with sunny, cloudy, rain, thunderstorm, snow, or mist
  - Camera paths: record views as nodes and fly the camera through them
+ - One-button screenshots through ReShade, at max quality with effects on
  - Configurable hotkeys
  - Controller support (XInput, including the Steam Deck)
 
@@ -22,12 +23,35 @@ CameraTools draws its own UI in the style of Genshin's, with the game's font. Th
 - Button hints follow the device you used last.
 - The free camera hides the game's HUD. Hide UI (PageDown, or B) hides CameraTools' hints for a clean shot.
 - A tab longer than the panel scrolls. Scroll with the mouse wheel, or move the selection with the controller.
+- The tab bar scrolls sideways when the tabs do not fit. LB and RB bring the selected tab into view. With the mouse, scroll the wheel over the tabs.
 
 ## Camera paths
 
 Record camera positions as nodes, and fly the free camera through them in one smooth shot.
 
 [Make your first camera path](CAMERA-PATHS.md)
+
+## ReShade screenshots
+
+The ReShade tab takes a screenshot through ReShade with one button. It needs ReShade and the `GenshinReShadeBridge.addon64` add-on. Without them, the Take screenshot row is dimmed and reads "ReShade bridge not found".
+
+Take screenshot does this:
+
+1. Closes the panel and hides CameraTools' UI.
+2. Applies the Max quality preset and resolution slot 1, and turns ReShade's effects on.
+3. Counts down 3 seconds, if 3-second countdown is on.
+4. Waits until the picture has settled and ReShade has compiled its effects at the new size. The first screenshot at a size can take many seconds.
+5. Saves the screenshot to ReShade's screenshot folder.
+6. Puts the graphics settings and the resolution back as they were, turns ReShade's effects off, opens the panel again, and shows the file's name.
+
+Hide UI (PageDown, or B), opening the settings panel, or leaving the free camera cancels the screenshot and puts everything back. If a wait takes too long, CameraTools gives up, names what it waited for, and puts everything back.
+
+The `[CameraToolsReShade]` section of `MelonPreferences.cfg` holds:
+
+| Entry | Default | Description |
+|--|--|--|
+| `ScreenshotCountdown` | `true` | Count down 3 seconds before the screenshot. The ReShade tab's switch changes it. |
+| `ScreenshotSettleSeconds` | `2` | The least time, in seconds, between changing the graphics settings and taking the screenshot, from 0 to 30 |
 
 ## Hotkeys
 | Key | Description |
