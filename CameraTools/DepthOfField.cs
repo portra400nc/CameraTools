@@ -16,6 +16,7 @@ namespace CameraTools
         private const int Painted = 3;
         private const float PaintSeconds = 1f;
         private const float SaveDelay = 1f;
+        private const float FocusMargin = 0.25f;
         private const float MinFocalLength = 10f;
         private const float MaxFocalLength = 350f;
         // Of the point's -1 to 1 per second at full deflection: edge to edge in two seconds.
@@ -25,7 +26,7 @@ namespace CameraTools
 
         private enum Kind { Technique, Int, Float, Float2 }
 
-        private enum Id { Technique, FocusMode, FocusDepth, FocusDebug, FocusPoint, FocusRange, FocalLength, Aperture }
+        private enum Id { Technique, FocusMode, FocusDepth, FocusDebug, FocusPoint, FocusRange, FocusSpeed, FocalLength, Aperture }
 
         // In Id order.
         private static readonly (Id Id, string Name, Kind Kind)[] Table =
@@ -37,6 +38,7 @@ namespace CameraTools
             (Id.FocusDebug, "FOCUS_DEBUG", Kind.Int),
             (Id.FocusPoint, "AUTOFOCUS_CENTER", Kind.Float2),
             (Id.FocusRange, "AUTOFOCUS_RANGE", Kind.Float),
+            (Id.FocusSpeed, "AUTOFOCUS_SPEED", Kind.Float),
             (Id.FocalLength, "FOCAL_LENGTH", Kind.Float),
             (Id.Aperture, "FSTOPS", Kind.Float),
         };
@@ -134,6 +136,21 @@ namespace CameraTools
             {
                 var debug = cells[(int)Id.FocusDebug];
                 return ready && presents < settled || debug.Known && (debug.X != 0f || presents < debug.Until);
+            }
+        }
+
+        // How long the shader must render before its focus has arrived, for the screenshot. The autofocus eases toward
+        // the distance under the focus point and covers 99% of the way in 2 - 2 * AUTOFOCUS_SPEED seconds, starting from
+        // nothing each time ReShade loads its effects again. Half as long again covers the rest. Manual distance and
+        // click-to-focus do not ease.
+        public static float FocusSeconds
+        {
+            get
+            {
+                if (!Known(Id.Technique) || Value(Id.Technique) == 0f || Known(Id.FocusMode) && Mode != PointFocus)
+                    return 0f;
+                float speed = Known(Id.FocusSpeed) ? Math.Clamp(Value(Id.FocusSpeed), 0f, 1f) : 0f;
+                return (2f - 2f * speed) * 1.5f + FocusMargin;
             }
         }
 

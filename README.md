@@ -72,7 +72,7 @@ Take screenshot does this:
 1. Closes the panel and hides CameraTools' UI.
 2. Applies the Max quality preset and resolution slot 1, and turns ReShade's effects on.
 3. Counts down 3 seconds, if 3-second countdown is on.
-4. Waits until the picture has settled and ReShade has compiled its effects at the new size. The first screenshot at a size can take many seconds.
+4. Waits until the picture has settled, ReShade has compiled its effects at the new size, and the depth of field has had time to focus. In Focus point mode the shader eases its focus toward the point, in up to 2 seconds depending on its Adjustment Speed setting, and starts over when the resolution changes. The first screenshot at a size can take many seconds.
 5. Saves the screenshot to ReShade's screenshot folder.
 6. Puts the graphics settings and the resolution back as they were, turns ReShade's effects off, opens the panel again, and shows the file's name.
 

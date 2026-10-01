@@ -55,6 +55,7 @@ namespace CameraTools
             new("ReShade to save its preset before the resize", (_, _) => resize == null),
             new("ReShade to reach the window's size", (_, bridge) => bridge.Width == Screen.width && bridge.Height == Screen.height),
             new("the render resolution to follow the window", (_, _) => !Graphics.SizePending),
+            new("the depth of field to focus", (_, _) => focusing is float since && Time.unscaledTime - since >= DepthOfField.FocusSeconds),
             new("the graphics settings to settle",
                 (settling, _) => Time.unscaledTime - Math.Max(settling.Started, Graphics.Changed) >= SettleSeconds),
             new($"{CleanFrames} frames without the CameraTools UI", (settling, bridge) => bridge.Presents >= settling.Dirty + CleanFrames),
@@ -84,6 +85,9 @@ namespace CameraTools
         private static MelonPreferences_Entry<float> settle;
         // The size to change to once the bridge has presented After frames.
         private static (ScreenSize Size, ulong After)? resize;
+        // Since when ReShade has drawn its effects at the screenshot's size without a break. The depth of field's
+        // autofocus only moves while it is drawn, and starts again when ReShade loads its effects again.
+        private static float? focusing;
 
         public static ShotState State { get; private set; } = new ShotState.Idle();
 
@@ -119,6 +123,7 @@ namespace CameraTools
             var before = new ShotBefore(CameraUi.PanelOpen, uiHidden, Graphics.Capture(), Window);
             var slot = Graphics.Slot(1);
             bool resized = slot != before.Window;
+            focusing = null;
             var bridge = ReShade.Status;
             ShotState.Busy busy = Countdown
                 ? new ShotState.Countdown(before, resized, now, now + CountdownSeconds, 0)
@@ -164,6 +169,12 @@ namespace CameraTools
                     resize = null;
                     Graphics.Resize(size, quiet: true);
                 }
+                var bridge = ReShade.Status;
+                if (resize != null || bridge.Runtime != 1 || bridge.EffectsReady != 1 || bridge.EffectsEnabled != 1
+                    || bridge.Width != Screen.width || bridge.Height != Screen.height)
+                    focusing = null;
+                else
+                    focusing ??= Time.unscaledTime;
                 switch (busy)
                 {
                     case ShotState.Countdown counting:
@@ -247,6 +258,7 @@ namespace CameraTools
         {
             State = new ShotState.Idle();
             resize = null;
+            focusing = null;
             var log = Melon<CameraTools>.Logger;
             foreach (var (what, run) in Restores)
             {
