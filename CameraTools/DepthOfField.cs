@@ -26,7 +26,7 @@ namespace CameraTools
 
         private enum Kind { Technique, Int, Float, Float2 }
 
-        private enum Id { Technique, FocusMode, FocusDepth, FocusDebug, FocusPoint, FocusRange, FocusSpeed, FocalLength, Aperture }
+        private enum Id { Technique, FocusMode, FocusDepth, FocusDebug, FocusPoint, FocusRange, FocusSpeed, FocalLength, Aperture, Tangential, Sagittal, Anamorph }
 
         // In Id order.
         private static readonly (Id Id, string Name, Kind Kind)[] Table =
@@ -41,6 +41,9 @@ namespace CameraTools
             (Id.FocusSpeed, "AUTOFOCUS_SPEED", Kind.Float),
             (Id.FocalLength, "FOCAL_LENGTH", Kind.Float),
             (Id.Aperture, "FSTOPS", Kind.Float),
+            (Id.Tangential, "BOKEH_RATIO_TANGENTIAL", Kind.Float),
+            (Id.Sagittal, "BOKEH_RATIO_SAGITTAL", Kind.Float),
+            (Id.Anamorph, "BOKEH_ANAMORPH_RATIO", Kind.Float),
         };
 
         // A value as the bridge last returned it or CameraTools last set it; a technique is 1 or 0. Known is false while
@@ -93,6 +96,10 @@ namespace CameraTools
                 x => Change(Id.FocusPoint, x, cells[(int)Id.FocusPoint].Y), Enabled: () => Aiming),
             new SliderRow("Focus point Y", -1f, 1f, 0.02f, "0.00", () => cells[(int)Id.FocusPoint].Y,
                 y => Change(Id.FocusPoint, Value(Id.FocusPoint), y), Enabled: () => Aiming),
+            new Section("Bokeh shape"),
+            Shape("Tangential scale", Id.Tangential, -3f, 3f),
+            Shape("Sagittal scale", Id.Sagittal, -3f, 3f),
+            Shape("Anamorphic ratio", Id.Anamorph, 1f, 3f),
         };
 
         public static bool Linked
@@ -303,6 +310,9 @@ namespace CameraTools
             changed = Time.unscaledTime;
             return true;
         }
+
+        private static SliderRow Shape(string label, Id id, float min, float max)
+            => new(label, min, max, 0.05f, "0.00", () => Value(id), value => Change(id, value), Enabled: Has(id));
 
         private static bool Known(Id id) => cells[(int)id].Known;
 
