@@ -83,7 +83,7 @@ namespace CameraTools
 
         // Whether anything of CameraTools' is on screen, a part that is still fading out included.
         public static bool OnScreen => live != null
-            ? live.Hud.Visible || live.PlayBar.Visible || live.Panel.Visible || live.Toast.Visible
+            ? live.Hud.Visible || live.Focus.Visible || live.PlayBar.Visible || live.Panel.Visible || live.Toast.Visible
             : FallbackToast != null;
 
         public static bool PanelOpen => panelOpen;
@@ -165,8 +165,12 @@ namespace CameraTools
                 scaler.referenceResolution = V(ReferenceWidth, ReferenceHeight);
                 scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.Expand;
                 scaler.referencePixelsPerUnit = 100f;
-                var built = new Live { Root = root, Font = font, MissingSettings = !Graphics.HasSettings };
+                var built = new Live
+                {
+                    Root = root, Canvas = root.GetComponent<RectTransform>(), Font = font, MissingSettings = !Graphics.HasSettings,
+                };
                 var model = UiModel.Tabs();
+                BuildFocus(built, root.transform);
                 BuildHud(ui, built, root.transform);
                 BuildPlayBar(ui, built, root.transform);
                 BuildPanel(ui, built, root.transform, model);
@@ -185,6 +189,18 @@ namespace CameraTools
                 Object.Destroy(root);
                 throw;
             }
+        }
+
+        // The depth of field's focus point: brackets at the corners of the window its autofocus samples, and a cross in
+        // the middle. It is under everything else, so the panel covers it.
+        private static void BuildFocus(Live target, Transform root)
+        {
+            var focus = Node("Focus", root);
+            Fill(focus);
+            target.Focus = new Fader(focus, V(0f, 0f), Style.HudFade);
+            target.FocusWindow = Picture(focus, "Window", Shapes.FocusWindow, Style.White).rectTransform;
+            var cross = Picture(target.FocusWindow, "Cross", Shapes.FocusCross, Style.White).rectTransform;
+            Pin(cross, 0.5f, 0.5f, 0f, 0f, Shapes.FocusCross.Width, Shapes.FocusCross.Height);
         }
 
         private static void BuildHud(Builder ui, Live target, Transform root)
@@ -476,6 +492,8 @@ namespace CameraTools
             if (selected < 0)
                 return;
             var view = CurrentRows[selected];
+            if (!view.Row.Usable)
+                return;
             switch (view.Row)
             {
                 case ToggleRow toggle when pressA || pressLeft || pressRight:
@@ -544,8 +562,6 @@ namespace CameraTools
         private static void Run(ActionView view)
         {
             var action = (ActionRow)view.Row;
-            if (action.Enabled != null && !action.Enabled())
-                return;
             if (action.Confirm != null && armed != view)
             {
                 Disarm();
@@ -640,7 +656,7 @@ namespace CameraTools
                 selected = row;
             // The wheel steps the slider under the pointer, and scrolls the list anywhere else in it.
             float wheel = Input.mouseScrollDelta.y;
-            if (wheel != 0f && row >= 0 && CurrentRows[row].Row is SliderRow wheeled)
+            if (wheel != 0f && row >= 0 && CurrentRows[row].Row is SliderRow { Usable: true } wheeled)
                 Step(wheeled, wheel > 0f ? 1 : -1);
             else if (wheel != 0f && live.ShownTab == tab && Contains(live.List, point))
                 ScrollTo(live, live.Tabs[tab], live.Tabs[tab].Scroll - wheel * Style.WheelStep);
@@ -650,7 +666,7 @@ namespace CameraTools
                 Click(point, row);
             if (dragging == null)
                 return;
-            if (Input.GetMouseButton(0))
+            if (Input.GetMouseButton(0) && dragging.Row.Usable)
                 Drag(dragging, point);
             else
                 dragging = null;
@@ -687,6 +703,8 @@ namespace CameraTools
                 return;
             }
             selected = row;
+            if (!CurrentRows[row].Row.Usable)
+                return;
             // A slot's label only selects it: its size starts typing, and its button applies it.
             switch (CurrentRows[row])
             {
@@ -737,6 +755,7 @@ namespace CameraTools
             // Values that changed while the panel or their tab was hidden show without animating.
             bool opened = view == View.Panel && live.Shown != View.Panel;
             live.Shown = view;
+            RenderFocus(view, deltaTime);
             live.Hud.Update(view == View.Hud, deltaTime);
             live.PlayBar.Update(view == View.Playing, deltaTime);
             live.Panel.Update(view == View.Panel, deltaTime);
@@ -753,6 +772,19 @@ namespace CameraTools
             if (live.Panel.Visible)
                 RenderPanel(opened, deltaTime);
             RenderToast(deltaTime);
+        }
+
+        // The focus point also shows beside the open panel, so the Focus point rows can be seen to move it. The window is
+        // placed by its fractions of the canvas, which are its fractions of the screen at any canvas scale.
+        private static void RenderFocus(View view, float deltaTime)
+        {
+            var area = live.Canvas.rect;
+            var window = view is View.Hud or View.Panel && area.height > 0f ? DepthOfField.FocusWindow(area.width / area.height) : null;
+            live.Focus.Update(window != null, deltaTime);
+            if (window is not { } box || live.FocusShown == box)
+                return;
+            live.FocusShown = box;
+            Place(live.FocusWindow, V(box.Left, 1f - box.Bottom), V(box.Right, 1f - box.Top), V(0.5f, 0.5f), V(0f, 0f), V(0f, 0f));
         }
 
         // Like Genshin on PC, the keyboard layout has a back button and no key hints in the panel.
@@ -863,10 +895,11 @@ namespace CameraTools
                 live.ShownSelected = selected;
             }
             // The footer names what the buttons do to the selected row.
-            var footer = editing != null ? new Footer("Save", null, false, "Cancel") : (selected >= 0 ? CurrentRows[selected].Row : null) switch
+            var chosen = selected >= 0 ? CurrentRows[selected].Row : null;
+            var footer = editing != null ? new Footer("Save", null, false, "Cancel") : (chosen is { Usable: true } ? chosen : null) switch
             {
                 ToggleRow toggle => new Footer(toggle.Get() ? "Off" : "On", null, false, "Return"),
-                ActionRow action => new Footer(action.Enabled == null || action.Enabled() ? action.Hint : null, null, false, "Return"),
+                ActionRow action => new Footer(action.Hint, null, false, "Return"),
                 ChoiceRow => new Footer(null, "Change", false, "Return"),
                 StepperRow => new Footer(null, "Browse", false, "Return"),
                 ResolutionRow => new Footer("Apply", null, true, "Return"),
@@ -984,8 +1017,12 @@ namespace CameraTools
         private sealed class Live
         {
             public GameObject Root;
+            public RectTransform Canvas;
             public Font Font;
             public Fader Hud;
+            public Fader Focus;
+            public RectTransform FocusWindow;
+            public ScreenBox? FocusShown;
             public Fader Panel;
             public Fader Toast;
             public Legend[] Legends;

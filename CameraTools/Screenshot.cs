@@ -36,6 +36,9 @@ namespace CameraTools
         private const float MaxSettle = 30f;
         // Presents after the last CameraTools element left the screen, so the countdown is not in the capture.
         private const ulong CleanFrames = 3;
+        // Presents between asking ReShade to save its preset and resizing. A resize destroys ReShade's runtime and loads
+        // the effects from the preset again, so a save still queued then would lose the depth of field's last changes.
+        private const ulong SaveFrames = 3;
 
         // Name completes "timed out waiting for ...".
         private sealed record Condition(string Name, Func<ShotState.Settling, BridgeStatus, bool> Met);
@@ -48,6 +51,8 @@ namespace CameraTools
             new("ReShade to create its runtime", (_, bridge) => bridge.Runtime == 1),
             new("ReShade to compile its effects", (_, bridge) => bridge.EffectsReady == 1),
             new("ReShade to turn its effects on", (_, bridge) => bridge.EffectsEnabled == 1),
+            new("the depth of field's focus paint to clear", (_, _) => !DepthOfField.Painting),
+            new("ReShade to save its preset before the resize", (_, _) => resize == null),
             new("ReShade to reach the window's size", (_, bridge) => bridge.Width == Screen.width && bridge.Height == Screen.height),
             new("the render resolution to follow the window", (_, _) => !Graphics.SizePending),
             new("the graphics settings to settle",
@@ -77,6 +82,8 @@ namespace CameraTools
 
         private static MelonPreferences_Entry<bool> countdown;
         private static MelonPreferences_Entry<float> settle;
+        // The size to change to once the bridge has presented After frames.
+        private static (ScreenSize Size, ulong After)? resize;
 
         public static ShotState State { get; private set; } = new ShotState.Idle();
 
@@ -120,11 +127,12 @@ namespace CameraTools
             State = busy;
             try
             {
+                DepthOfField.Flush();
                 CameraUi.ClosePanel();
                 SetUiHidden(true);
                 string preset = Graphics.ApplyQuietly(Graphics.Screenshot);
                 if (resized)
-                    Graphics.Resize(slot, quiet: true);
+                    resize = (slot, bridge.Presents + SaveFrames);
                 ReShade.SetEffects(true);
                 Melon<CameraTools>.Logger.Msg($"Screenshot: started. Window {before.Window}, slot 1 {slot}{(resized ? "" : " (no resize)")}; {preset}; "
                     + $"countdown {(Countdown ? "on" : "off")}, settle {SettleSeconds:0.##} s; {bridge}.");
@@ -150,6 +158,11 @@ namespace CameraTools
                 {
                     Finish(busy, stopped);
                     return;
+                }
+                if (resize is var (size, after) && ReShade.Status.Presents >= after)
+                {
+                    resize = null;
+                    Graphics.Resize(size, quiet: true);
                 }
                 switch (busy)
                 {
@@ -233,6 +246,7 @@ namespace CameraTools
         private static void Finish(ShotState.Busy busy, string toast, string detail = null)
         {
             State = new ShotState.Idle();
+            resize = null;
             var log = Melon<CameraTools>.Logger;
             foreach (var (what, run) in Restores)
             {

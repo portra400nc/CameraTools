@@ -3,26 +3,40 @@ using static CameraTools.CameraTools;
 
 namespace CameraTools
 {
-    public abstract record Row(string Label);
+    // A toggle, slider, choice or action row may have Enabled. While it returns false the row is dimmed and ignores input.
+    public abstract record Row(string Label)
+    {
+        public bool Usable => (this switch
+        {
+            ToggleRow toggle => toggle.Enabled,
+            SliderRow slider => slider.Enabled,
+            ChoiceRow choice => choice.Enabled,
+            ActionRow action => action.Enabled,
+            _ => null,
+        })?.Invoke() ?? true;
+    }
 
-    public sealed record Section(string Label) : Row(Label);
+    // Note, when set, is read every frame for a line at the right of the header, or null for none.
+    public sealed record Section(string Label, Func<string> Note = null) : Row(Label);
 
-    public sealed record ToggleRow(string Label, Func<bool> Get, Action<bool> Set) : Row(Label);
+    public sealed record ToggleRow(string Label, Func<bool> Get, Action<bool> Set, Func<bool> Enabled = null) : Row(Label);
 
     // What the Max quality and Min for performance presets set a row to, shown on a second line under its label.
     public sealed record PresetNote(string Max, string Min, bool Restart);
 
     public sealed record SliderRow(string Label, float Min, float Max, float Step, string Format,
-        Func<float> Get, Action<float> Set, PresetNote Note = null, Func<float, string> Display = null) : Row(Label)
+        Func<float> Get, Action<float> Set, PresetNote Note = null, Func<float, string> Display = null, Func<bool> Enabled = null)
+        : Row(Label)
     {
         public static SliderRow For(string label, Setting setting, float step, string format)
             => new(label, setting.Min, setting.Max, step, format, () => setting.Value, value => setting.Value = value);
     }
 
     // Get is the shown option's position in Options, or -1 when the current value is none of them.
-    public sealed record ChoiceRow(string Label, string[] Options, Func<int> Get, Action<int> Set, PresetNote Note) : Row(Label);
+    public sealed record ChoiceRow(string Label, string[] Options, Func<int> Get, Action<int> Set, PresetNote Note,
+        Func<bool> Enabled = null) : Row(Label);
 
-    // Enabled, when set, dims the row and ignores A while it returns false, and DisabledNote then shows under the label.
+    // DisabledNote shows under the label while Enabled returns false.
     // Confirm, when set, makes the first A arm the row and a second A within a few seconds run it; it names what running
     // does, such as "delete path 2".
     public sealed record ActionRow(string Label, Action Run, string Hint, Func<bool> Enabled = null, string DisabledNote = null,
@@ -103,12 +117,17 @@ namespace CameraTools
             Shake("Rotation strength", options => options.RotateShakeStrength, (options, value) => options.RotateShakeStrength = value),
         });
 
+        // The effects stay on while the user composes a shot; the screenshot turns them off afterwards.
         private static readonly Tab ReShadeTab = new("ReShade", new Row[]
+        {
+            new Section("Effects", () => ReShade.Connected ? null : "ReShade bridge not found"),
+            new ToggleRow("ReShade effects", () => ReShade.Status.EffectsEnabled == 1, ReShade.SetEffects, () => ReShade.Status.Runtime == 1),
+        }.Concat(DepthOfField.Rows).Concat(new Row[]
         {
             new Section("Screenshot"),
             new ActionRow("Take screenshot", Screenshot.Take, "Shoot", () => ReShade.Connected, "ReShade bridge not found"),
             new ToggleRow("3-second countdown", () => Screenshot.Countdown, on => Screenshot.Countdown = on),
-        });
+        }).ToArray());
 
         private static ToggleRow PathToggle(string label, Func<PathOptions, bool> get, Action<PathOptions, bool> set)
             => new(label, () => get(CameraPaths.Options), on => CameraPaths.ChangeOptions(options => set(options, on)));

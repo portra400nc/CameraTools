@@ -83,10 +83,37 @@ namespace CameraTools
         }
     }
 
+    // A section header whose note changes.
+    internal sealed class SectionView : RowView
+    {
+        public Text Note;
+        private string shown = "";
+
+        public override void Sync(float step)
+        {
+            string note = ((Section)Row).Note() ?? "";
+            if (note == shown)
+                return;
+            Note.text = note;
+            shown = note;
+        }
+    }
+
     internal abstract class ItemView : RowView
     {
         public GameObject Band;
         public GameObject Arrow;
+        // Only on a row that has Enabled.
+        public CanvasGroup Group;
+        private bool dimmed;
+
+        protected void Dim()
+        {
+            if (Group == null || dimmed == !Row.Usable)
+                return;
+            dimmed = !dimmed;
+            Group.alpha = dimmed ? Style.RowDimmed : 1f;
+        }
 
         public override void Select(bool selected)
         {
@@ -107,6 +134,7 @@ namespace CameraTools
         // Hotkeys can push game speed past the row's range; the bar stops at its end and the value shows the real one.
         public override void Sync(float step)
         {
+            Dim();
             var slider = (SliderRow)Row;
             float value = slider.Get();
             if (value == shown)
@@ -134,6 +162,7 @@ namespace CameraTools
 
         public override void Sync(float step)
         {
+            Dim();
             bool on = ((ToggleRow)Row).Get();
             if (marked != on)
             {
@@ -155,7 +184,6 @@ namespace CameraTools
         public Text Label;
         public Image Go;
         public Text Note;
-        public CanvasGroup Group;
         // The first press of a row that asks for confirmation sets this, until the second press or the selection moves.
         public bool Armed;
         private (string Label, bool Enabled)? shown;
@@ -199,6 +227,7 @@ namespace CameraTools
 
         public override void Sync(float step)
         {
+            Dim();
             var choice = (ChoiceRow)Row;
             int position = choice.Get();
             if (position == shown)
@@ -496,14 +525,20 @@ namespace CameraTools
             TopLeft(rect, 0f, y, Style.PanelWidth, Style.SectionHeight);
             var text = Label(rect, "Label", section.Label, Style.SectionSize, Style.Cream, TextAnchor.MiddleLeft);
             TopLeft(text.rectTransform, Style.SectionX, Style.SectionTextY, Style.PanelWidth - 2f * Style.SectionX, Style.SectionTextHeight);
-            return new RowView { Row = section, Rect = rect };
+            if (section.Note == null)
+                return new RowView { Row = section, Rect = rect };
+            var note = Label(rect, "Note", "", Style.NoteSize, Style.Dim, TextAnchor.MiddleRight);
+            TopLeft(note.rectTransform, Style.SectionX, Style.SectionTextY, Style.PanelWidth - Style.SectionX - Style.RowRight, Style.SectionTextHeight);
+            var view = new SectionView { Row = section, Rect = rect, Note = note };
+            view.Sync(1f);
+            return view;
         }
 
         public SliderView Slider(Transform parent, SliderRow row, float y)
         {
             var view = new SliderView();
             float noted = row.Note != null ? Style.NoteExtra : 0f;
-            var rect = Item(parent, view, row, y, Style.SliderRowHeight + noted);
+            var rect = Item(parent, view, row, y, Style.SliderRowHeight + noted, row.Enabled);
             var label = Label(rect, "Label", row.Label, Style.RowSize, Style.Text, TextAnchor.LowerLeft);
             TopLeft(label.rectTransform, Style.RowLeft, Style.RowTextY, Style.RowWidth, Style.RowTextHeight);
             view.Value = Label(rect, "Value", "", Style.ValueSize, Style.Dim, TextAnchor.LowerRight);
@@ -525,7 +560,7 @@ namespace CameraTools
         public ToggleView Toggle(Transform parent, ToggleRow row, float y)
         {
             var view = new ToggleView();
-            var rect = Item(parent, view, row, y, Style.ToggleRowHeight);
+            var rect = Item(parent, view, row, y, Style.ToggleRowHeight, row.Enabled);
             var label = Label(rect, "Label", row.Label, Style.RowSize, Style.Text, TextAnchor.MiddleLeft);
             TopLeft(label.rectTransform, Style.RowLeft, 0f, Style.RowWidth - Style.SwitchWidth, Style.ToggleRowHeight);
             var track = Picture(rect, "Switch", Shapes.SwitchOff, Style.White).rectTransform;
@@ -543,7 +578,7 @@ namespace CameraTools
         public ChoiceView Choice(Transform parent, ChoiceRow row, float y)
         {
             var view = new ChoiceView();
-            var rect = Arrows(parent, view, row, y, row.Note != null);
+            var rect = Arrows(parent, view, row, y, row.Note != null, row.Enabled);
             if (row.Note != null)
                 Note(rect, row.Note);
             view.Sync(1f);
@@ -562,10 +597,10 @@ namespace CameraTools
 
         // With a note, the label and the arrows share the first line and the note runs under both, so a long note never
         // meets the arrows.
-        private RectTransform Arrows(Transform parent, ArrowsView view, Row row, float y, bool noted)
+        private RectTransform Arrows(Transform parent, ArrowsView view, Row row, float y, bool noted, Func<bool> enabled = null)
         {
             float height = noted ? Style.ChoiceRowHeight : Style.ToggleRowHeight;
-            var rect = Item(parent, view, row, y, height);
+            var rect = Item(parent, view, row, y, height, enabled);
             float lineY = noted ? Style.RowTextY : 0f;
             float lineHeight = noted ? Style.RowTextHeight : height;
             float stepY = -(lineY + (lineHeight - Style.StepSize) / 2f);
@@ -586,13 +621,11 @@ namespace CameraTools
         {
             var view = new ActionView();
             float height = row.DisabledNote != null ? Style.ChoiceRowHeight : Style.ToggleRowHeight;
-            var rect = Item(parent, view, row, y, height);
+            var rect = Item(parent, view, row, y, height, row.Enabled);
             view.Label = Label(rect, "Label", row.Label, Style.RowSize, Style.Text, TextAnchor.MiddleLeft);
             TopLeft(view.Label.rectTransform, Style.RowLeft, 0f, Style.RowWidth - Shapes.Chevron.Width, height);
             view.Go = Picture(rect, "Go", Shapes.Chevron, Style.Cream);
             Pin(view.Go.rectTransform, 1f, 0.5f, -Style.RowRight, 0f, Shapes.Chevron.Width, Shapes.Chevron.Height);
-            if (row.Enabled != null)
-                view.Group = rect.gameObject.AddComponent<CanvasGroup>();
             if (row.DisabledNote != null)
             {
                 view.Note = NoteLabel(rect);
@@ -635,11 +668,14 @@ namespace CameraTools
 
         private static string Colored(string text, Color color) => $"<color={Style.Html(color)}>{text}</color>";
 
-        // The band and arrow that show which row is selected, under the row's own parts.
-        private static RectTransform Item(Transform parent, ItemView view, Row row, float y, float height)
+        // The band and arrow that show which row is selected, under the row's own parts. A row with enabled gets a group
+        // to dim it by.
+        private static RectTransform Item(Transform parent, ItemView view, Row row, float y, float height, Func<bool> enabled = null)
         {
             var rect = Node(row.Label, parent);
             TopLeft(rect, 0f, y, Style.PanelWidth, height);
+            if (enabled != null)
+                view.Group = rect.gameObject.AddComponent<CanvasGroup>();
             var band = Picture(rect, "Band", null, Style.Band);
             Fill(band.rectTransform);
             var arrow = Picture(rect, "Arrow", Shapes.Arrow, Style.Text);

@@ -34,6 +34,7 @@ namespace CameraTools
             Graphics.Load();
             CameraPaths.Load();
             Screenshot.Load();
+            DepthOfField.Load();
         }
 
         public override void OnApplicationQuit()
@@ -121,6 +122,7 @@ namespace CameraTools
             // After the speed notice, so unpausing the game for playback does not show one.
             PathPlayback.Update();
             ReShade.Update();
+            DepthOfField.Update();
 
             // After the hotkeys, so the key that closes the settings panel does not also fire its camera action.
             CameraUi.Update();

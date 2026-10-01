@@ -17,6 +17,7 @@ namespace CameraTools
 
         // The sliced shapes are two texture pixels wider and taller than their borders, which is where they stretch.
         private const float Stretch = 2f / Density;
+        private const float FocusCorner = 18f;
 
         public static readonly Shape Face = Glyph("Face", 24f, 24f, Circle(12f, 12f, 12f));
         public static readonly Shape Bumper = Solid("Bumper", 30f, 18f, 0f, Box(0f, 0f, 30f, 18f, 6f, 6f, 4f, 4f), Style.Light);
@@ -68,10 +69,19 @@ namespace CameraTools
         public static readonly Shape PanelShadow = new("PanelShadow", Style.PanelShadowWidth, 1f, 0f,
             (x, _) => Style.WithAlpha(Style.PanelShadow, Style.PanelShadow.a * (1f - Normal((x - 8f) / 15f))));
 
+        // The focus point's window: a bracket in each corner, drawn 1 unit inside the edge so the shadow around it fits.
+        // The arms end short of the middle, which is the part that stretches.
+        public static readonly Shape FocusWindow = Shadowed("FocusWindow", 2f * FocusCorner + Stretch, FocusCorner, Subtract(
+            Ring(Box(1f, 1f, 2f * FocusCorner + Stretch - 2f, 2f * FocusCorner + Stretch - 2f, 3f), 2f),
+            Union(Box(FocusCorner - 3f, 0f, Stretch + 6f, 2f * FocusCorner + Stretch, 0f),
+                Box(0f, FocusCorner - 3f, 2f * FocusCorner + Stretch, Stretch + 6f, 0f))));
+        public static readonly Shape FocusCross = Shadowed("FocusCross", 14f, 0f, Union(Box(2f, 6f, 10f, 2f, 1f), Box(6f, 2f, 2f, 10f, 1f)));
+
         public static readonly Shape[] All =
         {
             Face, Bumper, Trigger, Menu, View, DpadUp, DpadDown, DpadLeft, DpadRight, DpadSides, Key, Toast, Bar, FovTrack, SwitchOff,
             SwitchOn, Knob, Check, Cross, Plus, Minus, Handle, Arrow, Back, Chevron, StepLeft, StepRight, Button, PanelFill, PanelShadow,
+            FocusWindow, FocusCross,
         };
 
         private static readonly Dictionary<Shape, Sprite> sprites = new();
@@ -176,6 +186,10 @@ namespace CameraTools
 
         private static Shape Solid(string name, float width, float height, float border, Field field, Color color)
             => new(name, width, height, border, Layers((field, color)));
+
+        // A light square mark with a dark shadow 1 unit wide all around it, so it reads on bright and on dark scenes.
+        private static Shape Shadowed(string name, float size, float border, Field mark)
+            => new(name, size, size, border, Layers((Grow(mark, 1f), Style.FocusShadow), (mark, Style.Text)));
 
         // A rounded rectangle filling the whole shape, with a ring inside its edge.
         private static Shape Framed(string name, float width, float height, float radius, float border, float ring, Color fill,

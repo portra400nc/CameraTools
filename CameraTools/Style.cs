@@ -44,6 +44,7 @@ namespace CameraTools
         public static readonly Color StepFill = Hex(0xece5d8, 0.12f);
         public static readonly Color Thumb = Hex(0xd3bc8e, 0.55f);
         public static readonly Color Tick = Hex(0xece5d8, 0.70f);
+        public static readonly Color FocusShadow = Hex(0x000000, 0.55f);
 
         public const float Margin = 44f;
         public const float TopLegendY = 28f;

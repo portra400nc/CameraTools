@@ -49,6 +49,7 @@ namespace CameraTools
         SelectPath7,
         SelectPath8,
         SelectPath9,
+        CenterFocusPoint,
     }
 
     public enum PadOwner
@@ -109,6 +110,7 @@ namespace CameraTools
             (CamAction.SelectPath7, KeyCode.Keypad7, ""),
             (CamAction.SelectPath8, KeyCode.Keypad8, ""),
             (CamAction.SelectPath9, KeyCode.Keypad9, ""),
+            (CamAction.CenterFocusPoint, KeyCode.None, "Back+R3"),
         };
 
         private static readonly KeyCode[] keys = new KeyCode[Defaults.Length];
@@ -170,7 +172,7 @@ namespace CameraTools
         public static bool OwnerSwitchPressed => OwnerSwitch.Pressed(Gamepad.Current, Gamepad.Previous);
 
         public static (float x, float y) Look
-            => PadActive ? (Gamepad.Current.RightX, Gamepad.Current.RightY) : (0f, 0f);
+            => PadActive && !DepthOfField.Steering ? (Gamepad.Current.RightX, Gamepad.Current.RightY) : (0f, 0f);
 
         public static bool Pressed(CamAction action, bool keyboard = true)
             => keyboard && !TextCapture && Input.GetKeyDown(keys[(int)action])
