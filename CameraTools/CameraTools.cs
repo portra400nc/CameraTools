@@ -123,6 +123,7 @@ namespace CameraTools
             PathPlayback.Update();
             ReShade.Update();
             DepthOfField.Update();
+            LightTest.Update();
 
             // After the hotkeys, so the key that closes the settings panel does not also fire its camera action.
             CameraUi.Update();
