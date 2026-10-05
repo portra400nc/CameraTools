@@ -17,6 +17,11 @@ namespace CameraTools
         private const float LookTime = 0.3f;
         private const float HeadYawLimit = 60f;
         private const float HeadPitchLimit = 30f;
+        // The game's own eye range, from EyeCtrl's eyeRotationRangeY and eyeRotationRangeX on Skirk.
+        private const float EyeYawLimit = 17f;
+        private const float EyePitchLimit = 6.5f;
+        // A bit of EyeCtrl's auto-blink reason mask that is CameraTools' own.
+        private const int BlinkReason = 31;
         private const float Radians = MathF.PI / 180f;
 
         private static readonly string[] EyeBones = { "+EyeBone L A01", "+EyeBone R A01" };
@@ -44,14 +49,10 @@ namespace CameraTools
         private readonly List<(DynamicBoneArray Physics, bool Enabled)> hair = new();
         private readonly EmoSync emoSync;
         private readonly EyeCtrl eyeCtrl;
-        private readonly EyeKey eyeKey;
 
         // What the rig last told the game's face and eye systems, so each changes once when the pose does.
         private string expression;
-        // The face system's own reasons for being off, and for holding the default face, as they were before posing.
-        private (uint Off, uint KeepDefault)? faceReasons;
         private bool blinking = true;
-        private (Transform Target, bool Enabled, EyeKey.EyeKeyController Controller)? savedLook;
         private FacePose planned;
         private List<ShapeWrite> plan = new();
 
@@ -70,7 +71,6 @@ namespace CameraTools
             FindShapes();
             emoSync = Find<EmoSync>();
             eyeCtrl = Find<EyeCtrl>();
-            eyeKey = Find<EyeKey>();
             var data = emoSync ? emoSync.setData : null;
             Emotions = (data ? data.emotionSet?.ToArray() : null) ?? Array.Empty<string>();
             ExpressionNames = Emotions.Select(Label).Prepend("Game's").ToArray();
@@ -113,21 +113,31 @@ namespace CameraTools
                 if (joints[i] is not { } bone)
                     continue;
                 var joint = (PoseJoint)i;
-                bone.Write(joint == PoseJoint.Head && pose.Gaze.HeadAtCamera && camera ? HeadAim(bone, camera) : Rotation(Joints.All[i], pose.Turn(joint)));
+                bone.Write(joint == PoseJoint.Head && pose.Gaze.HeadAtCamera && camera
+                    ? Aim(bone, camera, HeadYawLimit, HeadPitchLimit)
+                    : Rotation(Joints.All[i], pose.Turn(joint)));
             }
             foreach (var side in Sides.Both)
                 WriteHand(hands[(int)side], pose.Hand(side));
         }
 
-        // Ahead holds the eyes as they froze and By hand turns them from there. At the camera leaves them to the game's eye
-        // controller, which Apply points at the camera.
-        public void WriteEyes(GazePose gaze)
+        // Ahead holds the eyes as they froze, By hand turns them from there, and At the camera aims each one at the camera
+        // within the game's eye range. The game's eye controller pointed at the camera did nothing on the Deck once posing
+        // ran, while these writes showed in build 148. EyeKey moves the eyes after the late update, so this also runs in
+        // Canvas.willRenderCanvases.
+        public void WriteEyes(GazePose gaze, Transform camera)
         {
-            if (gaze.Eyes == EyesLook.Camera)
-                return;
-            var turn = gaze.Eyes == EyesLook.ByHand ? AngleAxis(Up, -gaze.X) * AngleAxis(Right, -gaze.Y) : NumericsQuaternion.Identity;
             foreach (var eye in eyes)
-                eye?.Write(turn);
+            {
+                if (eye == null)
+                    continue;
+                eye.Write(gaze.Eyes switch
+                {
+                    EyesLook.ByHand => AngleAxis(Up, -gaze.X) * AngleAxis(Right, -gaze.Y),
+                    EyesLook.Camera when camera => Aim(eye, camera, EyeYawLimit, EyePitchLimit),
+                    _ => NumericsQuaternion.Identity,
+                });
+            }
         }
 
         // The game's face system rewrites the shapes after the late update, so this runs again in Canvas.willRenderCanvases.
@@ -146,23 +156,17 @@ namespace CameraTools
                 write.Slot.Write(write);
         }
 
-        // Expressions, blinking and the game's eye aim change once when the pose asks for something else.
-        public void Apply(FacePose face, GazePose gaze, Transform camera)
+        // Expressions and blinking change once when the pose asks for something else. Blinking stops through the auto-blink
+        // reasons: EyeCtrl.ToggleBlink pauses a track of the face animation, and on the Deck that also kept expressions
+        // from playing.
+        public void Apply(FacePose face)
         {
-            KeepFace();
             if (face.Expression != expression && emoSync)
-            {
                 emoSync.SetEmotion(face.Expression ?? emoSync.defaultEmotion, BlendTime);
-            }
             expression = face.Expression;
             if (face.Blink != blinking && eyeCtrl)
-                eyeCtrl.ToggleBlink(face.Blink);
+                eyeCtrl.EnableAutoBlokingByReason(face.Blink, BlinkReason);
             blinking = face.Blink;
-            bool look = gaze.Eyes == EyesLook.Camera && camera && eyeCtrl;
-            if (look && savedLook == null)
-                LookAt(camera);
-            else if (!look)
-                StopLooking();
         }
 
         public void SetHair(bool on)
@@ -252,14 +256,12 @@ namespace CameraTools
                     emoSync.SetEmotion(emoSync.defaultEmotion, BlendTime);
                 expression = null;
             });
-            Step("face system", GiveBackFace);
             Step("blinking", () =>
             {
                 if (!blinking && eyeCtrl)
-                    eyeCtrl.ToggleBlink(true);
+                    eyeCtrl.EnableAutoBlokingByReason(true, BlinkReason);
                 blinking = true;
             });
-            Step("eye aim", StopLooking);
             Step("hair", () =>
             {
                 foreach (var (physics, enabled) in hair)
@@ -364,71 +366,14 @@ namespace CameraTools
             return targets.Values.ToList();
         }
 
-        // The game keeps the face system off, or on its default face, while any bit of these masks is set; abilities set
-        // them (EmoSyncBanMixin, EmoSyncKeepDefaultMixin), and then expressions and the eye aim do nothing. Posing clears
-        // them, and Toggle(true, true) switches the face system on, as the Deck tests that showed expressions did.
+        // The game's expressions showed on the Deck only after Toggle(true, true), which clears CameraTools' own reason bit
+        // and switches the face system on. The log shows the reason masks it found, which the game's abilities can set.
         private void TakeFace()
         {
             if (!emoSync)
                 return;
-            faceReasons = (emoSync._reasonToggle, emoSync._reasonKeepDefault);
             Melon<CameraTools>.Logger.Msg($"Posing: the face system's reasons were off 0x{emoSync._reasonToggle:X}, default face 0x{emoSync._reasonKeepDefault:X}.");
-            emoSync._reasonToggle = 0;
-            emoSync._reasonKeepDefault = 0;
             emoSync.Toggle(true, true);
-        }
-
-        // A reason the game sets while posing is cleared too, and given back with the others when posing ends.
-        private void KeepFace()
-        {
-            if (faceReasons is not { } saved || !emoSync)
-                return;
-            uint off = emoSync._reasonToggle, keepDefault = emoSync._reasonKeepDefault;
-            if (off == 0 && keepDefault == 0)
-                return;
-            CameraTools.LogOnce($"Posing: the game set face system reasons while posing (off 0x{off:X}, default face 0x{keepDefault:X}); clearing them.");
-            faceReasons = (saved.Off | off, saved.KeepDefault | keepDefault);
-            emoSync._reasonToggle = 0;
-            emoSync._reasonKeepDefault = 0;
-            emoSync.Toggle(true, true);
-            // Switching on resets the face, so the chosen expression is set again.
-            expression = null;
-        }
-
-        // Bit 0 is Toggle's own reason, so toggling with it as it was recomputes the face system's state from the masks.
-        private void GiveBackFace()
-        {
-            if (faceReasons is not { } saved || !emoSync)
-                return;
-            faceReasons = null;
-            emoSync._reasonKeepDefault = saved.KeepDefault;
-            emoSync._reasonToggle = saved.Off & ~1u;
-            emoSync.Toggle((saved.Off & 1u) == 0, false);
-        }
-
-        private void LookAt(Transform camera)
-        {
-            savedLook = (eyeCtrl.viewTarget, eyeCtrl.targetEnabled, eyeKey ? eyeKey.currentController : default);
-            if (eyeKey)
-                eyeKey.currentController = EyeKey.EyeKeyController.LookAtEyeCtrl;
-            eyeCtrl.viewTarget = camera;
-            eyeCtrl.targetEnabled = true;
-            eyeCtrl.ForceUpdateLookTarget(LookTime);
-        }
-
-        private void StopLooking()
-        {
-            if (savedLook is not { } saved)
-                return;
-            savedLook = null;
-            if (eyeCtrl)
-            {
-                eyeCtrl.viewTarget = saved.Target;
-                eyeCtrl.targetEnabled = saved.Enabled;
-                eyeCtrl.ClearLookat();
-            }
-            if (eyeKey)
-                eyeKey.currentController = saved.Controller;
         }
 
         // Offsets are in the character's frame: Turn about its up axis, Bend about its right axis, Twist about its forward
@@ -439,17 +384,17 @@ namespace CameraTools
             return AngleAxis(Up, turn.Turn * side) * AngleAxis(Right, turn.Bend * info.BendSign) * AngleAxis(Forward, turn.Twist * side);
         }
 
-        // The head turns toward the camera from its frozen rotation, measured in the frame its posed parents carry it in,
-        // up to a turn a neck can make.
-        private NumericsQuaternion HeadAim(Bone head, Transform camera)
+        // A bone turns toward the camera from its frozen rotation, measured in the frame its posed parents carry it in, up
+        // to the limits. It assumes the bone faced the character's forward when the character froze.
+        private NumericsQuaternion Aim(Bone bone, Transform camera, float yawLimit, float pitchLimit)
         {
-            var aim = camera.position.ToNumerics() - head.Transform.position.ToNumerics();
+            var aim = camera.position.ToNumerics() - bone.Transform.position.ToNumerics();
             if (aim.LengthSquared() < 1e-6f)
                 return NumericsQuaternion.Identity;
-            var carried = head.Transform.parent.rotation.ToNumerics() * NumericsQuaternion.Inverse(head.ParentWorld);
+            var carried = bone.Transform.parent.rotation.ToNumerics() * NumericsQuaternion.Inverse(bone.ParentWorld);
             var look = NumericsVector3.Transform(NumericsVector3.Normalize(aim), toCharacter * NumericsQuaternion.Inverse(carried));
-            float yaw = Math.Clamp(Degrees(MathF.Atan2(look.X, look.Z)), -HeadYawLimit, HeadYawLimit);
-            float pitch = Math.Clamp(Degrees(MathF.Asin(Math.Clamp(look.Y, -1f, 1f))), -HeadPitchLimit, HeadPitchLimit);
+            float yaw = Math.Clamp(Degrees(MathF.Atan2(look.X, look.Z)), -yawLimit, yawLimit);
+            float pitch = Math.Clamp(Degrees(MathF.Asin(Math.Clamp(look.Y, -1f, 1f))), -pitchLimit, pitchLimit);
             return AngleAxis(Up, yaw) * AngleAxis(Right, -pitch);
         }
 

@@ -211,7 +211,8 @@ namespace CameraTools
             try
             {
                 session.Rig.WriteFace(session.Pose.Face);
-                session.Rig.WriteEyes(session.Pose.Gaze);
+                var camera = Lights.Camera();
+                session.Rig.WriteEyes(session.Pose.Gaze, camera ? camera.transform : null);
             }
             catch (Exception e)
             {
@@ -243,10 +244,10 @@ namespace CameraTools
             var camera = Lights.Camera();
             var view = camera ? camera.transform : null;
             var pose = current.Pose;
-            current.Rig.Apply(pose.Face, pose.Gaze, view);
+            current.Rig.Apply(pose.Face);
             current.Rig.WriteBody(pose, view);
             current.Rig.WriteFace(pose.Face);
-            current.Rig.WriteEyes(pose.Gaze);
+            current.Rig.WriteEyes(pose.Gaze, view);
         }
 
         private static bool Start()
