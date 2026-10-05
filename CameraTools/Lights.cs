@@ -68,7 +68,6 @@ namespace CameraTools
         private static readonly List<Pose?> placed = new();
         private static readonly List<GameLight> gameLights = new();
         private static readonly List<ReLight.Sphere> spheres = new();
-        private static Transform avatars;
         private static float? changedAt;
         private static Pose? moveStart;
         // The frame Move light was chosen on, whose A press must not also finish the move.
@@ -305,30 +304,11 @@ namespace CameraTools
                     var camera = Camera();
                     return camera ? new Frame(camera.transform.position.ToNumerics(), camera.transform.rotation.ToNumerics()) : null;
                 case LightFollow.Character:
-                    var avatar = Avatar();
+                    var avatar = Character.Active();
                     return avatar ? new Frame(avatar.position.ToNumerics(), avatar.rotation.ToNumerics()) : null;
                 default:
                     return WorldFrame();
             }
-        }
-
-        // The active character is the one active child of the avatar root.
-        private static Transform Avatar()
-        {
-            if (!avatars)
-            {
-                var root = GameObject.Find("/EntityRoot/AvatarRoot");
-                if (!root)
-                    return null;
-                avatars = root.transform;
-            }
-            for (int i = 0; i < avatars.childCount; i++)
-            {
-                var child = avatars.GetChild(i);
-                if (child.gameObject.activeInHierarchy)
-                    return child;
-            }
-            return null;
         }
 
         // In the scene, PlaceAhead in front of the camera and facing where it looks, so a spot aims at what is on screen.
