@@ -77,11 +77,14 @@ namespace CameraTools
                 Box(0f, FocusCorner - 3f, 2f * FocusCorner + Stretch, Stretch + 6f, 0f))));
         public static readonly Shape FocusCross = Shadowed("FocusCross", 14f, 0f, Union(Box(2f, 6f, 10f, 2f, 1f), Box(6f, 2f, 2f, 10f, 1f)));
 
+        public static readonly Shape HueRail = Gradient("HueRail", t => Colors.Hsv(t * 360f, 1f, 1f));
+        public static readonly Shape TemperatureRail = Gradient("TemperatureRail", t => Colors.Kelvin(1000f + t * 11000f));
+
         public static readonly Shape[] All =
         {
             Face, Bumper, Trigger, Menu, View, DpadUp, DpadDown, DpadLeft, DpadRight, DpadSides, Key, Toast, Bar, FovTrack, SwitchOff,
             SwitchOn, Knob, Check, Cross, Plus, Minus, Handle, Arrow, Back, Chevron, StepLeft, StepRight, Button, PanelFill, PanelShadow,
-            FocusWindow, FocusCross,
+            FocusWindow, FocusCross, HueRail, TemperatureRail,
         };
 
         private static readonly Dictionary<Shape, Sprite> sprites = new();
@@ -190,6 +193,19 @@ namespace CameraTools
         // A light square mark with a dark shadow 1 unit wide all around it, so it reads on bright and on dark scenes.
         private static Shape Shadowed(string name, float size, float border, Field mark)
             => new(name, size, size, border, Layers((Grow(mark, 1f), Style.FocusShadow), (mark, Style.Text)));
+
+        // A slider rail as wide as the slider, coloured from left to right. It is not sliced, because the colours run along
+        // its whole length; the slider stretches it by nothing.
+        private static Shape Gradient(string name, Func<float, System.Numerics.Vector3> along)
+        {
+            const float width = Style.RowWidth, height = Style.RailHeight;
+            var outline = Box(0f, 0f, width, height, height / 2f);
+            return new(name, width, height, 0f, (x, y) =>
+            {
+                var rgb = along(x / width);
+                return new Color { r = rgb.X, g = rgb.Y, b = rgb.Z, a = Math.Clamp(0.5f - outline(x, y) * Density, 0f, 1f) };
+            });
+        }
 
         // A rounded rectangle filling the whole shape, with a ring inside its edge.
         private static Shape Framed(string name, float width, float height, float radius, float border, float ring, Color fill,

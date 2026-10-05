@@ -589,10 +589,18 @@ namespace CameraTools
                 view.DetailText = NoteLabel(rect);
             view.Track = Node("Slider", rect);
             TopLeft(view.Track, Style.RowLeft, Style.SliderY + noted, Style.RowWidth, Style.SliderHeight);
-            var rail = Picture(view.Track, "Rail", Shapes.Bar, Style.Track).rectTransform;
+            var look = row.Rail switch
+            {
+                RailLook.Hue => Shapes.HueRail,
+                RailLook.Temperature => Shapes.TemperatureRail,
+                _ => Shapes.Bar,
+            };
+            var rail = Picture(view.Track, "Rail", look, row.Rail == RailLook.Plain ? Style.Track : Style.White).rectTransform;
             Place(rail, V(0f, 0.5f), V(1f, 0.5f), V(0f, 0.5f), V(0f, 0f), V(0f, Style.RailHeight));
             view.Fill = Picture(view.Track, "Fill", Shapes.Bar, Style.Cream).rectTransform;
             Place(view.Fill, V(0f, 0.5f), V(0f, 0.5f), V(0f, 0.5f), V(0f, 0f), V(0f, Style.RailHeight));
+            // A colour rail shows what the handle picks, which a fill would cover.
+            view.Fill.gameObject.SetActive(row.Rail == RailLook.Plain);
             view.Handle = Picture(view.Track, "Handle", Shapes.Handle, Style.White).rectTransform;
             Place(view.Handle, V(0f, 0.5f), V(0f, 0.5f), V(0.5f, 0.5f), V(0f, 0f), V(Shapes.Handle.Width, Shapes.Handle.Height));
             view.Sync(1f);

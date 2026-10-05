@@ -32,10 +32,15 @@ namespace CameraTools
     // What the Max quality and Min for performance presets set a row to, shown on a second line under its label.
     public sealed record PresetNote(string Max, string Min, bool Restart);
 
+    // A slider's rail: the plain track with a cream fill, or the colours it picks from, with no fill.
+    public enum RailLook { Plain, Hue, Temperature }
+
     public sealed record SliderRow(string Label, float Min, float Max, float Step, string Format,
         Func<float> Get, Action<float> Set, PresetNote Note = null, Func<float, string> Display = null, Func<bool> Enabled = null)
         : Row(Label)
     {
+        public RailLook Rail { get; init; }
+
         public static SliderRow For(string label, Setting setting, float step, string format)
             => new(label, setting.Min, setting.Max, step, format, () => setting.Value, value => setting.Value = value);
     }
@@ -190,6 +195,10 @@ namespace CameraTools
             {
                 Detail = () => "1 is a soft fill, 3 is very bright",
             },
+            new ToggleRow("Shadows", () => Lights.Current?.Shadows ?? false, on => Lights.Edit(light => light.Shadows = on))
+            {
+                Shown = LightIs(light => light.Kind != LightKind.Sphere),
+            },
             LightSlider("Range", 0.5f, 40f, 0.5f, "0.0' m'", light => light.Range, (light, value) => light.Range = value,
                 light => light.Kind != LightKind.Sphere),
             LightSlider("Radius", 0.05f, 2f, 0.05f, "0.00' m'", light => light.Radius, (light, value) => light.Radius = value,
@@ -211,9 +220,13 @@ namespace CameraTools
                 light => light.Source == ColorSource.Temperature) with
             {
                 Detail = () => Lights.Current is { } light ? Colors.KelvinName(light.Kelvin) : "",
+                Rail = RailLook.Temperature,
             },
             LightSlider("Hue", 0f, 360f, 5f, "0'°'", light => light.Hue, (light, value) => light.Hue = value,
-                light => light.Source == ColorSource.Hue),
+                light => light.Source == ColorSource.Hue) with
+            {
+                Rail = RailLook.Hue,
+            },
             LightSlider("Saturation", 0f, 100f, 5f, "0'%'", light => light.Saturation, (light, value) => light.Saturation = value,
                 light => light.Source == ColorSource.Hue),
             new TextRow("Hex", () => Lights.Current is { } light ? Colors.Hex(light.Color) : "", Lights.SetHex, "0123456789abcdef", 6,
