@@ -68,6 +68,7 @@ namespace CameraTools
 
         public static View View => !CameraTools.freecamActive || CameraTools.uiHidden ? View.Hidden
             : Lights.Moving ? View.Moving
+            : Posing.Editing ? View.Joints
             : panelOpen ? View.Panel
             : PathPlayback.State is PlaybackState.Playing ? View.Playing
             : View.Hud;
@@ -88,7 +89,7 @@ namespace CameraTools
         // Whether anything of CameraTools' is on screen, a part that is still fading out included.
         public static bool OnScreen => live != null
             ? live.Hud.Visible || live.Focus.Visible || live.PlayBar.Visible || live.Panel.Visible || live.Toast.Visible
-                || live.Move.Visible || live.Markers.Visible
+                || live.Move.Visible || live.Markers.Visible || live.JointLayer.Visible
             : FallbackToast != null;
 
         public static bool PanelOpen => panelOpen;
@@ -179,6 +180,7 @@ namespace CameraTools
                 BuildMarkers(ui, built, root.transform);
                 BuildHud(ui, built, root.transform);
                 BuildMove(ui, built, root.transform);
+                BuildJoints(ui, built, root.transform);
                 BuildPlayBar(ui, built, root.transform);
                 BuildPanel(ui, built, root.transform, model);
                 BuildToast(ui, built, root.transform);
@@ -259,6 +261,86 @@ namespace CameraTools
             target.MovePad = pad.gameObject;
             target.MoveKeys = keys.gameObject;
         }
+
+        // Pose joints: a marker on each of the character's joints, the selected joint's name in a pill beside its marker, its
+        // angles at the bottom left, and legends for the sticks and keys that turn it in place of the free camera's.
+        private static void BuildJoints(Builder ui, Live target, Transform root)
+        {
+            var layer = Node("Joints", root);
+            Fill(layer);
+            target.JointLayer = new Fader(layer, V(0f, 0f), Style.HudFade);
+            for (int index = 0; index < Joints.All.Length; index++)
+            {
+                var marker = Node("Joint", layer);
+                Place(marker, V(0f, 0f), V(0f, 0f), V(0.5f, 0.5f), V(0f, 0f), V(Style.JointDot + Style.JointRing, Style.JointDot + Style.JointRing));
+                Fill(Picture(marker, "Ring", Shapes.Knob, Style.MarkerRing).rectTransform);
+                var dot = Picture(marker, "Dot", Shapes.Knob, Style.Handle);
+                Pin(dot.rectTransform, 0.5f, 0.5f, 0f, 0f, Style.JointDot, Style.JointDot);
+                marker.gameObject.SetActive(false);
+                target.JointMarkers.Add(new JointMarker(marker, dot));
+            }
+
+            // Laid out like the toast: the pill is as wide as its name.
+            target.JointName = Node("Name", layer);
+            Place(target.JointName, V(0f, 0f), V(0f, 0f), V(0f, 0f), V(Style.PillX, Style.PillY), V(0f, Style.PillHeight));
+            Flow(target.JointName.gameObject, 0f, TextAnchor.MiddleLeft);
+            var pill = Picture(target.JointName, "Pill", Shapes.Pill, Style.White);
+            pill.rectTransform.sizeDelta = V(0f, Style.PillHeight);
+            var group = Flow(pill.gameObject, 0f, TextAnchor.MiddleCenter);
+            group.padding.left = Style.PillPadding;
+            group.padding.right = Style.PillPadding;
+            target.JointNameText = ui.Label(pill.rectTransform, "Label", "", Style.PillTextSize, Style.Text, TextAnchor.MiddleCenter);
+            target.JointNameText.rectTransform.sizeDelta = V(0f, Style.PillHeight);
+
+            var readout = Node("Readout", layer);
+            Pin(readout, 0f, 0f, Style.Margin, Style.Margin, LegendWidth, Style.HintHeight);
+            Flow(readout.gameObject, Style.ReadoutGap, TextAnchor.MiddleLeft);
+            target.ReadoutName = ui.Label(readout, "Joint", "", Style.HintSize, Style.Text, TextAnchor.MiddleLeft);
+            target.ReadoutAngles = ui.Label(readout, "Angles", "", Style.ValueSize, Style.Dim, TextAnchor.MiddleLeft);
+            foreach (var label in new[] { target.ReadoutName, target.ReadoutAngles })
+            {
+                label.rectTransform.sizeDelta = V(0f, Style.HintHeight);
+                DropShadow(label, Style.TextShadow);
+            }
+
+            var pad = Node("Pad", layer);
+            Fill(pad);
+            var (padTop, padBottom) = LegendRows(pad);
+            ui.GlyphHint(padTop, PadButtons.L3, "Bend and turn");
+            ui.GlyphHint(padTop, PadButtons.LB, "Twist left");
+            ui.GlyphHint(padTop, PadButtons.RB, "Twist right");
+            ui.GlyphHint(padTop, PadButtons.DpadUp | PadButtons.DpadDown, "Joint");
+            ui.GlyphHint(padTop, PadButtons.DpadLeft | PadButtons.DpadRight, "Other side");
+            ui.GlyphHint(padBottom, PadButtons.Y, "Reset joint");
+            ui.GlyphHint(padBottom, PadButtons.X, "Copy to other side");
+            ui.PadHint(padBottom, PadA, "Done");
+            ui.PadHint(padBottom, PadB, "Cancel");
+            var keys = Node("Keys", layer);
+            Fill(keys);
+            var (keysTop, keysBottom) = LegendRows(keys);
+            ui.KeysHint(keysTop, new[] { "Mouse" }, "Pick joint");
+            ui.KeysHint(keysTop, BoundKeys(CamAction.Forward, CamAction.Left, CamAction.Back, CamAction.Right), "Bend and turn");
+            ui.KeysHint(keysTop, BoundKeys(CamAction.Down, CamAction.Up), "Twist");
+            ui.KeysHint(keysTop, new[] { KeyName(KeyCode.UpArrow), KeyName(KeyCode.DownArrow) }, "Joint");
+            ui.KeyHint(keysBottom, KeyCode.Backspace, "Reset joint");
+            ui.KeyHint(keysBottom, KeyCode.M, "Copy to other side");
+            ui.KeyHint(keysBottom, KeyCode.Return, "Done");
+            ui.KeyHint(keysBottom, KeyCode.Escape, "Cancel");
+            target.JointsPad = pad.gameObject;
+            target.JointsKeys = keys.gameObject;
+        }
+
+        // Where the HUD's legends go: one row at the top right and one at the bottom right.
+        private static (RectTransform Top, RectTransform Bottom) LegendRows(Transform parent)
+        {
+            var top = HintRow(parent, "Top", TextAnchor.MiddleRight);
+            Pin(top, 1f, 1f, -Style.Margin, -Style.TopLegendY, LegendWidth, Style.HintHeight);
+            var bottom = HintRow(parent, "Bottom", TextAnchor.MiddleRight);
+            Pin(bottom, 1f, 0f, -Style.Margin, Style.Margin, LegendWidth, Style.HintHeight);
+            return (top, bottom);
+        }
+
+        private static string[] BoundKeys(params CamAction[] actions) => actions.Select(action => KeyName(Controls.Binding(action).Key)).ToArray();
 
         private static void BuildHud(Builder ui, Live target, Transform root)
         {
@@ -874,6 +956,7 @@ namespace CameraTools
             live.Shown = view;
             RenderFocus(view, deltaTime);
             RenderMarkers(view, deltaTime);
+            RenderJoints(view, deltaTime);
             live.Hud.Update(view == View.Hud, deltaTime);
             live.Move.Update(view == View.Moving, deltaTime);
             live.PlayBar.Update(view == View.Playing, deltaTime);
@@ -915,6 +998,8 @@ namespace CameraTools
             live.Footer.SetActive(pad);
             live.MovePad.SetActive(pad);
             live.MoveKeys.SetActive(!pad);
+            live.JointsPad.SetActive(pad);
+            live.JointsKeys.SetActive(!pad);
             float glyph = Style.TabBarPadding + Shapes.Bumper.Width + Style.TabClipGap;
             live.TabClip.offsetMin = V(pad ? glyph : Style.TabsAfterBack, 0f);
             live.TabClip.offsetMax = V(pad ? -glyph : -Style.TabBarPadding, 0f);
@@ -958,6 +1043,50 @@ namespace CameraTools
             }
             for (int index = used; index < live.MarkerViews.Count; index++)
                 live.MarkerViews[index].Root.gameObject.SetActive(false);
+        }
+
+        // Each joint's marker where it is on screen; a joint off screen or behind the camera has none.
+        private static void RenderJoints(View view, float deltaTime)
+        {
+            live.JointLayer.Update(view == View.Joints, deltaTime);
+            if (!live.JointLayer.Visible)
+                return;
+            var camera = Lights.Camera();
+            ScreenPoint? chosen = null;
+            for (int index = 0; index < live.JointMarkers.Count; index++)
+            {
+                var marker = live.JointMarkers[index];
+                var point = camera ? Posing.JointPoint(index, camera) : null;
+                marker.Root.gameObject.SetActive(point.HasValue);
+                if (point is not { } at)
+                    continue;
+                Anchor(marker.Root, at);
+                marker.Select(index == Posing.Joint);
+                if (index == Posing.Joint)
+                    chosen = at;
+            }
+            live.JointName.gameObject.SetActive(chosen.HasValue);
+            if (chosen is { } selected)
+                Anchor(live.JointName, selected);
+            var (name, angles) = Posing.Readout;
+            if (name != live.ShownJoint)
+            {
+                live.JointNameText.text = name;
+                live.ReadoutName.text = name;
+                live.ShownJoint = name;
+            }
+            if (angles != live.ShownAngles)
+            {
+                live.ReadoutAngles.text = angles;
+                live.ShownAngles = angles;
+            }
+        }
+
+        private static void Anchor(RectTransform rect, ScreenPoint point)
+        {
+            var anchor = V(point.U, 1f - point.V);
+            rect.anchorMin = anchor;
+            rect.anchorMax = anchor;
         }
 
         // The + end is at the top, so a wide field of view moves the handle up.
@@ -1198,6 +1327,31 @@ namespace CameraTools
             }
         }
 
+        // A joint's marker: a light dot in a dark ring, larger and cream while its joint is selected.
+        private sealed class JointMarker
+        {
+            public readonly RectTransform Root;
+            private readonly Image dot;
+            private bool? selected;
+
+            public JointMarker(RectTransform root, Image dot)
+            {
+                Root = root;
+                this.dot = dot;
+            }
+
+            public void Select(bool on)
+            {
+                if (selected == on)
+                    return;
+                selected = on;
+                float size = on ? Style.JointDotSelected : Style.JointDot;
+                Root.sizeDelta = V(size + Style.JointRing, size + Style.JointRing);
+                dot.rectTransform.sizeDelta = V(size, size);
+                dot.color = on ? Style.Cream : Style.Handle;
+            }
+        }
+
         // A hint's controller and keyboard versions; only one shows, and only if the action has a binding for it.
         private sealed record Legend(HintView Pad, bool HasPad, HintView Key, bool HasKey);
 
@@ -1217,6 +1371,16 @@ namespace CameraTools
             public Fader Move;
             public GameObject MovePad;
             public GameObject MoveKeys;
+            public Fader JointLayer;
+            public readonly List<JointMarker> JointMarkers = new();
+            public RectTransform JointName;
+            public Text JointNameText;
+            public Text ReadoutName;
+            public Text ReadoutAngles;
+            public GameObject JointsPad;
+            public GameObject JointsKeys;
+            public string ShownJoint;
+            public string ShownAngles;
             public Legend[] Legends;
             public RectTransform FovHandle;
             public GameObject[] TabKeys;

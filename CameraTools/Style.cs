@@ -137,7 +137,7 @@ namespace CameraTools
         public const int PillPadding = 11;
         public const int PillTextSize = 13;
         public const float PillX = 14f;
-        public const float PillY = 18f;
+        public const float PillY = 6f;
         public const float ReadoutGap = 12f;
         public const float ChoiceRowHeight = RowTextY + RowTextHeight + NoteExtra + 8f;
         public const float StepSize = 22f;

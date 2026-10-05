@@ -258,6 +258,192 @@ namespace CameraTools
             },
         });
 
+        private static readonly Func<bool> Posed = () => Posing.On;
+
+        private static readonly string[] LookNames = { "Ahead", "At the camera", "By hand" };
+        private static readonly string[] LookNotes = { "Straight ahead from the head", "Follow the camera as it moves", "Set with the two rows below" };
+        private static readonly string[] HeadNames = { "As posed", "At the camera" };
+
+        private static string Count(int count, string noun) => $"{count} {noun}{(count == 1 ? "" : "s")}";
+
+        private static string SavedNote()
+        {
+            if (Poses.Current is not { } saved)
+                return "Save a pose to keep it";
+            return $"{Poses.Active + 1} of {Poses.All.Count} · {Count(saved.Setup.PosedJoints, "joint")} posed"
+                + (Posing.Changed ? " · the current pose has changes" : "");
+        }
+
+        private static string JointNote()
+        {
+            var info = Joints.Of(Posing.SelectedJoint);
+            string state = !Posing.HasJoint(info.Joint) ? "not on this character"
+                : Posing.Current.Joints.ContainsKey(info.Joint) ? "posed"
+                : "as the game posed it";
+            return $"{info.Bone} · {state}";
+        }
+
+        private static SliderRow JointSlider(string label, float max, Func<JointTurn, float> get, Func<JointTurn, float, JointTurn> set)
+            => new(label, -max, max, 5f, "0'°'", () => get(Posing.Current.Turn(Posing.SelectedJoint)),
+                value => Posing.Edit(pose => pose.SetTurn(Posing.SelectedJoint, set(pose.Turn(Posing.SelectedJoint), MathF.Round(value)))),
+                Enabled: () => Posing.CanTurnJoint);
+
+        private static ChoiceRow HandChoice(string label, Side side)
+            => new(label, HandShapes.Names, () => (int)Posing.Current.Hand(side).Shape,
+                choice => Posing.Edit(pose => pose.SetHand(side, pose.Hand(side).WithShape((HandShape)choice))), null,
+                () => Posing.On && Posing.HasHand(side))
+            {
+                Detail = () => !Posing.HasHand(side) ? "This character's hand has no finger bones"
+                    : Posing.Current.Hand(side).Shape == HandShape.Game ? "As the game posed it"
+                    : $"Sets Bip001 {side.Letter()} Finger0 to Finger42",
+            };
+
+        private static SliderRow FingerSlider(string label, float min, float max, float step, string format, Func<FingerPose, float> get,
+            Func<FingerPose, float, FingerPose> set, string note)
+        {
+            return new SliderRow(label, min, max, step, format, () =>
+                {
+                    var (side, index) = Fingers.At(Posing.Finger);
+                    return get(Posing.Current.Hand(side).Finger(index));
+                },
+                value => Posing.Edit(pose =>
+                {
+                    var (side, index) = Fingers.At(Posing.Finger);
+                    var hand = pose.Hand(side);
+                    pose.SetHand(side, hand.WithFinger(index, set(hand.Finger(index), value)));
+                }),
+                Enabled: () => Posing.On && Posing.HasHand(Fingers.At(Posing.Finger).Side))
+            {
+                Detail = () => note,
+            };
+        }
+
+        private static string FingerName()
+        {
+            var (side, finger) = Fingers.At(Posing.Finger);
+            return $"{(side == Side.Left ? "Left" : "Right")} {Fingers.Names[finger]}";
+        }
+
+        private static string FingerNote()
+        {
+            var (side, finger) = Fingers.At(Posing.Finger);
+            return $"Bip001 {side.Letter()} Finger{finger}, Finger{finger}1 and Finger{finger}2 bend together";
+        }
+
+        private static string ShapeNote(string shape, Func<string, string> sets, Func<string, bool> has)
+            => shape == null ? "From the expression" : has(shape) ? sets(shape) : $"This character has no {shape}";
+
+        private static ChoiceRow FaceRow(string label, FaceChoice[] choices, Func<FacePose, string> get, Func<FacePose, string, FacePose> set,
+            Func<string, string> sets, Func<string, bool> has)
+            => new(label, FaceChoices.Labels(choices), () => FaceChoices.IndexOf(choices, get(Posing.Current.Face)),
+                choice => Posing.Edit(pose => pose.Face = set(pose.Face, choices[choice].Shape)), null, Posed)
+            {
+                Detail = () => ShapeNote(get(Posing.Current.Face), sets, has),
+            };
+
+        private static SliderRow ClosedSlider(string label, Side side)
+        {
+            string wink = FaceChoices.Wink('A', side);
+            return new SliderRow(label, 0f, 100f, 5f, "0'%'", () => Posing.Current.Face.Closed(side),
+                value => Posing.Edit(pose => pose.Face = side == Side.Left ? pose.Face with { LeftClosed = value } : pose.Face with { RightClosed = value }),
+                Enabled: () => Posing.On && Posing.HasShape(wink))
+            {
+                Detail = () => Posing.HasShape(wink) ? $"Sets {wink}" : $"This character has no {wink}",
+            };
+        }
+
+        private static string ExpressionNote()
+        {
+            string expression = Posing.Current.Face.Expression;
+            return expression == null ? "Whatever the game shows" : $"{expression}, one of this character's {Posing.Emotions.Length}";
+        }
+
+        private static SliderRow GazeSlider(string label, float max, float step, string format, Func<GazePose, float> get,
+            Func<GazePose, float, GazePose> set, string note)
+            => new(label, -max, max, step, format, () => get(Posing.Current.Gaze), value => Posing.Edit(pose => pose.Gaze = set(pose.Gaze, value)),
+                Enabled: () => Posing.On && Posing.HasEyes && Posing.Current.Gaze.Eyes == EyesLook.ByHand)
+            {
+                Detail = () => note,
+            };
+
+        // The face rows set the game's blend shapes by name on top of the expression; a row's note says when this character
+        // lacks its shape.
+        private static readonly Tab PoseTab = new("Pose", new Row[]
+        {
+            new Section("Pose"),
+            new ToggleRow("Posing", () => Posing.On, Posing.SetOn)
+            {
+                Detail = () => Posing.On ? "The character holds still. Leaving the free camera ends posing" : "Freezes the active character in the game's current pose",
+            },
+            new ActionRow("Back to the game's pose", Posing.ResetPose, "Reset", Posed),
+            new ActionRow("Bring back last pose", Posing.RestoreLast, "Restore", () => Poses.Last != null)
+            {
+                Detail = () => Poses.Last != null ? "The pose from before posing ended" : "Keeps the pose when posing ends by accident",
+            },
+            new Section("Saved poses"),
+            new StepperRow("Saved pose", () => Poses.All.Count, () => Poses.Active, Poses.Select, SavedNote) { Display = () => Poses.Current?.Name },
+            new ActionRow("Load pose", Posing.LoadSaved, "Load", () => Poses.Current != null),
+            new ActionRow("Save as new pose", Posing.SaveNew, "Save", Posed),
+            new ActionRow("Save over this pose", Posing.SaveOver, "Save", () => Posing.On && Poses.Current != null),
+            new ActionRow("Delete pose", Posing.DeleteSaved, "Delete", () => Poses.Current != null, Confirm: () => $"delete {Poses.Current?.Name}"),
+            new Section("Body"),
+            new ActionRow("Pose joints", Posing.StartEditing, "Pose", Posed) { Detail = () => "Pick joints on the character and turn them with the sticks" },
+            new StepperRow("Joint", () => Joints.All.Length, () => Posing.Joint, Posing.SelectJoint, JointNote, Posed)
+            {
+                Display = () => Joints.Of(Posing.SelectedJoint).Name,
+            },
+            JointSlider("Bend", JointTurn.MaxBend, turn => turn.Bend, (turn, value) => turn with { Bend = value }),
+            JointSlider("Turn", JointTurn.MaxTurn, turn => turn.Turn, (turn, value) => turn with { Turn = value }),
+            JointSlider("Twist", JointTurn.MaxTwist, turn => turn.Twist, (turn, value) => turn with { Twist = value }),
+            new ActionRow("Copy to the other side", Posing.MirrorJoint, "Copy", () => Posing.On && Joints.Of(Posing.SelectedJoint).Mirror != null),
+            new ActionRow("Reset joint", Posing.ResetJoint, "Reset", Posed),
+            new Section("Hands"),
+            HandChoice("Left hand", Side.Left),
+            HandChoice("Right hand", Side.Right),
+            new StepperRow("Finger", () => Fingers.Selectable, () => Posing.Finger, Posing.SelectFinger, FingerNote, Posed) { Display = FingerName },
+            FingerSlider("Curl", 0f, 100f, 5f, "0'%'", finger => finger.Curl, (finger, value) => finger with { Curl = value },
+                "0 is straight, 100 closes the finger"),
+            FingerSlider("Spread", -FingerPose.MaxSpread, FingerPose.MaxSpread, 1f, "0'°'", finger => finger.Spread,
+                (finger, value) => finger with { Spread = value }, "Moves the finger toward the thumb or away from it"),
+            new Section("Face"),
+            new ChoiceRow("Expression", new[] { "Game's" }, () => Array.IndexOf(Posing.Emotions, Posing.Current.Face.Expression) + 1,
+                choice => Posing.Edit(pose => pose.Face = pose.Face with { Expression = choice == 0 ? null : Posing.Emotions[choice - 1] }), null, Posed)
+            {
+                LiveOptions = () => Posing.ExpressionNames,
+                Detail = ExpressionNote,
+            },
+            FaceRow("Mouth", FaceChoices.Mouths, face => face.Mouth, (face, shape) => face with { Mouth = shape }, shape => $"Sets {shape}", Posing.HasShape),
+            ClosedSlider("Left eye closed", Side.Left),
+            ClosedSlider("Right eye closed", Side.Right),
+            FaceRow("Eyes", FaceChoices.Eyes, face => face.Eyes, (face, shape) => face with { Eyes = shape }, shape => $"Sets {shape}", Posing.HasShape),
+            FaceRow("Brows", FaceChoices.Brows, face => face.Brows, (face, shape) => face with { Brows = shape }, pair => $"Sets {pair}_L and _R",
+                Posing.HasBrows),
+            new ToggleRow("Blinking", () => Posing.Current.Face.Blink, on => Posing.Edit(pose => pose.Face = pose.Face with { Blink = on }), Posed)
+            {
+                Detail = () => Posing.Current.Face.Blink ? "Blinks now and then, so a shot can catch it" : "Eyes stay as set",
+            },
+            new Section("Gaze"),
+            new ChoiceRow("Eyes look", LookNames, () => (int)Posing.Current.Gaze.Eyes,
+                choice => Posing.Edit(pose => pose.Gaze = pose.Gaze with { Eyes = (EyesLook)choice }), null, Posed)
+            {
+                Detail = () => LookNotes[(int)Posing.Current.Gaze.Eyes],
+            },
+            GazeSlider("Eyes left and right", GazePose.MaxX, 1f, "0'°'", gaze => gaze.X, (gaze, value) => gaze with { X = value },
+                "Up to 17°, the game's own eye range"),
+            GazeSlider("Eyes up and down", GazePose.MaxY, 0.5f, "0.0'°'", gaze => gaze.Y, (gaze, value) => gaze with { Y = value },
+                "Up to 6.5°, the game's own eye range"),
+            new ChoiceRow("Head", HeadNames, () => Posing.Current.Gaze.HeadAtCamera ? 1 : 0,
+                choice => Posing.Edit(pose => pose.Gaze = pose.Gaze with { HeadAtCamera = choice == 1 }), null, () => Posing.On && Posing.HasJoint(PoseJoint.Head))
+            {
+                Detail = () => Posing.Current.Gaze.HeadAtCamera ? "Turns toward the camera; the Head joint waits" : "Set with the Head joint",
+            },
+            new Section("Hair"),
+            new ActionRow("Let hair settle", Posing.SettleHair, "Settle", Posed)
+            {
+                Detail = () => "Hair holds its shape while posing. This lets it fall for half a second",
+            },
+        });
+
         // The effects stay on while the user composes a shot; the screenshot turns them off afterwards.
         private static readonly Tab ReShadeTab = new("ReShade", new Row[]
         {
@@ -301,7 +487,7 @@ namespace CameraTools
             rows.AddRange(gameSettings);
             rows.Add(new Section("Beyond the game's limits"));
             rows.AddRange(Graphics.BeyondRows());
-            return new[] { Camera, World, Paths, LightsTab, new Tab("Graphics", rows.ToArray()), ReShadeTab };
+            return new[] { Camera, World, Paths, LightsTab, PoseTab, new Tab("Graphics", rows.ToArray()), ReShadeTab };
         }
 
         public static readonly Hint[] BottomHints =

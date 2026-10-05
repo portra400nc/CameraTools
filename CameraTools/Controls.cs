@@ -129,8 +129,13 @@ namespace CameraTools
         // While a text field takes typing, the keyboard fires no actions, so typing 8 does not narrow the field of view.
         public static bool TextCapture { get; set; }
 
-        // While the settings panel is open, or the sticks move a light, the pad is read there, so the camera ignores it.
-        private static bool PadActive => Owner == PadOwner.CameraTools && CameraUi.View is not (View.Panel or View.Moving);
+        // While the settings panel is open, the sticks move a light, or they turn a joint, the pad is read there, so the
+        // camera ignores it.
+        private static bool PadActive => Owner == PadOwner.CameraTools && CameraUi.View is not (View.Panel or View.Moving or View.Joints);
+
+        // Pose joints reads the arrow keys, which also change the game speed, and the camera's movement keys, so there the
+        // keyboard fires no actions.
+        private static bool KeysActive => !TextCapture && CameraUi.View != View.Joints;
 
         public static void Load()
         {
@@ -175,15 +180,15 @@ namespace CameraTools
             => PadActive && !DepthOfField.Steering ? (Gamepad.Current.RightX, Gamepad.Current.RightY) : (0f, 0f);
 
         public static bool Pressed(CamAction action, bool keyboard = true)
-            => keyboard && !TextCapture && Input.GetKeyDown(keys[(int)action])
+            => keyboard && KeysActive && Input.GetKeyDown(keys[(int)action])
                 || PadActive && pads[(int)action].Pressed(Gamepad.Current, Gamepad.Previous);
 
         public static bool Held(CamAction action, bool keyboard = true)
-            => keyboard && !TextCapture && Input.GetKey(keys[(int)action])
+            => keyboard && KeysActive && Input.GetKey(keys[(int)action])
                 || PadActive && pads[(int)action].Held(Gamepad.Current);
 
         public static float Value(CamAction action, bool keyboard = true)
-            => keyboard && !TextCapture && Input.GetKey(keys[(int)action]) ? 1f
+            => keyboard && KeysActive && Input.GetKey(keys[(int)action]) ? 1f
                 : PadActive ? pads[(int)action].Value(Gamepad.Current) : 0f;
     }
 }
