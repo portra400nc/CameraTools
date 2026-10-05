@@ -133,5 +133,52 @@ While the settings panel is open, the controller drives the panel instead of the
 
 Controller bindings are in the `[CameraToolsController]` section of `MelonPreferences.cfg`, under the same names as the hotkeys. A binding is either buttons joined with `+` (`A`, `B`, `X`, `Y`, `LB`, `RB`, `LT`, `RT`, `Back`, `Start`, `L3`, `R3`, `DpadUp`, `DpadDown`, `DpadLeft`, `DpadRight`), for example `Back+A`, or one analog direction: `LeftStickUp`, `LeftStickDown`, `LeftStickLeft`, `LeftStickRight`, `RightStickUp`, `RightStickDown`, `RightStickLeft`, `RightStickRight`, `LT`, or `RT`. An empty binding does nothing. A binding that does not parse falls back to its default, and the log names it.
 
+## Building
+
+CameraTools has two parts: the mod, `CameraTools.dll`, and its ReShade add-on, `CameraToolsReShadeBridge.addon64`, which the ReShade tab and the sphere lights need. The mod and the add-on check each other's version, so build and install them together.
+
+### The mod
+
+You need the .NET SDK, version 6 or newer, and a custom MelonLoader install: the game folder whose `MelonLoader/net6` and `MelonLoader/Il2CppAssemblies` hold the references.
+
+1. Build the mod, with `GameDir` set to that folder:
+
+   ```sh
+   dotnet build CameraTools -c Release -p:GameDir=<game folder>
+   ```
+
+   You can also set `GameDir` in the environment instead. If the references are not where `GameDir` points, the build stops and says which file is missing.
+
+2. Copy `CameraTools/bin/Release/CameraTools.dll` to the game's `Mods` folder.
+
+### The ReShade add-on
+
+The add-on's source is in `ReShadeBridge/`. You need Python 3 and LLVM's `clang-cl` and `lld-link`. The build script downloads ReShade's API headers at the version the add-on is written for.
+
+On macOS or Linux:
+
+1. Install LLVM. On macOS, run `brew install llvm lld`.
+2. Install [xwin](https://github.com/Jake-Shadle/xwin), and use it to download the Windows SDK and C runtime. This accepts Microsoft's license for them.
+
+   ```sh
+   xwin --accept-license splat --output <sdk folder>
+   ```
+
+3. Build the add-on:
+
+   ```sh
+   python3 ReShadeBridge/build.py --sdk <sdk folder>
+   ```
+
+On Windows, install LLVM, open a Visual Studio developer prompt, and run `python ReShadeBridge/build.py`. The prompt supplies the Windows SDK.
+
+The add-on lands in `ReShadeBridge/bin/`. Copy it to the folder ReShade loads add-ons from: the ReShade folder, or the folder that `AddonPath` in `ReShade.ini` names. Run `python3 ReShadeBridge/build.py --help` for the other options.
+
+The add-on's tests play its request tables against a fake ReShade, and need only a C++17 compiler:
+
+```sh
+ReShadeBridge/tests/run.sh
+```
+
 ## Credits
 Free camera script by FreyaHolmer: https://gist.github.com/FreyaHolmer/650ecd551562352120445513efa1d952
