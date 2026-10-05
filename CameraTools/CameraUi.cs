@@ -24,6 +24,8 @@ namespace CameraTools
         private const float LegendWidth = 1200f;
         // "16384x16384", the largest size a slot takes.
         private const int MaxTyped = 11;
+        // Lights past this many have no marker.
+        private const int MarkerCount = 16;
 
         private static readonly PadBinding PadA = new(PadButtons.A, PadAxis.None);
         private static readonly PadBinding PadB = new(PadButtons.B, PadAxis.None);
@@ -46,6 +48,7 @@ namespace CameraTools
             .ToArray();
 
         private static readonly Repeater up = new(), down = new(), left = new(), right = new();
+        private static readonly Dictionary<string, (KeyCode Key, char Typed)[]> typedKeys = new();
         private static Live live;
         private static int failures;
         private static int builds;
@@ -59,11 +62,12 @@ namespace CameraTools
         private static bool toastWhileHidden;
         private static Vector2 lastMouse;
         private static SliderView dragging;
-        private static ResolutionView editing;
+        private static FieldView editing;
         private static ActionView armed;
         private static float armedUntil;
 
         public static View View => !CameraTools.freecamActive || CameraTools.uiHidden ? View.Hidden
+            : Lights.Moving ? View.Moving
             : panelOpen ? View.Panel
             : PathPlayback.State is PlaybackState.Playing ? View.Playing
             : View.Hud;
@@ -84,6 +88,7 @@ namespace CameraTools
         // Whether anything of CameraTools' is on screen, a part that is still fading out included.
         public static bool OnScreen => live != null
             ? live.Hud.Visible || live.Focus.Visible || live.PlayBar.Visible || live.Panel.Visible || live.Toast.Visible
+                || live.Move.Visible || live.Markers.Visible
             : FallbackToast != null;
 
         public static bool PanelOpen => panelOpen;
@@ -171,12 +176,16 @@ namespace CameraTools
                 };
                 var model = UiModel.Tabs();
                 BuildFocus(built, root.transform);
+                BuildMarkers(ui, built, root.transform);
                 BuildHud(ui, built, root.transform);
+                BuildMove(ui, built, root.transform);
                 BuildPlayBar(ui, built, root.transform);
                 BuildPanel(ui, built, root.transform, model);
                 BuildToast(ui, built, root.transform);
                 ShowTab(Math.Min(tab, model.Length - 1), built);
                 built.ShownTab = tab;
+                foreach (var view in built.Tabs)
+                    Relayout(view);
                 for (int index = 0; index < built.Tabs.Length; index++)
                 {
                     built.Tabs[index].Rows.SetActive(index == tab);
@@ -201,6 +210,54 @@ namespace CameraTools
             target.FocusWindow = Picture(focus, "Window", Shapes.FocusWindow, Style.White).rectTransform;
             var cross = Picture(target.FocusWindow, "Cross", Shapes.FocusCross, Style.White).rectTransform;
             Pin(cross, 0.5f, 0.5f, 0f, 0f, Shapes.FocusCross.Width, Shapes.FocusCross.Height);
+        }
+
+        // Under the HUD and the panel. ReLight draws a sphere's own outline; this dot sits at its middle.
+        private static void BuildMarkers(Builder ui, Live target, Transform root)
+        {
+            var layer = Node("Markers", root);
+            Fill(layer);
+            target.Markers = new Fader(layer, V(0f, 0f), Style.HudFade);
+            for (int index = 0; index < MarkerCount; index++)
+            {
+                var marker = Node("Marker", layer);
+                Place(marker, V(0f, 0f), V(0f, 0f), V(0.5f, 0.5f), V(0f, 0f), V(Style.MarkerRingSize, Style.MarkerRingSize));
+                var aim = Picture(marker, "Aim", Shapes.Bar, Style.Handle).rectTransform;
+                Place(aim, V(0.5f, 0.5f), V(0.5f, 0.5f), V(0f, 0.5f), V(0f, 0f), V(Style.MarkerAimLength, Style.MarkerAimWidth));
+                var ring = Picture(marker, "Ring", Shapes.Knob, Style.MarkerRing);
+                Fill(ring.rectTransform);
+                var dot = Picture(marker, "Dot", Shapes.Knob, Style.White);
+                Pin(dot.rectTransform, 0.5f, 0.5f, 0f, 0f, Style.MarkerDot, Style.MarkerDot);
+                var number = ui.Label(marker, "Number", "", Style.MarkerNumberSize, Style.LightInk, TextAnchor.MiddleCenter);
+                Fill(number.rectTransform);
+                marker.gameObject.SetActive(false);
+                target.MarkerViews.Add(new MarkerView(marker, ring, dot, number, aim));
+            }
+        }
+
+        // The legends while the sticks move a light, in place of the free camera's.
+        private static void BuildMove(Builder ui, Live target, Transform root)
+        {
+            var move = Node("Move", root);
+            Fill(move);
+            target.Move = new Fader(move, V(0f, 0f), Style.HudFade);
+            var pad = HintRow(move, "Pad", TextAnchor.MiddleRight);
+            Pin(pad, 1f, 0f, -Style.Margin, Style.Margin, LegendWidth, Style.HintHeight);
+            ui.GlyphHint(pad, PadButtons.L3, "Move");
+            ui.GlyphHint(pad, PadButtons.R3, "Aim");
+            ui.GlyphHint(pad, PadButtons.LT, "Lower");
+            ui.GlyphHint(pad, PadButtons.RT, "Raise");
+            ui.PadHint(pad, PadA, "Done");
+            ui.PadHint(pad, PadB, "Cancel");
+            var keys = HintRow(move, "Keys", TextAnchor.MiddleRight);
+            Pin(keys, 1f, 0f, -Style.Margin, Style.Margin, LegendWidth, Style.HintHeight);
+            ui.KeyHint(keys, Controls.Binding(CamAction.Forward).Key, "Move");
+            ui.KeyHint(keys, Controls.Binding(CamAction.Down).Key, "Lower");
+            ui.KeyHint(keys, Controls.Binding(CamAction.Up).Key, "Raise");
+            ui.KeyHint(keys, KeyCode.Return, "Done");
+            ui.KeyHint(keys, KeyCode.Escape, "Cancel");
+            target.MovePad = pad.gameObject;
+            target.MoveKeys = keys.gameObject;
         }
 
         private static void BuildHud(Builder ui, Live target, Transform root)
@@ -314,6 +371,7 @@ namespace CameraTools
                         StepperRow stepper => ui.Stepper(tabRows, stepper, y),
                         ActionRow action => ui.Action(tabRows, action, y),
                         ResolutionRow resolution => ui.Resolution(tabRows, resolution, y),
+                        TextRow text => ui.TextField(tabRows, text, y),
                         _ => throw new InvalidOperationException($"No widget for {row.GetType().Name}."),
                     };
                     built.Top = y;
@@ -357,8 +415,32 @@ namespace CameraTools
             tab = index;
             target.StripReveal = true;
             dragging = null;
-            selected = target.Tabs[index].RowViews.FindIndex(view => view.Row is not Section);
+            Relayout(target.Tabs[index]);
+            selected = target.Tabs[index].RowViews.FindIndex(view => view.Row is not Section && view.Visible);
             ScrollTo(target, target.Tabs[index], 0f);
+        }
+
+        // Stacks the rows that are shown, top to bottom, when which rows are shown has changed.
+        private static void Relayout(TabView view)
+        {
+            bool changed = !view.LaidOut;
+            foreach (var row in view.RowViews)
+                changed |= row.Row.Visible != row.Visible;
+            if (!changed)
+                return;
+            view.LaidOut = true;
+            float y = 0f;
+            foreach (var row in view.RowViews)
+            {
+                row.Visible = row.Row.Visible;
+                row.Rect.gameObject.SetActive(row.Visible);
+                if (!row.Visible)
+                    continue;
+                row.Top = y;
+                TopLeft(row.Rect, 0f, y, Style.PanelWidth, row.Height);
+                y += row.Height;
+            }
+            view.Height = y;
         }
 
         private static float ViewHeight(Live target) => target.List.rect.height - 2f * Style.ListPadding;
@@ -520,6 +602,9 @@ namespace CameraTools
                 case ResolutionRow when PadY.Pressed(now, before):
                     StartEditing((ResolutionView)view);
                     break;
+                case TextRow when pressA || PadY.Pressed(now, before):
+                    StartEditing((TextView)view);
+                    break;
             }
         }
 
@@ -527,9 +612,19 @@ namespace CameraTools
         {
             var rows = CurrentRows;
             for (int index = selected + direction; index >= 0 && index < rows.Count; index += direction)
-                if (rows[index].Row is not Section)
+                if (rows[index].Row is not Section && rows[index].Visible)
                     return index;
             return selected;
+        }
+
+        // A selected row that was just hidden hands the selection to the nearest shown row, the one above first.
+        private static void KeepSelectionShown()
+        {
+            if (selected < 0 || CurrentRows[selected].Visible)
+                return;
+            int above = NextRow(-1), below = NextRow(1);
+            selected = above != selected ? above : below != selected ? below
+                : CurrentRows.FindIndex(view => view.Row is not Section && view.Visible);
         }
 
         private static void Step(SliderRow slider, int direction)
@@ -589,7 +684,7 @@ namespace CameraTools
                 Disarm();
         }
 
-        private static void StartEditing(ResolutionView view)
+        private static void StartEditing(FieldView view)
         {
             if (editing == view)
                 return;
@@ -613,8 +708,9 @@ namespace CameraTools
 
         private static void Type()
         {
-            foreach (var (key, typed) in TypedKeys)
-                if (Input.GetKeyDown(key) && editing.Buffer.Length < MaxTyped)
+            var (keys, max) = editing.Row is TextRow field ? (KeysFor(field.Allowed), field.MaxLength) : (TypedKeys, MaxTyped);
+            foreach (var (key, typed) in keys)
+                if (Input.GetKeyDown(key) && editing.Buffer.Length < max)
                     editing.Buffer += typed;
             if (Input.GetKeyDown(KeyCode.Backspace) && editing.Buffer.Length > 0)
                 editing.Buffer = editing.Buffer[..^1];
@@ -624,7 +720,20 @@ namespace CameraTools
                 StopEditing();
         }
 
-        // An empty field keeps the slot as it was.
+        // The keys that type each allowed character: digits from both rows, letters from their keys.
+        private static (KeyCode Key, char Typed)[] KeysFor(string allowed)
+        {
+            if (typedKeys.TryGetValue(allowed, out var keys))
+                return keys;
+            keys = allowed.SelectMany(typed => typed is >= '0' and <= '9'
+                    ? new[] { (KeyCode.Alpha0 + (typed - '0'), typed), (KeyCode.Keypad0 + (typed - '0'), typed) }
+                    : new[] { (KeyCode.A + (typed - 'a'), typed) })
+                .ToArray();
+            typedKeys[allowed] = keys;
+            return keys;
+        }
+
+        // An empty field keeps the value as it was.
         private static void Commit()
         {
             var view = editing;
@@ -632,6 +741,11 @@ namespace CameraTools
             StopEditing();
             if (text.Length == 0)
                 return;
+            if (view.Row is TextRow field)
+            {
+                field.Commit(text);
+                return;
+            }
             int slot = ((ResolutionRow)view.Row).Slot;
             if (!ScreenSize.TryParse(text, out var size))
             {
@@ -677,7 +791,7 @@ namespace CameraTools
         // Only the shown tab's rows count, and not while they fade to another tab.
         private static int RowAt(Vector2 point)
             => live.ShownTab == tab && Contains(live.List, point)
-                ? CurrentRows.FindIndex(view => view.Row is not Section && Contains(view.Rect, point))
+                ? CurrentRows.FindIndex(view => view.Row is not Section && view.Visible && Contains(view.Rect, point))
                 : -1;
 
         private static void Click(Vector2 point, int row)
@@ -729,6 +843,9 @@ namespace CameraTools
                 case ResolutionView resolution when Contains(resolution.Value.rectTransform, point):
                     StartEditing(resolution);
                     break;
+                case TextView text:
+                    StartEditing(text);
+                    break;
             }
         }
 
@@ -756,7 +873,9 @@ namespace CameraTools
             bool opened = view == View.Panel && live.Shown != View.Panel;
             live.Shown = view;
             RenderFocus(view, deltaTime);
+            RenderMarkers(view, deltaTime);
             live.Hud.Update(view == View.Hud, deltaTime);
+            live.Move.Update(view == View.Moving, deltaTime);
             live.PlayBar.Update(view == View.Playing, deltaTime);
             live.Panel.Update(view == View.Panel, deltaTime);
             var layout = Controls.Layout;
@@ -794,6 +913,8 @@ namespace CameraTools
                 key.SetActive(pad);
             live.Back.gameObject.SetActive(!pad);
             live.Footer.SetActive(pad);
+            live.MovePad.SetActive(pad);
+            live.MoveKeys.SetActive(!pad);
             float glyph = Style.TabBarPadding + Shapes.Bumper.Width + Style.TabClipGap;
             live.TabClip.offsetMin = V(pad ? glyph : Style.TabsAfterBack, 0f);
             live.TabClip.offsetMax = V(pad ? -glyph : -Style.TabBarPadding, 0f);
@@ -802,6 +923,41 @@ namespace CameraTools
                 legend.Pad.Root.SetActive(pad && legend.HasPad);
                 legend.Key.Root.SetActive(!pad && legend.HasKey);
             }
+        }
+
+        // Each light's marker at its place on screen; a light off screen or behind the camera has none.
+        private static void RenderMarkers(View view, float deltaTime)
+        {
+            var camera = Lights.Camera();
+            bool show = Lights.Markers && Lights.All.Count > 0 && camera && view is View.Hud or View.Panel or View.Moving;
+            live.Markers.Update(show, deltaTime);
+            if (!live.Markers.Visible || !camera)
+                return;
+            var area = live.Canvas.rect;
+            int used = 0;
+            for (int index = 0; index < Lights.All.Count && used < live.MarkerViews.Count; index++)
+            {
+                if (Lights.Marker(index, camera) is not var (point, aim))
+                    continue;
+                var marker = live.MarkerViews[used++];
+                marker.Root.gameObject.SetActive(true);
+                var anchor = V(point.U, 1f - point.V);
+                marker.Root.anchorMin = anchor;
+                marker.Root.anchorMax = anchor;
+                marker.Root.anchoredPosition = V(0f, 0f);
+                var color = Lights.All[index].Color;
+                marker.Dot.color = new Color(color.X, color.Y, color.Z, 1f);
+                marker.Ring.color = index == Lights.Active ? Style.Cream : Style.MarkerRing;
+                marker.SetNumber(index + 1);
+                marker.Aim.gameObject.SetActive(aim.HasValue);
+                if (aim is { } toward)
+                {
+                    float dx = (toward.U - point.U) * area.width, dy = (point.V - toward.V) * area.height;
+                    marker.Aim.localRotation = Quaternion.Euler(0f, 0f, MathF.Atan2(dy, dx) * 180f / MathF.PI);
+                }
+            }
+            for (int index = used; index < live.MarkerViews.Count; index++)
+                live.MarkerViews[index].Root.gameObject.SetActive(false);
         }
 
         // The + end is at the top, so a wide field of view moves the handle up.
@@ -882,6 +1038,9 @@ namespace CameraTools
             }
 
             var shownTab = live.Tabs[live.ShownTab];
+            Relayout(shownTab);
+            if (live.ShownTab == tab)
+                KeepSelectionShown();
             ScrollTo(live, shownTab, shownTab.Scroll);
             RenderThumb(shownTab);
             var rows = shownTab.RowViews;
@@ -903,6 +1062,7 @@ namespace CameraTools
                 ChoiceRow => new Footer(null, "Change", false, "Return"),
                 StepperRow => new Footer(null, "Browse", false, "Return"),
                 ResolutionRow => new Footer("Apply", null, true, "Return"),
+                TextRow => new Footer("Edit", null, false, "Return"),
                 _ => new Footer(null, null, false, "Return"),
             };
             if (footer == live.FooterShown)
@@ -1011,6 +1171,33 @@ namespace CameraTools
         // does.
         private readonly record struct Footer(string A, string Steps, bool Edit, string B);
 
+        private sealed class MarkerView
+        {
+            public readonly RectTransform Root;
+            public readonly Image Ring;
+            public readonly Image Dot;
+            public readonly Text Number;
+            public readonly RectTransform Aim;
+            private int shown;
+
+            public MarkerView(RectTransform root, Image ring, Image dot, Text number, RectTransform aim)
+            {
+                Root = root;
+                Ring = ring;
+                Dot = dot;
+                Number = number;
+                Aim = aim;
+            }
+
+            public void SetNumber(int number)
+            {
+                if (number == shown)
+                    return;
+                Number.text = number.ToString();
+                shown = number;
+            }
+        }
+
         // A hint's controller and keyboard versions; only one shows, and only if the action has a binding for it.
         private sealed record Legend(HintView Pad, bool HasPad, HintView Key, bool HasKey);
 
@@ -1025,6 +1212,11 @@ namespace CameraTools
             public ScreenBox? FocusShown;
             public Fader Panel;
             public Fader Toast;
+            public Fader Markers;
+            public readonly List<MarkerView> MarkerViews = new();
+            public Fader Move;
+            public GameObject MovePad;
+            public GameObject MoveKeys;
             public Legend[] Legends;
             public RectTransform FovHandle;
             public GameObject[] TabKeys;

@@ -31,7 +31,7 @@ namespace CameraTools
     internal static class ReShade
     {
         private const string ModuleName = "GenshinReShadeBridge.addon64";
-        private const uint Version = 3;
+        private const uint Version = 4;
         private const float LookInterval = 1f;
         // Longer than Windows' MAX_PATH in UTF-8.
         private const int PathBytes = 1024;
@@ -73,11 +73,14 @@ namespace CameraTools
         private delegate uint GetDefinitionCall([In] byte[] effect, [In] byte[] name, [Out] byte[] value, uint size);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate void SetOverrideCall([In] byte[] forcedEffects, uint solo);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void SavePresetCall();
 
         private sealed record Bridge(IntPtr Module, GetStatusCall GetStatus, SetEffectsCall SetEffects, SaveScreenshotCall SaveScreenshot,
             GetLastScreenshotCall GetLastScreenshot, SetFloatCall SetFloat, SetIntCall SetInt, SetTechniqueCall SetTechnique,
-            GetFloatCall GetFloat, GetIntCall GetInt, GetTechniqueCall GetTechnique, GetDefinitionCall GetDefinition, SavePresetCall SavePreset);
+            GetFloatCall GetFloat, GetIntCall GetInt, GetTechniqueCall GetTechnique, GetDefinitionCall GetDefinition, SetOverrideCall SetOverride, SavePresetCall SavePreset);
 
         private static readonly byte[] pathBuffer = new byte[PathBytes];
         // The values of one call. The marshaller pins an array of floats or ints, so a call copies and allocates nothing.
@@ -90,6 +93,9 @@ namespace CameraTools
         private static float nextLook;
 
         public static bool Connected => bridge != null;
+
+        // Rises with every connection. A bridge that ReShade loaded again has forgotten what the last one was told.
+        public static int Connections { get; private set; }
 
         public static BridgeStatus Status
         {
@@ -196,6 +202,11 @@ namespace CameraTools
             return true;
         }
 
+        // Keeps every technique of the forced effect files on, and with solo every other technique off, until a call with
+        // no effects and solo off puts each technique back as it was. A preset save writes the states from before.
+        public static void SetOverride(IEnumerable<string> forcedEffects, bool solo)
+            => bridge?.SetOverride(Encoding.UTF8.GetBytes(string.Join('\n', forcedEffects) + '\0'), solo ? 1u : 0u);
+
         // Writes the uniforms and technique states to ReShade's current preset, after the sets that are still queued.
         public static void SavePreset() => bridge?.SavePreset();
 
@@ -253,6 +264,7 @@ namespace CameraTools
                 || !TryExport<GetIntCall>(module, "BridgeGetInt", out var getInt)
                 || !TryExport<GetTechniqueCall>(module, "BridgeGetTechnique", out var getTechnique)
                 || !TryExport<GetDefinitionCall>(module, "BridgeGetDefinition", out var getDefinition)
+                || !TryExport<SetOverrideCall>(module, "BridgeSetOverride", out var setOverride)
                 || !TryExport<SavePresetCall>(module, "BridgeSavePreset", out var savePreset))
             {
                 log.Warning($"ReShade: {ModuleName} version {found} is missing an export.");
@@ -260,7 +272,8 @@ namespace CameraTools
             }
             rejected = IntPtr.Zero;
             bridge = new Bridge(module, getStatus, setEffects, saveScreenshot, getLastScreenshot, setFloat, setInt, setTechnique,
-                getFloat, getInt, getTechnique, getDefinition, savePreset);
+                getFloat, getInt, getTechnique, getDefinition, setOverride, savePreset);
+            Connections++;
             log.Msg($"ReShade: connected to {ModuleName} version {found}; {Status}.");
         }
 

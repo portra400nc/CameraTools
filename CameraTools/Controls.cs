@@ -129,8 +129,8 @@ namespace CameraTools
         // While a text field takes typing, the keyboard fires no actions, so typing 8 does not narrow the field of view.
         public static bool TextCapture { get; set; }
 
-        // While the settings panel is open it reads the pad itself, so the camera ignores the pad.
-        private static bool PadActive => Owner == PadOwner.CameraTools && CameraUi.View != View.Panel;
+        // While the settings panel is open, or the sticks move a light, the pad is read there, so the camera ignores it.
+        private static bool PadActive => Owner == PadOwner.CameraTools && CameraUi.View is not (View.Panel or View.Moving);
 
         public static void Load()
         {

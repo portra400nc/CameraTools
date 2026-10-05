@@ -69,9 +69,10 @@ namespace CameraTools
     {
         public Row Row;
         public RectTransform Rect;
-        // From the top of the tab's rows, in canvas units.
+        // From the top of the tab's rows, in canvas units, as last laid out.
         public float Top;
         public float Height;
+        public bool Visible = true;
 
         public virtual void Select(bool selected)
         {
@@ -105,7 +106,21 @@ namespace CameraTools
         public GameObject Arrow;
         // Only on a row that has Enabled.
         public CanvasGroup Group;
+        // Only on a row that has Detail.
+        public Text DetailText;
         private bool dimmed;
+        private string detail;
+
+        protected void SyncDetail()
+        {
+            if (DetailText == null)
+                return;
+            string text = Row.Detail() ?? "";
+            if (text == detail)
+                return;
+            DetailText.text = text;
+            detail = text;
+        }
 
         protected void Dim()
         {
@@ -135,6 +150,7 @@ namespace CameraTools
         public override void Sync(float step)
         {
             Dim();
+            SyncDetail();
             var slider = (SliderRow)Row;
             float value = slider.Get();
             if (value == shown)
@@ -228,6 +244,7 @@ namespace CameraTools
         public override void Sync(float step)
         {
             Dim();
+            SyncDetail();
             var choice = (ChoiceRow)Row;
             int position = choice.Get();
             if (position == shown)
@@ -266,12 +283,33 @@ namespace CameraTools
         }
     }
 
-    internal sealed class ResolutionView : ItemView
+    // A row whose value can be typed.
+    internal abstract class FieldView : ItemView
     {
         public Text Value;
-        public RectTransform Apply;
-        // The text being typed, or null while the row shows its slot.
+        // The text being typed, or null while the row shows its value.
         public string Buffer;
+    }
+
+    internal sealed class TextView : FieldView
+    {
+        private (string Value, string Buffer)? shown;
+
+        public override void Sync(float step)
+        {
+            var row = (TextRow)Row;
+            string value = row.Get();
+            if (shown == (value, Buffer))
+                return;
+            shown = (value, Buffer);
+            Value.text = Buffer != null ? "#" + Buffer.ToUpperInvariant() + "|" : value;
+            Value.color = Buffer != null ? Style.Text : row.Tint?.Invoke() ?? Style.Dim;
+        }
+    }
+
+    internal sealed class ResolutionView : FieldView
+    {
+        public RectTransform Apply;
         private ScreenSize shownSize;
         private string shownBuffer = "";
 
@@ -297,6 +335,8 @@ namespace CameraTools
         public readonly List<RowView> RowViews = new();
         public float Height;
         public float Scroll;
+        // Whether the rows have been stacked for what is shown since the tab was built.
+        public bool LaidOut;
         private Tween tween;
         private bool drawn;
 
@@ -537,7 +577,7 @@ namespace CameraTools
         public SliderView Slider(Transform parent, SliderRow row, float y)
         {
             var view = new SliderView();
-            float noted = row.Note != null ? Style.NoteExtra : 0f;
+            float noted = row.Note != null || row.Detail != null ? Style.NoteExtra : 0f;
             var rect = Item(parent, view, row, y, Style.SliderRowHeight + noted, row.Enabled);
             var label = Label(rect, "Label", row.Label, Style.RowSize, Style.Text, TextAnchor.LowerLeft);
             TopLeft(label.rectTransform, Style.RowLeft, Style.RowTextY, Style.RowWidth, Style.RowTextHeight);
@@ -545,6 +585,8 @@ namespace CameraTools
             TopLeft(view.Value.rectTransform, Style.RowLeft, Style.RowTextY, Style.RowWidth, Style.RowTextHeight);
             if (row.Note != null)
                 Note(rect, row.Note);
+            if (row.Detail != null)
+                view.DetailText = NoteLabel(rect);
             view.Track = Node("Slider", rect);
             TopLeft(view.Track, Style.RowLeft, Style.SliderY + noted, Style.RowWidth, Style.SliderHeight);
             var rail = Picture(view.Track, "Rail", Shapes.Bar, Style.Track).rectTransform;
@@ -578,9 +620,11 @@ namespace CameraTools
         public ChoiceView Choice(Transform parent, ChoiceRow row, float y)
         {
             var view = new ChoiceView();
-            var rect = Arrows(parent, view, row, y, row.Note != null, row.Enabled);
+            var rect = Arrows(parent, view, row, y, row.Note != null || row.Detail != null, row.Enabled);
             if (row.Note != null)
                 Note(rect, row.Note);
+            if (row.Detail != null)
+                view.DetailText = NoteLabel(rect);
             view.Sync(1f);
             return view;
         }
@@ -647,6 +691,18 @@ namespace CameraTools
             Fill(Label(view.Apply, "Text", "Apply", Style.ButtonSize, Style.LightInk, TextAnchor.MiddleCenter).rectTransform);
             view.Value = Label(rect, "Value", "", Style.ValueSize, Style.Dim, TextAnchor.MiddleRight);
             Pin(view.Value.rectTransform, 1f, 0.5f, -right, 0f, Style.SlotValueWidth, Style.ToggleRowHeight);
+            view.Sync(1f);
+            return view;
+        }
+
+        public TextView TextField(Transform parent, TextRow row, float y)
+        {
+            var view = new TextView();
+            var rect = Item(parent, view, row, y, Style.ToggleRowHeight);
+            var label = Label(rect, "Label", row.Label, Style.RowSize, Style.Text, TextAnchor.MiddleLeft);
+            TopLeft(label.rectTransform, Style.RowLeft, 0f, Style.RowWidth - Style.SlotValueWidth, Style.ToggleRowHeight);
+            view.Value = Label(rect, "Value", "", Style.ValueSize, Style.Dim, TextAnchor.MiddleRight);
+            Pin(view.Value.rectTransform, 1f, 0.5f, -Style.RowRight, 0f, Style.SlotValueWidth, Style.ToggleRowHeight);
             view.Sync(1f);
             return view;
         }

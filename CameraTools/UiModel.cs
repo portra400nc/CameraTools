@@ -4,8 +4,16 @@ using static CameraTools.CameraTools;
 namespace CameraTools
 {
     // A toggle, slider, choice or action row may have Enabled. While it returns false the row is dimmed and ignores input.
+    // Any row may have Shown; while it returns false the row is left out and the rows below move up. Detail, when set, is
+    // read every frame for a line under a slider's or a choice's label.
     public abstract record Row(string Label)
     {
+        public Func<bool> Shown { get; init; }
+
+        public Func<string> Detail { get; init; }
+
+        public bool Visible => Shown?.Invoke() ?? true;
+
         public bool Usable => (this switch
         {
             ToggleRow toggle => toggle.Enabled,
@@ -48,13 +56,18 @@ namespace CameraTools
 
     public sealed record ResolutionRow(string Label, int Slot) : Row(Label);
 
+    // A value typed on the keyboard, or with Steam+X on the Deck. Allowed lists the characters it takes, in lower case;
+    // Commit gets the typed text, and Tint colours the value while it is not being typed.
+    public sealed record TextRow(string Label, Func<string> Get, Action<string> Commit, string Allowed, int MaxLength,
+        Func<Color> Tint = null) : Row(Label);
+
     public sealed record Tab(string Name, Row[] Rows);
 
     public sealed record Hint(CamAction Action, string Label);
 
     // Hidden: the free camera is off. Hud: legends and the field of view bar. Playing: a camera path's play bar. Panel:
-    // settings.
-    public enum View { Hidden, Hud, Playing, Panel }
+    // settings. Moving: the sticks move a light, and the legends say how.
+    public enum View { Hidden, Hud, Playing, Panel, Moving }
 
     internal static class UiModel
     {
@@ -117,6 +130,108 @@ namespace CameraTools
             Shake("Rotation strength", options => options.RotateShakeStrength, (options, value) => options.RotateShakeStrength = value),
         });
 
+        private static readonly string[] KindNotes =
+        {
+            "Shines in every direction",
+            "Shines in a cone where it faces",
+            "Soft light with a size and soft shadows, drawn by ReLight",
+        };
+
+        private static readonly string[] ReachNotes = { "Ground, scenery and characters", "Only characters; the ground stays as it is" };
+
+        private static readonly string[] FollowNotes =
+        {
+            "Stays where it was placed",
+            "Moves and turns with the camera",
+            "Keeps its place beside the character",
+        };
+
+        private static Func<bool> LightIs(Func<LightSetup, bool> test) => () => Lights.Current is { } light && test(light);
+
+        private static SliderRow LightSlider(string label, float min, float max, float step, string format, Func<LightSetup, float> get,
+            Action<LightSetup, float> set, Func<LightSetup, bool> shown)
+            => new(label, min, max, step, format, () => Lights.Current is { } light ? get(light) : min,
+                value => Lights.Edit(light => set(light, value)))
+            {
+                Shown = LightIs(shown),
+            };
+
+        private static ChoiceRow LightChoice(string label, string[] options, Func<LightSetup, int> get, Action<int> set,
+            Func<LightSetup, bool> shown, string[] notes = null)
+            => new(label, options, () => Lights.Current is { } light ? get(light) : 0, set, null)
+            {
+                Shown = LightIs(shown),
+                Detail = notes == null ? null : () => Lights.Current is { } light ? notes[get(light)] : "",
+            };
+
+        private static readonly Tab LightsTab = new("Lights", new Row[]
+        {
+            new Section("Lights"),
+            new StepperRow("Light", () => Lights.All.Count, () => Lights.Active, Lights.Select, () => Lights.LightNote),
+            new ActionRow("New light", Lights.Add, "Create"),
+            new ActionRow("Delete light", Lights.Delete, "Delete", () => Lights.HasLight, Confirm: () => $"delete light {Lights.Active + 1}"),
+            new ToggleRow("Show light markers", () => Lights.Markers, Lights.SetMarkers),
+            new Section("Placement") { Shown = () => Lights.HasLight },
+            LightChoice("Follow", Lights.FollowNames, light => (int)light.Follow, Lights.SetFollow, _ => true, FollowNotes),
+            new ActionRow("Move light", Lights.StartMove, "Move") { Shown = () => Lights.HasLight },
+            new ActionRow("Move in front of camera", Lights.MoveToCamera, "Move") { Shown = () => Lights.HasLight },
+            new Section("Light") { Shown = () => Lights.HasLight },
+            LightChoice("Type", Lights.KindNames, light => (int)light.Kind, choice => Lights.Edit(light => light.Kind = (LightKind)choice),
+                _ => true, KindNotes),
+            LightChoice("Lights up", Lights.ReachNames, light => (int)light.Reach, choice => Lights.Edit(light => light.Reach = (LightReach)choice),
+                light => light.Kind != LightKind.Sphere, ReachNotes),
+            LightSlider("Intensity", 0f, LightSetup.MaxIntensity, 0.1f, "0.00", light => light.Intensity, (light, value) => light.Intensity = value,
+                light => !light.CharactersOnly) with
+            {
+                Detail = () => Lights.Current?.Kind == LightKind.Sphere ? "2 is a soft fill, 5 is strong" : "The game's lamps use 1 to 4",
+            },
+            LightSlider("Intensity", 0f, LightSetup.MaxCharacterIntensity, 0.05f, "0.00", light => light.Intensity,
+                (light, value) => light.Intensity = value, light => light.CharactersOnly) with
+            {
+                Detail = () => "1 is a soft fill, 3 is very bright",
+            },
+            LightSlider("Range", 0.5f, 40f, 0.5f, "0.0' m'", light => light.Range, (light, value) => light.Range = value,
+                light => light.Kind != LightKind.Sphere),
+            LightSlider("Radius", 0.05f, 2f, 0.05f, "0.00' m'", light => light.Radius, (light, value) => light.Radius = value,
+                light => light.Kind == LightKind.Sphere) with
+            {
+                Detail = () => "Bigger is softer, not brighter",
+            },
+            LightSlider("Spot angle", 1f, 160f, 1f, "0'°'", light => light.SpotAngle, (light, value) => light.SpotAngle = value,
+                light => light.Kind == LightKind.Spot),
+            LightSlider("Inner angle", 0f, 160f, 1f, "0'°'", light => light.InnerAngle, (light, value) => light.InnerAngle = value,
+                light => light.Kind == LightKind.Spot) with
+            {
+                Detail = () => "Closer to the spot angle gives a harder edge",
+            },
+            new Section("Colour") { Shown = () => Lights.HasLight },
+            LightChoice("Colour from", Lights.SourceNames, light => (int)light.Source,
+                choice => Lights.Edit(light => light.Source = (ColorSource)choice), _ => true),
+            LightSlider("Temperature", 1000f, 12000f, 100f, "0' K'", light => light.Kelvin, (light, value) => light.Kelvin = value,
+                light => light.Source == ColorSource.Temperature) with
+            {
+                Detail = () => Lights.Current is { } light ? Colors.KelvinName(light.Kelvin) : "",
+            },
+            LightSlider("Hue", 0f, 360f, 5f, "0'°'", light => light.Hue, (light, value) => light.Hue = value,
+                light => light.Source == ColorSource.Hue),
+            LightSlider("Saturation", 0f, 100f, 5f, "0'%'", light => light.Saturation, (light, value) => light.Saturation = value,
+                light => light.Source == ColorSource.Hue),
+            new TextRow("Hex", () => Lights.Current is { } light ? Colors.Hex(light.Color) : "", Lights.SetHex, "0123456789abcdef", 6,
+                () => Lights.Current is { } light ? new Color(light.Color.X, light.Color.Y, light.Color.Z, 1f) : Style.Dim)
+            {
+                Shown = () => Lights.HasLight,
+            },
+            new Section("Spheres", () => !ReShade.Connected ? "ReShade bridge not found" : ReLight.Loaded ? null : "Needs iMMERSE ReLight")
+            {
+                Shown = () => Lights.HasSpheres,
+            },
+            new SliderRow("Ambient light", 0f, 1f, 0.05f, "0.00", () => Lights.Ambient, Lights.SetAmbient)
+            {
+                Shown = () => Lights.HasSpheres,
+                Detail = () => "Below 1 dims the game's own light, so the spheres take over",
+            },
+        });
+
         // The effects stay on while the user composes a shot; the screenshot turns them off afterwards.
         private static readonly Tab ReShadeTab = new("ReShade", new Row[]
         {
@@ -160,7 +275,7 @@ namespace CameraTools
             rows.AddRange(gameSettings);
             rows.Add(new Section("Beyond the game's limits"));
             rows.AddRange(Graphics.BeyondRows());
-            return new[] { Camera, World, Paths, new Tab("Graphics", rows.ToArray()), ReShadeTab };
+            return new[] { Camera, World, Paths, LightsTab, new Tab("Graphics", rows.ToArray()), ReShadeTab };
         }
 
         public static readonly Hint[] BottomHints =

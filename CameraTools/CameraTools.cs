@@ -33,6 +33,7 @@ namespace CameraTools
             Controls.Load();
             Graphics.Load();
             CameraPaths.Load();
+            Lights.Load();
             Screenshot.Load();
             DepthOfField.Load();
         }
@@ -123,7 +124,6 @@ namespace CameraTools
             PathPlayback.Update();
             ReShade.Update();
             DepthOfField.Update();
-            LightTest.Update();
 
             // After the hotkeys, so the key that closes the settings panel does not also fire its camera action.
             CameraUi.Update();
@@ -146,10 +146,12 @@ namespace CameraTools
                 GameCamera.Update(maincam);
                 // Before playback poses the camera, which already accounts for the current shift.
                 freecam.FollowWorldShift();
-                if (!PathPlayback.Drive(freecam))
+                // While the sticks move a light, the camera stays put.
+                if (!PathPlayback.Drive(freecam) && !Lights.Moving)
                     freecam.Update();
                 freecam.LateUpdate();
             }
+            Lights.Update();
         }
 
         public override void OnGUI()

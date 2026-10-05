@@ -45,6 +45,7 @@ namespace CameraTools
         public static readonly Color Thumb = Hex(0xd3bc8e, 0.55f);
         public static readonly Color Tick = Hex(0xece5d8, 0.70f);
         public static readonly Color FocusShadow = Hex(0x000000, 0.55f);
+        public static readonly Color MarkerRing = Hex(0x222835, 0.90f);
 
         public const float Margin = 44f;
         public const float TopLegendY = 28f;
@@ -120,6 +121,12 @@ namespace CameraTools
         public const float NoteHeight = 16f;
         public const float NoteExtra = 17f;
         public const int NoteSize = 11;
+        // A light's marker: a dot of its colour in a ring, cream for the selected light, and a spot's aim line.
+        public const float MarkerDot = 18f;
+        public const float MarkerRingSize = 26f;
+        public const float MarkerAimLength = 30f;
+        public const float MarkerAimWidth = 3f;
+        public const int MarkerNumberSize = 10;
         public const float ChoiceRowHeight = RowTextY + RowTextHeight + NoteExtra + 8f;
         public const float StepSize = 22f;
         public const float StepGap = 6f;

@@ -70,8 +70,8 @@ namespace CameraTools
                 if (busy.Resized || Window != busy.Before.Window)
                     Graphics.Resize(busy.Before.Window, quiet: true);
             }),
-            // Off after the shot whatever they were before, as the user asked.
-            ("ReShade's effects", _ => ReShade.SetEffects(false)),
+            // Off after the shot whatever they were before, as the user asked, unless sphere lights need them.
+            ("ReShade's effects", _ => ReShade.SetEffects(Lights.KeepsEffectsOn)),
             ("the UI", busy =>
             {
                 if (uiHidden != busy.Before.UiHidden)

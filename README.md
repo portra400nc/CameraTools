@@ -11,6 +11,7 @@
  - Change the time of day + time-lapse
  - Override the weather with sunny, cloudy, rain, thunderstorm, snow, or mist
  - Camera paths: record views as nodes and fly the camera through them
+ - Custom lights: points, spots and soft sphere lights through ReShade, for the world or only characters
  - One-button screenshots through ReShade, at max quality with effects on
  - Depth of field through ReShade, with a focus point you move on the screen
  - Configurable hotkeys
@@ -31,6 +32,12 @@ CameraTools draws its own UI in the style of Genshin's, with the game's font. Th
 Record camera positions as nodes, and fly the free camera through them in one smooth shot.
 
 [Make your first camera path](CAMERA-PATHS.md)
+
+## Lights
+
+Add point, spot and sphere lights to a shot, aim them with the sticks, and let them follow the camera or the character.
+
+[Light a shot](LIGHTS.md)
 
 ## ReShade
 

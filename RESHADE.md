@@ -2,7 +2,7 @@
 
 The ReShade tab drives ReShade from the free camera. It needs ReShade and `GenshinReShadeBridge.addon64` add-on. Without them, its rows are dimmed and the tab reads "ReShade bridge not found".
 
-ReShade effects turns all of ReShade's effects on or off. Turn it on to see the blur while you compose a shot. Every other row and the focus point also work while it is off, which keeps the frame rate up, and a screenshot turns the effects on by itself. A screenshot turns it off afterwards.
+ReShade effects turns all of ReShade's effects on or off. Turn it on to see the blur while you compose a shot. Every other row and the focus point also work while it is off, which keeps the frame rate up, and a screenshot turns the effects on by itself. A screenshot turns it off afterwards, unless a sphere light needs it; see [Lights](LIGHTS.md).
 
 ## Depth of field
 
