@@ -365,3 +365,6 @@ FodyWeavers.xsd
 # Rider
 .idea/
 .DS_Store
+
+# The ReShade headers ReShadeBridge/build.py downloads
+.deps/

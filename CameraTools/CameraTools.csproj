@@ -7,10 +7,14 @@
     <Nullable>disable</Nullable>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <NuGetAudit>false</NuGetAudit>
+    <!-- bin/Release/CameraTools.dll, without a net6.0 folder. -->
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <RestoreAdditionalProjectSources></RestoreAdditionalProjectSources>
-    <!-- Point these at a Genshin MelonLoader install (MelonLoader/net6 and MelonLoader/Il2CppAssemblies). -->
-    <MelonLoaderNet6 Condition="'$(MelonLoaderNet6)' == ''">..\..\Output\GenshinDeckBundle\MelonLoader\net6</MelonLoaderNet6>
-    <Il2CppAssemblies Condition="'$(Il2CppAssemblies)' == ''">..\..\Output\GenshinInteropBatchAll\interop</Il2CppAssemblies>
+    <!-- The references come from a Genshin MelonLoader install, the game folder whose MelonLoader/net6 and
+         MelonLoader/Il2CppAssemblies hold them: build with -p:GameDir=<folder>, or set GameDir in the environment.
+         MelonLoaderNet6 and Il2CppAssemblies can also be set one by one, as a Directory.Build.props above this repo may. -->
+    <MelonLoaderNet6 Condition="'$(MelonLoaderNet6)' == ''">$(GameDir)/MelonLoader/net6</MelonLoaderNet6>
+    <Il2CppAssemblies Condition="'$(Il2CppAssemblies)' == ''">$(GameDir)/MelonLoader/Il2CppAssemblies</Il2CppAssemblies>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="$(MelonLoaderNet6)\MelonLoader.dll" Private="false" />
@@ -26,4 +30,10 @@
     <Reference Include="$(Il2CppAssemblies)\Assembly-CSharp.dll" Private="false" />
     <Reference Include="$(Il2CppAssemblies)\UnityEngine.MiHoYoExtensionModule.dll" Private="false" />
   </ItemGroup>
+  <Target Name="CheckReferences" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(MelonLoaderNet6)/MelonLoader.dll')"
+      Text="MelonLoader.dll is not in '$(MelonLoaderNet6)'. Build with -p:GameDir=&lt;your Genshin MelonLoader install&gt;, the folder that has MelonLoader/net6 and MelonLoader/Il2CppAssemblies." />
+    <Error Condition="!Exists('$(Il2CppAssemblies)/Assembly-CSharp.dll')"
+      Text="Assembly-CSharp.dll is not in '$(Il2CppAssemblies)'. Build with -p:GameDir=&lt;your Genshin MelonLoader install&gt;, the folder that has MelonLoader/net6 and MelonLoader/Il2CppAssemblies." />
+  </Target>
 </Project>
