@@ -31,7 +31,7 @@ namespace CameraTools
     internal static class ReShade
     {
         private const string ModuleName = "GenshinReShadeBridge.addon64";
-        private const uint Version = 2;
+        private const uint Version = 3;
         private const float LookInterval = 1f;
         // Longer than Windows' MAX_PATH in UTF-8.
         private const int PathBytes = 1024;
@@ -70,16 +70,20 @@ namespace CameraTools
         private delegate uint GetTechniqueCall([In] byte[] effect, [In] byte[] technique, out uint enabled);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate uint GetDefinitionCall([In] byte[] effect, [In] byte[] name, [Out] byte[] value, uint size);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void SavePresetCall();
 
         private sealed record Bridge(IntPtr Module, GetStatusCall GetStatus, SetEffectsCall SetEffects, SaveScreenshotCall SaveScreenshot,
             GetLastScreenshotCall GetLastScreenshot, SetFloatCall SetFloat, SetIntCall SetInt, SetTechniqueCall SetTechnique,
-            GetFloatCall GetFloat, GetIntCall GetInt, GetTechniqueCall GetTechnique, SavePresetCall SavePreset);
+            GetFloatCall GetFloat, GetIntCall GetInt, GetTechniqueCall GetTechnique, GetDefinitionCall GetDefinition, SavePresetCall SavePreset);
 
         private static readonly byte[] pathBuffer = new byte[PathBytes];
         // The values of one call. The marshaller pins an array of floats or ints, so a call copies and allocates nothing.
         private static readonly float[] floats = new float[2];
-        private static readonly int[] ints = new int[1];
+        private static readonly int[] ints = new int[4];
+        private static readonly byte[] definitionBuffer = new byte[256];
         private static Bridge bridge;
         // A loaded module that is not a bridge of this version, so it is reported once and not tried again.
         private static IntPtr rejected;
@@ -132,6 +136,19 @@ namespace CameraTools
             bridge.SetInt(uniform.Effect, uniform.Name, ints, 1);
         }
 
+        // A uint4 such as ReLight's light slots takes the same bits through the int setter: ReShade copies them as they are
+        // for both int and uint uniforms.
+        public static void SetInt4(EffectName uniform, uint x, uint y, uint z, uint w)
+        {
+            if (bridge == null)
+                return;
+            ints[0] = unchecked((int)x);
+            ints[1] = unchecked((int)y);
+            ints[2] = unchecked((int)z);
+            ints[3] = unchecked((int)w);
+            bridge.SetInt(uniform.Effect, uniform.Name, ints, 4);
+        }
+
         public static void SetTechnique(EffectName technique, bool enabled) => bridge?.SetTechnique(technique.Effect, technique.Name, enabled ? 1u : 0u);
 
         // A get fails while the bridge has no copy of the value: on the first call for a name, while ReShade loads its
@@ -162,6 +179,20 @@ namespace CameraTools
             if (bridge == null || bridge.GetTechnique(technique.Effect, technique.Name, out uint on) == 0)
                 return false;
             enabled = on != 0;
+            return true;
+        }
+
+        // A preprocessor definition as the effect sees it, such as RESHADE_DEPTH_LINEARIZATION_FAR_PLANE. It fails like a
+        // get, and a name the effect has no definition of reads as an empty string.
+        public static bool TryGetDefinition(EffectName definition, out string value)
+        {
+            value = "";
+            if (bridge == null)
+                return false;
+            uint written = bridge.GetDefinition(definition.Effect, definition.Name, definitionBuffer, (uint)definitionBuffer.Length);
+            if (written == 0)
+                return false;
+            value = Encoding.UTF8.GetString(definitionBuffer, 0, (int)written - 1);
             return true;
         }
 
@@ -221,6 +252,7 @@ namespace CameraTools
                 || !TryExport<GetFloatCall>(module, "BridgeGetFloat", out var getFloat)
                 || !TryExport<GetIntCall>(module, "BridgeGetInt", out var getInt)
                 || !TryExport<GetTechniqueCall>(module, "BridgeGetTechnique", out var getTechnique)
+                || !TryExport<GetDefinitionCall>(module, "BridgeGetDefinition", out var getDefinition)
                 || !TryExport<SavePresetCall>(module, "BridgeSavePreset", out var savePreset))
             {
                 log.Warning($"ReShade: {ModuleName} version {found} is missing an export.");
@@ -228,7 +260,7 @@ namespace CameraTools
             }
             rejected = IntPtr.Zero;
             bridge = new Bridge(module, getStatus, setEffects, saveScreenshot, getLastScreenshot, setFloat, setInt, setTechnique,
-                getFloat, getInt, getTechnique, savePreset);
+                getFloat, getInt, getTechnique, getDefinition, savePreset);
             log.Msg($"ReShade: connected to {ModuleName} version {found}; {Status}.");
         }
 
