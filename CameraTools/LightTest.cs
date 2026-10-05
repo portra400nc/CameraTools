@@ -3,45 +3,29 @@ using UnityEngine;
 
 namespace CameraTools
 {
-    // A throwaway test of custom lights, before the Lights tab is built. Each press of Back+D-pad right (Numpad 0) shows
-    // the next state of the table where the light was placed; Back+D-pad left (Numpad .) removes it, and the next press
-    // places it again at the camera, so the light can sit beside the character while the camera looks from elsewhere.
-    // Every state is logged with the frame rate over its first seconds, so a screenshot per state settles what renders.
+    // A throwaway test of ReLight sphere lights, before the Lights tab is built. Each press of Back+D-pad right
+    // (Numpad 0) shows the next state of the table; Back+D-pad left (Numpad .) removes the sphere. The first press, and
+    // the first after a removal, places the sphere 1.5 m in front of the camera, where it is in view. Every state is
+    // logged with the frame rate over its first seconds, so a screenshot per state settles what renders.
     internal static class LightTest
     {
-        private abstract record Step(string Name);
-
-        // A light of the game's own.
-        private sealed record GameStep(string Name, Action<Light> Apply) : Step(Name);
-
-        // A ReLight sphere, which needs ReShade with Launchpad and ReLight installed.
-        private sealed record SphereStep(string Name, float Radius, float Intensity, float Ambient = 1f) : Step(Name);
+        private sealed record Step(string Name, float Radius, float Intensity, float Ambient = 1f, bool Outline = false);
 
         private static readonly Color White = new(1f, 1f, 1f, 1f);
         private const float FrameRateWindow = 3f;
+        private const float PlaceAhead = 1.5f;
 
-        // Builds 137 and 138 showed the game's lights render, light characters alone, and cast no shadows. These try
-        // ReLight's spheres at three sizes and brightnesses, then the game light's two toon softness settings.
+        // Build 139 showed a sphere at intensity 5 lights the character brightly from where CameraTools put it, and that
+        // the game light's toon softness settings change nothing. These check the position against ReLight's own outline,
+        // then the intensity and radius scales.
         private static readonly Step[] Steps =
         {
-            new SphereStep("Sphere 0.5 m, intensity 2", 0.5f, 2f),
-            new SphereStep("Sphere 0.5 m, intensity 5", 0.5f, 5f),
-            new SphereStep("Sphere 0.5 m, intensity 10", 0.5f, 10f),
-            new SphereStep("Sphere 0.1 m, intensity 5", 0.1f, 5f),
-            new SphereStep("Sphere 1.5 m, intensity 5", 1.5f, 5f),
-            new SphereStep("Sphere 0.5 m, intensity 5, ambient 0.4", 0.5f, 5f, 0.4f),
-            new GameStep("Characters only, intensity 1", light => CharacterLight(light)),
-            new GameStep("Characters only, toon softness 1", light =>
-            {
-                CharacterLight(light);
-                light.halfLambertSoftness = 1f;
-            }),
-            new GameStep("Characters only, very soft light", light =>
-            {
-                CharacterLight(light);
-                light.set_isVerySoftShadowLight(true);
-                light.verySoftShadowSoftness = 1f;
-            }),
+            new("Sphere 0.5 m, intensity 2, outline shown", 0.5f, 2f, Outline: true),
+            new("Sphere 0.5 m, intensity 2", 0.5f, 2f),
+            new("Sphere 0.5 m, intensity 5", 0.5f, 5f),
+            new("Sphere 0.1 m, intensity 2", 0.1f, 2f),
+            new("Sphere 1.5 m, intensity 2", 1.5f, 2f),
+            new("Sphere 0.5 m, intensity 2, ambient 0.4", 0.5f, 2f, 0.4f),
         };
 
         private static readonly PadBinding NextPad = new(PadButtons.Back | PadButtons.DpadRight, PadAxis.None);
@@ -67,19 +51,19 @@ namespace CameraTools
             // A world shift moves the scene; the light keeps its absolute position.
             if (holder)
                 holder.transform.position = WorldShift.Relative(absolutePosition);
-            if (holder && Steps[step] is SphereStep sphere)
-                ShowSphere(sphere);
+            if (holder)
+                ShowSphere(Steps[step]);
             else
                 ReLight.Hide();
             CountFrames();
         }
 
-        private static void ShowSphere(SphereStep sphere)
+        private static void ShowSphere(Step sphere)
         {
             var camera = CameraTools.maincam ? CameraTools.maincam : Camera.main;
             if (!camera)
                 return;
-            var placement = ReLight.Show(camera, holder.transform.position, sphere.Radius, White, sphere.Intensity, sphere.Ambient);
+            var placement = ReLight.Show(camera, holder.transform.position, sphere.Radius, White, sphere.Intensity, sphere.Ambient, sphere.Outline);
             if (placement is not ReLight.Placement p || placementLogged)
                 return;
             placementLogged = true;
@@ -105,7 +89,7 @@ namespace CameraTools
                 }
                 if (!holder)
                 {
-                    absolutePosition = WorldShift.Absolute(camera.position);
+                    absolutePosition = WorldShift.Absolute(camera.position + camera.forward * PlaceAhead);
                     rotation = camera.rotation;
                 }
                 step++;
@@ -127,17 +111,10 @@ namespace CameraTools
             holder.transform.position = WorldShift.Relative(absolutePosition);
             holder.transform.rotation = rotation;
             string label = $"Light test {step + 1}/{Steps.Length}: {current.Name}";
-            string detail = "";
-            if (current is GameStep game)
-            {
-                var light = holder.AddComponent<Light>();
-                game.Apply(light);
-                detail = " " + Describe(light);
-            }
             placementLogged = false;
             StartWindow();
             CameraUi.Toast(label);
-            Melon<CameraTools>.Logger.Msg($"{label}.{detail}");
+            Melon<CameraTools>.Logger.Msg($"{label}.");
         }
 
         private static void Remove(string why, int keepStep)
@@ -170,25 +147,6 @@ namespace CameraTools
             windowLogged = true;
             string state = holder ? Steps[step].Name : "no light";
             Melon<CameraTools>.Logger.Msg($"Light test: {windowFrames / windowTime:0.0} fps over {windowTime:0.0} s with {state}.");
-        }
-
-        private static void CharacterLight(Light light)
-        {
-            light.type = LightType.Point;
-            light.color = White;
-            light.intensity = 1f;
-            light.range = 8f;
-            light.set_isCharacterLight(true);
-            light.characterLightCullingMask = uint.MaxValue;
-            light.characterIntensityMultiplier = 1f;
-        }
-
-        private static string Describe(Light light)
-        {
-            var c = light.color;
-            return $"type {light.type}, color ({c.r:0.##}, {c.g:0.##}, {c.b:0.##}), intensity {light.intensity:0.##}, "
-                + $"range {light.range:0.##}, half Lambert threshold {light.halfLambertThreshold:0.##} softness {light.halfLambertSoftness:0.##}, "
-                + $"very soft shadow softness {light.verySoftShadowSoftness:0.##}";
         }
     }
 }

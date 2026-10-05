@@ -39,7 +39,7 @@ namespace CameraTools
 
         // Shows one sphere for this frame. Returns where it landed, or null while ReShade's depth settings are unread or
         // the sphere is outside the view.
-        public static Placement? Show(Camera camera, Vector3 position, float radius, Color color, float intensity, float ambient)
+        public static Placement? Show(Camera camera, Vector3 position, float radius, Color color, float intensity, float ambient, bool outline = false)
         {
             if (!effectsBefore.HasValue)
             {
@@ -48,8 +48,9 @@ namespace CameraTools
                 ReShade.SetTechnique(Launchpad, true);
                 ReShade.SetTechnique(Technique, true);
                 ReShade.SetInt(SelectedLight, -1);
-                ReShade.SetInt(OverlayBehavior, 0);
             }
+            // ReLight's overlay draws each sphere's outline: 3 always, 0 never.
+            ReShade.SetInt(OverlayBehavior, outline ? 3 : 0);
             Depth ??= ReadDepth();
             var placement = Depth is DepthSettings depth ? Place(camera, position, radius, color, intensity, depth) : null;
             if (placement is Placement p)
