@@ -34,6 +34,7 @@ namespace CameraTools
             Graphics.Load();
             CameraPaths.Load();
             Lights.Load();
+            Poses.Load();
             Screenshot.Load();
             DepthOfField.Load();
         }
@@ -146,12 +147,13 @@ namespace CameraTools
                 GameCamera.Update(maincam);
                 // Before playback poses the camera, which already accounts for the current shift.
                 freecam.FollowWorldShift();
-                // While the sticks move a light, the camera stays put.
-                if (!PathPlayback.Drive(freecam) && !Lights.Moving)
+                // While the sticks move a light or turn a joint, the camera stays put.
+                if (!PathPlayback.Drive(freecam) && !Lights.Moving && !Posing.Editing)
                     freecam.Update();
                 freecam.LateUpdate();
             }
             Lights.Update();
+            Posing.Update();
         }
 
         public override void OnGUI()
@@ -313,6 +315,7 @@ namespace CameraTools
             if (!freecamActive || !camera)
                 return;
             freecam.Apply();
+            Posing.OnWillRenderCanvases();
         }
 
         // These paths date from an older game version; name any that no longer exist.
