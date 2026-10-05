@@ -48,7 +48,8 @@ namespace CameraTools
 
         // What the rig last told the game's face and eye systems, so each changes once when the pose does.
         private string expression;
-        private bool expressionsOn;
+        // The face system's own reasons for being off, and for holding the default face, as they were before posing.
+        private (uint Off, uint KeepDefault)? faceReasons;
         private bool blinking = true;
         private (Transform Target, bool Enabled, EyeKey.EyeKeyController Controller)? savedLook;
         private FacePose planned;
@@ -83,6 +84,7 @@ namespace CameraTools
                     animators.Add((animator, animator.isAnimationPaused));
             foreach (var (animator, _) in animators)
                 animator.isAnimationPaused = true;
+            TakeFace();
             var missing = Joints.All.Where(info => joints[(int)info.Joint] == null).Select(info => info.Bone).ToArray();
             Melon<CameraTools>.Logger.Msg($"Posing {avatar.name}: {joints.Length - missing.Length} of {joints.Length} joints"
                 + (missing.Length > 0 ? $" (no {string.Join(", ", missing)})" : "")
@@ -147,14 +149,9 @@ namespace CameraTools
         // Expressions, blinking and the game's eye aim change once when the pose asks for something else.
         public void Apply(FacePose face, GazePose gaze, Transform camera)
         {
+            KeepFace();
             if (face.Expression != expression && emoSync)
             {
-                // The game's expressions show only once the face system has been switched on this way.
-                if (face.Expression != null && !expressionsOn)
-                {
-                    emoSync.Toggle(true, true);
-                    expressionsOn = true;
-                }
                 emoSync.SetEmotion(face.Expression ?? emoSync.defaultEmotion, BlendTime);
             }
             expression = face.Expression;
@@ -255,6 +252,7 @@ namespace CameraTools
                     emoSync.SetEmotion(emoSync.defaultEmotion, BlendTime);
                 expression = null;
             });
+            Step("face system", GiveBackFace);
             Step("blinking", () =>
             {
                 if (!blinking && eyeCtrl)
@@ -364,6 +362,48 @@ namespace CameraTools
                 }
             }
             return targets.Values.ToList();
+        }
+
+        // The game keeps the face system off, or on its default face, while any bit of these masks is set; abilities set
+        // them (EmoSyncBanMixin, EmoSyncKeepDefaultMixin), and then expressions and the eye aim do nothing. Posing clears
+        // them, and Toggle(true, true) switches the face system on, as the Deck tests that showed expressions did.
+        private void TakeFace()
+        {
+            if (!emoSync)
+                return;
+            faceReasons = (emoSync._reasonToggle, emoSync._reasonKeepDefault);
+            Melon<CameraTools>.Logger.Msg($"Posing: the face system's reasons were off 0x{emoSync._reasonToggle:X}, default face 0x{emoSync._reasonKeepDefault:X}.");
+            emoSync._reasonToggle = 0;
+            emoSync._reasonKeepDefault = 0;
+            emoSync.Toggle(true, true);
+        }
+
+        // A reason the game sets while posing is cleared too, and given back with the others when posing ends.
+        private void KeepFace()
+        {
+            if (faceReasons is not { } saved || !emoSync)
+                return;
+            uint off = emoSync._reasonToggle, keepDefault = emoSync._reasonKeepDefault;
+            if (off == 0 && keepDefault == 0)
+                return;
+            CameraTools.LogOnce($"Posing: the game set face system reasons while posing (off 0x{off:X}, default face 0x{keepDefault:X}); clearing them.");
+            faceReasons = (saved.Off | off, saved.KeepDefault | keepDefault);
+            emoSync._reasonToggle = 0;
+            emoSync._reasonKeepDefault = 0;
+            emoSync.Toggle(true, true);
+            // Switching on resets the face, so the chosen expression is set again.
+            expression = null;
+        }
+
+        // Bit 0 is Toggle's own reason, so toggling with it as it was recomputes the face system's state from the masks.
+        private void GiveBackFace()
+        {
+            if (faceReasons is not { } saved || !emoSync)
+                return;
+            faceReasons = null;
+            emoSync._reasonKeepDefault = saved.KeepDefault;
+            emoSync._reasonToggle = saved.Off & ~1u;
+            emoSync.Toggle((saved.Off & 1u) == 0, false);
         }
 
         private void LookAt(Transform camera)
