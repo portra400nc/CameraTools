@@ -1,9 +1,9 @@
 using System.Text;
-using System.Text.RegularExpressions;
 using Il2CppInterop.Runtime;
 using MelonLoader;
 using miHoYoEmotion;
 using UnityEngine;
+using VerletEngine;
 using NumericsQuaternion = System.Numerics.Quaternion;
 using NumericsVector3 = System.Numerics.Vector3;
 
@@ -12,51 +12,73 @@ namespace CameraTools
     // A throwaway test of character posing, before the Pose tab is designed. Back+D-pad right (Numpad 0) starts it and
     // moves to the next step; Back+D-pad left (Numpad .) ends it and gives the character back to the game. Starting logs
     // the character's bones, face blend shapes, expressions and scripts. Each step then logs what it read back at each
-    // write point, so the log and a screenshot per step settle which way of posing holds.
+    // point in the frame, so the log and a screenshot per step settle which way of posing holds. Build 147 settled the
+    // freeze and the bone writes; this round tests the face, the eyes and the hair.
     internal static class PoseProbe
     {
-        [Flags]
-        private enum Hook { None = 0, LateUpdate = 1, Canvases = 2, PreCull = 4 }
+        private enum Hook { LateUpdate, Canvases, PreCull }
 
-        private enum Freeze { Paused, SpeedZero, Both }
+        private sealed record Step(string Name, Action Enter, bool Frozen = true, Action Frame = null);
 
-        private sealed record Step(string Name, Freeze Freeze, Hook Writes, Action Enter);
+        private sealed record BoneTarget(Transform Bone, Func<Quaternion> Rotation, Quaternion Original);
 
-        private static readonly Hook[] Hooks = { Hook.LateUpdate, Hook.Canvases, Hook.PreCull };
+        private sealed record ShapeTarget(SkinnedMeshRenderer Renderer, int Index, float Weight, float Original);
+
         private const int MeasureFrom = 10;
+        private const int JitterFrom = 30;
         private const int ReportAt = 60;
-        private const float ArmAngle = -70f;
+        private const int SettleFrames = 30;
         private const float HeadAngle = -40f;
+        private const float EyeLimit = 17f;
 
         private static readonly Step[] Steps =
         {
-            new("Frozen by isAnimationPaused", Freeze.Paused, Hook.None, () => { }),
-            new("Frozen by speed 0", Freeze.SpeedZero, Hook.None, () => { }),
-            new("Left arm out, written in late update", Freeze.Both, Hook.LateUpdate, () => TurnBone(LeftUpperArm, Forward, ArmAngle)),
-            new("Left arm out, written before canvases", Freeze.Both, Hook.Canvases, () => TurnBone(LeftUpperArm, Forward, ArmAngle)),
-            new("Left arm out, written in pre-cull", Freeze.Both, Hook.PreCull, () => TurnBone(LeftUpperArm, Forward, ArmAngle)),
-            new("Head turned left, written in late update and before canvases", Freeze.Both, Hook.LateUpdate | Hook.Canvases,
-                () => TurnBone(Head, Up, HeadAngle)),
-            new("Left eye shape at 100, game face on", Freeze.Both, Hook.LateUpdate | Hook.Canvases, () => SetShape(winkShape)),
-            new("Left eye shape at 100, game face paused", Freeze.Both, Hook.LateUpdate | Hook.Canvases, () =>
+            new("Left wink, game face on", () => Shape("Eye_WinkA_L", 100f)),
+            new("Left wink, blinking off", () =>
+            {
+                eyeCtrl?.ToggleBlink(false);
+                blinkPaused = true;
+                Shape("Eye_WinkA_L", 100f);
+            }),
+            new("Left wink, game face paused", () =>
             {
                 PauseFace();
-                SetShape(winkShape);
+                Shape("Eye_WinkA_L", 100f);
             }),
-            new("Game expression", Freeze.Both, Hook.None, () => PlayEmotion()),
-            new("Game expression and left eye shape at 100", Freeze.Both, Hook.LateUpdate | Hook.Canvases, () =>
+            new("Left wink and smile, game face paused", () =>
             {
-                PlayEmotion();
-                SetShape(winkShape);
+                PauseFace();
+                Shape("Eye_WinkA_L", 100f);
+                Shape("Mouth_Smile01", 100f);
             }),
-            new("Eyes on the camera", Freeze.Both, Hook.None, () => LookAtCamera()),
+            new("Expression Gentle_01, face system switched on", () =>
+            {
+                emoSync?.Toggle(true, true);
+                emoSync?.SetEmotion(Emotion("Gentle_01"), 0.2f);
+            }),
+            new("Expression HiClosed_01 with phoneme P_Smile_01", () =>
+                emoSync?.SetPhonemeAndEmotion(Phoneme("P_Smile_01"), Emotion("HiClosed_01"), 0.2f, true)),
+            new("Expression HiClosed_01 with phoneme P_Smile_01, not frozen", () =>
+                emoSync?.SetPhonemeAndEmotion(Phoneme("P_Smile_01"), Emotion("HiClosed_01"), 0.2f, true), Frozen: false),
+            new("Eyes on the camera, aimed by CameraTools", () =>
+            {
+                AimEye("+EyeBone L A01");
+                AimEye("+EyeBone R A01");
+            }),
+            new("Eyes on the camera, by the game's eye controller", () => GameLookAt()),
+            new("Head turned left, hair physics on", () => TurnHead()),
+            new("Head turned left, hair physics paused", () =>
+            {
+                TurnHead();
+                SetHair(false);
+            }),
+            new("Head turned left, hair settles for half a second, then paused", () => TurnHead(),
+                Frame: () =>
+                {
+                    if (stepFrame == SettleFrames)
+                        SetHair(false);
+                }),
         };
-
-        private const string LeftUpperArm = "Bip001 L UpperArm";
-        private const string Head = "Bip001 Head";
-        private static readonly NumericsVector3 Forward = NumericsVector3.UnitZ;
-        private static readonly NumericsVector3 Up = NumericsVector3.UnitY;
-        private static readonly Regex LeftSide = new(@"(^|[_ .])L($|[_ .\d])|left", RegexOptions.IgnoreCase);
 
         private static readonly PadBinding NextPad = new(PadButtons.Back | PadButtons.DpadRight, PadAxis.None);
         private static readonly PadBinding StopPad = new(PadButtons.Back | PadButtons.DpadLeft, PadAxis.None);
@@ -68,28 +90,31 @@ namespace CameraTools
         private static Transform avatar;
         private static readonly Dictionary<string, Transform> bones = new();
         private static readonly List<Transform> allBones = new();
-        private static readonly List<(Animator Animator, float Speed, bool Paused)> animators = new();
+        private static readonly List<(Animator Animator, bool Paused)> animators = new();
+        private static readonly List<SkinnedMeshRenderer> faceRenderers = new();
+        private static readonly List<DynamicBoneArray> hair = new();
+        private static string[] emotions = Array.Empty<string>();
+        private static string[] phonemes = Array.Empty<string>();
         private static EmoSync emoSync;
         private static EyeCtrl eyeCtrl;
-        private static SkinnedMeshRenderer face;
-        private static int winkShape = -1;
-        private static string emotion;
-        private static Transform savedViewTarget;
-        private static bool savedTargetEnabled;
+        private static EyeKey eyeKey;
 
         private static int step = -1;
         private static int stepFrame;
         private static int lastPreCullFrame;
         private static bool facePaused;
-        private static bool lookingAtCamera;
+        private static bool blinkPaused;
+        private static bool hairPaused;
+        private static (Transform ViewTarget, bool Enabled, EyeKey.EyeKeyController Controller)? savedLookAt;
         private static Quaternion[] startRotations;
+        private static Quaternion[] lastRotations;
+        private static float jitter;
+        private static string jitterBone = "none";
 
-        private static Transform bone;
-        private static Quaternion boneFrozen;
-        private static Quaternion boneTarget;
-        private static int shape = -1;
-        private static float shapeOriginal;
-        private static readonly float[] worstRead = new float[3];
+        private static readonly List<BoneTarget> boneTargets = new();
+        private static readonly List<ShapeTarget> shapeTargets = new();
+        private static readonly float[] boneRead = new float[3];
+        private static readonly float[] shapeRead = new float[3];
         private static readonly bool[] reached = new bool[3];
 
         public static void Update()
@@ -108,6 +133,8 @@ namespace CameraTools
                 return;
             }
             Run("late update", () => Tick(Hook.LateUpdate));
+            Run("step frame", () => Steps[step].Frame?.Invoke());
+            Run("jitter", MeasureJitter);
             stepFrame++;
             if (stepFrame == ReportAt)
                 Run("report", Report);
@@ -138,19 +165,17 @@ namespace CameraTools
             Leave();
             step++;
             var current = Steps[step];
-            SetFreeze(current.Freeze);
-            current.Enter();
-            Array.Clear(worstRead);
+            SetFrozen(current.Frozen);
+            Array.Clear(boneRead);
+            Array.Clear(shapeRead);
             Array.Clear(reached);
             stepFrame = 0;
+            jitter = 0f;
+            jitterBone = "none";
             startRotations = allBones.Select(each => each ? each.localRotation : default).ToArray();
-            string detail = current.Name switch
-            {
-                _ when current.Name.StartsWith("Game expression") => $" ({emotion ?? "none found"})",
-                _ when current.Name.Contains("eye shape") => $" ({ShapeName(winkShape) ?? "none found"})",
-                _ => "",
-            };
-            Melon<CameraTools>.Logger.Msg($"Pose test {step + 1}/{Steps.Length}: {current.Name}{detail}");
+            lastRotations = (Quaternion[])startRotations.Clone();
+            current.Enter();
+            Melon<CameraTools>.Logger.Msg($"Pose test {step + 1}/{Steps.Length}: {current.Name}");
             CameraUi.Toast($"Pose test {step + 1}/{Steps.Length}: {current.Name}");
         }
 
@@ -172,6 +197,8 @@ namespace CameraTools
             bones.Clear();
             allBones.Clear();
             animators.Clear();
+            faceRenderers.Clear();
+            hair.Clear();
             var log = new StringBuilder();
             log.AppendLine($"Pose test: character {avatar.name}");
             Run("bone tree", () => LogTree(avatar, 0, log));
@@ -179,6 +206,7 @@ namespace CameraTools
             Run("scripts", () => LogScripts(log));
             Run("face", () => FindFace(log));
             Run("expressions", () => FindExpressions(log));
+            Run("hair", () => FindHair(log));
             Melon<CameraTools>.Logger.Msg(log.ToString());
             return true;
         }
@@ -186,15 +214,9 @@ namespace CameraTools
         private static void Stop(string why)
         {
             Leave();
-            if (facePaused)
-                ResumeFace();
-            foreach (var (animator, speed, paused) in animators)
-            {
-                if (!animator)
-                    continue;
-                animator.speed = speed;
-                animator.isAnimationPaused = paused;
-            }
+            foreach (var (animator, paused) in animators)
+                if (animator)
+                    animator.isAnimationPaused = paused;
             animators.Clear();
             step = -1;
             avatar = null;
@@ -205,82 +227,118 @@ namespace CameraTools
         // Puts back what the step changed, so one step cannot leak into the next.
         private static void Leave()
         {
-            if (bone)
-                bone.rotation = boneFrozen;
-            bone = null;
-            if (shape >= 0 && face)
-                face.SetBlendShapeWeight(shape, shapeOriginal);
-            shape = -1;
-            if (lookingAtCamera && eyeCtrl)
+            foreach (var target in boneTargets)
+                if (target.Bone)
+                    target.Bone.rotation = target.Original;
+            boneTargets.Clear();
+            foreach (var target in shapeTargets)
+                if (target.Renderer)
+                    target.Renderer.SetBlendShapeWeight(target.Index, target.Original);
+            shapeTargets.Clear();
+            if (savedLookAt is { } saved && eyeCtrl)
             {
-                eyeCtrl.viewTarget = savedViewTarget;
-                eyeCtrl.targetEnabled = savedTargetEnabled;
+                eyeCtrl.viewTarget = saved.ViewTarget;
+                eyeCtrl.targetEnabled = saved.Enabled;
                 eyeCtrl.ClearLookat();
+                if (eyeKey)
+                    eyeKey.currentController = saved.Controller;
             }
-            lookingAtCamera = false;
-            if (emoSync && step >= 0 && Steps[step].Name.StartsWith("Game expression"))
-                emoSync.SetEmotion(emoSync.defaultEmotion ?? EmoSync.DEFAULT_EMOTION, 0.2f);
+            savedLookAt = null;
+            if (step >= 0 && Steps[step].Name.StartsWith("Expression") && emoSync)
+                emoSync.SetPhonemeAndEmotion(Phoneme("P_Default_01"), emoSync.defaultEmotion, 0.2f, true);
             if (facePaused)
-                ResumeFace();
+            {
+                emoSync?.Toggle(true, false);
+                facePaused = false;
+            }
+            if (blinkPaused)
+            {
+                eyeCtrl?.ToggleBlink(true);
+                blinkPaused = false;
+            }
+            if (hairPaused)
+                SetHair(true);
         }
 
-        private static void SetFreeze(Freeze freeze)
+        private static void SetFrozen(bool frozen)
         {
-            foreach (var (animator, speed, _) in animators)
-            {
-                if (!animator)
-                    continue;
-                animator.isAnimationPaused = freeze != Freeze.SpeedZero;
-                animator.speed = freeze == Freeze.Paused ? speed : 0f;
-            }
-        }
-
-        private static void TurnBone(string name, NumericsVector3 localAxis, float degrees)
-        {
-            if (!bones.TryGetValue(name, out var found))
-            {
-                Melon<CameraTools>.Logger.Warning($"Pose test: {name} not found");
-                return;
-            }
-            bone = found;
-            boneFrozen = found.rotation;
-            var axis = NumericsVector3.Transform(localAxis, avatar.rotation.ToNumerics());
-            var turn = NumericsQuaternion.CreateFromAxisAngle(axis, degrees * MathF.PI / 180f);
-            boneTarget = NumericsQuaternion.Normalize(turn * boneFrozen.ToNumerics()).ToUnity();
-        }
-
-        private static void SetShape(int index)
-        {
-            if (!face || index < 0)
-            {
-                Melon<CameraTools>.Logger.Warning("Pose test: no left eye shape found");
-                return;
-            }
-            shape = index;
-            shapeOriginal = face.GetBlendShapeWeight(index);
+            foreach (var (animator, paused) in animators)
+                if (animator)
+                    animator.isAnimationPaused = frozen || paused;
         }
 
         private static void PauseFace()
         {
             emoSync?.Toggle(false, false);
-            eyeCtrl?.ToggleBlink(false);
             facePaused = true;
+            eyeCtrl?.ToggleBlink(false);
+            blinkPaused = true;
         }
 
-        private static void ResumeFace()
+        private static void Shape(string name, float weight)
         {
-            emoSync?.Toggle(true, false);
-            eyeCtrl?.ToggleBlink(true);
-            facePaused = false;
+            foreach (var renderer in faceRenderers)
+            {
+                var mesh = renderer.sharedMesh;
+                for (int i = 0; i < mesh.blendShapeCount; i++)
+                {
+                    if (mesh.GetBlendShapeName(i) != name)
+                        continue;
+                    shapeTargets.Add(new ShapeTarget(renderer, i, weight, renderer.GetBlendShapeWeight(i)));
+                    return;
+                }
+            }
+            Melon<CameraTools>.Logger.Warning($"Pose test: blend shape {name} not found");
         }
 
-        private static void PlayEmotion()
+        private static string Emotion(string wanted) => Pick(emotions, wanted, wanted[..wanted.IndexOf('_')]);
+
+        private static string Phoneme(string wanted) => Pick(phonemes, wanted, wanted[..wanted.LastIndexOf('_')]);
+
+        // The wanted name, else the first of the same family, so the step still runs on a character with other names.
+        private static string Pick(string[] names, string wanted, string family)
         {
-            if (emoSync && emotion != null)
-                emoSync.SetEmotion(emotion, 0.2f);
+            string found = names.Contains(wanted) ? wanted : names.FirstOrDefault(name => name.StartsWith(family)) ?? wanted;
+            if (found != wanted)
+                Melon<CameraTools>.Logger.Msg($"Pose test: {wanted} not found, using {found}");
+            return found;
         }
 
-        private static void LookAtCamera()
+        private static void TurnHead()
+        {
+            if (!bones.TryGetValue("Bip001 Head", out var head))
+                return;
+            var frozen = head.rotation;
+            var axis = NumericsVector3.Transform(NumericsVector3.UnitY, avatar.rotation.ToNumerics());
+            var turn = NumericsQuaternion.CreateFromAxisAngle(axis, HeadAngle * MathF.PI / 180f);
+            var target = NumericsQuaternion.Normalize(turn * frozen.ToNumerics()).ToUnity();
+            boneTargets.Add(new BoneTarget(head, () => target, frozen));
+        }
+
+        // Turns the eye from its frozen rotation by the turn that takes the character's forward onto the camera, up to the
+        // game's own horizontal eye range.
+        private static void AimEye(string name)
+        {
+            if (!bones.TryGetValue(name, out var eye))
+                return;
+            var frozen = eye.rotation;
+            boneTargets.Add(new BoneTarget(eye, () =>
+            {
+                var camera = Camera.main;
+                if (!camera)
+                    return frozen;
+                var rest = NumericsVector3.Transform(NumericsVector3.UnitZ, avatar.rotation.ToNumerics());
+                var look = NumericsVector3.Normalize(camera.transform.position.ToNumerics() - eye.position.ToNumerics());
+                var axis = NumericsVector3.Cross(rest, look);
+                if (axis.LengthSquared() < 1e-8f)
+                    return frozen;
+                float angle = MathF.Min(MathF.Acos(Math.Clamp(NumericsVector3.Dot(rest, look), -1f, 1f)), EyeLimit * MathF.PI / 180f);
+                var turn = NumericsQuaternion.CreateFromAxisAngle(NumericsVector3.Normalize(axis), angle);
+                return NumericsQuaternion.Normalize(turn * frozen.ToNumerics()).ToUnity();
+            }, frozen));
+        }
+
+        private static void GameLookAt()
         {
             var camera = Camera.main;
             if (!eyeCtrl || !camera)
@@ -288,12 +346,20 @@ namespace CameraTools
                 Melon<CameraTools>.Logger.Warning("Pose test: no eye controller or camera for the look-at step");
                 return;
             }
-            savedViewTarget = eyeCtrl.viewTarget;
-            savedTargetEnabled = eyeCtrl.targetEnabled;
+            savedLookAt = (eyeCtrl.viewTarget, eyeCtrl.targetEnabled, eyeKey ? eyeKey.currentController : default);
+            if (eyeKey)
+                eyeKey.currentController = EyeKey.EyeKeyController.LookAtEyeCtrl;
             eyeCtrl.viewTarget = camera.transform;
             eyeCtrl.targetEnabled = true;
             eyeCtrl.ForceUpdateLookTarget(0.3f);
-            lookingAtCamera = true;
+        }
+
+        private static void SetHair(bool on)
+        {
+            foreach (var each in hair)
+                if (each)
+                    each.enabled = on;
+            hairPaused = !on;
         }
 
         // Reads the pose before writing it, so the report shows whether anything rewrote it since the last write.
@@ -301,25 +367,45 @@ namespace CameraTools
         {
             if (step < 0)
                 return;
-            int slot = Array.IndexOf(Hooks, hook);
+            int slot = (int)hook;
             reached[slot] = true;
             if (stepFrame >= MeasureFrom)
-                worstRead[slot] = Math.Max(worstRead[slot], Distance());
-            if ((Steps[step].Writes & hook) == 0)
+            {
+                foreach (var target in boneTargets)
+                    if (target.Bone)
+                        boneRead[slot] = Math.Max(boneRead[slot], Degrees(target.Bone.rotation, target.Rotation()));
+                foreach (var target in shapeTargets)
+                    if (target.Renderer)
+                        shapeRead[slot] = Math.Max(shapeRead[slot], Math.Abs(target.Renderer.GetBlendShapeWeight(target.Index) - target.Weight));
+            }
+            if (hook == Hook.PreCull)
                 return;
-            if (bone)
-                bone.rotation = boneTarget;
-            if (shape >= 0 && face)
-                face.SetBlendShapeWeight(shape, 100f);
+            foreach (var target in boneTargets)
+                if (target.Bone)
+                    target.Bone.rotation = target.Rotation();
+            foreach (var target in shapeTargets)
+                if (target.Renderer)
+                    target.Renderer.SetBlendShapeWeight(target.Index, target.Weight);
         }
 
-        private static float Distance()
+        // The largest turn any non-rig bone made between two frames, once the step has settled: hair that shakes in place
+        // turns a lot from frame to frame while drifting little overall.
+        private static void MeasureJitter()
         {
-            if (bone)
-                return Degrees(bone.rotation, boneTarget);
-            if (shape >= 0 && face)
-                return Math.Abs(face.GetBlendShapeWeight(shape) - 100f);
-            return 0f;
+            for (int i = 0; i < allBones.Count; i++)
+            {
+                var each = allBones[i];
+                if (!each)
+                    continue;
+                var now = each.localRotation;
+                if (stepFrame >= JitterFrom && !each.name.StartsWith("Bip001") && !each.name.StartsWith("+EyeBone"))
+                {
+                    float moved = Degrees(now, lastRotations[i]);
+                    if (moved > jitter)
+                        (jitter, jitterBone) = (moved, each.name);
+                }
+                lastRotations[i] = now;
+            }
         }
 
         private static void OnWillRenderCanvases()
@@ -339,25 +425,44 @@ namespace CameraTools
         private static void Report()
         {
             var log = new StringBuilder($"Pose test {step + 1} after {ReportAt} frames:");
-            if (bone || shape >= 0)
+            for (int i = 0; i < 3; i++)
             {
-                string unit = bone ? "°" : " weight";
-                for (int i = 0; i < Hooks.Length; i++)
-                    log.Append(reached[i] ? $" {Hooks[i]} read {worstRead[i]:0.##}{unit} from the target;" : $" {Hooks[i]} never ran;");
+                if (!reached[i])
+                    log.Append($" {(Hook)i} never ran;");
+                else if (boneTargets.Count > 0 || shapeTargets.Count > 0)
+                    log.Append($" {(Hook)i} read bones {boneRead[i]:0.##}° and shapes {shapeRead[i]:0.##} from the target;");
             }
             var (rigBone, rigMoved, otherBone, otherMoved) = Movement();
-            log.Append($" rig bones moved up to {rigMoved:0.##}° ({rigBone}), other bones up to {otherMoved:0.##}° ({otherBone}).");
+            log.Append($" rig bones moved up to {rigMoved:0.##}° ({rigBone}), other bones up to {otherMoved:0.##}° ({otherBone}),");
+            log.Append($" shook up to {jitter:0.##}° a frame ({jitterBone}). Face now: {FaceWeights()}");
             Melon<CameraTools>.Logger.Msg(log.ToString());
+        }
+
+        private static string FaceWeights()
+        {
+            var set = new List<string>();
+            foreach (var renderer in faceRenderers)
+            {
+                var mesh = renderer.sharedMesh;
+                for (int i = 0; i < mesh.blendShapeCount; i++)
+                {
+                    float weight = renderer.GetBlendShapeWeight(i);
+                    if (weight > 0.5f)
+                        set.Add($"{mesh.GetBlendShapeName(i)} {weight:0}");
+                }
+            }
+            return set.Count == 0 ? "all shapes at 0" : string.Join(", ", set);
         }
 
         private static (string, float, string, float) Movement()
         {
             string rigBone = "none", otherBone = "none";
             float rigMoved = 0f, otherMoved = 0f;
+            var turned = boneTargets.Select(target => target.Bone?.Pointer ?? IntPtr.Zero).ToHashSet();
             for (int i = 0; i < allBones.Count; i++)
             {
                 var each = allBones[i];
-                if (!each || each == bone)
+                if (!each || turned.Contains(each.Pointer))
                     continue;
                 float moved = Degrees(each.localRotation, startRotations[i]);
                 if (each.name.StartsWith("Bip001"))
@@ -394,9 +499,8 @@ namespace CameraTools
                 var animator = found[i].TryCast<Animator>();
                 if (!animator)
                     continue;
-                animators.Add((animator, animator.speed, animator.isAnimationPaused));
-                log.AppendLine($"Animator on {Path(animator.transform)}: human {animator.isHuman}, speed {animator.speed}, " +
-                    $"paused {animator.isAnimationPaused}, culling {animator.cullingMode}");
+                animators.Add((animator, animator.isAnimationPaused));
+                log.AppendLine($"Animator on {Path(animator.transform)}: human {animator.isHuman}, paused {animator.isAnimationPaused}");
             }
         }
 
@@ -418,71 +522,44 @@ namespace CameraTools
         private static void FindFace(StringBuilder log)
         {
             var found = avatar.GetComponentsInChildren(Il2CppType.Of<SkinnedMeshRenderer>(), true);
-            int most = 0;
             for (int i = 0; i < found.Length; i++)
             {
                 var renderer = found[i].TryCast<SkinnedMeshRenderer>();
                 var mesh = renderer ? renderer.sharedMesh : null;
                 int count = mesh ? mesh.blendShapeCount : 0;
-                log.AppendLine($"Renderer {Path(renderer.transform)}: mesh {(mesh ? mesh.name : "none")}, {count} blend shapes");
-                for (int s = 0; s < count; s++)
-                    log.AppendLine($"  {s}: {mesh.GetBlendShapeName(s)} = {renderer.GetBlendShapeWeight(s):0.##}");
-                if (count > most)
-                    (most, face) = (count, renderer);
+                if (count == 0)
+                    continue;
+                faceRenderers.Add(renderer);
+                log.AppendLine($"Renderer {Path(renderer.transform)}: {string.Join(", ", Enumerable.Range(0, count).Select(mesh.GetBlendShapeName))}");
             }
-            winkShape = PickWink();
-            log.AppendLine($"Face renderer: {(face ? Path(face.transform) : "none")}; left eye shape: {ShapeName(winkShape) ?? "none"}");
         }
-
-        // The first left wink, else any wink, else any closed or blinking eye shape.
-        private static int PickWink()
-        {
-            if (!face)
-                return -1;
-            var names = Enumerable.Range(0, face.sharedMesh.blendShapeCount).Select(face.sharedMesh.GetBlendShapeName).ToArray();
-            int Find(Func<string, bool> match) => Array.FindIndex(names, name => match(name));
-            bool Eye(string name) => name.Contains("eye", StringComparison.OrdinalIgnoreCase);
-            int index = Find(name => name.Contains("wink", StringComparison.OrdinalIgnoreCase) && LeftSide.IsMatch(name));
-            if (index < 0)
-                index = Find(name => name.Contains("wink", StringComparison.OrdinalIgnoreCase));
-            if (index < 0)
-                index = Find(name => Eye(name) && (name.Contains("close", StringComparison.OrdinalIgnoreCase) ||
-                    name.Contains("blink", StringComparison.OrdinalIgnoreCase)));
-            return index;
-        }
-
-        private static string ShapeName(int index) => face && index >= 0 ? face.sharedMesh.GetBlendShapeName(index) : null;
 
         private static void FindExpressions(StringBuilder log)
         {
             emoSync = avatar.GetComponentInChildren(Il2CppType.Of<EmoSync>(), true)?.TryCast<EmoSync>();
             eyeCtrl = avatar.GetComponentInChildren(Il2CppType.Of<EyeCtrl>(), true)?.TryCast<EyeCtrl>();
-            var eyeKey = avatar.GetComponentInChildren(Il2CppType.Of<EyeKey>(), true)?.TryCast<EyeKey>();
-            log.AppendLine($"EmoSync: {(emoSync ? Path(emoSync.transform) : "none")}; EyeCtrl: {(eyeCtrl ? Path(eyeCtrl.transform) : "none")}; " +
-                $"EyeKey: {(eyeKey ? Path(eyeKey.transform) : "none")}");
-            if (eyeCtrl)
-                log.AppendLine($"EyeCtrl: auto-blink {eyeCtrl.autoBlinkingEnabled}, target {eyeCtrl.targetEnabled}, view target " +
-                    $"{(eyeCtrl.viewTarget ? eyeCtrl.viewTarget.name : "none")}, head {(eyeCtrl.headTransform ? eyeCtrl.headTransform.name : "none")}, " +
-                    $"range x {eyeCtrl.eyeRotationRangeX.x}..{eyeCtrl.eyeRotationRangeX.y}, y {eyeCtrl.eyeRotationRangeY.x}..{eyeCtrl.eyeRotationRangeY.y}");
-            if (eyeKey)
-                log.AppendLine($"EyeKey: controller {eyeKey.currentController}, eyes {Name(eyeKey.leftEyeBone)}/{Name(eyeKey.rightEyeBone)}, " +
-                    $"balls {Name(eyeKey.leftEyeBallBone)}/{Name(eyeKey.rightEyeBallBone)}, teeth {Name(eyeKey.teethUpBone)}/{Name(eyeKey.teethDownBone)}");
-            if (!emoSync)
-                return;
-            var data = emoSync.setData;
-            log.AppendLine($"EmoSync: default emotion {emoSync.defaultEmotion}, set data {(data ? data.name : "none")}");
+            eyeKey = avatar.GetComponentInChildren(Il2CppType.Of<EyeKey>(), true)?.TryCast<EyeKey>();
+            log.AppendLine($"EmoSync {(emoSync ? "found" : "missing")}, EyeCtrl {(eyeCtrl ? "found" : "missing")}, EyeKey {(eyeKey ? $"controller {eyeKey.currentController}" : "missing")}");
+            var data = emoSync ? emoSync.setData : null;
             if (!data)
                 return;
-            var emotions = data.emotionSet?.ToArray() ?? Array.Empty<string>();
+            emotions = data.emotionSet?.ToArray() ?? Array.Empty<string>();
+            phonemes = data.phonemeSet?.ToArray() ?? Array.Empty<string>();
             log.AppendLine($"Emotions ({emotions.Length}): {string.Join(", ", emotions)}");
-            log.AppendLine($"Phonemes ({data.phonemeSet?.Length ?? 0}): {string.Join(", ", data.phonemeSet?.ToArray() ?? Array.Empty<string>())}");
-            log.AppendLine($"Eye controls ({data.eyeCtrlSet?.Length ?? 0}): {string.Join(", ", data.eyeCtrlSet?.ToArray() ?? Array.Empty<string>())}");
-            emotion = emotions.FirstOrDefault(name => name.Contains("smile", StringComparison.OrdinalIgnoreCase))
-                ?? emotions.FirstOrDefault(name => !name.StartsWith(EmoSync.DEFAULT_EMOTION, StringComparison.OrdinalIgnoreCase));
-            log.AppendLine($"Expression for the test: {emotion ?? "none"}");
+            log.AppendLine($"Phonemes ({phonemes.Length}): {string.Join(", ", phonemes)}");
         }
 
-        private static string Name(Transform transform) => transform ? transform.name : "none";
+        private static void FindHair(StringBuilder log)
+        {
+            var found = avatar.GetComponentsInChildren(Il2CppType.Of<DynamicBoneArray>(), true);
+            for (int i = 0; i < found.Length; i++)
+            {
+                var each = found[i].TryCast<DynamicBoneArray>();
+                if (each)
+                    hair.Add(each);
+            }
+            log.AppendLine($"Hair physics: {string.Join(", ", hair.Select(each => $"{each.name} ({(each.enabled ? "on" : "off")})"))}");
+        }
 
         private static string Path(Transform transform)
         {
