@@ -13,7 +13,7 @@ using MelonLoader;
 [assembly: AssemblyCopyright("Copyright © portra 2022")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
-[assembly: MelonInfo(typeof(CameraTools.CameraTools), "Camera Tools", "1.1.3", "portra")]
+[assembly: MelonInfo(typeof(CameraTools.CameraTools), "Camera Tools", "1.1.4", "portra")]
 [assembly: MelonGame]
 [assembly: MelonPlatformDomain(MelonPlatformDomainAttribute.CompatibleDomains.IL2CPP)]
 
