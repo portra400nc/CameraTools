@@ -12,7 +12,7 @@
  - Override the weather with sunny, cloudy, rain, thunderstorm, snow, or mist
  - Camera paths: record views as nodes and fly the camera through them
  - Custom lights: points, spots and soft sphere lights through ReShade, for the world or only characters
- - Character posing: freeze the active character, turn her joints, shape her hands and face, and save poses
+ - Character posing: freeze the active character, turn their joints, shape their hands and face, and save poses
  - One-button screenshots through ReShade, at max quality with effects on
  - Depth of field through ReShade, with a focus point you move on the screen
  - Configurable hotkeys
@@ -42,7 +42,7 @@ Add point, spot and sphere lights to a shot, aim them with the sticks, and let t
 
 ## Pose
 
-Freeze the active character, turn her joints with the sticks, shape her hands, set her expression and gaze, and save poses for later.
+Freeze the active character, turn their joints with the sticks, shape their hands, set their expression and gaze, and save poses for later.
 
 [Pose a character](POSE.md)
 

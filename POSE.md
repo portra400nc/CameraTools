@@ -1,12 +1,12 @@
 # Pose
 
-The Pose tab freezes the active character and lets you pose her for a shot: turn her joints, shape her hands, set her face, and choose where she looks. CameraTools saves poses you want to keep, so they are back the next time you play.
+The Pose tab freezes the active character and lets you pose them for a shot: turn their joints, shape their hands, set their face, and choose where they look. CameraTools saves poses you want to keep, so they are back the next time you play.
 
 ## Posing
 
-Posing needs the free camera. Turn on Posing, and the active character holds still in the pose the game had her in. Everything else in the scene keeps moving.
+Posing needs the free camera. Turn on Posing, and the active character holds still in the pose the game had them in. Everything else in the scene keeps moving.
 
-Posing ends when you turn it off, leave the free camera, or switch character. The character then moves again, with her face, eyes and hair as the game had them. Bring back last pose puts back the pose from before posing ended, in case it ended by accident. That last pose is kept until you quit the game, and is not saved.
+Posing ends when you turn it off, leave the free camera, or switch character. The character then moves again, with their face, eyes and hair as the game had them. Bring back last pose puts back the pose from before posing ended, in case it ended by accident. That last pose is kept until you quit the game, and is not saved.
 
 Back to the game's pose clears every change and keeps the character frozen.
 
@@ -24,9 +24,9 @@ Each joint turns three ways, in degrees, on top of the frozen pose:
 |--|--|
 | Bend | Swings the joint forward, or back with a negative value. A knee bends back, so it takes a negative Bend. |
 | Turn | Turns the joint about the character's up axis. |
-| Twist | Turns the joint about the axis from her back to her front. |
+| Twist | Turns the joint about the axis from the character's back to their front. |
 
-The angles are measured in the character's own frame, so a joint turns the same way however she faces. A joint carries everything below it: bending the upper arm moves the forearm and the hand with it. On the right side, Turn and Twist go the other way, so equal values on both sides look like mirror images. Copy to the other side gives the joint's mirror the same values. Reset joint puts one joint back as the game posed it.
+The angles are measured in the character's own frame, so a joint turns the same way however the character faces. A joint carries everything below it: bending the upper arm moves the forearm and the hand with it. On the right side, Turn and Twist go the other way, so equal values on both sides look like mirror images. Copy to the other side gives the joint's mirror the same values. Reset joint puts one joint back as the game posed it.
 
 The Joint row picks a joint, with Bend, Turn and Twist under it. Pose joints is the quicker way: it hides the panel and puts a marker on every joint, with the selected one larger and cream, its name beside it, and its angles at the bottom left.
 
@@ -49,7 +49,7 @@ Each hand starts from a preset: Game's leaves the hand as the game posed it, and
 
 ## Face
 
-Expression plays one of the character's own expressions. The list comes from the character, so each character has her own. Mouth, Eyes and Brows set one of the game's face shapes on top of the expression; their notes name the shape. Left eye closed and Right eye closed close each eye, for a wink. Blinking is off while posing, so the eyes stay as set; turn it on to let the character blink now and then.
+Expression plays one of the character's own expressions. The list comes from the character, so each character has their own. Mouth, Eyes and Brows set one of the game's face shapes on top of the expression; their notes name the shape. Left eye closed and Right eye closed close each eye, for a wink. Blinking is off while posing, so the eyes stay as set; turn it on to let the character blink now and then.
 
 ## Gaze
 
