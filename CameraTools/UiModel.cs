@@ -5,7 +5,7 @@ namespace CameraTools
 {
     // A toggle, slider, choice or action row may have Enabled. While it returns false the row is dimmed and ignores input.
     // Any row may have Shown; while it returns false the row is left out and the rows below move up. Detail, when set, is
-    // read every frame for a line under a slider's or a choice's label.
+    // read every frame for a line under the label of a slider, a choice, a toggle or an action.
     public abstract record Row(string Label)
     {
         public Func<bool> Shown { get; init; }
@@ -20,6 +20,7 @@ namespace CameraTools
             SliderRow slider => slider.Enabled,
             ChoiceRow choice => choice.Enabled,
             ActionRow action => action.Enabled,
+            StepperRow stepper => stepper.Enabled,
             _ => null,
         })?.Invoke() ?? true;
     }
@@ -47,9 +48,15 @@ namespace CameraTools
 
     // Get is the shown option's position in Options, or -1 when the current value is none of them.
     public sealed record ChoiceRow(string Label, string[] Options, Func<int> Get, Action<int> Set, PresetNote Note,
-        Func<bool> Enabled = null) : Row(Label);
+        Func<bool> Enabled = null) : Row(Label)
+    {
+        // Read every frame in place of Options, for a list that changes, such as the active character's expressions.
+        public Func<string[]> LiveOptions { get; init; }
 
-    // DisabledNote shows under the label while Enabled returns false.
+        public string[] Choices => LiveOptions?.Invoke() ?? Options;
+    }
+
+    // DisabledNote shows under the label while Enabled returns false; a row has it or a Detail, not both.
     // Confirm, when set, makes the first A arm the row and a second A within a few seconds run it; it names what running
     // does, such as "delete path 2".
     public sealed record ActionRow(string Label, Action Run, string Hint, Func<bool> Enabled = null, string DisabledNote = null,
@@ -57,7 +64,12 @@ namespace CameraTools
 
     // Browses a list whose length changes, showing "2 / 3", or "None" while it is empty. Note, when set, is read every frame
     // for a line under the label.
-    public sealed record StepperRow(string Label, Func<int> Count, Func<int> Get, Action<int> Set, Func<string> Note = null) : Row(Label);
+    public sealed record StepperRow(string Label, Func<int> Count, Func<int> Get, Action<int> Set, Func<string> Note = null,
+        Func<bool> Enabled = null) : Row(Label)
+    {
+        // Read every frame for a name to show in place of "2 / 3", or null for the count.
+        public Func<string> Display { get; init; }
+    }
 
     public sealed record ResolutionRow(string Label, int Slot) : Row(Label);
 
@@ -71,8 +83,9 @@ namespace CameraTools
     public sealed record Hint(CamAction Action, string Label);
 
     // Hidden: the free camera is off. Hud: legends and the field of view bar. Playing: a camera path's play bar. Panel:
-    // settings. Moving: the sticks move a light, and the legends say how.
-    public enum View { Hidden, Hud, Playing, Panel, Moving }
+    // settings. Moving: the sticks move a light, and the legends say how. Joints: the sticks turn the posed character's
+    // joints, with a marker on each.
+    public enum View { Hidden, Hud, Playing, Panel, Moving, Joints }
 
     internal static class UiModel
     {

@@ -179,6 +179,7 @@ namespace CameraTools
         public override void Sync(float step)
         {
             Dim();
+            SyncDetail();
             bool on = ((ToggleRow)Row).Get();
             if (marked != on)
             {
@@ -194,7 +195,7 @@ namespace CameraTools
         }
     }
 
-    // Only a row with Enabled or Confirm changes after it is built.
+    // Only a row with Enabled, Confirm or Detail changes after it is built.
     internal sealed class ActionView : ItemView
     {
         public Text Label;
@@ -206,6 +207,7 @@ namespace CameraTools
 
         public override void Sync(float step)
         {
+            SyncDetail();
             var action = (ActionRow)Row;
             if (action.Enabled == null && action.Confirm == null)
                 return;
@@ -239,37 +241,39 @@ namespace CameraTools
 
     internal sealed class ChoiceView : ArrowsView
     {
-        private int? shown;
+        private (int Position, string[] Options)? shown;
 
         public override void Sync(float step)
         {
             Dim();
             SyncDetail();
             var choice = (ChoiceRow)Row;
+            var options = choice.Choices;
             int position = choice.Get();
-            if (position == shown)
+            if (shown == (position, options))
                 return;
-            shown = position;
-            Value.text = position >= 0 && position < choice.Options.Length ? choice.Options[position] : "?";
+            shown = (position, options);
+            Value.text = position >= 0 && position < options.Length ? options[position] : "?";
             Previous.color = Style.WithAlpha(Style.White, position > 0 ? 1f : Style.StepDimmed);
-            Next.color = Style.WithAlpha(Style.White, position < choice.Options.Length - 1 ? 1f : Style.StepDimmed);
+            Next.color = Style.WithAlpha(Style.White, position < options.Length - 1 ? 1f : Style.StepDimmed);
         }
     }
 
     internal sealed class StepperView : ArrowsView
     {
         public Text Note;
-        private (int Index, int Count)? shown;
+        private (int Index, int Count, string Name)? shown;
         private string note;
 
         public override void Sync(float step)
         {
+            Dim();
             var stepper = (StepperRow)Row;
-            var position = (Index: stepper.Get(), Count: stepper.Count());
+            var position = (Index: stepper.Get(), Count: stepper.Count(), Name: stepper.Display?.Invoke());
             if (shown != position)
             {
                 shown = position;
-                Value.text = position.Count == 0 ? "None" : $"{position.Index + 1} / {position.Count}";
+                Value.text = position.Name ?? (position.Count == 0 ? "None" : $"{position.Index + 1} / {position.Count}");
                 Previous.color = Style.WithAlpha(Style.White, position.Index > 0 ? 1f : Style.StepDimmed);
                 Next.color = Style.WithAlpha(Style.White, position.Index < position.Count - 1 ? 1f : Style.StepDimmed);
             }
@@ -377,6 +381,7 @@ namespace CameraTools
             [PadButtons.DpadLeft] = new(Shapes.DpadLeft),
             [PadButtons.DpadRight] = new(Shapes.DpadRight),
             [PadButtons.DpadLeft | PadButtons.DpadRight] = new(Shapes.DpadSides),
+            [PadButtons.DpadUp | PadButtons.DpadDown] = new(Shapes.DpadUpDown),
         };
 
         private static readonly Dictionary<KeyCode, string> KeyNames = new()
@@ -540,6 +545,13 @@ namespace CameraTools
 
         public HintView KeyHint(Transform parent, KeyCode key, string label) => Hint(parent, rect => Keycap(rect, KeyName(key)), label);
 
+        // Several keys for one label, such as the four that bend and turn a joint, or a cap that names the mouse.
+        public HintView KeysHint(Transform parent, string[] caps, string label) => Hint(parent, rect =>
+        {
+            foreach (var cap in caps)
+                Keycap(rect, cap);
+        }, label);
+
         private HintView Hint(Transform parent, Action<Transform> mark, string label)
         {
             var rect = Node("Hint", parent);
@@ -607,14 +619,20 @@ namespace CameraTools
             return view;
         }
 
+        // With a Detail, the label moves up and the note runs under it; the switch stays in the middle of the row.
         public ToggleView Toggle(Transform parent, ToggleRow row, float y)
         {
             var view = new ToggleView();
-            var rect = Item(parent, view, row, y, Style.ToggleRowHeight, row.Enabled);
+            bool noted = row.Detail != null;
+            float height = noted ? Style.ChoiceRowHeight : Style.ToggleRowHeight;
+            var rect = Item(parent, view, row, y, height, row.Enabled);
             var label = Label(rect, "Label", row.Label, Style.RowSize, Style.Text, TextAnchor.MiddleLeft);
-            TopLeft(label.rectTransform, Style.RowLeft, 0f, Style.RowWidth - Style.SwitchWidth, Style.ToggleRowHeight);
+            TopLeft(label.rectTransform, Style.RowLeft, noted ? Style.RowTextY : 0f, Style.RowWidth - Style.SwitchWidth,
+                noted ? Style.RowTextHeight : height);
+            if (noted)
+                view.DetailText = NoteLabel(rect);
             var track = Picture(rect, "Switch", Shapes.SwitchOff, Style.White).rectTransform;
-            Pin(track, 1f, 1f, -Style.RowRight, -(Style.ToggleRowHeight - Style.SwitchHeight) / 2f, Style.SwitchWidth, Style.SwitchHeight);
+            Pin(track, 1f, 1f, -Style.RowRight, -(height - Style.SwitchHeight) / 2f, Style.SwitchWidth, Style.SwitchHeight);
             view.On = Picture(track, "On", Shapes.SwitchOn, Style.WithAlpha(Style.White, 0f));
             Fill(view.On.rectTransform);
             view.Knob = Picture(track, "Knob", Shapes.Knob, Style.White).rectTransform;
@@ -628,7 +646,7 @@ namespace CameraTools
         public ChoiceView Choice(Transform parent, ChoiceRow row, float y)
         {
             var view = new ChoiceView();
-            var rect = Arrows(parent, view, row, y, row.Note != null || row.Detail != null, row.Enabled);
+            var rect = Arrows(parent, view, row, y, row.Note != null || row.Detail != null, row.Enabled, Style.ChoiceValueWidth);
             if (row.Note != null)
                 Note(rect, row.Note);
             if (row.Detail != null)
@@ -640,7 +658,7 @@ namespace CameraTools
         public StepperView Stepper(Transform parent, StepperRow row, float y)
         {
             var view = new StepperView();
-            var rect = Arrows(parent, view, row, y, row.Note != null);
+            var rect = Arrows(parent, view, row, y, row.Note != null, row.Enabled, row.Display != null ? Style.NameValueWidth : Style.ChoiceValueWidth);
             if (row.Note != null)
                 view.Note = NoteLabel(rect);
             view.Sync(1f);
@@ -649,33 +667,38 @@ namespace CameraTools
 
         // With a note, the label and the arrows share the first line and the note runs under both, so a long note never
         // meets the arrows.
-        private RectTransform Arrows(Transform parent, ArrowsView view, Row row, float y, bool noted, Func<bool> enabled = null)
+        private RectTransform Arrows(Transform parent, ArrowsView view, Row row, float y, bool noted, Func<bool> enabled, float valueWidth)
         {
             float height = noted ? Style.ChoiceRowHeight : Style.ToggleRowHeight;
             var rect = Item(parent, view, row, y, height, enabled);
             float lineY = noted ? Style.RowTextY : 0f;
             float lineHeight = noted ? Style.RowTextHeight : height;
             float stepY = -(lineY + (lineHeight - Style.StepSize) / 2f);
-            float stepper = 2f * (Style.StepSize + Style.StepGap) + Style.ChoiceValueWidth;
+            float stepper = 2f * (Style.StepSize + Style.StepGap) + valueWidth;
             var label = Label(rect, "Label", row.Label, Style.RowSize, Style.Text, TextAnchor.MiddleLeft);
             TopLeft(label.rectTransform, Style.RowLeft, lineY, Style.RowWidth - stepper, lineHeight);
             view.Next = Picture(rect, "Next", Shapes.StepRight, Style.White);
             Pin(view.Next.rectTransform, 1f, 1f, -Style.RowRight, stepY, Style.StepSize, Style.StepSize);
             view.Value = Label(rect, "Value", "", Style.ValueSize, Style.Text, TextAnchor.MiddleCenter);
-            Pin(view.Value.rectTransform, 1f, 1f, -(Style.RowRight + Style.StepSize + Style.StepGap), -lineY, Style.ChoiceValueWidth, lineHeight);
+            Pin(view.Value.rectTransform, 1f, 1f, -(Style.RowRight + Style.StepSize + Style.StepGap), -lineY, valueWidth, lineHeight);
             view.Previous = Picture(rect, "Previous", Shapes.StepLeft, Style.White);
             Pin(view.Previous.rectTransform, 1f, 1f, -(Style.RowRight + stepper - Style.StepSize), stepY, Style.StepSize, Style.StepSize);
             return rect;
         }
 
-        // A row with a DisabledNote is a little taller, so the note fits under the label while the row is dimmed.
+        // A row with a DisabledNote is a little taller, so the note fits under the label while the row is dimmed. A row with
+        // a Detail always shows it under the label.
         public ActionView Action(Transform parent, ActionRow row, float y)
         {
             var view = new ActionView();
-            float height = row.DisabledNote != null ? Style.ChoiceRowHeight : Style.ToggleRowHeight;
+            bool noted = row.Detail != null;
+            float height = row.DisabledNote != null || noted ? Style.ChoiceRowHeight : Style.ToggleRowHeight;
             var rect = Item(parent, view, row, y, height, row.Enabled);
             view.Label = Label(rect, "Label", row.Label, Style.RowSize, Style.Text, TextAnchor.MiddleLeft);
-            TopLeft(view.Label.rectTransform, Style.RowLeft, 0f, Style.RowWidth - Shapes.Chevron.Width, height);
+            TopLeft(view.Label.rectTransform, Style.RowLeft, noted ? Style.RowTextY : 0f, Style.RowWidth - Shapes.Chevron.Width,
+                noted ? Style.RowTextHeight : height);
+            if (noted)
+                view.DetailText = NoteLabel(rect);
             view.Go = Picture(rect, "Go", Shapes.Chevron, Style.Cream);
             Pin(view.Go.rectTransform, 1f, 0.5f, -Style.RowRight, 0f, Shapes.Chevron.Width, Shapes.Chevron.Height);
             if (row.DisabledNote != null)
@@ -778,7 +801,7 @@ namespace CameraTools
             _ => PadButtons.None,
         };
 
-        private static string KeyName(KeyCode key)
+        public static string KeyName(KeyCode key)
             => KeyNames.TryGetValue(key, out var name) ? name
                 : key is >= KeyCode.Alpha0 and <= KeyCode.Alpha9 ? ((int)(key - KeyCode.Alpha0)).ToString()
                 : key.ToString();

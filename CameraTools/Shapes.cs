@@ -33,9 +33,13 @@ namespace CameraTools
         public static readonly Shape DpadLeft = Dpad("DpadLeft", Box(5f, 10f, 5f, 4f, 1f));
         public static readonly Shape DpadRight = Dpad("DpadRight", Box(14f, 10f, 5f, 4f, 1f));
         public static readonly Shape DpadSides = Dpad("DpadSides", Union(Box(5f, 10f, 5f, 4f, 1f), Box(14f, 10f, 5f, 4f, 1f)));
+        public static readonly Shape DpadUpDown = Dpad("DpadUpDown", Union(Box(10f, 5f, 4f, 5f, 1f), Box(10f, 14f, 4f, 5f, 1f)));
         public static readonly Shape Key = Framed("Key", 10f + Stretch, 10f + Stretch, 5f, 5f, 1.5f, Style.KeyFill, Style.Cream);
         public static readonly Shape Toast = Framed("Toast", Style.ToastHeight + Stretch, Style.ToastHeight + Stretch,
             Style.ToastHeight / 2f, Style.ToastHeight / 2f, 1f, Style.ToastFill, Style.ToastRing);
+        // A name beside a marker, like the toast but smaller.
+        public static readonly Shape Pill = Framed("Pill", Style.PillHeight + Stretch, Style.PillHeight + Stretch, Style.PillHeight / 2f,
+            Style.PillHeight / 2f, 1f, Style.ToastFill, Style.PillRing);
         public static readonly Shape Bar = Solid("Bar", 4f + Stretch, 4f + Stretch, 2f, Box(0f, 0f, 4f + Stretch, 4f + Stretch, 2f), Style.White);
         // The field of view track is 3 units wide with a 1 unit ring outside it.
         public static readonly Shape FovTrack = new("FovTrack", 5f + Stretch, 5f + Stretch, 2.5f, Layers(
@@ -82,9 +86,9 @@ namespace CameraTools
 
         public static readonly Shape[] All =
         {
-            Face, Bumper, Trigger, Menu, View, DpadUp, DpadDown, DpadLeft, DpadRight, DpadSides, Key, Toast, Bar, FovTrack, SwitchOff,
-            SwitchOn, Knob, Check, Cross, Plus, Minus, Handle, Arrow, Back, Chevron, StepLeft, StepRight, Button, PanelFill, PanelShadow,
-            FocusWindow, FocusCross, HueRail, TemperatureRail,
+            Face, Bumper, Trigger, Menu, View, DpadUp, DpadDown, DpadLeft, DpadRight, DpadSides, DpadUpDown, Key, Toast, Pill, Bar,
+            FovTrack, SwitchOff, SwitchOn, Knob, Check, Cross, Plus, Minus, Handle, Arrow, Back, Chevron, StepLeft, StepRight, Button,
+            PanelFill, PanelShadow, FocusWindow, FocusCross, HueRail, TemperatureRail,
         };
 
         private static readonly Dictionary<Shape, Sprite> sprites = new();

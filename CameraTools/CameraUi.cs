@@ -633,7 +633,7 @@ namespace CameraTools
         private static void Choose(ChoiceRow choice, int direction)
         {
             int now = choice.Get();
-            int next = Math.Clamp(now + direction, 0, choice.Options.Length - 1);
+            int next = Math.Clamp(now + direction, 0, choice.Choices.Length - 1);
             if (next != now)
                 choice.Set(next);
         }

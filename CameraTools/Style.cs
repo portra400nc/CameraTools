@@ -46,6 +46,7 @@ namespace CameraTools
         public static readonly Color Tick = Hex(0xece5d8, 0.70f);
         public static readonly Color FocusShadow = Hex(0x000000, 0.55f);
         public static readonly Color MarkerRing = Hex(0x222835, 0.90f);
+        public static readonly Color PillRing = Hex(0xd3bc8e, 0.45f);
 
         public const float Margin = 44f;
         public const float TopLegendY = 28f;
@@ -127,10 +128,23 @@ namespace CameraTools
         public const float MarkerAimLength = 30f;
         public const float MarkerAimWidth = 3f;
         public const int MarkerNumberSize = 10;
+        // Pose joints: a light dot on each joint in a dark ring, the selected one larger and cream with its name in a pill
+        // up and to the right of it, and the joint's angles at the bottom left.
+        public const float JointDot = 12f;
+        public const float JointDotSelected = 16f;
+        public const float JointRing = 4f;
+        public const float PillHeight = 24f;
+        public const int PillPadding = 11;
+        public const int PillTextSize = 13;
+        public const float PillX = 14f;
+        public const float PillY = 18f;
+        public const float ReadoutGap = 12f;
         public const float ChoiceRowHeight = RowTextY + RowTextHeight + NoteExtra + 8f;
         public const float StepSize = 22f;
         public const float StepGap = 6f;
         public const float ChoiceValueWidth = 92f;
+        // A stepper that shows a name, such as "Right upper arm", in place of "2 / 19".
+        public const float NameValueWidth = 120f;
         public const float StepDimmed = 0.3f;
         public const float RowDimmed = 0.4f;
         public const float SlotValueWidth = 110f;
