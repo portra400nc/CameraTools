@@ -119,7 +119,7 @@ namespace CameraTools
         private static readonly IKnob[] Knobs =
         {
             new Knob<float>("innerResolutionScale", SettingKey.RenderResolution, wanted => wanted.RenderScale, ReadScale, WriteScale),
-            new Knob<ShadowQuality>("shadows", SettingKey.ShadowQuality, wanted => wanted.Shadows, () => QualitySettings.shadows,
+            new Knob<ShadowQuality>("shadows", SettingKey.ShadowQuality, wanted => wanted.Shadows ?? LightShadows(), () => QualitySettings.shadows,
                 value => QualitySettings.shadows = value),
             new Knob<float>("shadowDistance", SettingKey.ShadowQuality, wanted => wanted.ShadowDistance, null, QualitySettings.set_shadowDistance),
             new Knob<bool>("enableDistantShadow", SettingKey.ShadowQuality, wanted => wanted.DistantShadows, () => QualitySettings.enableDistantShadow,
@@ -478,6 +478,12 @@ namespace CameraTools
             active = overrides;
             pendingLog = (Time.unscaledTime + LogDelay, $"{LogDelay:0} s after {what}");
         }
+
+        // The game's Lowest shadow quality switches Unity's shadows off, and with them every shadow of a point or a spot,
+        // so while a Lights tab light casts shadows they are on. The game's own setting decides, not the engine value, so
+        // a screenshot's Max quality hands the shadows back to the game's better ones. The Shadows row's own choice wins.
+        private static ShadowQuality? LightShadows()
+            => Lights.NeedsShadows && GameSettings.Get(SettingKey.ShadowQuality) == 0 ? ShadowQuality.All : null;
 
         private static PostProcessLayer Layer()
         {

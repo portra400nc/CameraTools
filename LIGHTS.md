@@ -12,7 +12,9 @@ The Lights tab adds lights of your own to a shot. Lights show while the free cam
 
 A light that lights only characters leaves the ground and the scenery as they are, so it works as a key or fill light for portraits. Its intensity stops at 3, because 1 is already a soft fill and 3 is very bright. Lights of everything reach characters only weakly.
 
-The game's lights cast no shadows and have no size. A sphere has both: a bigger radius makes it softer, not brighter.
+A point or a spot casts shadows when Shadows is on. The game's Lowest shadow quality turns those shadows off, so while such a light shows at Lowest, CameraTools turns Unity's shadows on, and gives the setting back to the game when the light goes. If the Graphics tab's Shadows row is set to Off, that choice wins and the lights cast no shadows.
+
+The game's lights have no size, so their shadows have hard edges. A sphere has a size: a bigger radius makes it softer, not brighter, and its shadows soft.
 
 ## Placing a light
 

@@ -54,6 +54,9 @@ namespace CameraTools
 
         public static bool HasSpheres => All.Exists(light => light.Kind == LightKind.Sphere);
 
+        // A point or a spot that casts shadows is showing.
+        public static bool NeedsShadows => Shown && All.Exists(light => light.Kind != LightKind.Sphere && light.Shadows);
+
         // While spheres show, ReShade's effects stay on, after a screenshot too.
         public static bool KeepsEffectsOn => Shown && HasSpheres;
 
@@ -84,7 +87,7 @@ namespace CameraTools
 
         // A light's settings as last written to its component.
         private readonly record struct Applied(LightKind Kind, LightReach Reach, float Intensity, float Range, float SpotAngle,
-            float InnerAngle, NumericsVector3 Color, bool Shadows, int ShadowVariant);
+            float InnerAngle, NumericsVector3 Color, bool Shadows);
 
         public static string LightNote
         {
@@ -411,11 +414,10 @@ namespace CameraTools
                 }
                 var color = light.Color;
                 var wanted = new Applied(light.Kind, light.Reach, light.Intensity, light.Range, light.SpotAngle, light.InnerAngle, color,
-                    light.Shadows, ShadowTest.Variant);
-                // A fresh component when the type, the reach or the shadows change, so no switch is left over from before.
-                if (!game.Object || !game.Light || game.Shown.Kind != wanted.Kind || game.Shown.Reach != wanted.Reach
-                    || game.Shown.Shadows != wanted.Shadows || game.Shown.ShadowVariant != wanted.ShadowVariant)
-                    Create(game, light.Shadows);
+                    light.Shadows);
+                // A fresh component when the type or reach changes, so no character switch is left over from before.
+                if (!game.Object || !game.Light || game.Shown.Kind != wanted.Kind || game.Shown.Reach != wanted.Reach)
+                    Create(game);
                 game.Object.transform.position = pose.Position.ToUnity();
                 game.Object.transform.rotation = pose.Rotation.ToUnity();
                 if (game.Shown == wanted)
@@ -433,37 +435,21 @@ namespace CameraTools
                     component.characterLightCullingMask = uint.MaxValue;
                     component.characterIntensityMultiplier = 1f;
                 }
-                if (light.Shadows)
-                    ShadowTest.Apply(component);
+                // On the Deck, soft shadows with nothing more showed once Unity's shadows were on.
+                component.shadows = light.Shadows ? LightShadows.Soft : LightShadows.None;
+                component.shadowStrength = 1f;
                 game.Shown = wanted;
             }
             gameLights.RemoveRange(All.Count, gameLights.Count - All.Count);
         }
 
-        private static void Create(GameLight game, bool shadows)
+        private static void Create(GameLight game)
         {
             Destroy(game);
-            game.Object = shadows ? ShadowTest.CloneTemplate() : null;
-            game.Light = game.Object ? game.Object.GetComponent<Light>() : null;
-            if (!game.Light)
-            {
-                if (game.Object)
-                    UnityEngine.Object.Destroy(game.Object);
-                game.Object = new GameObject(ObjectName);
-                game.Light = game.Object.AddComponent<Light>();
-            }
-            game.Object.name = ObjectName;
+            game.Object = new GameObject("CameraTools Light");
             UnityEngine.Object.DontDestroyOnLoad(game.Object);
+            game.Light = game.Object.AddComponent<Light>();
             game.Shown = default;
-        }
-
-        public const string ObjectName = "CameraTools Light";
-
-        // Destroys every game light, so the next update builds them again, as the shadow test needs after a change.
-        public static void Rebuild()
-        {
-            foreach (var game in gameLights)
-                Destroy(game);
         }
 
         private static void Destroy(GameLight game)
