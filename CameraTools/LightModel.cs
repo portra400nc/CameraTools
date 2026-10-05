@@ -61,8 +61,10 @@ namespace CameraTools
         public float SpotAngle { get; set; } = 60f;
         public float InnerAngle { get; set; } = 5f;
         public float Radius { get; set; } = 0.5f;
-        // A point's or a spot's own shadows; a sphere always casts soft ones.
+        // A spot's own shadows. Genshin draws local light shadows for spots only, and a sphere always casts soft ones.
         public bool Shadows { get; set; }
+
+        public bool CastsShadows => Kind == LightKind.Spot && Shadows;
         public ColorSource Source { get; set; }
         public float Kelvin { get; set; } = 6500f;
         public float Hue { get; set; }

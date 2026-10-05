@@ -6,13 +6,13 @@ The Lights tab adds lights of your own to a shot. Lights show while the free cam
 
 | Type | What it is |
 |--|--|
-| Point | A light of the game's own that shines in every direction. It can light everything or only characters. |
-| Spot | A game light that shines in a cone where it faces. |
+| Point | A light of the game's own that shines in every direction. It can light everything or only characters, and casts no shadows. |
+| Spot | A game light that shines in a cone where it faces, and can cast shadows. |
 | Sphere | A soft light with a size, drawn by ReShade's iMMERSE ReLight instead of the game. It casts soft shadows and lights everything around it. |
 
 A light that lights only characters leaves the ground and the scenery as they are, so it works as a key or fill light for portraits. Its intensity stops at 3, because 1 is already a soft fill and 3 is very bright. Lights of everything reach characters only weakly.
 
-A point or a spot casts shadows when Shadows is on. The game's Lowest shadow quality turns those shadows off, so while such a light shows at Lowest, CameraTools turns Unity's shadows on, and gives the setting back to the game when the light goes. If the Graphics tab's Shadows row is set to Off, that choice wins and the lights cast no shadows.
+A spot casts shadows when Shadows is on. Genshin draws shadows of its own lights for spots only, so a point has no Shadows row: for a shadow from a lamp, use a wide spot aimed at the subject, or a sphere. The game's Lowest shadow quality turns spot shadows off, so while a spot with Shadows on shows at Lowest, CameraTools turns Unity's shadows on, and gives the setting back to the game when the spot goes. If the Graphics tab's Shadows row is set to Off, that choice wins and the spots cast no shadows.
 
 The game's lights have no size, so their shadows have hard edges. A sphere has a size: a bigger radius makes it softer, not brighter, and its shadows soft.
 

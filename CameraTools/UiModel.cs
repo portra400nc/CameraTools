@@ -197,7 +197,7 @@ namespace CameraTools
             },
             new ToggleRow("Shadows", () => Lights.Current?.Shadows ?? false, on => Lights.Edit(light => light.Shadows = on))
             {
-                Shown = LightIs(light => light.Kind != LightKind.Sphere),
+                Shown = LightIs(light => light.Kind == LightKind.Spot),
             },
             LightSlider("Range", 0.5f, 40f, 0.5f, "0.0' m'", light => light.Range, (light, value) => light.Range = value,
                 light => light.Kind != LightKind.Sphere),

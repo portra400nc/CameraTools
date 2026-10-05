@@ -54,8 +54,8 @@ namespace CameraTools
 
         public static bool HasSpheres => All.Exists(light => light.Kind == LightKind.Sphere);
 
-        // A point or a spot that casts shadows is showing.
-        public static bool NeedsShadows => Shown && All.Exists(light => light.Kind != LightKind.Sphere && light.Shadows);
+        // A spot that casts shadows is showing.
+        public static bool NeedsShadows => Shown && All.Exists(light => light.CastsShadows);
 
         // While spheres show, ReShade's effects stay on, after a screenshot too.
         public static bool KeepsEffectsOn => Shown && HasSpheres;
@@ -87,7 +87,7 @@ namespace CameraTools
 
         // A light's settings as last written to its component.
         private readonly record struct Applied(LightKind Kind, LightReach Reach, float Intensity, float Range, float SpotAngle,
-            float InnerAngle, NumericsVector3 Color, bool Shadows);
+            float InnerAngle, NumericsVector3 Color, bool CastsShadows);
 
         public static string LightNote
         {
@@ -414,7 +414,7 @@ namespace CameraTools
                 }
                 var color = light.Color;
                 var wanted = new Applied(light.Kind, light.Reach, light.Intensity, light.Range, light.SpotAngle, light.InnerAngle, color,
-                    light.Shadows);
+                    light.CastsShadows);
                 // A fresh component when the type or reach changes, so no character switch is left over from before.
                 if (!game.Object || !game.Light || game.Shown.Kind != wanted.Kind || game.Shown.Reach != wanted.Reach)
                     Create(game);
@@ -436,7 +436,7 @@ namespace CameraTools
                     component.characterIntensityMultiplier = 1f;
                 }
                 // On the Deck, soft shadows with nothing more showed once Unity's shadows were on.
-                component.shadows = light.Shadows ? LightShadows.Soft : LightShadows.None;
+                component.shadows = light.CastsShadows ? LightShadows.Soft : LightShadows.None;
                 component.shadowStrength = 1f;
                 game.Shown = wanted;
             }
