@@ -90,9 +90,16 @@ namespace CameraTools
         private static Bridge bridge;
         // A loaded module that is not a bridge of this version, so it is reported once and not tried again.
         private static IntPtr rejected;
+        // The version of a loaded bridge that is too old or too new, or null.
+        private static uint? rejectedVersion;
         private static float nextLook;
 
         public static bool Connected => bridge != null;
+
+        // Why the bridge cannot be used, for a section header, or null while it can.
+        public static string Missing => bridge != null ? null
+            : rejectedVersion is uint found ? $"ReShade bridge {found} loaded, {Version} needed"
+            : "ReShade bridge not found";
 
         // Rises with every connection. A bridge that ReShade loaded again has forgotten what the last one was told.
         public static int Connections { get; private set; }
@@ -227,6 +234,7 @@ namespace CameraTools
                     Melon<CameraTools>.Logger.Msg($"ReShade: {ModuleName} was unloaded.");
                 bridge = null;
                 rejected = IntPtr.Zero;
+                rejectedVersion = null;
                 if (module != IntPtr.Zero)
                     Connect(module);
             }
@@ -250,6 +258,7 @@ namespace CameraTools
             uint found = version();
             if (found != Version)
             {
+                rejectedVersion = found;
                 log.Warning($"ReShade: {ModuleName} is bridge version {found}, and CameraTools needs version {Version}; update both together.");
                 return;
             }

@@ -161,7 +161,7 @@ namespace CameraTools
             }
         }
 
-        private static string Problem => !ReShade.Connected ? "ReShade bridge not found"
+        private static string Problem => !ReShade.Connected ? ReShade.Missing
             : !ready ? "ReShade is loading its effects"
             : !Known(Id.Technique) ? "Depth of field shader not loaded"
             : null;

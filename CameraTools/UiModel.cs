@@ -221,7 +221,7 @@ namespace CameraTools
             {
                 Shown = () => Lights.HasLight,
             },
-            new Section("Spheres", () => !ReShade.Connected ? "ReShade bridge not found" : ReLight.Loaded ? null : "Needs iMMERSE ReLight")
+            new Section("Spheres", () => ReShade.Missing ?? (ReLight.Loaded ? null : "Needs iMMERSE ReLight"))
             {
                 Shown = () => Lights.HasSpheres,
             },
@@ -235,12 +235,12 @@ namespace CameraTools
         // The effects stay on while the user composes a shot; the screenshot turns them off afterwards.
         private static readonly Tab ReShadeTab = new("ReShade", new Row[]
         {
-            new Section("Effects", () => ReShade.Connected ? null : "ReShade bridge not found"),
+            new Section("Effects", () => ReShade.Missing),
             new ToggleRow("ReShade effects", () => ReShade.Status.EffectsEnabled == 1, ReShade.SetEffects, () => ReShade.Status.Runtime == 1),
         }.Concat(DepthOfField.Rows).Concat(new Row[]
         {
             new Section("Screenshot"),
-            new ActionRow("Take screenshot", Screenshot.Take, "Shoot", () => ReShade.Connected, "ReShade bridge not found"),
+            new ActionRow("Take screenshot", Screenshot.Take, "Shoot", () => ReShade.Connected, "Needs the ReShade bridge; see Effects"),
             new ToggleRow("3-second countdown", () => Screenshot.Countdown, on => Screenshot.Countdown = on),
         }).ToArray());
 
