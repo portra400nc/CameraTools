@@ -6,7 +6,7 @@ using NativeLibrary = System.Runtime.InteropServices.NativeLibrary;
 
 namespace CameraTools
 {
-    // BridgeStatus in GenshinReShadeBridge's bridge.h, field for field.
+    // BridgeStatus in ReShadeBridge/bridge.h, field for field.
     [StructLayout(LayoutKind.Sequential)]
     internal readonly record struct BridgeStatus(uint Runtime, uint EffectsEnabled, uint EffectsReady, uint Width, uint Height,
         ulong Presents, ulong Screenshots);
@@ -25,12 +25,12 @@ namespace CameraTools
         }
     }
 
-    // The only class that knows GenshinReShadeBridge.addon64, the add-on through which a mod drives ReShade. ReShade loads
-    // the add-on, some time after CameraTools starts or never, so CameraTools looks for the loaded module and never loads
-    // a copy of its own. Every call returns at once and takes effect at ReShade's next present, so callers watch Status.
+    // The only class that knows CameraToolsReShadeBridge.addon64, the add-on in ReShadeBridge/ that drives ReShade.
+    // ReShade loads the add-on, some time after CameraTools starts or never, so CameraTools looks for the loaded module and
+    // never loads a copy of its own. Every call returns at once and takes effect at ReShade's next present, so callers watch Status.
     internal static class ReShade
     {
-        private const string ModuleName = "GenshinReShadeBridge.addon64";
+        private const string ModuleName = "CameraToolsReShadeBridge.addon64";
         private const uint Version = 4;
         private const float LookInterval = 1f;
         // Longer than Windows' MAX_PATH in UTF-8.

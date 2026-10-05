@@ -1,6 +1,6 @@
 # ReShade: depth of field and screenshots
 
-The ReShade tab drives ReShade from the free camera. It needs ReShade and `GenshinReShadeBridge.addon64` add-on. Without them, its rows are dimmed and the tab reads "ReShade bridge not found". If the add-on is older or newer than CameraTools, the tab says which version is loaded and which is needed: copy the add-on from the same release as CameraTools into the folder ReShade loads add-ons from. That is `C:\ReShade`, or the folder that `AddonPath` in `ReShade.ini` names, such as `C:\ReShade\reshade-shaders\Addons`.
+The ReShade tab drives ReShade from the free camera. It needs ReShade and CameraTools' own add-on, `CameraToolsReShadeBridge.addon64`, whose source is in `ReShadeBridge/`. Without them, its rows are dimmed and the tab reads "ReShade bridge not found". If the add-on is older or newer than CameraTools, the tab says which version is loaded and which is needed: copy the add-on from the same release as CameraTools into the folder ReShade loads add-ons from. That is `C:\ReShade`, or the folder that `AddonPath` in `ReShade.ini` names, such as `C:\ReShade\reshade-shaders\Addons`.
 
 ReShade effects turns all of ReShade's effects on or off. Turn it on to see the blur while you compose a shot. Every other row and the focus point also work while it is off, which keeps the frame rate up, and a screenshot turns the effects on by itself. A screenshot turns it off afterwards, unless a sphere light needs it; see [Lights](LIGHTS.md).
 

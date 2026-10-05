@@ -36,7 +36,7 @@ Colour from Temperature sets the colour in kelvin, from candle light at 1000 K t
 
 ## Spheres and ReShade
 
-Spheres need ReShade with the `GenshinReShadeBridge.addon64` add-on, and iMMERSE's `MartysMods_RELIGHT.fx` and `MartysMods_LAUNCHPAD.fx` shaders. ReLight takes its normals from Launchpad. Do not load ReLight's own add-on, `MartysMods_ReLightAddon.addon64`: it writes the same lights as CameraTools, and the two would fight.
+Spheres need ReShade with the `CameraToolsReShadeBridge.addon64` add-on, and iMMERSE's `MartysMods_RELIGHT.fx` and `MartysMods_LAUNCHPAD.fx` shaders. ReLight takes its normals from Launchpad. Do not load ReLight's own add-on, `MartysMods_ReLightAddon.addon64`: it writes the same lights as CameraTools, and the two would fight.
 
 While a sphere exists, CameraTools turns ReShade's effects on and runs only ReLight and Launchpad, so your other effects cost no frame rate while you compose. A screenshot turns your own effects back on beside ReLight, and switches them off again after the shot. Your ReShade preset keeps your own choice of effects throughout. When the last sphere goes, or the free camera turns off, everything is put back as it was.
 
