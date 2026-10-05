@@ -1,56 +1,46 @@
-using Il2CppInterop.Runtime;
 using MelonLoader;
 using UnityEngine;
 
 namespace CameraTools
 {
-    // A throwaway test of custom lights, before the Lights tab is designed. Each press of Back+D-pad right (Numpad 0)
-    // rebuilds one light at the pose where the test started, in the next state of the table; Back+D-pad left (Numpad .)
-    // removes it. Every state is logged with what the game reports, so a screenshot per state settles what renders.
+    // A throwaway test of custom lights, before the Lights tab is built. Each press of Back+D-pad right (Numpad 0) shows
+    // the next state of the table where the light was placed; Back+D-pad left (Numpad .) removes it, and the next press
+    // places it again at the camera, so the light can sit beside the character while the camera looks from elsewhere.
+    // Every state is logged with the frame rate over its first seconds, so a screenshot per state settles what renders.
     internal static class LightTest
     {
-        private sealed record Step(string Name, Action<Light> Apply);
+        private abstract record Step(string Name);
+
+        // A light of the game's own.
+        private sealed record GameStep(string Name, Action<Light> Apply) : Step(Name);
+
+        // A ReLight sphere, which needs ReShade with Launchpad and ReLight installed.
+        private sealed record SphereStep(string Name, float Radius, float Intensity, float Ambient = 1f) : Step(Name);
 
         private static readonly Color White = new(1f, 1f, 1f, 1f);
-        private static readonly Color Red = new(1f, 0.15f, 0.1f, 1f);
-        private static readonly Color Cyan = new(0.2f, 0.9f, 1f, 1f);
-        private static readonly Color Magenta = new(1f, 0.2f, 0.9f, 1f);
+        private const float FrameRateWindow = 3f;
 
+        // Builds 137 and 138 showed the game's lights render, light characters alone, and cast no shadows. These try
+        // ReLight's spheres at three sizes and brightnesses, then the game light's two toon softness settings.
         private static readonly Step[] Steps =
         {
-            new("Point, white, intensity 2", light => Point(light, White, 2f)),
-            new("Point, white, intensity 8", light => Point(light, White, 8f)),
-            new("Point, red, intensity 8", light => Point(light, Red, 8f)),
-            new("Spot, white, 40 degrees", light => Spot(light)),
-            new("Spot, white, soft shadows", light =>
+            new SphereStep("Sphere 0.5 m, intensity 2", 0.5f, 2f),
+            new SphereStep("Sphere 0.5 m, intensity 5", 0.5f, 5f),
+            new SphereStep("Sphere 0.5 m, intensity 10", 0.5f, 10f),
+            new SphereStep("Sphere 0.1 m, intensity 5", 0.1f, 5f),
+            new SphereStep("Sphere 1.5 m, intensity 5", 1.5f, 5f),
+            new SphereStep("Sphere 0.5 m, intensity 5, ambient 0.4", 0.5f, 5f, 0.4f),
+            new GameStep("Characters only, intensity 1", light => CharacterLight(light)),
+            new GameStep("Characters only, toon softness 1", light =>
             {
-                Spot(light);
-                light.shadows = LightShadows.Soft;
-                light.shadowStrength = 1f;
+                CharacterLight(light);
+                light.halfLambertSoftness = 1f;
             }),
-            new("Point, red, characters only", light =>
+            new GameStep("Characters only, very soft light", light =>
             {
-                Point(light, Red, 8f);
-                light.set_isCharacterLight(true);
-                light.characterLightCullingMask = uint.MaxValue;
-                light.characterIntensityMultiplier = 1f;
-            }),
-            new("Rim light, cyan front, magenta back", light =>
-            {
-                Point(light, White, 8f);
-                light.set_isCharacterLight(true);
-                light.characterLightCullingMask = uint.MaxValue;
-                light.set_isRimLight(true);
-                light.rimWidth = 1f;
-                light.frontRimColor = Cyan;
-                light.frontRimIntensity = 2f;
-                light.backRimColor = Magenta;
-                light.backRimIntensity = 2f;
-            }),
-            new("Point, white, main local light", light =>
-            {
-                Point(light, White, 8f);
-                light.mainLocalLight = true;
+                CharacterLight(light);
+                light.set_isVerySoftShadowLight(true);
+                light.verySoftShadowSoftness = 1f;
             }),
         };
 
@@ -61,7 +51,10 @@ namespace CameraTools
         private static int step = -1;
         private static Vector3 absolutePosition;
         private static Quaternion rotation;
-        private static bool referenceLogged;
+        private static bool placementLogged;
+        private static float windowTime;
+        private static int windowFrames;
+        private static bool windowLogged = true;
 
         public static void Update()
         {
@@ -70,10 +63,29 @@ namespace CameraTools
             if (keys && Input.GetKeyDown(KeyCode.Keypad0) || pad && NextPad.Pressed(Gamepad.Current, Gamepad.Previous))
                 Next();
             else if (keys && Input.GetKeyDown(KeyCode.KeypadPeriod) || pad && RemovePad.Pressed(Gamepad.Current, Gamepad.Previous))
-                Remove("removed");
+                Remove("removed", step);
             // A world shift moves the scene; the light keeps its absolute position.
             if (holder)
                 holder.transform.position = WorldShift.Relative(absolutePosition);
+            if (holder && Steps[step] is SphereStep sphere)
+                ShowSphere(sphere);
+            else
+                ReLight.Hide();
+            CountFrames();
+        }
+
+        private static void ShowSphere(SphereStep sphere)
+        {
+            var camera = CameraTools.maincam ? CameraTools.maincam : Camera.main;
+            if (!camera)
+                return;
+            var placement = ReLight.Show(camera, holder.transform.position, sphere.Radius, White, sphere.Intensity, sphere.Ambient);
+            if (placement is not ReLight.Placement p || placementLogged)
+                return;
+            placementLogged = true;
+            Melon<CameraTools>.Logger.Msg($"Light test: {ReLight.Depth}; sphere at uv ({p.U:0.000}, {p.V:0.000}), {p.ViewZ:0.00} m away, "
+                + $"linear depth {p.Linear:0.00000}, ReLight z {p.ProjectedZ:0.00}, radius {p.Radius:0.000}, "
+                + $"packed {p.Packed.X:X8} {p.Packed.Y:X8} {p.Packed.Z:X8} {p.Packed.W:X8}, ReLight loaded {ReLight.TechniqueLoaded}.");
         }
 
         private static void Next()
@@ -88,18 +100,13 @@ namespace CameraTools
                 }
                 if (step == Steps.Length - 1)
                 {
-                    Remove("finished");
+                    Remove("finished", -1);
                     return;
                 }
-                if (step < 0)
+                if (!holder)
                 {
                     absolutePosition = WorldShift.Absolute(camera.position);
                     rotation = camera.rotation;
-                    if (!referenceLogged)
-                    {
-                        referenceLogged = true;
-                        LogGameLights(camera.position);
-                    }
                 }
                 step++;
                 Build(Steps[step]);
@@ -111,89 +118,77 @@ namespace CameraTools
             }
         }
 
-        // A fresh light per state, so a switch set by one state cannot leak into the next.
+        // A fresh holder per state, so a switch set by one state cannot leak into the next.
         private static void Build(Step current)
         {
             if (holder)
                 UnityEngine.Object.Destroy(holder);
-            int before = CountLights();
             holder = new GameObject("CameraTools Light Test");
             holder.transform.position = WorldShift.Relative(absolutePosition);
             holder.transform.rotation = rotation;
-            var light = holder.AddComponent<Light>();
-            current.Apply(light);
             string label = $"Light test {step + 1}/{Steps.Length}: {current.Name}";
+            string detail = "";
+            if (current is GameStep game)
+            {
+                var light = holder.AddComponent<Light>();
+                game.Apply(light);
+                detail = " " + Describe(light);
+            }
+            placementLogged = false;
+            StartWindow();
             CameraUi.Toast(label);
-            Melon<CameraTools>.Logger.Msg($"{label}. Lights in GetLights before {before}, after {CountLights()}. {Describe(light)}");
+            Melon<CameraTools>.Logger.Msg($"{label}.{detail}");
         }
 
-        private static void Remove(string why)
+        private static void Remove(string why, int keepStep)
         {
             if (holder)
                 UnityEngine.Object.Destroy(holder);
             holder = null;
-            step = -1;
+            step = keepStep;
+            StartWindow();
             CameraUi.Toast($"Light test {why}");
             Melon<CameraTools>.Logger.Msg($"Light test {why}.");
         }
 
-        private static void Point(Light light, Color color, float intensity)
+        private static void StartWindow()
+        {
+            windowTime = 0f;
+            windowFrames = 0;
+            windowLogged = false;
+        }
+
+        // ReLight compiles when first switched on, so the frame rate is logged after the window, not from the first frame.
+        private static void CountFrames()
+        {
+            if (windowLogged)
+                return;
+            windowTime += Time.unscaledDeltaTime;
+            windowFrames++;
+            if (windowTime < FrameRateWindow)
+                return;
+            windowLogged = true;
+            string state = holder ? Steps[step].Name : "no light";
+            Melon<CameraTools>.Logger.Msg($"Light test: {windowFrames / windowTime:0.0} fps over {windowTime:0.0} s with {state}.");
+        }
+
+        private static void CharacterLight(Light light)
         {
             light.type = LightType.Point;
-            light.color = color;
-            light.intensity = intensity;
-            light.range = 8f;
-        }
-
-        private static void Spot(Light light)
-        {
-            light.type = LightType.Spot;
             light.color = White;
-            light.intensity = 8f;
-            light.range = 15f;
-            light.spotAngle = 40f;
-            light.spotInnerAngle = 25f;
-        }
-
-        private static int CountLights()
-        {
-            try
-            {
-                return Light.GetLights(LightType.Point, 0).Length + Light.GetLights(LightType.Spot, 0).Length;
-            }
-            catch (Exception e)
-            {
-                CameraTools.LogOnce($"Light test: Light.GetLights failed ({e.Message}).");
-                return -1;
-            }
-        }
-
-        // The game's own lights near the camera, as reference values for intensity, range and the character switches.
-        private static void LogGameLights(Vector3 from)
-        {
-            var lights = UnityEngine.Object.FindObjectsOfType(Il2CppType.Of<Light>())
-                .Select(found => found.TryCast<Light>())
-                .Where(light => light)
-                .ToList();
-            var logger = Melon<CameraTools>.Logger;
-            logger.Msg($"Light test: the scene has {lights.Count} active lights: "
-                + string.Join(", ", lights.GroupBy(light => light.type).Select(group => $"{group.Count()} {group.Key}")) + ".");
-            foreach (var light in lights.OrderBy(light => Vector3.Distance(light.transform.position, from)).Take(30))
-            {
-                var parent = light.transform.parent;
-                logger.Msg($"  {(parent ? parent.name + "/" : "")}{light.name} at {Vector3.Distance(light.transform.position, from):0.0} m: {Describe(light)}");
-            }
+            light.intensity = 1f;
+            light.range = 8f;
+            light.set_isCharacterLight(true);
+            light.characterLightCullingMask = uint.MaxValue;
+            light.characterIntensityMultiplier = 1f;
         }
 
         private static string Describe(Light light)
         {
             var c = light.color;
-            return $"type {light.type}, enabled {light.isActiveAndEnabled}, layer {light.gameObject.layer}, "
-                + $"color ({c.r:0.##}, {c.g:0.##}, {c.b:0.##}), intensity {light.intensity:0.##}, range {light.range:0.##}, "
-                + $"spot {light.spotAngle:0.#}/{light.spotInnerAngle:0.#}, shadows {light.shadows}, "
-                + $"culling 0x{light.cullingMask:X}, character culling 0x{light.characterLightCullingMask:X}, "
-                + $"character multiplier {light.characterIntensityMultiplier:0.##}, main local {light.mainLocalLight}, "
-                + $"specular wrap {light.specularWrap:0.##}, rim group {light.rimLightGroup}";
+            return $"type {light.type}, color ({c.r:0.##}, {c.g:0.##}, {c.b:0.##}), intensity {light.intensity:0.##}, "
+                + $"range {light.range:0.##}, half Lambert threshold {light.halfLambertThreshold:0.##} softness {light.halfLambertSoftness:0.##}, "
+                + $"very soft shadow softness {light.verySoftShadowSoftness:0.##}";
         }
     }
 }
