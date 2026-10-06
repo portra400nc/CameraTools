@@ -15,6 +15,9 @@ namespace CameraTools
         private const int SettleFrames = 30;
         // A click this far from a marker, as a share of the screen's height, picks its joint: 24 units of the 800 tall canvas.
         private const float PickRadius = 0.03f;
+        // How often, and how many times a session, the log says how many frames had a canvases callback.
+        private const float CountEvery = 10f;
+        private const int CountReports = 6;
 
         private static readonly PadBinding PadA = new(PadButtons.A, PadAxis.None);
         private static readonly PadBinding PadB = new(PadButtons.B, PadAxis.None);
@@ -208,6 +211,7 @@ namespace CameraTools
         {
             if (session == null)
                 return;
+            session.Canvases++;
             try
             {
                 session.Rig.WriteFace(session.Pose.Face);
@@ -233,6 +237,7 @@ namespace CameraTools
                 End("Posing ended: the character changed");
                 return;
             }
+            CountFrames(current);
             if (current.Edit != null)
                 EditJoints(current);
             if (current.SettleLeft > 0 && --current.SettleLeft == 0)
@@ -248,6 +253,21 @@ namespace CameraTools
             current.Rig.WriteBody(pose, view);
             current.Rig.WriteFace(pose.Face);
             current.Rig.WriteEyes(pose.Gaze, view);
+        }
+
+        // The face overrides and the eyes are written again in Canvas.willRenderCanvases, after the game's face system. If
+        // the callback skips frames, those frames show the game's face; the count says whether it does.
+        private static void CountFrames(Session current)
+        {
+            current.Frames++;
+            if (current.Reports >= CountReports || Time.unscaledTime < current.CountFrom + CountEvery)
+                return;
+            Melon<CameraTools>.Logger.Msg($"Posing: {current.Canvases} canvases callbacks in {current.Frames} frames"
+                + $" (UI {(CameraTools.uiHidden ? "hidden" : "shown")}, view {CameraUi.View}).");
+            current.Reports++;
+            current.Frames = 0;
+            current.Canvases = 0;
+            current.CountFrom = Time.unscaledTime;
         }
 
         private static bool Start()
@@ -401,6 +421,10 @@ namespace CameraTools
             // Frames the hair physics still runs before it holds.
             public int SettleLeft;
             public bool SettleToast;
+            public int Frames;
+            public int Canvases;
+            public int Reports;
+            public float CountFrom = Time.unscaledTime;
 
             public Session(CharacterRig rig)
             {
