@@ -20,8 +20,9 @@ namespace CameraTools
         // The game's own eye range, from EyeCtrl's eyeRotationRangeY and eyeRotationRangeX on Skirk.
         private const float EyeYawLimit = 17f;
         private const float EyePitchLimit = 6.5f;
-        // A bit of EyeCtrl's auto-blink reason mask that is CameraTools' own.
+        // A bit of EyeCtrl's auto-blink reason mask, and of EyeKey's enable reason mask, that is CameraTools' own.
         private const int BlinkReason = 31;
+        private const int EyeKeyReason = 31;
         private const float Radians = MathF.PI / 180f;
 
         private static readonly string[] EyeBones = { "+EyeBone L A01", "+EyeBone R A01" };
@@ -46,9 +47,10 @@ namespace CameraTools
         private readonly List<ShapeSlot> mouthShapes = new();
         private readonly List<ShapeSlot> eyeShapes = new();
         private readonly List<ShapeSlot> browShapes = new();
-        private readonly List<(DynamicBoneArray Physics, bool Enabled)> hair = new();
+        private readonly List<(DynamicBoneArray Physics, bool Enabled, DynamicBoneArray.UpdateMode Mode)> hair = new();
         private readonly EmoSync emoSync;
         private readonly EyeCtrl eyeCtrl;
+        private readonly EyeKey eyeKey;
 
         // What the rig last told the game's face and eye systems, so each changes once when the pose does.
         private string expression;
@@ -71,13 +73,14 @@ namespace CameraTools
             FindShapes();
             emoSync = Find<EmoSync>();
             eyeCtrl = Find<EyeCtrl>();
+            eyeKey = Find<EyeKey>();
             var data = emoSync ? emoSync.setData : null;
             Emotions = (data ? data.emotionSet?.ToArray() : null) ?? Array.Empty<string>();
             ExpressionNames = Emotions.Select(Label).Prepend("Game's").ToArray();
             var physics = avatar.GetComponentsInChildren(Il2CppType.Of<DynamicBoneArray>(), true);
             for (int i = 0; i < physics.Length; i++)
                 if (physics[i].TryCast<DynamicBoneArray>() is { } each && each)
-                    hair.Add((each, each.enabled));
+                    hair.Add((each, each.enabled, each.m_UpdateMode));
             var found = avatar.GetComponentsInChildren(Il2CppType.Of<Animator>(), true);
             for (int i = 0; i < found.Length; i++)
                 if (found[i].TryCast<Animator>() is { } animator && animator)
@@ -85,6 +88,11 @@ namespace CameraTools
             foreach (var (animator, _) in animators)
                 animator.isAnimationPaused = true;
             TakeFace();
+            // EyeKey's LateUpdate returns at once while any bit of its enable reasons is set. Left running on the frozen
+            // character it moved the eyes after CameraTools' late update write, and on frames without a canvases callback
+            // the eyes followed EyeKey and popped out.
+            if (eyeKey)
+                eyeKey.SetReasonEnable(false, EyeKeyReason);
             var missing = Joints.All.Where(info => joints[(int)info.Joint] == null).Select(info => info.Bone).ToArray();
             Melon<CameraTools>.Logger.Msg($"Posing {avatar.name}: {joints.Length - missing.Length} of {joints.Length} joints"
                 + (missing.Length > 0 ? $" (no {string.Join(", ", missing)})" : "")
@@ -169,11 +177,16 @@ namespace CameraTools
             blinking = face.Blink;
         }
 
+        // While the hair settles it runs on unscaled time, so it falls with the game paused too.
         public void SetHair(bool on)
         {
-            foreach (var (physics, _) in hair)
-                if (physics)
-                    physics.enabled = on;
+            foreach (var (physics, _, mode) in hair)
+            {
+                if (!physics)
+                    continue;
+                physics.m_UpdateMode = on ? DynamicBoneArray.UpdateMode.UnscaledTime : mode;
+                physics.enabled = on;
+            }
         }
 
         // A copy of the pose without what this character lacks, and how many parts that left out.
@@ -262,11 +275,20 @@ namespace CameraTools
                     eyeCtrl.EnableAutoBlokingByReason(true, BlinkReason);
                 blinking = true;
             });
+            Step("eye controller", () =>
+            {
+                if (eyeKey)
+                    eyeKey.SetReasonEnable(true, EyeKeyReason);
+            });
             Step("hair", () =>
             {
-                foreach (var (physics, enabled) in hair)
-                    if (physics)
-                        physics.enabled = enabled;
+                foreach (var (physics, enabled, mode) in hair)
+                {
+                    if (!physics)
+                        continue;
+                    physics.m_UpdateMode = mode;
+                    physics.enabled = enabled;
+                }
             });
             Step("animators", () =>
             {
