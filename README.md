@@ -103,6 +103,7 @@ The `[CameraToolsGraphics]` section of `MelonPreferences.cfg` holds:
 | `ResolutionSlot1` | `1280x800` | The size the `-` hotkey and Slot 1 apply, as WxH |
 | `ResolutionSlot2` | `2560x1600` | The size the `=` hotkey and Slot 2 apply, as WxH |
 | `SavedSettings` | empty | Your game settings from before CameraTools first changed one, as setting number=option index, for Restore. CameraTools writes and empties it. |
+| `HideOutlines` | `false` | Hides the outlines the game draws around characters, NPCs and weapons. The Graphics tab's Outlines switch sets it. Presets and the screenshot button leave it as it is. |
 
 A slot from 320x200 to 16384x16384 is accepted. A slot that does not parse falls back to its default, and the log names it.
 

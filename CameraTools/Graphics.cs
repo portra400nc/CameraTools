@@ -1,5 +1,3 @@
-using System.Reflection;
-using Il2CppInterop.Runtime;
 using MelonLoader;
 using UnityEngine;
 using UnityEngine.Rendering.PostProcessing;
@@ -19,8 +17,7 @@ namespace CameraTools
         float? ShadowDistance = null,
         bool? DistantShadows = null,
         bool? Fog = null,
-        int? Particles = null,
-        bool? Outlines = null)
+        int? Particles = null)
     {
         public static readonly Overrides None = new();
     }
@@ -141,6 +138,7 @@ namespace CameraTools
 
         private static MelonPreferences_Entry<string> saved;
         private static MelonPreferences_Entry<string>[] slotEntries;
+        private static MelonPreferences_Entry<bool> hideOutlines;
         private static ScreenSize[] slots;
         private static Overrides active = Overrides.None;
         private static PostProcessLayer layer;
@@ -175,6 +173,8 @@ namespace CameraTools
                 Melon<CameraTools>.Logger.Warning($"CameraToolsGraphics {name} = \"{slotEntries[i].Value}\" is not a resolution; using {fallback}.");
                 slots[i] = fallback;
             }
+            hideOutlines = category.CreateEntry("HideOutlines", false,
+                description: "Hide the outlines the game draws around characters, NPCs and weapons. Presets and the screenshot button leave it as it is.");
             MelonPreferences.Save();
         }
 
@@ -262,8 +262,7 @@ namespace CameraTools
                 preset => preset.Overrides.DistantShadows, ("Game", null), ("Off", false));
             yield return Beyond("Fog and god rays", () => active.Fog, value => Override(active with { Fog = value }, "Fog and god rays"),
                 preset => preset.Overrides.Fog, ("Game", null), ("Off", false));
-            yield return Beyond("Outlines", () => active.Outlines, value => Override(active with { Outlines = value }, "Outlines"),
-                preset => preset.Overrides.Outlines, ("Game", null), ("Off", false));
+            yield return new ToggleRow("Outlines", () => !OutlinesHidden, SetOutlines);
             yield return Beyond("Particles", () => active.Particles, value => Override(active with { Particles = value }, "Particles"),
                 preset => preset.Overrides.Particles, ("Game", null), ("Fewest", 0));
             yield return Beyond("Detail level", () => Lod.Forced, Lod.Force,
@@ -357,6 +356,15 @@ namespace CameraTools
             MelonPreferences.Save();
             pendingLog = (Time.unscaledTime + LogDelay, $"{LogDelay:0} s after Restore");
             CameraUi.Toast("Restored your settings" + (environment ? ". Environment detail applies after a restart" : ""));
+        }
+
+        private static bool OutlinesHidden => hideOutlines?.Value == true;
+
+        private static void SetOutlines(bool shown)
+        {
+            hideOutlines.Value = !shown;
+            MelonPreferences.Save();
+            pendingLog = (Time.unscaledTime + LogDelay, $"{LogDelay:0} s after Outlines");
         }
 
         public static float RenderScale => active.RenderScale ?? ReadScale() ?? 1f;
@@ -531,36 +539,14 @@ namespace CameraTools
             found.RefreshInnerResolution();
         }
 
-        // PostProcessLayer.CorrectOutlineWidth publishes _OutlineCorrectionWidth each frame from two multipliers on the layer,
-        // which the character shader is expected to scale its outline by, so both at 0 should hide the outlines. No game
-        // setting writes them.
+        // PostProcessLayer.CorrectOutlineWidth publishes _OutlineCorrectionWidth each frame from these two multipliers on the
+        // layer, and the outline shader scales by it, so both at 0 hide the outlines. No game setting writes them.
         private static Knob<float> OutlineKnob(string name, Func<PostProcessLayer, float> read, Action<PostProcessLayer, float> write)
-            => new(name, null, wanted => wanted.Outlines == false ? 0f : null, () => ReadLayer(name, read), value =>
+            => new(name, null, _ => OutlinesHidden ? 0f : null, () => ReadLayer(name, read), value =>
             {
-                if (Layer() is not { } found)
-                    return;
-                write(found, value);
-                LogOutlineOffsets();
+                if (Layer() is { } found)
+                    write(found, value);
             });
-
-        // CorrectOutlineWidth reads its multipliers at 0x34 and 0x3c; the fields are matched to them by name only.
-        private static void LogOutlineOffsets()
-        {
-            string Offset(string field)
-            {
-                try
-                {
-                    var info = typeof(PostProcessLayer).GetField($"NativeFieldInfoPtr_{field}", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-                    return info == null ? "no field pointer" : $"0x{IL2CPP.il2cpp_field_get_offset((IntPtr)info.GetValue(null)):X}";
-                }
-                catch (Exception e)
-                {
-                    return $"failed ({e.Message})";
-                }
-            }
-            CameraTools.LogOnce($"Graphics: PostProcessLayer offsets outlineCorrectionWidth {Offset("outlineCorrectionWidth")}, "
-                + $"resolutionOutlineCorrectionWidth {Offset("resolutionOutlineCorrectionWidth")}; CorrectOutlineWidth reads 0x34 and 0x3c.");
-        }
 
         // The interop's enum names do not survive at runtime (PostprocessEffect printed as Reflection), so settings are logged
         // by label and number.
