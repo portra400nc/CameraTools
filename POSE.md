@@ -49,19 +49,19 @@ With the mouse, click near a marker to pick its joint. The keyboard uses the fre
 
 ## Hands
 
-Each hand starts from a preset: Game's leaves the hand as the game posed it, and Relaxed, Fist, Open, Peace, Point, Thumbs up, OK and Pinch shape every finger. The Finger row picks one finger of either hand, and the rows below it set that finger:
+Each hand starts from a preset: Game's leaves the hand as the game posed it, and Relaxed, Fist, Open, Peace and Point shape every finger. Other hands, such as an OK sign or a thumbs up, are made with the finger rows. The Finger row picks one finger of either hand, and the rows below it set that finger:
 
 | Row | What it does |
 |--|--|
 | Curl | Bends all three joints together, from 0, straight, to 100, a closed finger. It shows the three joints' average. |
-| Knuckle | Bends the first joint alone. Below 0 bends it back, down to -20. |
+| Knuckle | Bends the first joint alone. Below 0 bends it back, down to -20 (-10 on the thumb). |
 | Middle joint | Bends the second joint alone. |
 | Tip | Bends the last joint alone, so a finger can hook at the tip with a straight knuckle. |
-| Spread | Moves the finger toward the thumb or away from it. |
+| Spread | Moves the finger toward the thumb or away from it, up to 30° either way. The thumb goes up to 60° away from the fingers, which a thumbs up needs, and 20° toward them. |
 | Across the palm | Swings the thumb in front of the palm, toward the fingertips, from 0 to 100. |
-| Thumb twist | Turns the thumb's pad toward the fingers or away, up to 60° either way. |
+| Thumb twist | Turns the thumb's pad toward the fingers or away, up to 30° either way. |
 
-Across the palm and Thumb twist are for the thumb, so they are dimmed while another finger is picked. With them, the thumb's tip can meet a fingertip, as OK and Pinch do. The notes under Knuckle, Middle joint and Tip name the bone each one bends. Changing a finger makes its hand Custom, unless the numbers match a preset again. A pose saved before these rows loads with each finger's curl on all three joints, and a hand whose numbers no longer match its preset loads as Custom.
+Across the palm and Thumb twist are for the thumb, so they are dimmed while another finger is picked. With them, the thumb's tip can meet a fingertip, as in an OK sign. The thumb's joints stop sooner than the fingers' (Curl, Knuckle, Middle joint and Tip from -10 to 90), since a thumb cannot bend as far. The notes under Knuckle, Middle joint and Tip name the bone each one bends. Changing a finger makes its hand Custom, unless the numbers match a preset again. A pose saved before these rows loads with each finger's curl on all three joints, and a hand whose numbers no longer match its preset, or whose preset has been removed, loads as Custom.
 
 ## Face
 
