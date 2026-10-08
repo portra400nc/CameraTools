@@ -13,6 +13,9 @@ namespace CameraTools
     // picture. Restore puts back everything the rig changed.
     internal sealed class CharacterRig
     {
+        // Pose joints has a marker for each body joint and up to this many strands.
+        public const int MaxStrands = 48;
+
         private const float BlendTime = 0.2f;
         private const float LookTime = 0.3f;
         private const float HeadYawLimit = 60f;
@@ -34,6 +37,8 @@ namespace CameraTools
         public readonly string[] Emotions;
         // "Game's", then each expression as the Expression row shows it: Angry_01 is "Angry 1".
         public readonly string[] ExpressionNames;
+        // The Joint row's entries: every body joint, found on this character or not, then the strands it has.
+        public readonly JointInfo[] Targets;
 
         // The inverse of the character's rotation at the freeze, which turns the scene's directions into the character's.
         private readonly NumericsQuaternion toCharacter;
@@ -48,6 +53,9 @@ namespace CameraTools
         private readonly List<ShapeSlot> eyeShapes = new();
         private readonly List<ShapeSlot> browShapes = new();
         private readonly List<(DynamicBoneArray Physics, bool Enabled, DynamicBoneArray.UpdateMode Mode)> hair = new();
+        private readonly Strand[] strands;
+        // Targets' bones, null for a joint this character lacks.
+        private readonly Bone[] targetBones;
         private readonly EmoSync emoSync;
         private readonly EyeCtrl eyeCtrl;
         private readonly EyeKey eyeKey;
@@ -81,6 +89,9 @@ namespace CameraTools
             for (int i = 0; i < physics.Length; i++)
                 if (physics[i].TryCast<DynamicBoneArray>() is { } each && each)
                     hair.Add((each, each.enabled, each.m_UpdateMode));
+            strands = FindStrands();
+            Targets = Joints.All.Concat(strands.Select(strand => strand.Info)).ToArray();
+            targetBones = joints.Concat(strands.Select(strand => strand.Bone)).ToArray();
             var found = avatar.GetComponentsInChildren(Il2CppType.Of<Animator>(), true);
             for (int i = 0; i < found.Length; i++)
                 if (found[i].TryCast<Animator>() is { } animator && animator)
@@ -102,9 +113,13 @@ namespace CameraTools
                 + (missing.Length > 0 ? $" (no {string.Join(", ", missing)})" : "")
                 + $", hands {(hands[0] != null ? "left" : "no left")} and {(hands[1] != null ? "right" : "no right")}, {(HasEyes ? "eye bones" : "no eye bones")},"
                 + $" {shapes.Count} face shapes, {Emotions.Length} expressions, {hair.Count} hair physics, {animators.Count} animators.");
+            Melon<CameraTools>.Logger.Msg($"Posing {avatar.name}: {strands.Length} strands, {strands.Count(strand => strand.Hair)} of them hair"
+                + (strands.Length > 0 ? $": {string.Join(", ", strands.Select(strand => $"{strand.Info.Name} ({strand.Info.Bone})"))}." : "."));
         }
 
-        public bool Has(PoseJoint joint) => joints[(int)joint] != null;
+        public bool Has(PoseTarget target) => target.Joint is { } joint ? joints[(int)joint] != null : strands.Any(strand => strand.Info.Target == target);
+
+        public bool HasHairStrands => strands.Any(strand => strand.Hair);
 
         public bool HasHand(Side side) => hands[(int)side] != null;
 
@@ -114,10 +129,13 @@ namespace CameraTools
 
         public bool HasEyes => eyes.Any(eye => eye != null);
 
-        public ScreenPoint? Point(PoseJoint joint, Camera camera)
-            => joints[(int)joint] is { } bone && ScreenPoint.Of(camera, bone.Transform.position) is { OnScreen: true } point ? point : null;
+        // index is a position in Targets.
+        public ScreenPoint? Point(int index, Camera camera)
+            => index < targetBones.Length && targetBones[index] is { } bone && ScreenPoint.Of(camera, bone.Transform.position) is { OnScreen: true } point
+                ? point : null;
 
-        // The body in the late update, parents before children, so the head's aim reads its posed neck.
+        // The body in the late update, parents before children, so the head's aim reads its posed neck and the strands read
+        // the posed bones they hang from.
         public void WriteBody(PoseSetup pose, Transform camera)
         {
             for (int i = 0; i < joints.Length; i++)
@@ -131,6 +149,7 @@ namespace CameraTools
             }
             foreach (var side in Sides.Both)
                 WriteHand(hands[(int)side], pose.Hand(side));
+            WriteStrands(pose);
         }
 
         // Ahead holds the eyes as they froze, By hand turns them from there, and At the camera aims each one at the camera
@@ -191,6 +210,13 @@ namespace CameraTools
                 if (Has(joint))
                     continue;
                 fit.Joints.Remove(joint);
+                dropped++;
+            }
+            foreach (var bone in fit.Strands.Keys.ToList())
+            {
+                if (Has(PoseTarget.OfStrand(bone)))
+                    continue;
+                fit.Strands.Remove(bone);
                 dropped++;
             }
             foreach (var side in Sides.Both)
@@ -305,6 +331,7 @@ namespace CameraTools
         private IEnumerable<Bone> AllBones()
             => joints.Concat(hands.Where(hand => hand != null).SelectMany(hand => hand).Where(finger => finger != null).SelectMany(finger => finger.Joints))
                 .Concat(eyes)
+                .Concat(strands.Select(strand => strand.Bone))
                 .Where(bone => bone != null);
 
         // Bones are looked up by name, and the first of a name in the tree wins.
@@ -313,6 +340,33 @@ namespace CameraTools
             bones.TryAdd(node.name, node);
             for (int i = 0; i < node.childCount; i++)
                 Collect(node.GetChild(i));
+        }
+
+        // Each hair physics component simulates the strands that start at the bones in its root list. A strand is hair when
+        // it hangs from the head. Root bones are kept by name, the first of a name winning, since poses keep strands by name.
+        private Strand[] FindStrands()
+        {
+            var roots = new Dictionary<string, Transform>();
+            foreach (var (physics, _, _) in hair)
+            {
+                var list = physics.m_RootList;
+                for (int i = 0; list != null && i < list.Length; i++)
+                    if (list[i] is { } root && root)
+                        roots.TryAdd(root.name, root);
+            }
+            if (roots.Count > MaxStrands)
+                CameraTools.LogOnce($"Posing {Avatar.name}: {roots.Count} strands; the Joint row has the first {MaxStrands}.");
+            var head = joints[(int)PoseJoint.Head]?.Transform;
+            bool UnderHead(Transform bone)
+            {
+                for (var node = bone.parent; head && node; node = node.parent)
+                    if (node.Pointer == head.Pointer)
+                        return true;
+                return false;
+            }
+            return StrandJoints.Of(roots.Keys).Take(MaxStrands)
+                .Select(info => new Strand(info, new Bone(roots[info.Bone], toCharacter), UnderHead(roots[info.Bone])))
+                .ToArray();
         }
 
         private Bone BoneOf(string name) => bones.TryGetValue(name, out var transform) ? new Bone(transform, toCharacter) : null;
@@ -410,6 +464,25 @@ namespace CameraTools
             float yaw = Math.Clamp(Degrees(MathF.Atan2(look.X, look.Z)), -yawLimit, yawLimit);
             float pitch = Math.Clamp(Degrees(MathF.Asin(Math.Clamp(look.Y, -1f, 1f))), -pitchLimit, pitchLimit);
             return AngleAxis(Up, yaw) * AngleAxis(Right, -pitch);
+        }
+
+        // Below 100, Hair follows head takes back part of the turn a hair strand's posed parents carry it by; at 0 the strand
+        // keeps the world rotation it froze with. The strand's own turn comes first, so a strand turned by hand keeps that
+        // turn from where it hangs.
+        private void WriteStrands(PoseSetup pose)
+        {
+            float keep = 1f - pose.HairFollow / 100f;
+            foreach (var strand in strands)
+            {
+                var turn = Rotation(strand.Info, pose.Turn(strand.Info.Target));
+                if (strand.Hair && keep > 0f)
+                {
+                    var carried = strand.Bone.Transform.parent.rotation.ToNumerics() * NumericsQuaternion.Inverse(strand.Bone.ParentWorld);
+                    var undo = NumericsQuaternion.Slerp(NumericsQuaternion.Identity, NumericsQuaternion.Inverse(carried), keep);
+                    turn = toCharacter * undo * NumericsQuaternion.Inverse(toCharacter) * turn;
+                }
+                strand.Bone.Write(turn);
+            }
         }
 
         // Curl is measured from straight, so a preset looks the same whatever the game's idle hand was: each joint turns by
@@ -541,6 +614,8 @@ namespace CameraTools
             public void Write(NumericsQuaternion turn)
                 => Transform.localRotation = NumericsQuaternion.Normalize(local * inverseRelative * turn * relative).ToUnity();
         }
+
+        private sealed record Strand(JointInfo Info, Bone Bone, bool Hair);
 
         // CurlAxis and Palm are in the character's frame; Bent is each joint's bend at the freeze, in degrees.
         private sealed record FingerRig(Bone[] Joints, NumericsVector3 CurlAxis, NumericsVector3 Palm, float SpreadSign, float[] Bent);

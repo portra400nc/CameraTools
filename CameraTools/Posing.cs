@@ -171,7 +171,7 @@ namespace CameraTools
             CameraUi.Toast($"Posing the {Joints.Of(SelectedJoint).Name.ToLowerInvariant()}");
         }
 
-        public static ScreenPoint? JointPoint(int joint, Camera camera) => session?.Rig.Point((PoseJoint)joint, camera);
+        public static ScreenPoint? JointPoint(int joint, Camera camera) => session?.Rig.Point(joint, camera);
 
         public static (string Name, string Angles) Readout
         {
@@ -375,7 +375,7 @@ namespace CameraTools
             float best = PickRadius * height;
             for (int i = 0; i < Joints.All.Length; i++)
             {
-                if (current.Rig.Point((PoseJoint)i, camera) is not { } point)
+                if (current.Rig.Point(i, camera) is not { } point)
                     continue;
                 float dx = point.U * width - mouse.x, dy = (1f - point.V) * height - mouse.y;
                 float distance = MathF.Sqrt(dx * dx + dy * dy);
