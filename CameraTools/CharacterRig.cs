@@ -100,6 +100,8 @@ namespace CameraTools
                 + $" {shapes.Count} face shapes, {Emotions.Length} expressions, {hair.Count} hair physics, {animators.Count} animators.");
         }
 
+        public IReadOnlyList<DynamicBoneArray> HairPhysics => hair.Select(each => each.Physics).ToList();
+
         public bool Has(PoseJoint joint) => joints[(int)joint] != null;
 
         public bool HasHand(Side side) => hands[(int)side] != null;

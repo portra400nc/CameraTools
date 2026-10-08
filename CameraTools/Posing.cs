@@ -238,6 +238,9 @@ namespace CameraTools
                 return;
             }
             CountFrames(current);
+            HairTest.Update(current.Rig.HairPhysics);
+            if (HairTest.Active)
+                current.SettleLeft = 0;
             if (current.Edit != null)
                 EditJoints(current);
             if (current.SettleLeft > 0 && --current.SettleLeft == 0)
@@ -303,6 +306,7 @@ namespace CameraTools
             session = null;
             Changed = false;
             Poses.Last = ending.Pose;
+            HairTest.Stop("ended with posing");
             ending.Rig.Restore();
             CameraUi.Toast(toast);
         }
@@ -317,6 +321,8 @@ namespace CameraTools
         // toast: say when the hair holds again, for the Let hair settle row.
         private static void Settle(bool toast)
         {
+            if (HairTest.Active)
+                return;
             session.SettleLeft = SettleFrames;
             session.SettleToast = toast;
             session.Rig.SetHair(true);
