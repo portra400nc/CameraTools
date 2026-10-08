@@ -532,7 +532,8 @@ namespace CameraTools
         }
 
         // PostProcessLayer.CorrectOutlineWidth publishes _OutlineCorrectionWidth each frame from two multipliers on the layer,
-        // and the character shader scales its outline by it, so both at 0 hide the outlines. No game setting writes them.
+        // which the character shader is expected to scale its outline by, so both at 0 should hide the outlines. No game
+        // setting writes them.
         private static Knob<float> OutlineKnob(string name, Func<PostProcessLayer, float> read, Action<PostProcessLayer, float> write)
             => new(name, null, wanted => wanted.Outlines == false ? 0f : null, () => ReadLayer(name, read), value =>
             {
