@@ -437,11 +437,6 @@ namespace CameraTools
             {
                 Detail = () => Posing.Current.Gaze.HeadAtCamera ? "Turns toward the camera; the Head joint waits" : "Set with the Head joint",
             },
-            new Section("Hair"),
-            new ActionRow("Let hair settle", Posing.SettleHair, "Settle", Posed)
-            {
-                Detail = () => "Hair holds its shape while posing. This lets it fall for half a second",
-            },
         });
 
         // The effects stay on while the user composes a shot; the screenshot turns them off afterwards.

@@ -11,8 +11,6 @@ namespace CameraTools
     {
         // Degrees a second at full stick, on unscaled time so a paused game still poses.
         private const float TurnSpeed = 90f;
-        // Hair physics shakes on a posed head, so it runs this many frames for the hair to fall, then holds.
-        private const int SettleFrames = 30;
         // A click this far from a marker, as a share of the screen's height, picks its joint: 24 units of the 800 tall canvas.
         private const float PickRadius = 0.03f;
         // How often, and how many times a session, the log says how many frames had a canvases callback.
@@ -99,7 +97,6 @@ namespace CameraTools
                 return;
             session.Pose = new PoseSetup();
             Changed = false;
-            Settle(false);
             CameraUi.Toast("The character is back in the game's pose");
         }
 
@@ -161,12 +158,6 @@ namespace CameraTools
             var joint = SelectedJoint;
             Edit(pose => pose.SetTurn(joint, default));
             CameraUi.Toast($"{Joints.Of(joint).Name} reset");
-        }
-
-        public static void SettleHair()
-        {
-            if (session != null)
-                Settle(true);
         }
 
         public static void StartEditing()
@@ -238,17 +229,8 @@ namespace CameraTools
                 return;
             }
             CountFrames(current);
-            HairTest.Update(current.Rig.HairPhysics);
-            if (HairTest.Active)
-                current.SettleLeft = 0;
             if (current.Edit != null)
                 EditJoints(current);
-            if (current.SettleLeft > 0 && --current.SettleLeft == 0)
-            {
-                current.Rig.SetHair(false);
-                if (current.SettleToast)
-                    CameraUi.Toast("Hair settled and holds still again");
-            }
             var camera = Lights.Camera();
             var view = camera ? camera.transform : null;
             var pose = current.Pose;
@@ -294,7 +276,6 @@ namespace CameraTools
                 return false;
             }
             Changed = false;
-            Settle(false);
             return true;
         }
 
@@ -306,7 +287,6 @@ namespace CameraTools
             session = null;
             Changed = false;
             Poses.Last = ending.Pose;
-            HairTest.Stop("ended with posing");
             ending.Rig.Restore();
             CameraUi.Toast(toast);
         }
@@ -314,18 +294,7 @@ namespace CameraTools
         private static int Use(PoseSetup pose)
         {
             session.Pose = session.Rig.Fit(pose, out int skipped);
-            Settle(false);
             return skipped;
-        }
-
-        // toast: say when the hair holds again, for the Let hair settle row.
-        private static void Settle(bool toast)
-        {
-            if (HairTest.Active)
-                return;
-            session.SettleLeft = SettleFrames;
-            session.SettleToast = toast;
-            session.Rig.SetHair(true);
         }
 
         private static string WithSkipped(string message, int skipped)
@@ -424,9 +393,6 @@ namespace CameraTools
             public readonly CharacterRig Rig;
             public PoseSetup Pose = new();
             public JointEdit Edit;
-            // Frames the hair physics still runs before it holds.
-            public int SettleLeft;
-            public bool SettleToast;
             public int Frames;
             public int Canvases;
             public int Reports;

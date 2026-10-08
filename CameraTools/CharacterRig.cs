@@ -87,6 +87,10 @@ namespace CameraTools
                     animators.Add((animator, animator.isAnimationPaused));
             foreach (var (animator, _) in animators)
                 animator.isAnimationPaused = true;
+            // On a frozen character the hair physics only holds the hair's frozen shape (build 155), so the strands are
+            // CameraTools' to place.
+            foreach (var (each, _, _) in hair)
+                each.enabled = false;
             TakeFace();
             // EyeKey's LateUpdate returns at once while any bit of its enable reasons is set. Left running on the frozen
             // character it moved the eyes after CameraTools' late update write, and on frames without a canvases callback
@@ -99,8 +103,6 @@ namespace CameraTools
                 + $", hands {(hands[0] != null ? "left" : "no left")} and {(hands[1] != null ? "right" : "no right")}, {(HasEyes ? "eye bones" : "no eye bones")},"
                 + $" {shapes.Count} face shapes, {Emotions.Length} expressions, {hair.Count} hair physics, {animators.Count} animators.");
         }
-
-        public IReadOnlyList<DynamicBoneArray> HairPhysics => hair.Select(each => each.Physics).ToList();
 
         public bool Has(PoseJoint joint) => joints[(int)joint] != null;
 
@@ -177,18 +179,6 @@ namespace CameraTools
             if (face.Blink != blinking && eyeCtrl)
                 eyeCtrl.EnableAutoBlokingByReason(face.Blink, BlinkReason);
             blinking = face.Blink;
-        }
-
-        // While the hair settles it runs on unscaled time, so it falls with the game paused too.
-        public void SetHair(bool on)
-        {
-            foreach (var (physics, _, mode) in hair)
-            {
-                if (!physics)
-                    continue;
-                physics.m_UpdateMode = on ? DynamicBoneArray.UpdateMode.UnscaledTime : mode;
-                physics.enabled = on;
-            }
         }
 
         // A copy of the pose without what this character lacks, and how many parts that left out.
