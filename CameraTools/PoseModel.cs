@@ -117,9 +117,11 @@ namespace CameraTools
         public static JointInfo Of(PoseJoint joint) => All[(int)joint];
     }
 
-    // The Joint row's entries for a character's hair and cloth strands, from their root bones' names. Characters name them
-    // in one of two ways: "+HairB L L01" (Skirk) and "Bone_HairB01_L" (Columbina) are both "Back hair left", from the part,
-    // its position letter and the side. Strands hang, so they bend like the arms and legs.
+    // The Joint row's entries for a character's hair and cloth strands, from their root bones' names. Characters name these
+    // bones in different ways ("+HairB L L02" on Skirk, "Bone_HairB01_L" on Columbina), so a name is read as words: the
+    // first real word is the part, a B, F or S right after it (or a Back, Front or Side word anywhere) the position, and the
+    // first L, R or M after the part the side, in any letter case. Both of those read "Back hair left". Strands hang, so
+    // they bend like the arms and legs.
     public static class StrandJoints
     {
         private const float Hanging = -1f;
@@ -129,18 +131,23 @@ namespace CameraTools
         {
             ("Hair", "hair"), ("Skirt", "skirt"), ("Amice", "cloth"), ("Overcoat", "coat"), ("Hem", "hem"),
         };
-        private static readonly (char Letter, string Word)[] Positions = { ('B', "Back"), ('F', "Front"), ('S', "Side") };
-        private static readonly (string Letter, BodySide Side, string Word)[] SideWords =
+        private static readonly (string Token, string Word)[] Positions =
         {
-            ("L", BodySide.Left, "left"), ("R", BodySide.Right, "right"), ("M", BodySide.Center, "middle"),
+            ("B", "Back"), ("F", "Front"), ("S", "Side"), ("Back", "Back"), ("Front", "Front"), ("Side", "Side"),
         };
+        private static readonly (string Token, BodySide Side, string Word, string Twin)[] SideWords =
+        {
+            ("L", BodySide.Left, "left", "R"), ("R", BodySide.Right, "right", "L"), ("M", BodySide.Center, "middle", null),
+            ("Left", BodySide.Left, "left", "Right"), ("Right", BodySide.Right, "right", "Left"),
+        };
+        // Words that name the kind of bone, not the part.
+        private static readonly HashSet<string> Filler = new(StringComparer.OrdinalIgnoreCase) { "Bone", "Bip", "Dyn", "Root" };
 
-        // The part with an optional position letter, then the side: "+HairB L L01", or "Bone_HairB01_L" with a number.
-        private static readonly Regex[] Patterns =
-        {
-            new(@"^\+(?<part>[A-Z][a-z]+)(?<position>[A-Z])?\s+(?<side>\S+)", RegexOptions.CultureInvariant),
-            new(@"^Bone_(?<part>[A-Z][a-z]+)(?<position>[A-Z])?\d*_(?<side>[A-Z]+)$", RegexOptions.CultureInvariant),
-        };
+        // A run of capitals not followed by a small letter, a capitalised word, or digits: "+HairB L L02" is Hair, B, L, L,
+        // 02, and "Bone_HairB01_L" is Bone, Hair, B, 01, L.
+        private static readonly Regex Words = new(@"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+", RegexOptions.CultureInvariant);
+
+        private static bool Is(string token, string word) => string.Equals(token, word, StringComparison.OrdinalIgnoreCase);
 
         // Sorted by part, then by name, then by bone so names that repeat get " 2", " 3" the same way every time.
         public static JointInfo[] Of(IEnumerable<string> bones)
@@ -154,33 +161,33 @@ namespace CameraTools
             {
                 int count = seen[each.Read.Name] = seen.GetValueOrDefault(each.Read.Name) + 1;
                 string name = count == 1 ? each.Read.Name : $"{each.Read.Name} {count}";
-                string mirror = Mirror(each.Bone);
+                string mirror = each.Read.Mirror;
                 return new JointInfo(PoseTarget.OfStrand(each.Bone), name, each.Bone, each.Read.Side,
                     mirror != null && known.Contains(mirror) ? PoseTarget.OfStrand(mirror) : null, Hanging);
             }).ToArray();
         }
 
-        // A bone that follows neither pattern keeps its own name and comes last.
-        private static (int Group, string Name, BodySide Side) Read(string bone)
+        // Mirror is the same name with the side word swapped where it stands. A bone with no part word keeps its own name and
+        // comes last.
+        private static (int Group, string Name, BodySide Side, string Mirror) Read(string bone)
         {
-            var match = Patterns.Select(pattern => pattern.Match(bone)).FirstOrDefault(each => each.Success);
-            if (match == null)
-                return (Parts.Length + 1, bone, BodySide.Center);
-            string part = match.Groups["part"].Value;
-            string position = match.Groups["position"].Success ? Positions.FirstOrDefault(each => each.Letter == match.Groups["position"].Value[0]).Word : null;
-            int group = Array.FindIndex(Parts, each => each.Part == part);
-            var side = SideWords.FirstOrDefault(each => each.Letter == match.Groups["side"].Value);
+            var words = Words.Matches(bone).ToList();
+            int at = words.FindIndex(word => word.Value.Length > 1 && !char.IsDigit(word.Value[0]) && !Filler.Contains(word.Value)
+                && !SideWords.Any(side => Is(side.Token, word.Value)) && !Positions.Any(position => Is(position.Token, word.Value)));
+            if (at < 0)
+                return (Parts.Length + 1, bone, BodySide.Center, null);
+            string part = words[at].Value;
+            int group = Array.FindIndex(Parts, each => Is(each.Part, part));
+            string position = (at + 1 < words.Count ? Positions.FirstOrDefault(each => Is(each.Token, words[at + 1].Value)).Word : null)
+                ?? Positions.Where(each => each.Token.Length > 1).FirstOrDefault(each => words.Any(word => Is(each.Token, word.Value))).Word;
+            var sideWord = words.Skip(at + 1).FirstOrDefault(word => SideWords.Any(side => Is(side.Token, word.Value)));
+            var side = sideWord == null ? default : SideWords.First(each => Is(each.Token, sideWord.Value));
+            string twin = side.Twin == null ? null : sideWord.Value.ToLowerInvariant() == sideWord.Value ? side.Twin.ToLowerInvariant()
+                : sideWord.Value.ToUpperInvariant() == sideWord.Value ? side.Twin.ToUpperInvariant() : side.Twin;
+            string mirror = twin == null ? null : bone[..sideWord.Index] + twin + bone[(sideWord.Index + sideWord.Length)..];
             string name = string.Join(" ", new[] { position, group >= 0 ? Parts[group].Word : part.ToLowerInvariant(), side.Word }.Where(word => !string.IsNullOrEmpty(word)));
-            return (group >= 0 ? group : Parts.Length, char.ToUpperInvariant(name[0]) + name[1..], side.Side);
+            return (group >= 0 ? group : Parts.Length, char.ToUpperInvariant(name[0]) + name[1..], side.Side, mirror);
         }
-
-        // The same bone name with the side letter swapped, or null for a strand in the middle.
-        private static string Mirror(string bone)
-            => bone.Contains(" L ") ? bone.Replace(" L ", " R ")
-            : bone.Contains(" R ") ? bone.Replace(" R ", " L ")
-            : bone.EndsWith("_L") ? bone[..^2] + "_R"
-            : bone.EndsWith("_R") ? bone[..^2] + "_L"
-            : null;
     }
 
     // Degrees on top of the frozen game pose, in the character's frame: Bend about its right axis, Turn about its up axis and
