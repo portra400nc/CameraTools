@@ -43,19 +43,38 @@ namespace CameraTools
 
         public static PoseSetup Current => session?.Pose ?? Blank;
 
-        // The Joint row's and Pose joints' joint, and the Finger row's finger.
+        // The Joint row's and Pose joints' entry, a position in Targets, and the Finger row's finger.
         public static int Joint { get; private set; } = (int)PoseJoint.LeftUpperArm;
 
         public static int Finger { get; private set; } = 1;
 
-        public static PoseJoint SelectedJoint => (PoseJoint)Joint;
+        // Every body joint, then the active character's strands while posing.
+        public static IReadOnlyList<JointInfo> Targets => session?.Rig.Targets ?? Joints.All;
+
+        public static JointInfo Selected => Targets[Joint];
+
+        // The selected entry's mirror, as a position in Targets, or null for one without.
+        public static int? MirrorIndex
+        {
+            get
+            {
+                if (Selected.Mirror is not { } other)
+                    return null;
+                for (int i = 0; i < Targets.Count; i++)
+                    if (Targets[i].Target == other)
+                        return i;
+                return null;
+            }
+        }
 
         public static string[] ExpressionNames => session?.Rig.ExpressionNames ?? NoExpressions;
 
         public static string[] Emotions => session?.Rig.Emotions ?? Array.Empty<string>();
 
         // While posing is off nothing is missing, since the rows are dimmed anyway.
-        public static bool HasJoint(PoseJoint joint) => session?.Rig.Has(joint) ?? true;
+        public static bool Has(PoseTarget target) => session?.Rig.Has(target) ?? true;
+
+        public static bool HasHairStrands => session?.Rig.HasHairStrands ?? true;
 
         public static bool HasHand(Side side) => session?.Rig.HasHand(side) ?? true;
 
@@ -66,7 +85,7 @@ namespace CameraTools
         public static bool HasEyes => session?.Rig.HasEyes ?? true;
 
         // The head waits while it turns toward the camera.
-        public static bool CanTurnJoint => On && HasJoint(SelectedJoint) && !(SelectedJoint == PoseJoint.Head && Current.Gaze.HeadAtCamera);
+        public static bool CanTurnJoint => On && Has(Selected.Target) && !(Selected.Target == PoseJoint.Head && Current.Gaze.HeadAtCamera);
 
         // Every change to the pose goes through here, so it counts as unsaved.
         public static void Edit(Action<PoseSetup> change)
@@ -77,7 +96,7 @@ namespace CameraTools
             Changed = true;
         }
 
-        public static void SelectJoint(int index) => Joint = Math.Clamp(index, 0, Joints.All.Length - 1);
+        public static void SelectJoint(int index) => Joint = Math.Clamp(index, 0, Targets.Count - 1);
 
         public static void SelectFinger(int index) => Finger = Math.Clamp(index, 0, Fingers.Selectable - 1);
 
@@ -146,18 +165,18 @@ namespace CameraTools
 
         public static void MirrorJoint()
         {
-            var joint = SelectedJoint;
-            if (Joints.Of(joint).Mirror is not { } other)
+            if (MirrorIndex is not { } index)
                 return;
-            Edit(pose => pose.SetTurn(other, pose.Turn(joint)));
-            CameraUi.Toast($"Copied to the {Joints.Of(other.Joint.Value).Name.ToLowerInvariant()}");
+            var (from, to) = (Selected, Targets[index]);
+            Edit(pose => pose.SetTurn(to.Target, pose.Turn(from.Target)));
+            CameraUi.Toast($"Copied to the {to.Name.ToLowerInvariant()}");
         }
 
         public static void ResetJoint()
         {
-            var joint = SelectedJoint;
-            Edit(pose => pose.SetTurn(joint, default));
-            CameraUi.Toast($"{Joints.Of(joint).Name} reset");
+            var info = Selected;
+            Edit(pose => pose.SetTurn(info.Target, default));
+            CameraUi.Toast($"{info.Name} reset");
         }
 
         public static void StartEditing()
@@ -168,7 +187,7 @@ namespace CameraTools
             CameraUi.ClosePanel();
             // The mouse picks joints, so the cursor stays free.
             Freecam.Focused = false;
-            CameraUi.Toast($"Posing the {Joints.Of(SelectedJoint).Name.ToLowerInvariant()}");
+            CameraUi.Toast($"Posing the {Selected.Name.ToLowerInvariant()}");
         }
 
         public static ScreenPoint? JointPoint(int joint, Camera camera) => session?.Rig.Point(joint, camera);
@@ -177,8 +196,8 @@ namespace CameraTools
         {
             get
             {
-                var turn = Current.Turn(SelectedJoint);
-                return (Joints.Of(SelectedJoint).Name, $"Bend {Whole(turn.Bend)}° · Turn {Whole(turn.Turn)}° · Twist {Whole(turn.Twist)}°");
+                var turn = Current.Turn(Selected.Target);
+                return (Selected.Name, $"Bend {Whole(turn.Bend)}° · Turn {Whole(turn.Turn)}° · Twist {Whole(turn.Twist)}°");
             }
         }
 
@@ -286,6 +305,9 @@ namespace CameraTools
                 return;
             session = null;
             Changed = false;
+            // Strands belong to the character that was posed.
+            if (Joint >= Joints.All.Length)
+                Joint = (int)PoseJoint.Head;
             Poses.Last = ending.Pose;
             ending.Rig.Restore();
             CameraUi.Toast(toast);
@@ -320,13 +342,13 @@ namespace CameraTools
                 FinishEditing(current, false);
                 return;
             }
-            int count = Joints.All.Length;
+            int count = Targets.Count;
             if (Pressed(DpadUp, KeyCode.UpArrow))
                 Joint = (Joint + count - 1) % count;
             else if (Pressed(DpadDown, KeyCode.DownArrow))
                 Joint = (Joint + 1) % count;
-            else if ((Pressed(DpadLeft, KeyCode.LeftArrow) || Pressed(DpadRight, KeyCode.RightArrow)) && Joints.Of(SelectedJoint).Mirror is { } other)
-                Joint = (int)other.Joint.Value;
+            else if ((Pressed(DpadLeft, KeyCode.LeftArrow) || Pressed(DpadRight, KeyCode.RightArrow)) && MirrorIndex is { } other)
+                Joint = other;
             if (Pressed(PadY, KeyCode.Backspace))
                 ResetJoint();
             if (Pressed(PadX, KeyCode.M))
@@ -341,11 +363,11 @@ namespace CameraTools
             if (bend == 0f && turn == 0f && twist == 0f)
                 return;
             float step = TurnSpeed * Time.unscaledDeltaTime;
-            var joint = SelectedJoint;
+            var target = Selected.Target;
             Edit(pose =>
             {
-                var was = pose.Turn(joint);
-                pose.SetTurn(joint, new JointTurn(was.Bend + bend * step, was.Turn + turn * step, was.Twist + twist * step));
+                var was = pose.Turn(target);
+                pose.SetTurn(target, new JointTurn(was.Bend + bend * step, was.Turn + turn * step, was.Twist + twist * step));
             });
         }
 
@@ -373,7 +395,7 @@ namespace CameraTools
             var mouse = Input.mousePosition;
             float width = Screen.width, height = Screen.height;
             float best = PickRadius * height;
-            for (int i = 0; i < Joints.All.Length; i++)
+            for (int i = 0; i < current.Rig.Targets.Length; i++)
             {
                 if (current.Rig.Point(i, camera) is not { } point)
                     continue;

@@ -269,15 +269,17 @@ namespace CameraTools
             var layer = Node("Joints", root);
             Fill(layer);
             target.JointLayer = new Fader(layer, V(0f, 0f), Style.HudFade);
-            for (int index = 0; index < Joints.All.Length; index++)
+            // Markers past the body joints are the strands'.
+            for (int index = 0; index < Joints.All.Length + CharacterRig.MaxStrands; index++)
             {
+                float size = index < Joints.All.Length ? Style.JointDot : Style.StrandDot;
                 var marker = Node("Joint", layer);
-                Place(marker, V(0f, 0f), V(0f, 0f), V(0.5f, 0.5f), V(0f, 0f), V(Style.JointDot + Style.JointRing, Style.JointDot + Style.JointRing));
+                Place(marker, V(0f, 0f), V(0f, 0f), V(0.5f, 0.5f), V(0f, 0f), V(size + Style.JointRing, size + Style.JointRing));
                 Fill(Picture(marker, "Ring", Shapes.Knob, Style.MarkerRing).rectTransform);
                 var dot = Picture(marker, "Dot", Shapes.Knob, Style.Handle);
-                Pin(dot.rectTransform, 0.5f, 0.5f, 0f, 0f, Style.JointDot, Style.JointDot);
+                Pin(dot.rectTransform, 0.5f, 0.5f, 0f, 0f, size, size);
                 marker.gameObject.SetActive(false);
-                target.JointMarkers.Add(new JointMarker(marker, dot));
+                target.JointMarkers.Add(new JointMarker(marker, dot, size));
             }
 
             // Laid out like the toast: the pill is as wide as its name.
@@ -1332,12 +1334,14 @@ namespace CameraTools
         {
             public readonly RectTransform Root;
             private readonly Image dot;
+            private readonly float unselected;
             private bool? selected;
 
-            public JointMarker(RectTransform root, Image dot)
+            public JointMarker(RectTransform root, Image dot, float unselected)
             {
                 Root = root;
                 this.dot = dot;
+                this.unselected = unselected;
             }
 
             public void Select(bool on)
@@ -1345,7 +1349,7 @@ namespace CameraTools
                 if (selected == on)
                     return;
                 selected = on;
-                float size = on ? Style.JointDotSelected : Style.JointDot;
+                float size = on ? Style.JointDotSelected : unselected;
                 Root.sizeDelta = V(size + Style.JointRing, size + Style.JointRing);
                 dot.rectTransform.sizeDelta = V(size, size);
                 dot.color = on ? Style.Cream : Style.Handle;

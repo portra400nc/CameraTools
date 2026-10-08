@@ -132,6 +132,8 @@ namespace CameraTools
         // up and to the right of it, and the joint's angles at the bottom left.
         public const float JointDot = 12f;
         public const float JointDotSelected = 16f;
+        // A strand's dot, three quarters of a joint's, until it is selected.
+        public const float StrandDot = 9f;
         public const float JointRing = 4f;
         public const float PillHeight = 24f;
         public const int PillPadding = 11;

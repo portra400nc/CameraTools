@@ -276,17 +276,26 @@ namespace CameraTools
 
         private static string JointNote()
         {
-            var info = Joints.Of(Posing.SelectedJoint);
-            string state = !Posing.HasJoint(Posing.SelectedJoint) ? "not on this character"
-                : Posing.Current.Joints.ContainsKey(Posing.SelectedJoint) ? "posed"
-                : "as the game posed it";
-            return $"{info.Bone} · {state}";
+            var info = Posing.Selected;
+            string state = !Posing.Has(info.Target) ? "not on this character"
+                : Posing.Current.Turn(info.Target).IsZero ? "as the game posed it"
+                : "posed";
+            return $"{info.Bone}{(info.Target.IsStrand ? " and the bones below it" : "")} · {state}";
         }
 
         private static SliderRow JointSlider(string label, float max, Func<JointTurn, float> get, Func<JointTurn, float, JointTurn> set)
-            => new(label, -max, max, 5f, "0'°'", () => get(Posing.Current.Turn(Posing.SelectedJoint)),
-                value => Posing.Edit(pose => pose.SetTurn(Posing.SelectedJoint, set(pose.Turn(Posing.SelectedJoint), MathF.Round(value)))),
+            => new(label, -max, max, 5f, "0'°'", () => get(Posing.Current.Turn(Posing.Selected.Target)),
+                value => Posing.Edit(pose => pose.SetTurn(Posing.Selected.Target, set(pose.Turn(Posing.Selected.Target), MathF.Round(value)))),
                 Enabled: () => Posing.CanTurnJoint);
+
+        private static string HairNote()
+        {
+            float follow = Posing.Current.HairFollow;
+            return !Posing.HasHairStrands ? "This character has no hair strands"
+                : follow >= 100f ? "Moves with the head, as the game holds it"
+                : follow <= 0f ? "Keeps the direction it had before posing"
+                : "Lower keeps the hair off the body when the head bows or turns";
+        }
 
         private static ChoiceRow HandChoice(string label, Side side)
             => new(label, HandShapes.Names, () => (int)Posing.Current.Hand(side).Shape,
@@ -388,14 +397,14 @@ namespace CameraTools
             new ActionRow("Delete pose", Posing.DeleteSaved, "Delete", () => Poses.Current != null, Confirm: () => $"delete {Poses.Current?.Name}"),
             new Section("Body"),
             new ActionRow("Pose joints", Posing.StartEditing, "Pose", Posed) { Detail = () => "Pick joints on the character and turn them with the sticks" },
-            new StepperRow("Joint", () => Joints.All.Length, () => Posing.Joint, Posing.SelectJoint, JointNote, Posed)
+            new StepperRow("Joint", () => Posing.Targets.Count, () => Posing.Joint, Posing.SelectJoint, JointNote, Posed)
             {
-                Display = () => Joints.Of(Posing.SelectedJoint).Name,
+                Display = () => Posing.Selected.Name,
             },
             JointSlider("Bend", JointTurn.MaxBend, turn => turn.Bend, (turn, value) => turn with { Bend = value }),
             JointSlider("Turn", JointTurn.MaxTurn, turn => turn.Turn, (turn, value) => turn with { Turn = value }),
             JointSlider("Twist", JointTurn.MaxTwist, turn => turn.Twist, (turn, value) => turn with { Twist = value }),
-            new ActionRow("Copy to the other side", Posing.MirrorJoint, "Copy", () => Posing.On && Joints.Of(Posing.SelectedJoint).Mirror != null),
+            new ActionRow("Copy to the other side", Posing.MirrorJoint, "Copy", () => Posing.On && Posing.MirrorIndex != null),
             new ActionRow("Reset joint", Posing.ResetJoint, "Reset", Posed),
             new Section("Hands"),
             HandChoice("Left hand", Side.Left),
@@ -433,9 +442,15 @@ namespace CameraTools
             GazeSlider("Eyes up and down", GazePose.MaxY, 0.5f, "0.0'°'", gaze => gaze.Y, (gaze, value) => gaze with { Y = value },
                 "Up to 6.5°, the game's own eye range"),
             new ChoiceRow("Head", HeadNames, () => Posing.Current.Gaze.HeadAtCamera ? 1 : 0,
-                choice => Posing.Edit(pose => pose.Gaze = pose.Gaze with { HeadAtCamera = choice == 1 }), null, () => Posing.On && Posing.HasJoint(PoseJoint.Head))
+                choice => Posing.Edit(pose => pose.Gaze = pose.Gaze with { HeadAtCamera = choice == 1 }), null, () => Posing.On && Posing.Has(PoseJoint.Head))
             {
                 Detail = () => Posing.Current.Gaze.HeadAtCamera ? "Turns toward the camera; the Head joint waits" : "Set with the Head joint",
+            },
+            new Section("Hair"),
+            new SliderRow("Hair follows head", 0f, 100f, 5f, "0'%'", () => Posing.Current.HairFollow, value => Posing.Edit(pose => pose.HairFollow = value),
+                Enabled: () => Posing.On && Posing.HasHairStrands)
+            {
+                Detail = HairNote,
             },
         });
 
