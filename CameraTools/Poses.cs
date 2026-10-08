@@ -164,7 +164,7 @@ namespace CameraTools
         private static HandFile ToFile(HandPose hand)
             => new()
             {
-                Shape = hand.Shape,
+                Shape = hand.Shape.ToString(),
                 Fingers = hand.Fingers?.Select(finger => new[] { finger.Base, finger.Middle, finger.Tip, finger.Spread, finger.Across, finger.Twist }).ToArray(),
             };
 
@@ -196,7 +196,7 @@ namespace CameraTools
             if (poses == null || poses.Any(pose => pose == null))
                 return HandPose.Game;
             var clamped = poses.Select((pose, f) => pose.Value.Clamped(f)).ToArray();
-            return new HandPose(file.Shape == HandShape.Custom ? HandShape.Custom : HandShapes.Match(clamped), clamped);
+            return new HandPose(file.Shape == nameof(HandShape.Custom) ? HandShape.Custom : HandShapes.Match(clamped), clamped);
         }
 
         // A file from before the knuckle, middle joint and tip had their own rows has [curl, spread].
@@ -229,10 +229,11 @@ namespace CameraTools
             public GazePose Gaze { get; set; }
         }
 
-        // Fingers thumb first as [base, middle, tip, spread, across, twist], or none for the game's hand.
+        // Fingers thumb first as [base, middle, tip, spread, across, twist], or none for the game's hand. Shape is a name, not
+        // the enum, so a file naming a preset that has since gone still loads; only Custom is kept from it.
         private sealed class HandFile
         {
-            public HandShape Shape { get; set; }
+            public string Shape { get; set; }
             public float[][] Fingers { get; set; }
         }
     }

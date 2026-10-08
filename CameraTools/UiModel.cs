@@ -334,11 +334,21 @@ namespace CameraTools
                     : $"Sets Bip001 {side.Letter()} Finger0 to Finger42",
             };
 
+        private static bool OnThumb() => Fingers.At(Posing.Finger).Finger == Fingers.Thumb;
+
+        // The thumb's joints stop at other limits than the fingers', so each of these rows comes in two: one shown while a
+        // finger is picked and one while the thumb is.
+        private static SliderRow LimitedSlider(string label, bool thumb, Func<FingerLimits, (float Min, float Max)> range, float step, string format,
+            Func<FingerPose, float> get, Func<FingerPose, float, FingerPose> set, Func<string> note)
+        {
+            var (min, max) = range(Fingers.Limits(thumb ? Fingers.Thumb : Fingers.Thumb + 1));
+            return FingerSlider(label, min, max, step, format, get, set, note) with { Shown = () => OnThumb() == thumb };
+        }
+
         // A thumb-only row is dimmed while another finger is selected.
         private static SliderRow FingerSlider(string label, float min, float max, float step, string format, Func<FingerPose, float> get,
             Func<FingerPose, float, FingerPose> set, Func<string> note, bool thumbOnly = false)
         {
-            static bool OnThumb() => Fingers.At(Posing.Finger).Finger == Fingers.Thumb;
             return new SliderRow(label, min, max, step, format, () =>
                 {
                     var (side, index) = Fingers.At(Posing.Finger);
@@ -451,19 +461,29 @@ namespace CameraTools
             {
                 Display = FingerName,
             },
-            FingerSlider("Curl", 0f, FingerPose.MaxBend, 5f, "0'%'", finger => finger.Curl, (finger, value) => finger.WithCurl(value),
+            LimitedSlider("Curl", false, limits => (0f, limits.MaxBend), 5f, "0'%'", finger => finger.Curl, (finger, value) => finger.WithCurl(value),
                 () => "Bends all three joints together; 0 is straight"),
-            FingerSlider("Knuckle", FingerPose.MinBend, FingerPose.MaxBend, 5f, "0'%'", finger => finger.Base, (finger, value) => finger with { Base = value },
+            LimitedSlider("Curl", true, limits => (0f, limits.MaxBend), 5f, "0'%'", finger => finger.Curl, (finger, value) => finger.WithCurl(value),
+                () => "Bends all three joints together; 0 is straight"),
+            LimitedSlider("Knuckle", false, limits => (limits.MinBend, limits.MaxBend), 5f, "0'%'", finger => finger.Base, (finger, value) => finger with { Base = value },
                 () => $"Bends {FingerBone(0)}; below 0 bends it back"),
-            FingerSlider("Middle joint", FingerPose.MinBend, FingerPose.MaxBend, 5f, "0'%'", finger => finger.Middle,
-                (finger, value) => finger with { Middle = value }, () => $"Bends {FingerBone(1)}"),
-            FingerSlider("Tip", FingerPose.MinBend, FingerPose.MaxBend, 5f, "0'%'", finger => finger.Tip, (finger, value) => finger with { Tip = value },
+            LimitedSlider("Knuckle", true, limits => (limits.MinBend, limits.MaxBend), 5f, "0'%'", finger => finger.Base, (finger, value) => finger with { Base = value },
+                () => $"Bends {FingerBone(0)}; below 0 bends it back"),
+            LimitedSlider("Middle joint", false, limits => (limits.MinBend, limits.MaxBend), 5f, "0'%'", finger => finger.Middle, (finger, value) => finger with { Middle = value },
+                () => $"Bends {FingerBone(1)}"),
+            LimitedSlider("Middle joint", true, limits => (limits.MinBend, limits.MaxBend), 5f, "0'%'", finger => finger.Middle, (finger, value) => finger with { Middle = value },
+                () => $"Bends {FingerBone(1)}"),
+            LimitedSlider("Tip", false, limits => (limits.MinBend, limits.MaxBend), 5f, "0'%'", finger => finger.Tip, (finger, value) => finger with { Tip = value },
                 () => $"Bends {FingerBone(2)}"),
-            FingerSlider("Spread", -FingerPose.MaxSpread, FingerPose.MaxSpread, 1f, "0'°'", finger => finger.Spread,
-                (finger, value) => finger with { Spread = value }, () => "Moves the finger toward the thumb or away from it"),
+            LimitedSlider("Tip", true, limits => (limits.MinBend, limits.MaxBend), 5f, "0'%'", finger => finger.Tip, (finger, value) => finger with { Tip = value },
+                () => $"Bends {FingerBone(2)}"),
+            LimitedSlider("Spread", false, limits => (limits.MinSpread, limits.MaxSpread), 1f, "0'°'", finger => finger.Spread, (finger, value) => finger with { Spread = value },
+                () => "Moves the finger toward the thumb or away from it"),
+            LimitedSlider("Spread", true, limits => (limits.MinSpread, limits.MaxSpread), 1f, "0'°'", finger => finger.Spread, (finger, value) => finger with { Spread = value },
+                () => "Moves the finger toward the thumb or away from it"),
             FingerSlider("Across the palm", 0f, 100f, 5f, "0'%'", finger => finger.Across, (finger, value) => finger with { Across = value },
                 () => "Swings the thumb in front of the palm, toward the fingertips", thumbOnly: true),
-            FingerSlider("Thumb twist", -FingerPose.MaxTwist, FingerPose.MaxTwist, 5f, "0'°'", finger => finger.Twist,
+            FingerSlider("Thumb twist", -Fingers.Limits(Fingers.Thumb).MaxTwist, Fingers.Limits(Fingers.Thumb).MaxTwist, 5f, "0'°'", finger => finger.Twist,
                 (finger, value) => finger with { Twist = value }, () => "Turns the thumb's pad toward the fingers or away", thumbOnly: true),
             new Section("Face"),
             new ChoiceRow("Expression", new[] { "Game's" }, () => Array.IndexOf(Posing.Emotions, Posing.Current.Face.Expression) + 1,

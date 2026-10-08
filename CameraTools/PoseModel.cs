@@ -292,11 +292,6 @@ namespace CameraTools
     // hand whose fingers are set back to a preset's numbers is that preset again.
     public readonly record struct FingerPose(float Base, float Middle, float Tip, float Spread, float Across, float Twist)
     {
-        public const float MinBend = -20f;
-        public const float MaxBend = 100f;
-        public const float MaxSpread = 30f;
-        public const float MaxTwist = 60f;
-
         // The Curl row: the three joints' average, and all three set to one value.
         public float Curl => MathF.Round((Base + Middle + Tip) / 3f);
 
@@ -307,13 +302,16 @@ namespace CameraTools
 
         public FingerPose Clamped(int finger)
         {
-            bool thumb = finger == Fingers.Thumb;
-            return new(Whole(Base, MinBend, MaxBend), Whole(Middle, MinBend, MaxBend), Whole(Tip, MinBend, MaxBend), Whole(Spread, -MaxSpread, MaxSpread),
-                thumb ? Whole(Across, 0f, 100f) : 0f, thumb ? Whole(Twist, -MaxTwist, MaxTwist) : 0f);
+            var limits = Fingers.Limits(finger);
+            return new(Whole(Base, limits.MinBend, limits.MaxBend), Whole(Middle, limits.MinBend, limits.MaxBend), Whole(Tip, limits.MinBend, limits.MaxBend),
+                Whole(Spread, limits.MinSpread, limits.MaxSpread), finger == Fingers.Thumb ? Whole(Across, 0f, 100f) : 0f, Whole(Twist, -limits.MaxTwist, limits.MaxTwist));
         }
 
         private static float Whole(float value, float min, float max) => MathF.Round(Math.Clamp(value, min, max));
     }
+
+    // How far a finger's rows go: its joints' bend in percent, its spread and its twist in degrees.
+    public readonly record struct FingerLimits(float MinBend, float MaxBend, float MinSpread, float MaxSpread, float MaxTwist);
 
     // Each hand's fingers, thumb first; each finger has three joints from the knuckle out.
     public static class Fingers
@@ -324,6 +322,13 @@ namespace CameraTools
 
         // How far the thumb swings at 100% Across, in degrees. A guess the Deck has to confirm.
         public const float FullAcross = 60f;
+
+        // On the Deck the thumb bent and twisted past what a thumb can at the fingers' limits, and a thumbs up needs it swung
+        // far out from the fingers, so its joints stop sooner and it spreads further.
+        private static readonly FingerLimits ThumbLimits = new(-10f, 90f, -20f, 60f, 30f);
+        private static readonly FingerLimits OtherLimits = new(-20f, 100f, -30f, 30f, 0f);
+
+        public static FingerLimits Limits(int finger) => finger == Thumb ? ThumbLimits : OtherLimits;
 
         public static readonly string[] Names = { "thumb", "index", "middle", "ring", "little" };
 
@@ -352,29 +357,24 @@ namespace CameraTools
         Open,
         Peace,
         Point,
-        ThumbsUp,
-        OK,
-        Pinch,
         Custom,
     }
 
     public static class HandShapes
     {
-        public static readonly string[] Names = { "Game's", "Relaxed", "Fist", "Open", "Peace", "Point", "Thumbs up", "OK", "Pinch", "Custom" };
+        public static readonly string[] Names = { "Game's", "Relaxed", "Fist", "Open", "Peace", "Point", "Custom" };
 
-        private static readonly FingerPose Closed = F(90, 100, 90);
+        private static readonly FingerPose Closed = F(100, 100, 100);
 
-        // Each finger, thumb first; a preset is just these numbers.
+        // Each finger, thumb first; a preset is just these numbers. These are the presets the Deck showed right in build 149,
+        // each finger's three joints bent alike; the OK, Pinch and Thumbs up hands written later never looked right.
         private static readonly (HandShape Shape, FingerPose[] Fingers)[] Presets =
         {
-            (HandShape.Relaxed, new[] { F(20, 20, 20, 0, 20), F(25, 30, 30), F(30, 35, 35), F(35, 40, 40), F(40, 45, 45) }),
-            (HandShape.Fist, new[] { F(40, 60, 60, 0, 60), Closed, Closed, Closed, Closed }),
+            (HandShape.Relaxed, new[] { F(25, 25, 25), F(30, 30, 30), F(35, 35, 35), F(40, 40, 40), F(45, 45, 45) }),
+            (HandShape.Fist, new[] { F(90, 90, 90), Closed, Closed, Closed, Closed }),
             (HandShape.Open, new[] { F(0, 0, 0), F(0, 0, 0, -6), F(0, 0, 0), F(0, 0, 0, 6), F(0, 0, 0, 12) }),
-            (HandShape.Peace, new[] { F(50, 60, 60, 0, 70), F(0, 0, 0, -10), F(0, 0, 0, 10), Closed, Closed }),
-            (HandShape.Point, new[] { F(40, 60, 60, 0, 60), F(0, 0, 0), Closed, Closed, Closed }),
-            (HandShape.ThumbsUp, new[] { F(0, 0, 0), Closed, Closed, Closed, Closed }),
-            (HandShape.OK, new[] { F(30, 40, 40, 0, 80), F(55, 70, 45), F(10, 15, 10), F(10, 15, 10, 6), F(15, 20, 15, 12) }),
-            (HandShape.Pinch, new[] { F(10, 30, 30, 0, 65), F(10, 60, 40, -8), F(10, 65, 45), F(20, 70, 50, 6), F(30, 75, 55, 12) }),
+            (HandShape.Peace, new[] { F(90, 90, 90), F(0, 0, 0, -10), F(0, 0, 0, 10), Closed, Closed }),
+            (HandShape.Point, new[] { F(80, 80, 80), F(0, 0, 0), Closed, Closed, Closed }),
         };
 
         // A copy of a preset's fingers, or null for the game's hand and for Custom.
