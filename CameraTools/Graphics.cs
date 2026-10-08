@@ -1,3 +1,5 @@
+using System.Reflection;
+using Il2CppInterop.Runtime;
 using MelonLoader;
 using UnityEngine;
 using UnityEngine.Rendering.PostProcessing;
@@ -17,7 +19,8 @@ namespace CameraTools
         float? ShadowDistance = null,
         bool? DistantShadows = null,
         bool? Fog = null,
-        int? Particles = null)
+        int? Particles = null,
+        bool? Outlines = null)
     {
         public static readonly Overrides None = new();
     }
@@ -115,7 +118,8 @@ namespace CameraTools
         };
 
         // The interop has only a setter for shadowDistance, so it is written again every second instead of compared. Each
-        // knob names the game setting whose apply writes the same engine value, which hands the value back to the game.
+        // knob names the game setting whose apply writes the same engine value, which hands the value back to the game, or
+        // none where no setting writes it.
         private static readonly IKnob[] Knobs =
         {
             new Knob<float>("innerResolutionScale", SettingKey.RenderResolution, wanted => wanted.RenderScale, ReadScale, WriteScale),
@@ -130,6 +134,9 @@ namespace CameraTools
                 value => QualitySettings.godRayEnabled = value),
             new Knob<int>("particleEmitLevel", SettingKey.ParticleEffect, wanted => wanted.Particles, () => QualitySettings.particleEmitLevel,
                 value => QualitySettings.particleEmitLevel = value),
+            OutlineKnob("outlineCorrectionWidth", found => found.outlineCorrectionWidth, (found, value) => found.outlineCorrectionWidth = value),
+            OutlineKnob("resolutionOutlineCorrectionWidth", found => found.resolutionOutlineCorrectionWidth,
+                (found, value) => found.resolutionOutlineCorrectionWidth = value),
         };
 
         private static MelonPreferences_Entry<string> saved;
@@ -255,6 +262,8 @@ namespace CameraTools
                 preset => preset.Overrides.DistantShadows, ("Game", null), ("Off", false));
             yield return Beyond("Fog and god rays", () => active.Fog, value => Override(active with { Fog = value }, "Fog and god rays"),
                 preset => preset.Overrides.Fog, ("Game", null), ("Off", false));
+            yield return Beyond("Outlines", () => active.Outlines, value => Override(active with { Outlines = value }, "Outlines"),
+                preset => preset.Overrides.Outlines, ("Game", null), ("Off", false));
             yield return Beyond("Particles", () => active.Particles, value => Override(active with { Particles = value }, "Particles"),
                 preset => preset.Overrides.Particles, ("Game", null), ("Fewest", 0));
             yield return Beyond("Detail level", () => Lod.Forced, Lod.Force,
@@ -499,15 +508,17 @@ namespace CameraTools
             return layer ? layer : null;
         }
 
-        private static float? ReadScale()
+        private static float? ReadScale() => ReadLayer("innerResolutionScale", found => found.innerResolutionScale);
+
+        private static float? ReadLayer(string name, Func<PostProcessLayer, float> read)
         {
             try
             {
-                return Layer() is { } found ? found.innerResolutionScale : null;
+                return Layer() is { } found ? read(found) : null;
             }
             catch (Exception e)
             {
-                CameraTools.LogOnce($"Graphics: reading innerResolutionScale failed: {e.Message}");
+                CameraTools.LogOnce($"Graphics: reading {name} failed: {e.Message}");
                 return null;
             }
         }
@@ -518,6 +529,36 @@ namespace CameraTools
                 return;
             found.innerResolutionScale = scale;
             found.RefreshInnerResolution();
+        }
+
+        // PostProcessLayer.CorrectOutlineWidth publishes _OutlineCorrectionWidth each frame from two multipliers on the layer,
+        // and the character shader scales its outline by it, so both at 0 hide the outlines. No game setting writes them.
+        private static Knob<float> OutlineKnob(string name, Func<PostProcessLayer, float> read, Action<PostProcessLayer, float> write)
+            => new(name, null, wanted => wanted.Outlines == false ? 0f : null, () => ReadLayer(name, read), value =>
+            {
+                if (Layer() is not { } found)
+                    return;
+                write(found, value);
+                LogOutlineOffsets();
+            });
+
+        // CorrectOutlineWidth reads its multipliers at 0x34 and 0x3c; the fields are matched to them by name only.
+        private static void LogOutlineOffsets()
+        {
+            string Offset(string field)
+            {
+                try
+                {
+                    var info = typeof(PostProcessLayer).GetField($"NativeFieldInfoPtr_{field}", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                    return info == null ? "no field pointer" : $"0x{IL2CPP.il2cpp_field_get_offset((IntPtr)info.GetValue(null)):X}";
+                }
+                catch (Exception e)
+                {
+                    return $"failed ({e.Message})";
+                }
+            }
+            CameraTools.LogOnce($"Graphics: PostProcessLayer offsets outlineCorrectionWidth {Offset("outlineCorrectionWidth")}, "
+                + $"resolutionOutlineCorrectionWidth {Offset("resolutionOutlineCorrectionWidth")}; CorrectOutlineWidth reads 0x34 and 0x3c.");
         }
 
         // The interop's enum names do not survive at runtime (PostprocessEffect printed as Reflection), so settings are logged
@@ -541,7 +582,17 @@ namespace CameraTools
                         + $"option index by menu position: {string.Join(" ", list.Menu)}.");
             }
             log.Msg($"Graphics {when}: settings (option index) {string.Join(", ", indices)}.");
-            log.Msg($"Graphics {when}: {string.Join(", ", Knobs.Select(knob => knob.Describe()))}; LOD {Lod.Forced?.ToString() ?? "game"}.");
+            string outline;
+            try
+            {
+                outline = Shader.GetGlobalFloat("_OutlineCorrectionWidth").ToString();
+            }
+            catch (Exception e)
+            {
+                outline = $"failed ({e.Message})";
+            }
+            log.Msg($"Graphics {when}: {string.Join(", ", Knobs.Select(knob => knob.Describe()))}, _OutlineCorrectionWidth={outline}; "
+                + $"LOD {Lod.Forced?.ToString() ?? "game"}.");
         }
 
         private static List<(SettingKey Key, int Index)> Parse(string text)
@@ -573,7 +624,8 @@ namespace CameraTools
         {
             private const float ReassertInterval = 1f;
 
-            private readonly SettingKey owner;
+            // Null when no game setting writes the value.
+            private readonly SettingKey? owner;
             private readonly Func<Overrides, T?> wanted;
             // Null when the interop has only the setter.
             private readonly Func<T?> read;
@@ -582,7 +634,7 @@ namespace CameraTools
             private T? original;
             private float next;
 
-            public Knob(string name, SettingKey owner, Func<Overrides, T?> wanted, Func<T?> read, Action<T> write)
+            public Knob(string name, SettingKey? owner, Func<Overrides, T?> wanted, Func<T?> read, Action<T> write)
             {
                 Name = name;
                 this.owner = owner;
@@ -623,7 +675,8 @@ namespace CameraTools
                     return;
                 if (original is T value && read?.Invoke() != null)
                     write(value);
-                GameSettings.Reapply(owner);
+                if (owner is SettingKey key)
+                    GameSettings.Reapply(key);
                 written = null;
                 original = null;
             }
