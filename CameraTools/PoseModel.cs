@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Text.RegularExpressions;
 namespace CameraTools
 {
@@ -70,8 +71,11 @@ namespace CameraTools
     // One entry of the Joint row. Bone is the biped bone's name, looked up anywhere under the character, or a strand's root
     // bone. BendSign makes a positive Bend swing the joint forward: +1 for a bone that points up from its joint, which a
     // positive turn about the character's right axis tips forward, and -1 for one that hangs down, which the same turn
-    // swings back. A sign the Deck shows backwards is flipped here.
-    public sealed record JointInfo(PoseTarget Target, string Name, string Bone, BodySide Side, PoseTarget? Mirror, float BendSign)
+    // swings back. A sign the Deck shows backwards is flipped here. Toward names the bones the joint points to, the first
+    // found winning, and a strand, with none, points to its first child; without either it points Otherwise, in the
+    // character's frame. That direction is the joint's own Twist axis.
+    public sealed record JointInfo(PoseTarget Target, string Name, string Bone, BodySide Side, PoseTarget? Mirror, float BendSign,
+        string[] Toward, Vector3 Otherwise)
     {
         // Turn and Twist go the other way on the right side, so equal values on both sides look like mirror images.
         public float SideSign => Side == BodySide.Right ? -1f : 1f;
@@ -82,27 +86,33 @@ namespace CameraTools
         private const float Up = 1f;
         private const float Down = -1f;
 
+        private static readonly Vector3 Above = Vector3.UnitY;
+        private static readonly Vector3 Below = -Vector3.UnitY;
+        private static readonly Vector3 Ahead = Vector3.UnitZ;
+        private static readonly Vector3 OutLeft = -Vector3.UnitX;
+        private static readonly Vector3 OutRight = Vector3.UnitX;
+
         public static readonly JointInfo[] All =
         {
-            new(PoseJoint.Hips, "Hips", "Bip001 Pelvis", BodySide.Center, null, Up),
-            new(PoseJoint.Waist, "Waist", "Bip001 Spine", BodySide.Center, null, Up),
-            new(PoseJoint.Chest, "Chest", "Bip001 Spine2", BodySide.Center, null, Up),
-            new(PoseJoint.Neck, "Neck", "Bip001 Neck", BodySide.Center, null, Up),
-            new(PoseJoint.Head, "Head", "Bip001 Head", BodySide.Center, null, Up),
-            new(PoseJoint.LeftShoulder, "Left shoulder", "Bip001 L Clavicle", BodySide.Left, PoseJoint.RightShoulder, Down),
-            new(PoseJoint.LeftUpperArm, "Left upper arm", "Bip001 L UpperArm", BodySide.Left, PoseJoint.RightUpperArm, Down),
-            new(PoseJoint.LeftForearm, "Left forearm", "Bip001 L Forearm", BodySide.Left, PoseJoint.RightForearm, Down),
-            new(PoseJoint.LeftHand, "Left hand", "Bip001 L Hand", BodySide.Left, PoseJoint.RightHand, Down),
-            new(PoseJoint.RightShoulder, "Right shoulder", "Bip001 R Clavicle", BodySide.Right, PoseJoint.LeftShoulder, Down),
-            new(PoseJoint.RightUpperArm, "Right upper arm", "Bip001 R UpperArm", BodySide.Right, PoseJoint.LeftUpperArm, Down),
-            new(PoseJoint.RightForearm, "Right forearm", "Bip001 R Forearm", BodySide.Right, PoseJoint.LeftForearm, Down),
-            new(PoseJoint.RightHand, "Right hand", "Bip001 R Hand", BodySide.Right, PoseJoint.LeftHand, Down),
-            new(PoseJoint.LeftThigh, "Left thigh", "Bip001 L Thigh", BodySide.Left, PoseJoint.RightThigh, Down),
-            new(PoseJoint.LeftKnee, "Left knee", "Bip001 L Calf", BodySide.Left, PoseJoint.RightKnee, Down),
-            new(PoseJoint.LeftFoot, "Left foot", "Bip001 L Foot", BodySide.Left, PoseJoint.RightFoot, Down),
-            new(PoseJoint.RightThigh, "Right thigh", "Bip001 R Thigh", BodySide.Right, PoseJoint.LeftThigh, Down),
-            new(PoseJoint.RightKnee, "Right knee", "Bip001 R Calf", BodySide.Right, PoseJoint.LeftKnee, Down),
-            new(PoseJoint.RightFoot, "Right foot", "Bip001 R Foot", BodySide.Right, PoseJoint.LeftFoot, Down),
+            new(PoseJoint.Hips, "Hips", "Bip001 Pelvis", BodySide.Center, null, Up, To("Bip001 Spine"), Above),
+            new(PoseJoint.Waist, "Waist", "Bip001 Spine", BodySide.Center, null, Up, To("Bip001 Spine2"), Above),
+            new(PoseJoint.Chest, "Chest", "Bip001 Spine2", BodySide.Center, null, Up, To("Bip001 Neck"), Above),
+            new(PoseJoint.Neck, "Neck", "Bip001 Neck", BodySide.Center, null, Up, To("Bip001 Head"), Above),
+            new(PoseJoint.Head, "Head", "Bip001 Head", BodySide.Center, null, Up, To("Bip001 HeadNub"), Above),
+            new(PoseJoint.LeftShoulder, "Left shoulder", "Bip001 L Clavicle", BodySide.Left, PoseJoint.RightShoulder, Down, To("Bip001 L UpperArm"), OutLeft),
+            new(PoseJoint.LeftUpperArm, "Left upper arm", "Bip001 L UpperArm", BodySide.Left, PoseJoint.RightUpperArm, Down, To("Bip001 L Forearm"), Below),
+            new(PoseJoint.LeftForearm, "Left forearm", "Bip001 L Forearm", BodySide.Left, PoseJoint.RightForearm, Down, To("Bip001 L Hand"), Below),
+            new(PoseJoint.LeftHand, "Left hand", "Bip001 L Hand", BodySide.Left, PoseJoint.RightHand, Down, To("Bip001 L Finger2", "Bip001 L Finger1"), Below),
+            new(PoseJoint.RightShoulder, "Right shoulder", "Bip001 R Clavicle", BodySide.Right, PoseJoint.LeftShoulder, Down, To("Bip001 R UpperArm"), OutRight),
+            new(PoseJoint.RightUpperArm, "Right upper arm", "Bip001 R UpperArm", BodySide.Right, PoseJoint.LeftUpperArm, Down, To("Bip001 R Forearm"), Below),
+            new(PoseJoint.RightForearm, "Right forearm", "Bip001 R Forearm", BodySide.Right, PoseJoint.LeftForearm, Down, To("Bip001 R Hand"), Below),
+            new(PoseJoint.RightHand, "Right hand", "Bip001 R Hand", BodySide.Right, PoseJoint.LeftHand, Down, To("Bip001 R Finger2", "Bip001 R Finger1"), Below),
+            new(PoseJoint.LeftThigh, "Left thigh", "Bip001 L Thigh", BodySide.Left, PoseJoint.RightThigh, Down, To("Bip001 L Calf"), Below),
+            new(PoseJoint.LeftKnee, "Left knee", "Bip001 L Calf", BodySide.Left, PoseJoint.RightKnee, Down, To("Bip001 L Foot"), Below),
+            new(PoseJoint.LeftFoot, "Left foot", "Bip001 L Foot", BodySide.Left, PoseJoint.RightFoot, Down, To("Bip001 L Toe0"), Ahead),
+            new(PoseJoint.RightThigh, "Right thigh", "Bip001 R Thigh", BodySide.Right, PoseJoint.LeftThigh, Down, To("Bip001 R Calf"), Below),
+            new(PoseJoint.RightKnee, "Right knee", "Bip001 R Calf", BodySide.Right, PoseJoint.LeftKnee, Down, To("Bip001 R Foot"), Below),
+            new(PoseJoint.RightFoot, "Right foot", "Bip001 R Foot", BodySide.Right, PoseJoint.LeftFoot, Down, To("Bip001 R Toe0"), Ahead),
         };
 
         static Joints()
@@ -115,6 +125,8 @@ namespace CameraTools
         }
 
         public static JointInfo Of(PoseJoint joint) => All[(int)joint];
+
+        private static string[] To(params string[] bones) => bones;
     }
 
     // The Joint row's entries for a character's hair and cloth strands, from their root bones' names. Characters name these
@@ -163,7 +175,7 @@ namespace CameraTools
                 string name = count == 1 ? each.Read.Name : $"{each.Read.Name} {count}";
                 string mirror = each.Read.Mirror;
                 return new JointInfo(PoseTarget.OfStrand(each.Bone), name, each.Bone, each.Read.Side,
-                    mirror != null && known.Contains(mirror) ? PoseTarget.OfStrand(mirror) : null, Hanging);
+                    mirror != null && known.Contains(mirror) ? PoseTarget.OfStrand(mirror) : null, Hanging, null, -Vector3.UnitY);
             }).ToArray();
         }
 
@@ -190,8 +202,15 @@ namespace CameraTools
         }
     }
 
-    // Degrees on top of the frozen game pose, in the character's frame: Bend about its right axis, Turn about its up axis and
-    // Twist about its forward axis.
+    // What Bend, Turn and Twist turn about: each joint's own axes, or the character's.
+    public enum JointAxes
+    {
+        Joint,
+        Character,
+    }
+
+    // Degrees on top of the frozen game pose, in the pose's JointAxes: Bend about the frame's bend axis, Turn about its turn
+    // axis and Twist about its twist axis.
     public readonly record struct JointTurn(float Bend, float Turn, float Twist)
     {
         public const float MaxBend = 180f;
@@ -202,6 +221,69 @@ namespace CameraTools
 
         public JointTurn Clamped()
             => new(Math.Clamp(Bend, -MaxBend, MaxBend), Math.Clamp(Turn, -MaxTurn, MaxTurn), Math.Clamp(Twist, -MaxTwist, MaxTwist));
+
+        public JointTurn Rounded() => new(MathF.Round(Bend), MathF.Round(Turn), MathF.Round(Twist));
+    }
+
+    // The axes a joint turns about, in the character's frame. The character's own are its up, right and forward axes. A
+    // joint's own Twist axis runs along it, its Bend axis is the character's right axis made square to that, and Turn is
+    // square to both, so for a bone that hangs or stands straight Bend is the same in both frames.
+    public readonly record struct JointFrame(Vector3 Turn, Vector3 Bend, Vector3 Twist)
+    {
+        private const float Radians = MathF.PI / 180f;
+        // A bone this close to the character's right axis, such as a collarbone, has no bend axis from it and bends about
+        // the forward axis instead.
+        private static readonly float Sideways = MathF.Cos(15f * Radians);
+
+        public static readonly JointFrame Character = new(Vector3.UnitY, Vector3.UnitX, Vector3.UnitZ);
+
+        public static JointFrame For(JointAxes axes, JointFrame own) => axes == JointAxes.Character ? Character : own;
+
+        // The forward axis is signed by the side the bone points to, so mirrored bones get mirrored frames and a positive
+        // Bend raises either collarbone.
+        public static JointFrame Along(Vector3 length)
+        {
+            var twist = Vector3.Normalize(length);
+            float right = Vector3.Dot(twist, Vector3.UnitX);
+            var bend = MathF.Abs(right) > Sideways ? -MathF.Sign(right) * Square(Vector3.UnitZ, twist) : Square(Vector3.UnitX, twist);
+            return new(Vector3.Normalize(Vector3.Cross(twist, bend)), bend, twist);
+        }
+
+        // Turn, then Bend, then Twist, each about the axes the ones before it carried.
+        public Quaternion Compose(JointInfo info, JointTurn turn)
+        {
+            float side = info.SideSign;
+            return About(Turn, turn.Turn * side) * About(Bend, turn.Bend * info.BendSign) * About(Twist, turn.Twist * side);
+        }
+
+        // The Bend, Turn and Twist that Compose turns into this rotation, with Turn within ±90° and the others within ±180°,
+        // which every rotation has. At a Bend of ±90° Turn and Twist do the same thing, and Twist takes it all.
+        public JointTurn Decompose(JointInfo info, Quaternion rotation)
+        {
+            var turned = (Turn: Vector3.Transform(Turn, rotation), Bend: Vector3.Transform(Bend, rotation), Twist: Vector3.Transform(Twist, rotation));
+            float bend = MathF.Asin(Math.Clamp(-Vector3.Dot(Turn, turned.Twist), -1f, 1f));
+            float turn = 0f, twist;
+            if (MathF.Cos(bend) < 1e-4f)
+                twist = MathF.Atan2(-Vector3.Dot(Bend, turned.Turn), Vector3.Dot(Bend, turned.Bend));
+            else
+            {
+                turn = MathF.Atan2(Vector3.Dot(Bend, turned.Twist), Vector3.Dot(Twist, turned.Twist));
+                twist = MathF.Atan2(Vector3.Dot(Turn, turned.Bend), Vector3.Dot(Turn, turned.Turn));
+            }
+            // Turn t, Bend b and Twist w are the same rotation as t ± 180°, ±180° - b and w ± 180°.
+            if (MathF.Abs(turn) > MathF.PI / 2f)
+            {
+                turn -= MathF.CopySign(MathF.PI, turn);
+                bend = MathF.CopySign(MathF.PI, bend) - bend;
+                twist -= MathF.CopySign(MathF.PI, twist);
+            }
+            float side = info.SideSign;
+            return new JointTurn(bend / Radians * info.BendSign, turn / Radians * side, twist / Radians * side);
+        }
+
+        private static Vector3 Square(Vector3 axis, Vector3 to) => Vector3.Normalize(axis - to * Vector3.Dot(axis, to));
+
+        private static Quaternion About(Vector3 axis, float degrees) => Quaternion.CreateFromAxisAngle(axis, degrees * Radians);
     }
 
     // Base, Middle and Tip bend a finger's three joints from straight, in percent of each joint's full bend; below 0 bends
@@ -421,9 +503,17 @@ namespace CameraTools
     }
 
     // One pose as the Pose tab edits it and Poses.json stores it: a turn for each joint and strand that has one, on top of
-    // the frozen game pose, each hand, the face, the gaze, and how much the hair follows the head, in percent.
+    // the frozen game pose, in Axes, each hand, the face, the gaze, and how much the hair follows the head, in percent.
     public sealed class PoseSetup
     {
+        public PoseSetup(JointAxes axes = JointAxes.Joint)
+        {
+            Axes = axes;
+        }
+
+        // Changes only through SetAxes, which keeps the pose's look.
+        public JointAxes Axes { get; private set; }
+
         public Dictionary<PoseJoint, JointTurn> Joints { get; private init; } = new();
         // By the strand root bone's name.
         public Dictionary<string, JointTurn> Strands { get; private init; } = new();
@@ -446,6 +536,24 @@ namespace CameraTools
                 Set(Strands, target.Strand, turn.Clamped());
         }
 
+        // Every posed joint and strand redone in the other axes, rounded to whole degrees, so the pose looks the same. frame
+        // gives a target's own axes, by its position in targets.
+        public void SetAxes(JointAxes axes, IReadOnlyList<JointInfo> targets, Func<int, JointFrame> frame)
+        {
+            if (axes == Axes)
+                return;
+            for (int i = 0; i < targets.Count; i++)
+            {
+                var info = targets[i];
+                var turn = Turn(info.Target);
+                if (turn.IsZero)
+                    continue;
+                var looks = JointFrame.For(Axes, frame(i)).Compose(info, turn);
+                SetTurn(info.Target, JointFrame.For(axes, frame(i)).Decompose(info, looks).Rounded());
+            }
+            Axes = axes;
+        }
+
         public HandPose Hand(Side side) => side == Side.Left ? Left : Right;
 
         public void SetHand(Side side, HandPose hand)
@@ -457,7 +565,7 @@ namespace CameraTools
         }
 
         // Hands, face and gaze are records that are replaced, never changed, so only the turns need copying.
-        public PoseSetup Clone() => new()
+        public PoseSetup Clone() => new(Axes)
         {
             Joints = new Dictionary<PoseJoint, JointTurn>(Joints),
             Strands = new Dictionary<string, JointTurn>(Strands),

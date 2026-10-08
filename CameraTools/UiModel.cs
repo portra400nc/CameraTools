@@ -304,10 +304,16 @@ namespace CameraTools
             return $"{info.Bone}{(info.Target.IsStrand ? " and the bones below it" : "")} · {state}";
         }
 
-        private static SliderRow JointSlider(string label, float max, Func<JointTurn, float> get, Func<JointTurn, float, JointTurn> set)
+        private static readonly string[] AxesNames = { "The joint itself", "The character" };
+
+        // notes holds what the row turns about in each JointAxes.
+        private static SliderRow JointSlider(string label, float max, Func<JointTurn, float> get, Func<JointTurn, float, JointTurn> set, string[] notes)
             => new(label, -max, max, 5f, "0'°'", () => get(Posing.Current.Turn(Posing.Selected.Target)),
                 value => Posing.Edit(pose => pose.SetTurn(Posing.Selected.Target, set(pose.Turn(Posing.Selected.Target), MathF.Round(value)))),
-                Enabled: () => Posing.CanTurnJoint);
+                Enabled: () => Posing.CanTurnJoint)
+            {
+                Detail = () => notes[(int)Posing.Current.Axes],
+            };
 
         private static string HairNote()
         {
@@ -425,9 +431,17 @@ namespace CameraTools
             {
                 Display = () => Posing.Selected.Name,
             },
-            JointSlider("Bend", JointTurn.MaxBend, turn => turn.Bend, (turn, value) => turn with { Bend = value }),
-            JointSlider("Turn", JointTurn.MaxTurn, turn => turn.Turn, (turn, value) => turn with { Turn = value }),
-            JointSlider("Twist", JointTurn.MaxTwist, turn => turn.Twist, (turn, value) => turn with { Twist = value }),
+            new ChoiceRow("Turn around", AxesNames, () => (int)Posing.Current.Axes, choice => Posing.SetAxes((JointAxes)choice), null, Posed)
+            {
+                Detail = () => Posing.Current.Axes == JointAxes.Character ? "Bend, Turn and Twist use the character's own axes"
+                    : "Bend, Turn and Twist follow the joint, whichever way it points",
+            },
+            JointSlider("Bend", JointTurn.MaxBend, turn => turn.Bend, (turn, value) => turn with { Bend = value },
+                new[] { "Folds the joint, as an elbow or a knee folds", "About the character's side-to-side axis" }),
+            JointSlider("Turn", JointTurn.MaxTurn, turn => turn.Turn, (turn, value) => turn with { Turn = value },
+                new[] { "Swings the joint to the side", "About the character's up axis" }),
+            JointSlider("Twist", JointTurn.MaxTwist, turn => turn.Twist, (turn, value) => turn with { Twist = value },
+                new[] { "Spins the joint along its own length", "About the character's front-to-back axis" }),
             new ActionRow("Copy to the other side", Posing.MirrorJoint, "Copy", () => Posing.On && Posing.MirrorIndex != null),
             new ActionRow("Reset joint", Posing.ResetJoint, "Reset", Posed),
             new Section("Hands"),

@@ -100,6 +100,15 @@ namespace CameraTools
 
         public static void SelectFinger(int index) => Finger = Math.Clamp(index, 0, Fingers.Selectable - 1);
 
+        // Redoing the numbers in the other axes needs the rig's, so it waits for posing.
+        public static void SetAxes(JointAxes axes)
+        {
+            if (session == null || session.Pose.Axes == axes)
+                return;
+            var rig = session.Rig;
+            Edit(pose => pose.SetAxes(axes, rig.Targets, rig.Frame));
+        }
+
         public static void SetOn(bool on)
         {
             if (on == On)

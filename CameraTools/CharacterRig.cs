@@ -31,7 +31,6 @@ namespace CameraTools
         private static readonly string[] EyeBones = { "+EyeBone L A01", "+EyeBone R A01" };
         private static readonly NumericsVector3 Right = NumericsVector3.UnitX;
         private static readonly NumericsVector3 Up = NumericsVector3.UnitY;
-        private static readonly NumericsVector3 Forward = NumericsVector3.UnitZ;
 
         public readonly Transform Avatar;
         public readonly string[] Emotions;
@@ -54,8 +53,9 @@ namespace CameraTools
         private readonly List<ShapeSlot> browShapes = new();
         private readonly List<(DynamicBoneArray Physics, bool Enabled, DynamicBoneArray.UpdateMode Mode)> hair = new();
         private readonly Strand[] strands;
-        // Targets' bones, null for a joint this character lacks.
+        // Targets' bones, null for a joint this character lacks, and their own axes.
         private readonly Bone[] targetBones;
+        private readonly JointFrame[] frames;
         private readonly EmoSync emoSync;
         private readonly EyeCtrl eyeCtrl;
         private readonly EyeKey eyeKey;
@@ -92,6 +92,8 @@ namespace CameraTools
             strands = FindStrands();
             Targets = Joints.All.Concat(strands.Select(strand => strand.Info)).ToArray();
             targetBones = joints.Concat(strands.Select(strand => strand.Bone)).ToArray();
+            var guessed = new List<string>();
+            frames = Targets.Select((info, i) => JointFrame.Along(Length(info, targetBones[i]?.Transform, guessed))).ToArray();
             var found = avatar.GetComponentsInChildren(Il2CppType.Of<Animator>(), true);
             for (int i = 0; i < found.Length; i++)
                 if (found[i].TryCast<Animator>() is { } animator && animator)
@@ -115,6 +117,8 @@ namespace CameraTools
                 + $" {shapes.Count} face shapes, {Emotions.Length} expressions, {hair.Count} hair physics, {animators.Count} animators.");
             Melon<CameraTools>.Logger.Msg($"Posing {avatar.name}: {strands.Length} strands, {strands.Count(strand => strand.Hair)} of them hair"
                 + (strands.Length > 0 ? $": {string.Join(", ", strands.Select(strand => $"{strand.Info.Name} ({strand.Info.Bone})"))}." : "."));
+            Melon<CameraTools>.Logger.Msg($"Posing {avatar.name}: "
+                + (guessed.Count == 0 ? "every joint's own axes run to its child bone." : $"no child bone for the own axes of {string.Join(", ", guessed)}."));
         }
 
         public bool Has(PoseTarget target) => target.Joint is { } joint ? joints[(int)joint] != null : strands.Any(strand => strand.Info.Target == target);
@@ -122,6 +126,9 @@ namespace CameraTools
         public bool HasHairStrands => strands.Any(strand => strand.Hair);
 
         public bool HasHand(Side side) => hands[(int)side] != null;
+
+        // The own axes of a position in Targets, as they were at the freeze.
+        public JointFrame Frame(int target) => frames[target];
 
         public bool HasShape(string name) => shapes.ContainsKey(name);
 
@@ -145,7 +152,7 @@ namespace CameraTools
                 var joint = (PoseJoint)i;
                 bone.Write(joint == PoseJoint.Head && pose.Gaze.HeadAtCamera && camera
                     ? Aim(bone, camera, HeadYawLimit, HeadPitchLimit)
-                    : Rotation(Joints.All[i], pose.Turn(joint)));
+                    : Rotation(i, pose.Turn(joint), pose.Axes));
             }
             foreach (var side in Sides.Both)
                 WriteHand(hands[(int)side], pose.Hand(side));
@@ -444,12 +451,24 @@ namespace CameraTools
             emoSync.Toggle(true, true);
         }
 
-        // Offsets are in the character's frame: Turn about its up axis, Bend about its right axis, Twist about its forward
-        // axis.
-        private static NumericsQuaternion Rotation(JointInfo info, JointTurn turn)
+        // target is a position in Targets. The rotation comes out in the character's frame whichever axes the numbers use.
+        private NumericsQuaternion Rotation(int target, JointTurn turn, JointAxes axes)
+            => JointFrame.For(axes, frames[target]).Compose(Targets[target], turn);
+
+        // Where a target's bone pointed at the freeze, in the character's frame, toward its child bone. A bone this character
+        // lacks points its Otherwise, and so does one without the child, whose name goes in guessed.
+        private NumericsVector3 Length(JointInfo info, Transform bone, List<string> guessed)
         {
-            float side = info.SideSign;
-            return AngleAxis(Up, turn.Turn * side) * AngleAxis(Right, turn.Bend * info.BendSign) * AngleAxis(Forward, turn.Twist * side);
+            var child = bone == null ? null
+                : info.Toward == null ? (bone.childCount > 0 ? bone.GetChild(0) : null)
+                : info.Toward.Select(name => bones.GetValueOrDefault(name)).FirstOrDefault(found => found != null);
+            var length = child == null ? NumericsVector3.Zero
+                : NumericsVector3.Transform(child.position.ToNumerics() - bone.position.ToNumerics(), toCharacter);
+            if (length.LengthSquared() > 1e-8f)
+                return length;
+            if (bone != null)
+                guessed.Add(info.Name);
+            return info.Otherwise;
         }
 
         // A bone turns toward the camera from its frozen rotation, measured in the frame its posed parents carry it in, up
@@ -472,9 +491,10 @@ namespace CameraTools
         private void WriteStrands(PoseSetup pose)
         {
             float keep = 1f - pose.HairFollow / 100f;
-            foreach (var strand in strands)
+            for (int s = 0; s < strands.Length; s++)
             {
-                var turn = Rotation(strand.Info, pose.Turn(strand.Info.Target));
+                var strand = strands[s];
+                var turn = Rotation(joints.Length + s, pose.Turn(strand.Info.Target), pose.Axes);
                 if (strand.Hair && keep > 0f)
                 {
                     var carried = strand.Bone.Transform.parent.rotation.ToNumerics() * NumericsQuaternion.Inverse(strand.Bone.ParentWorld);

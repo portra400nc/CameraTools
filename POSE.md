@@ -18,17 +18,19 @@ Poses are saved in `UserData/CameraTools/Poses.json` a second after the last cha
 
 ## Body
 
-Each joint turns three ways, in degrees, on top of the frozen pose:
+Each joint turns three ways, in degrees, on top of the frozen pose. Turn around, under the Joint row, decides what the three rows turn about:
 
-| Row | What it does |
-|--|--|
-| Bend | Swings the joint forward, or back with a negative value. A knee bends back, so it takes a negative Bend. |
-| Turn | Turns the joint about the character's up axis. |
-| Twist | Turns the joint about the axis from the character's back to their front. |
+| Row | The joint itself | The character |
+|--|--|--|
+| Bend | Folds the joint, as an elbow or a knee folds. | Turns the joint about the character's side-to-side axis. |
+| Turn | Swings the joint to the side. | Turns the joint about the character's up axis. |
+| Twist | Spins the joint along its own length. | Turns the joint about the axis from the character's back to their front. |
 
-The angles are measured in the character's own frame, so a joint turns the same way however the character faces. A joint carries everything below it: bending the upper arm moves the forearm and the hand with it. On the right side, Turn and Twist go the other way, so equal values on both sides look like mirror images. Copy to the other side gives the joint's mirror the same values. Reset joint puts one joint back as the game posed it.
+With The joint itself, the rows follow the joint whichever way it points, so a raised arm still folds, and spins along its own length. New poses start with it. With The character, every joint is measured in the character's own frame, which is how poses saved before Turn around were made, so they load with it. Either way a joint turns the same however the character faces. A positive Bend swings a hanging or upright joint forward, and a knee bends back, so it takes a negative Bend; a collarbone, which points to the side, rises. Switching Turn around changes the numbers, not the pose: CameraTools works out each posed joint's numbers in the other axes, to the nearest degree, so the character looks the same. It needs posing on, so the row is dimmed while posing is off.
 
-The Joint row picks a joint, with Bend, Turn and Twist under it. Pose joints is the quicker way: it hides the panel and puts a marker on every joint, with the selected one larger and cream, its name beside it, and its angles at the bottom left.
+A joint carries everything below it: bending the upper arm moves the forearm and the hand with it. On the right side, Turn and Twist go the other way, so equal values on both sides look like mirror images. Copy to the other side gives the joint's mirror the same values. Reset joint puts one joint back as the game posed it.
+
+The Joint row picks a joint, with Bend, Turn and Twist under it. Pose joints is the quicker way: it hides the panel and puts a marker on every joint, with the selected one larger and cream, its name beside it, and its angles at the bottom left. The sticks turn the joint about the axes Turn around picks.
 
 Hair and cloth strands are joints too, at the end of the Joint list, with smaller markers in Pose joints. CameraTools finds them on the character from the game's hair and cloth physics, so each character has their own, named from their bones: `+HairB L L01` is Back hair left, `+SkirtS R A21` is Side skirt right, and `+AmiceB L D01` is Back cloth left. A strand turns from its root, the bone the Joint row's note names, and carries the bones below it. It bends like a hanging limb, and a strand with a twin on the other side has Copy to the other side and the D-pad's jump to it.
 
