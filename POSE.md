@@ -14,7 +14,7 @@ Back to the game's pose clears every change and keeps the character frozen.
 
 Save as new pose keeps the current pose as Pose 1, Pose 2, and on. Saved pose picks one, and its note says how many joints it poses and whether the current pose has changes that no saved pose holds. Load pose starts posing if it is off. Save over this pose replaces the picked pose with the current one. Delete pose asks you to press again to confirm.
 
-Poses are saved in `UserData/CameraTools/Poses.json` a second after the last change. A pose keeps expressions and face shapes by their names, so a pose made on one character loads on another. Anything the other character lacks, such as an expression or a face shape, is left out, and the notice says how many parts were left out.
+Poses are saved in `UserData/CameraTools/Poses.json` a second after the last change. A pose keeps expressions and face shapes by their names, so a pose made on one character loads on another. Anything the other character lacks, such as an expression, a face shape or a hair strand, is left out, and the notice says how many parts were left out.
 
 ## Body
 
@@ -29,6 +29,8 @@ Each joint turns three ways, in degrees, on top of the frozen pose:
 The angles are measured in the character's own frame, so a joint turns the same way however the character faces. A joint carries everything below it: bending the upper arm moves the forearm and the hand with it. On the right side, Turn and Twist go the other way, so equal values on both sides look like mirror images. Copy to the other side gives the joint's mirror the same values. Reset joint puts one joint back as the game posed it.
 
 The Joint row picks a joint, with Bend, Turn and Twist under it. Pose joints is the quicker way: it hides the panel and puts a marker on every joint, with the selected one larger and cream, its name beside it, and its angles at the bottom left.
+
+Hair and cloth strands are joints too, at the end of the Joint list, with smaller markers in Pose joints. CameraTools finds them on the character from the game's hair and cloth physics, so each character has their own, named from their bones: `+HairB L L01` is Back hair left, `+SkirtS R A21` is Side skirt right, and `+AmiceB L D01` is Back cloth left. A strand turns from its root, the bone the Joint row's note names, and carries the bones below it. It bends like a hanging limb, and a strand with a twin on the other side has Copy to the other side and the D-pad's jump to it.
 
 | Controller | Keyboard | In Pose joints |
 |--|--|--|
@@ -57,4 +59,4 @@ Eyes look decides where the eyes point. At the camera follows the camera as it m
 
 ## Hair
 
-The game's hair physics shakes on a posed head, so hair holds its shape while posing. It falls into place for half a second when posing starts, and after Load pose, Back to the game's pose and Bring back last pose. Let hair settle lets it fall again, for example after you turn the head.
+The game's hair physics only holds the hair's shape on a frozen character, so it is off while posing, and a bowed or turned head would swing the hair into the body. Hair follows head sets how much the hair strands turn with the head and the body above them. At 100% the hair moves with the head, as the game holds it. At 0% each hair strand keeps the direction it had before posing. In between, lower values keep the hair off the body when the head bows or turns. A strand turned by hand keeps that turn on top. Cloth strands always move with the body. The row is dimmed for a character with no hair strands.
