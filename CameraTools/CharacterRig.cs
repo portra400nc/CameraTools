@@ -485,9 +485,10 @@ namespace CameraTools
             }
         }
 
-        // Curl is measured from straight, so a preset looks the same whatever the game's idle hand was: each joint turns by
-        // the difference between the bend it should have and the bend it froze with. A hand left to the game keeps its
-        // frozen fingers.
+        // Bends are measured from straight, so a preset looks the same whatever the game's idle hand was: each joint turns by
+        // the difference between the bend it should have and the bend it froze with. On the first joint, spread, then
+        // across and twist, then the bend, each about the axes the turns before it carried. A hand left to the game keeps
+        // its frozen fingers.
         private static void WriteHand(FingerRig[] fingers, HandPose hand)
         {
             if (fingers == null)
@@ -504,9 +505,10 @@ namespace CameraTools
                         finger.Joints[k].Write(NumericsQuaternion.Identity);
                         continue;
                     }
-                    var turn = AngleAxis(finger.CurlAxis, Fingers.FullCurl[f][k] * set.Curl / 100f - finger.Bent[k]);
+                    var turn = AngleAxis(finger.CurlAxis, Fingers.FullCurl[f][k] * set.Bend(k) / 100f - finger.Bent[k]);
                     if (k == 0)
-                        turn = AngleAxis(finger.Palm, set.Spread * finger.SpreadSign) * turn;
+                        turn = AngleAxis(finger.Palm, set.Spread * finger.SpreadSign) * AngleAxis(finger.AcrossAxis, set.Across / 100f * Fingers.FullAcross)
+                            * AngleAxis(finger.TwistAxis, set.Twist) * turn;
                     finger.Joints[k].Write(turn);
                 }
             }
@@ -530,17 +532,18 @@ namespace CameraTools
             var palm = NumericsVector3.Normalize(NumericsVector3.Cross(along, across));
             if (NumericsVector3.Dot(Tip(chains[0]) - wrist, palm) < 0f)
                 palm = -palm;
-            return chains.Select((chain, f) => chain == null ? null : BuildFinger(f, chain, across, palm)).ToArray();
+            var index = chains[1][0].position.ToNumerics();
+            return chains.Select((chain, f) => chain == null ? null : BuildFinger(f, chain, along, across, palm, index)).ToArray();
         }
 
         // The thumb curls about the axis that takes its tip toward the palm, the other fingers about the line across the
         // knuckles; either way a positive turn closes the finger. The first joint's bend is its angle out of the palm's
         // plane, each other joint's its angle from the joint before.
-        private FingerRig BuildFinger(int f, Transform[] chain, NumericsVector3 across, NumericsVector3 palm)
+        private FingerRig BuildFinger(int f, Transform[] chain, NumericsVector3 along, NumericsVector3 across, NumericsVector3 palm, NumericsVector3 index)
         {
             var points = chain.Select(bone => bone.position.ToNumerics()).Append(Tip(chain)).ToArray();
             var segments = Enumerable.Range(0, 3).Select(k => NumericsVector3.Normalize(points[k + 1] - points[k])).ToArray();
-            var axis = f == 0 ? NumericsVector3.Cross(segments[0], palm) : across;
+            var axis = f == Fingers.Thumb ? NumericsVector3.Cross(segments[0], palm) : across;
             if (axis.LengthSquared() < 1e-6f)
                 return null;
             axis = NumericsVector3.Normalize(axis);
@@ -553,10 +556,22 @@ namespace CameraTools
                 SignedAngle(segments[1], segments[2], axis),
             };
             // Spread moves a finger away from the thumb, and the thumb away from the fingers.
-            var away = f == 0 ? -across : across;
+            var away = f == Fingers.Thumb ? -across : across;
             float spreadSign = NumericsVector3.Dot(NumericsVector3.Cross(palm, segments[0]), away) >= 0f ? 1f : -1f;
-            return new FingerRig(chain.Select(bone => new Bone(bone, toCharacter)).ToArray(), NumericsVector3.Transform(axis, toCharacter),
-                NumericsVector3.Transform(palm, toCharacter), spreadSign, bent);
+            // Across swings the thumb tip toward the palm's side about the line from the wrist to the middle knuckle. Twist
+            // spins the thumb along its first segment, turning its pad, which faces where a bend moves the tip, toward the
+            // index knuckle. The other fingers never use either.
+            var swing = NumericsVector3.Zero;
+            var spin = NumericsVector3.Zero;
+            if (f == Fingers.Thumb)
+            {
+                swing = NumericsVector3.Dot(NumericsVector3.Cross(along, points[3] - points[0]), palm) >= 0f ? along : -along;
+                var pad = NumericsVector3.Cross(axis, segments[0]);
+                spin = NumericsVector3.Dot(NumericsVector3.Cross(segments[0], pad), index - points[0]) >= 0f ? segments[0] : -segments[0];
+            }
+            NumericsVector3 InCharacter(NumericsVector3 direction) => NumericsVector3.Transform(direction, toCharacter);
+            return new FingerRig(chain.Select(bone => new Bone(bone, toCharacter)).ToArray(), InCharacter(axis), InCharacter(palm), spreadSign,
+                InCharacter(swing), InCharacter(spin), bent);
         }
 
         // The last joint's child, or, without one, a segment as long as the one before and pointing the same way in the
@@ -617,8 +632,10 @@ namespace CameraTools
 
         private sealed record Strand(JointInfo Info, Bone Bone, bool Hair);
 
-        // CurlAxis and Palm are in the character's frame; Bent is each joint's bend at the freeze, in degrees.
-        private sealed record FingerRig(Bone[] Joints, NumericsVector3 CurlAxis, NumericsVector3 Palm, float SpreadSign, float[] Bent);
+        // The axes are in the character's frame, and the thumb's alone has AcrossAxis and TwistAxis; Bent is each joint's bend
+        // at the freeze, in degrees.
+        private sealed record FingerRig(Bone[] Joints, NumericsVector3 CurlAxis, NumericsVector3 Palm, float SpreadSign, NumericsVector3 AcrossAxis,
+            NumericsVector3 TwistAxis, float[] Bent);
 
         // Scale multiplies the game's own weight; otherwise Value is the weight.
         private readonly record struct ShapeWrite(ShapeSlot Slot, float Value, bool Scale);

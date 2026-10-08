@@ -204,13 +204,33 @@ namespace CameraTools
             => new(Math.Clamp(Bend, -MaxBend, MaxBend), Math.Clamp(Turn, -MaxTurn, MaxTurn), Math.Clamp(Twist, -MaxTwist, MaxTwist));
     }
 
-    // Curl in percent, from straight to closed, and Spread in degrees, positive away from the thumb. Whole numbers, so a
+    // Base, Middle and Tip bend a finger's three joints from straight, in percent of each joint's full bend; below 0 bends
+    // it back. Spread is in degrees, positive away from the thumb. Across swings the thumb in front of the palm, in percent
+    // of Fingers.FullAcross, and Twist turns its pad, in degrees; both stay 0 on the other fingers. Whole numbers, so a
     // hand whose fingers are set back to a preset's numbers is that preset again.
-    public readonly record struct FingerPose(float Curl, float Spread)
+    public readonly record struct FingerPose(float Base, float Middle, float Tip, float Spread, float Across, float Twist)
     {
+        public const float MinBend = -20f;
+        public const float MaxBend = 100f;
         public const float MaxSpread = 30f;
+        public const float MaxTwist = 60f;
 
-        public FingerPose Clamped() => new(MathF.Round(Math.Clamp(Curl, 0f, 100f)), MathF.Round(Math.Clamp(Spread, -MaxSpread, MaxSpread)));
+        // The Curl row: the three joints' average, and all three set to one value.
+        public float Curl => MathF.Round((Base + Middle + Tip) / 3f);
+
+        public FingerPose WithCurl(float curl) => this with { Base = curl, Middle = curl, Tip = curl };
+
+        // From the knuckle out.
+        public float Bend(int joint) => joint switch { 0 => Base, 1 => Middle, _ => Tip };
+
+        public FingerPose Clamped(int finger)
+        {
+            bool thumb = finger == Fingers.Thumb;
+            return new(Whole(Base, MinBend, MaxBend), Whole(Middle, MinBend, MaxBend), Whole(Tip, MinBend, MaxBend), Whole(Spread, -MaxSpread, MaxSpread),
+                thumb ? Whole(Across, 0f, 100f) : 0f, thumb ? Whole(Twist, -MaxTwist, MaxTwist) : 0f);
+        }
+
+        private static float Whole(float value, float min, float max) => MathF.Round(Math.Clamp(value, min, max));
     }
 
     // Each hand's fingers, thumb first; each finger has three joints from the knuckle out.
@@ -218,10 +238,14 @@ namespace CameraTools
     {
         public const int Count = 5;
         public const int Selectable = 2 * Count;
+        public const int Thumb = 0;
+
+        // How far the thumb swings at 100% Across, in degrees. A guess the Deck has to confirm.
+        public const float FullAcross = 60f;
 
         public static readonly string[] Names = { "thumb", "index", "middle", "ring", "little" };
 
-        // How far each joint bends at 100% curl, in degrees.
+        // How far each joint bends at 100%, in degrees.
         public static readonly float[][] FullCurl =
         {
             new[] { 40f, 50f, 60f },
@@ -247,22 +271,28 @@ namespace CameraTools
         Peace,
         Point,
         ThumbsUp,
+        OK,
+        Pinch,
         Custom,
     }
 
     public static class HandShapes
     {
-        public static readonly string[] Names = { "Game's", "Relaxed", "Fist", "Open", "Peace", "Point", "Thumbs up", "Custom" };
+        public static readonly string[] Names = { "Game's", "Relaxed", "Fist", "Open", "Peace", "Point", "Thumbs up", "OK", "Pinch", "Custom" };
 
-        // Curl and spread for each finger, thumb first; a preset is just these numbers.
+        private static readonly FingerPose Closed = F(90, 100, 90);
+
+        // Each finger, thumb first; a preset is just these numbers.
         private static readonly (HandShape Shape, FingerPose[] Fingers)[] Presets =
         {
-            (HandShape.Relaxed, Hand((25, 0), (30, 0), (35, 0), (40, 0), (45, 0))),
-            (HandShape.Fist, Hand((90, 0), (100, 0), (100, 0), (100, 0), (100, 0))),
-            (HandShape.Open, Hand((0, 0), (0, -6), (0, 0), (0, 6), (0, 12))),
-            (HandShape.Peace, Hand((90, 0), (0, -10), (0, 10), (100, 0), (100, 0))),
-            (HandShape.Point, Hand((80, 0), (0, 0), (100, 0), (100, 0), (100, 0))),
-            (HandShape.ThumbsUp, Hand((0, 0), (100, 0), (100, 0), (100, 0), (100, 0))),
+            (HandShape.Relaxed, new[] { F(20, 20, 20, 0, 20), F(25, 30, 30), F(30, 35, 35), F(35, 40, 40), F(40, 45, 45) }),
+            (HandShape.Fist, new[] { F(40, 60, 60, 0, 60), Closed, Closed, Closed, Closed }),
+            (HandShape.Open, new[] { F(0, 0, 0), F(0, 0, 0, -6), F(0, 0, 0), F(0, 0, 0, 6), F(0, 0, 0, 12) }),
+            (HandShape.Peace, new[] { F(50, 60, 60, 0, 70), F(0, 0, 0, -10), F(0, 0, 0, 10), Closed, Closed }),
+            (HandShape.Point, new[] { F(40, 60, 60, 0, 60), F(0, 0, 0), Closed, Closed, Closed }),
+            (HandShape.ThumbsUp, new[] { F(0, 0, 0), Closed, Closed, Closed, Closed }),
+            (HandShape.OK, new[] { F(30, 40, 40, 0, 80), F(55, 70, 45), F(10, 15, 10), F(10, 15, 10, 6), F(15, 20, 15, 12) }),
+            (HandShape.Pinch, new[] { F(10, 30, 30, 0, 65), F(10, 60, 40, -8), F(10, 65, 45), F(20, 70, 50, 6), F(30, 75, 55, 12) }),
         };
 
         // A copy of a preset's fingers, or null for the game's hand and for Custom.
@@ -282,7 +312,8 @@ namespace CameraTools
             return HandShape.Custom;
         }
 
-        private static FingerPose[] Hand(params (float Curl, float Spread)[] fingers) => fingers.Select(each => new FingerPose(each.Curl, each.Spread)).ToArray();
+        private static FingerPose F(float knuckle, float middle, float tip, float spread = 0f, float across = 0f, float twist = 0f)
+            => new(knuckle, middle, tip, spread, across, twist);
     }
 
     // Fingers is null while the hand is as the game posed it. It is never changed in place, so poses can share it.
@@ -305,7 +336,7 @@ namespace CameraTools
         public HandPose WithFinger(int finger, FingerPose pose)
         {
             var fingers = (FingerPose[])(Fingers ?? HandShapes.Preset(HandShape.Relaxed)).Clone();
-            fingers[finger] = pose.Clamped();
+            fingers[finger] = pose.Clamped(finger);
             return new HandPose(HandShapes.Match(fingers), fingers);
         }
     }

@@ -328,9 +328,11 @@ namespace CameraTools
                     : $"Sets Bip001 {side.Letter()} Finger0 to Finger42",
             };
 
+        // A thumb-only row is dimmed while another finger is selected.
         private static SliderRow FingerSlider(string label, float min, float max, float step, string format, Func<FingerPose, float> get,
-            Func<FingerPose, float, FingerPose> set, string note)
+            Func<FingerPose, float, FingerPose> set, Func<string> note, bool thumbOnly = false)
         {
+            static bool OnThumb() => Fingers.At(Posing.Finger).Finger == Fingers.Thumb;
             return new SliderRow(label, min, max, step, format, () =>
                 {
                     var (side, index) = Fingers.At(Posing.Finger);
@@ -342,9 +344,9 @@ namespace CameraTools
                     var hand = pose.Hand(side);
                     pose.SetHand(side, hand.WithFinger(index, set(hand.Finger(index), value)));
                 }),
-                Enabled: () => Posing.On && Posing.HasHand(Fingers.At(Posing.Finger).Side))
+                Enabled: () => Posing.On && Posing.HasHand(Fingers.At(Posing.Finger).Side) && (!thumbOnly || OnThumb()))
             {
-                Detail = () => note,
+                Detail = () => thumbOnly && !OnThumb() ? "For the thumb" : note(),
             };
         }
 
@@ -354,10 +356,11 @@ namespace CameraTools
             return $"{(side == Side.Left ? "Left" : "Right")} {Fingers.Names[finger]}";
         }
 
-        private static string FingerNote()
+        // The selected finger's bone at a joint, the knuckle's with its full name.
+        private static string FingerBone(int joint)
         {
             var (side, finger) = Fingers.At(Posing.Finger);
-            return $"Bip001 {side.Letter()} Finger{finger}, Finger{finger}1 and Finger{finger}2 bend together";
+            return joint == 0 ? Fingers.Bone(side, finger, 0) : $"Finger{finger}{joint}";
         }
 
         private static string ShapeNote(string shape, Func<string, string> sets, Func<string, bool> has)
@@ -430,11 +433,24 @@ namespace CameraTools
             new Section("Hands"),
             HandChoice("Left hand", Side.Left),
             HandChoice("Right hand", Side.Right),
-            new StepperRow("Finger", () => Fingers.Selectable, () => Posing.Finger, Posing.SelectFinger, FingerNote, Posed) { Display = FingerName },
-            FingerSlider("Curl", 0f, 100f, 5f, "0'%'", finger => finger.Curl, (finger, value) => finger with { Curl = value },
-                "0 is straight, 100 closes the finger"),
+            new StepperRow("Finger", () => Fingers.Selectable, () => Posing.Finger, Posing.SelectFinger, () => "Pick a finger, then set its joints below", Posed)
+            {
+                Display = FingerName,
+            },
+            FingerSlider("Curl", 0f, FingerPose.MaxBend, 5f, "0'%'", finger => finger.Curl, (finger, value) => finger.WithCurl(value),
+                () => "Bends all three joints together; 0 is straight"),
+            FingerSlider("Knuckle", FingerPose.MinBend, FingerPose.MaxBend, 5f, "0'%'", finger => finger.Base, (finger, value) => finger with { Base = value },
+                () => $"Bends {FingerBone(0)}; below 0 bends it back"),
+            FingerSlider("Middle joint", FingerPose.MinBend, FingerPose.MaxBend, 5f, "0'%'", finger => finger.Middle,
+                (finger, value) => finger with { Middle = value }, () => $"Bends {FingerBone(1)}"),
+            FingerSlider("Tip", FingerPose.MinBend, FingerPose.MaxBend, 5f, "0'%'", finger => finger.Tip, (finger, value) => finger with { Tip = value },
+                () => $"Bends {FingerBone(2)}"),
             FingerSlider("Spread", -FingerPose.MaxSpread, FingerPose.MaxSpread, 1f, "0'°'", finger => finger.Spread,
-                (finger, value) => finger with { Spread = value }, "Moves the finger toward the thumb or away from it"),
+                (finger, value) => finger with { Spread = value }, () => "Moves the finger toward the thumb or away from it"),
+            FingerSlider("Across the palm", 0f, 100f, 5f, "0'%'", finger => finger.Across, (finger, value) => finger with { Across = value },
+                () => "Swings the thumb in front of the palm, toward the fingertips", thumbOnly: true),
+            FingerSlider("Thumb twist", -FingerPose.MaxTwist, FingerPose.MaxTwist, 5f, "0'°'", finger => finger.Twist,
+                (finger, value) => finger with { Twist = value }, () => "Turns the thumb's pad toward the fingers or away", thumbOnly: true),
             new Section("Face"),
             new ChoiceRow("Expression", new[] { "Game's" }, () => Array.IndexOf(Posing.Emotions, Posing.Current.Face.Expression) + 1,
                 choice => Posing.Edit(pose => pose.Face = pose.Face with { Expression = choice == 0 ? null : Posing.Emotions[choice - 1] }), null, Posed)

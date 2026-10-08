@@ -161,7 +161,11 @@ namespace CameraTools
         private static float[] Numbers(JointTurn turn) => new[] { turn.Bend, turn.Turn, turn.Twist };
 
         private static HandFile ToFile(HandPose hand)
-            => new() { Shape = hand.Shape, Fingers = hand.Fingers?.Select(finger => new[] { finger.Curl, finger.Spread }).ToArray() };
+            => new()
+            {
+                Shape = hand.Shape,
+                Fingers = hand.Fingers?.Select(finger => new[] { finger.Base, finger.Middle, finger.Tip, finger.Spread, finger.Across, finger.Twist }).ToArray(),
+            };
 
         private static SavedPose FromFile(PoseFile file)
         {
@@ -183,14 +187,24 @@ namespace CameraTools
             return new SavedPose(file.Name ?? "Pose", setup);
         }
 
-        // A hand without five fingers of two numbers each is left to the game.
+        // A hand without five readable fingers is left to the game. A preset's name only stands while its numbers still match,
+        // since the presets' numbers changed when the joints got their own rows.
         private static HandPose FromFile(HandFile file)
         {
-            if (file?.Fingers is not { Length: Fingers.Count } fingers || fingers.Any(finger => finger is not { Length: 2 }))
+            var poses = file?.Fingers is { Length: Fingers.Count } fingers ? fingers.Select(FromFile).ToArray() : null;
+            if (poses == null || poses.Any(pose => pose == null))
                 return HandPose.Game;
-            var poses = fingers.Select(finger => new FingerPose(finger[0], finger[1]).Clamped()).ToArray();
-            return new HandPose(file.Shape == HandShape.Game ? HandShapes.Match(poses) : file.Shape, poses);
+            var clamped = poses.Select((pose, f) => pose.Value.Clamped(f)).ToArray();
+            return new HandPose(file.Shape == HandShape.Custom ? HandShape.Custom : HandShapes.Match(clamped), clamped);
         }
+
+        // A file from before the knuckle, middle joint and tip had their own rows has [curl, spread].
+        private static FingerPose? FromFile(float[] finger) => finger switch
+        {
+            { Length: 6 } => new FingerPose(finger[0], finger[1], finger[2], finger[3], finger[4], finger[5]),
+            { Length: 2 } => new FingerPose(finger[0], finger[0], finger[0], finger[1], 0f, 0f),
+            _ => null,
+        };
 
         private sealed class PosesFile
         {
@@ -212,7 +226,7 @@ namespace CameraTools
             public GazePose Gaze { get; set; }
         }
 
-        // Fingers thumb first as [curl, spread], or none for the game's hand.
+        // Fingers thumb first as [base, middle, tip, spread, across, twist], or none for the game's hand.
         private sealed class HandFile
         {
             public HandShape Shape { get; set; }
