@@ -277,8 +277,8 @@ namespace CameraTools
         private static string JointNote()
         {
             var info = Joints.Of(Posing.SelectedJoint);
-            string state = !Posing.HasJoint(info.Joint) ? "not on this character"
-                : Posing.Current.Joints.ContainsKey(info.Joint) ? "posed"
+            string state = !Posing.HasJoint(Posing.SelectedJoint) ? "not on this character"
+                : Posing.Current.Joints.ContainsKey(Posing.SelectedJoint) ? "posed"
                 : "as the game posed it";
             return $"{info.Bone} · {state}";
         }

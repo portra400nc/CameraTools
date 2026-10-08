@@ -97,7 +97,7 @@ namespace CameraTools
             // the eyes followed EyeKey and popped out.
             if (eyeKey)
                 eyeKey.SetReasonEnable(false, EyeKeyReason);
-            var missing = Joints.All.Where(info => joints[(int)info.Joint] == null).Select(info => info.Bone).ToArray();
+            var missing = Joints.All.Where((_, i) => joints[i] == null).Select(info => info.Bone).ToArray();
             Melon<CameraTools>.Logger.Msg($"Posing {avatar.name}: {joints.Length - missing.Length} of {joints.Length} joints"
                 + (missing.Length > 0 ? $" (no {string.Join(", ", missing)})" : "")
                 + $", hands {(hands[0] != null ? "left" : "no left")} and {(hands[1] != null ? "right" : "no right")}, {(HasEyes ? "eye bones" : "no eye bones")},"

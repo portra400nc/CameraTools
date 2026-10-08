@@ -46,11 +46,31 @@ namespace CameraTools
         public static string Letter(this Side side) => side == Side.Left ? "L" : "R";
     }
 
-    // Bone is the biped bone's name, looked up anywhere under the character. BendSign makes a positive Bend swing the joint
-    // forward: +1 for a bone that points up from its joint, which a positive turn about the character's right axis tips
-    // forward, and -1 for one that hangs down, which the same turn swings back. A sign the Deck shows backwards is flipped
-    // here.
-    public sealed record JointInfo(PoseJoint Joint, string Name, string Bone, BodySide Side, PoseJoint? Mirror, float BendSign)
+    // What the Joint row and Pose joints turn: a body joint, or a hair or cloth strand by its root bone's name.
+    public readonly record struct PoseTarget
+    {
+        private PoseTarget(PoseJoint? joint, string strand)
+        {
+            Joint = joint;
+            Strand = strand;
+        }
+
+        public PoseJoint? Joint { get; }
+
+        public string Strand { get; }
+
+        public bool IsStrand => Strand != null;
+
+        public static PoseTarget OfStrand(string bone) => new(null, bone);
+
+        public static implicit operator PoseTarget(PoseJoint joint) => new(joint, null);
+    }
+
+    // One entry of the Joint row. Bone is the biped bone's name, looked up anywhere under the character, or a strand's root
+    // bone. BendSign makes a positive Bend swing the joint forward: +1 for a bone that points up from its joint, which a
+    // positive turn about the character's right axis tips forward, and -1 for one that hangs down, which the same turn
+    // swings back. A sign the Deck shows backwards is flipped here.
+    public sealed record JointInfo(PoseTarget Target, string Name, string Bone, BodySide Side, PoseTarget? Mirror, float BendSign)
     {
         // Turn and Twist go the other way on the right side, so equal values on both sides look like mirror images.
         public float SideSign => Side == BodySide.Right ? -1f : 1f;
@@ -87,13 +107,61 @@ namespace CameraTools
         static Joints()
         {
             for (int i = 0; i < All.Length; i++)
-                if ((int)All[i].Joint != i)
-                    throw new InvalidOperationException($"Joints.All row {i} ({All[i].Joint}) is out of PoseJoint order.");
+                if (All[i].Target.Joint != (PoseJoint)i)
+                    throw new InvalidOperationException($"Joints.All row {i} ({All[i].Name}) is out of PoseJoint order.");
             if (All.Length != Enum.GetValues<PoseJoint>().Length)
                 throw new InvalidOperationException("Joints.All is missing a PoseJoint.");
         }
 
         public static JointInfo Of(PoseJoint joint) => All[(int)joint];
+    }
+
+    // The Joint row's entries for a character's hair and cloth strands, from their root bones' names. "+HairB L L01" is
+    // "Back hair left": the part, its position letter, then the side. Strands hang, so they bend like the arms and legs.
+    public static class StrandJoints
+    {
+        // In the Joint row's order; any other part keeps its own word and comes last.
+        private static readonly (string Part, string Word)[] Parts = { ("Hair", "hair"), ("Skirt", "skirt"), ("Amice", "cloth") };
+        private static readonly (char Letter, string Word)[] Positions = { ('B', "Back"), ('F', "Front"), ('S', "Side") };
+        private static readonly (string Letter, BodySide Side, string Word)[] SideWords = { ("L", BodySide.Left, "left"), ("R", BodySide.Right, "right") };
+
+        // Sorted by part, then by name, then by bone so names that repeat get " 2", " 3" the same way every time.
+        public static JointInfo[] Of(IEnumerable<string> bones)
+        {
+            var known = bones.Distinct().ToHashSet();
+            var read = known.Select(bone => (Bone: bone, Read: Read(bone)))
+                .OrderBy(each => each.Read.Group).ThenBy(each => each.Read.Name, StringComparer.Ordinal).ThenBy(each => each.Bone, StringComparer.Ordinal)
+                .ToList();
+            var seen = new Dictionary<string, int>();
+            return read.Select(each =>
+            {
+                int count = seen[each.Read.Name] = seen.GetValueOrDefault(each.Read.Name) + 1;
+                string name = count == 1 ? each.Read.Name : $"{each.Read.Name} {count}";
+                string mirror = Mirror(each.Bone);
+                return new JointInfo(PoseTarget.OfStrand(each.Bone), name, each.Bone, each.Read.Side,
+                    mirror != null && known.Contains(mirror) ? PoseTarget.OfStrand(mirror) : null, -1f);
+            }).ToArray();
+        }
+
+        private static (int Group, string Name, BodySide Side) Read(string bone)
+        {
+            var words = bone.TrimStart('+').Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            string part = words.Length > 0 ? words[0] : "";
+            string position = null;
+            if (part.Length > 1 && char.IsUpper(part[^1]) && char.IsLower(part[^2]))
+            {
+                position = Positions.FirstOrDefault(each => each.Letter == part[^1]).Word;
+                part = part[..^1];
+            }
+            int group = Array.FindIndex(Parts, each => each.Part == part);
+            var side = words.Length > 1 ? SideWords.FirstOrDefault(each => each.Letter == words[1]) : default;
+            string name = string.Join(" ", new[] { position, group >= 0 ? Parts[group].Word : part.ToLowerInvariant(), side.Word }.Where(word => !string.IsNullOrEmpty(word)));
+            return (group >= 0 ? group : Parts.Length, name.Length == 0 ? bone : char.ToUpperInvariant(name[0]) + name[1..], side.Word == null ? BodySide.Center : side.Side);
+        }
+
+        // The same bone name with the side letter swapped, or null for a strand in the middle.
+        private static string Mirror(string bone)
+            => bone.Contains(" L ") ? bone.Replace(" L ", " R ") : bone.Contains(" R ") ? bone.Replace(" R ", " L ") : null;
     }
 
     // Degrees on top of the frozen game pose, in the character's frame: Bend about its right axis, Turn about its up axis and
@@ -295,28 +363,30 @@ namespace CameraTools
         public static string Brow(string pair, Side side) => $"{pair}_{side.Letter()}";
     }
 
-    // One pose as the Pose tab edits it and Poses.json stores it: a turn for each joint that has one, on top of the frozen
-    // game pose, each hand, the face, and the gaze.
+    // One pose as the Pose tab edits it and Poses.json stores it: a turn for each joint and strand that has one, on top of
+    // the frozen game pose, each hand, the face, the gaze, and how much the hair follows the head, in percent.
     public sealed class PoseSetup
     {
         public Dictionary<PoseJoint, JointTurn> Joints { get; private init; } = new();
+        // By the strand root bone's name.
+        public Dictionary<string, JointTurn> Strands { get; private init; } = new();
         public HandPose Left { get; set; } = HandPose.Game;
         public HandPose Right { get; set; } = HandPose.Game;
         public FacePose Face { get; set; } = FacePose.Default;
         public GazePose Gaze { get; set; } = GazePose.Default;
+        public float HairFollow { get; set; } = 100f;
 
-        public int PosedJoints => Joints.Count;
+        public int PosedJoints => Joints.Count + Strands.Count;
 
-        public JointTurn Turn(PoseJoint joint) => Joints.GetValueOrDefault(joint);
+        public JointTurn Turn(PoseTarget target) => target.Joint is { } joint ? Joints.GetValueOrDefault(joint) : Strands.GetValueOrDefault(target.Strand);
 
-        // A joint turned back to zero is dropped, so Joints holds only the posed ones.
-        public void SetTurn(PoseJoint joint, JointTurn turn)
+        // A joint turned back to zero is dropped, so Joints and Strands hold only the posed ones.
+        public void SetTurn(PoseTarget target, JointTurn turn)
         {
-            turn = turn.Clamped();
-            if (turn.IsZero)
-                Joints.Remove(joint);
+            if (target.Joint is { } joint)
+                Set(Joints, joint, turn.Clamped());
             else
-                Joints[joint] = turn;
+                Set(Strands, target.Strand, turn.Clamped());
         }
 
         public HandPose Hand(Side side) => side == Side.Left ? Left : Right;
@@ -329,8 +399,25 @@ namespace CameraTools
                 Right = hand;
         }
 
-        // Hands, face and gaze are records that are replaced, never changed, so only the joints need copying.
-        public PoseSetup Clone() => new() { Joints = new Dictionary<PoseJoint, JointTurn>(Joints), Left = Left, Right = Right, Face = Face, Gaze = Gaze };
+        // Hands, face and gaze are records that are replaced, never changed, so only the turns need copying.
+        public PoseSetup Clone() => new()
+        {
+            Joints = new Dictionary<PoseJoint, JointTurn>(Joints),
+            Strands = new Dictionary<string, JointTurn>(Strands),
+            Left = Left,
+            Right = Right,
+            Face = Face,
+            Gaze = Gaze,
+            HairFollow = HairFollow,
+        };
+
+        private static void Set<TKey>(Dictionary<TKey, JointTurn> turns, TKey key, JointTurn turn)
+        {
+            if (turn.IsZero)
+                turns.Remove(key);
+            else
+                turns[key] = turn;
+        }
     }
 
     public sealed record SavedPose(string Name, PoseSetup Setup);

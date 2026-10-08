@@ -150,7 +150,7 @@ namespace CameraTools
             if (Joints.Of(joint).Mirror is not { } other)
                 return;
             Edit(pose => pose.SetTurn(other, pose.Turn(joint)));
-            CameraUi.Toast($"Copied to the {Joints.Of(other).Name.ToLowerInvariant()}");
+            CameraUi.Toast($"Copied to the {Joints.Of(other.Joint.Value).Name.ToLowerInvariant()}");
         }
 
         public static void ResetJoint()
@@ -326,7 +326,7 @@ namespace CameraTools
             else if (Pressed(DpadDown, KeyCode.DownArrow))
                 Joint = (Joint + 1) % count;
             else if ((Pressed(DpadLeft, KeyCode.LeftArrow) || Pressed(DpadRight, KeyCode.RightArrow)) && Joints.Of(SelectedJoint).Mirror is { } other)
-                Joint = (int)other;
+                Joint = (int)other.Joint.Value;
             if (Pressed(PadY, KeyCode.Backspace))
                 ResetJoint();
             if (Pressed(PadX, KeyCode.M))

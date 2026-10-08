@@ -148,13 +148,17 @@ namespace CameraTools
             return new PoseFile
             {
                 Name = saved.Name,
-                Joints = setup.Joints.ToDictionary(each => each.Key.ToString(), each => new[] { each.Value.Bend, each.Value.Turn, each.Value.Twist }),
+                Joints = setup.Joints.ToDictionary(each => each.Key.ToString(), each => Numbers(each.Value)),
+                Strands = setup.Strands.ToDictionary(each => each.Key, each => Numbers(each.Value)),
                 Left = ToFile(setup.Left),
                 Right = ToFile(setup.Right),
                 Face = setup.Face,
                 Gaze = setup.Gaze,
+                HairFollow = setup.HairFollow,
             };
         }
+
+        private static float[] Numbers(JointTurn turn) => new[] { turn.Bend, turn.Turn, turn.Twist };
 
         private static HandFile ToFile(HandPose hand)
             => new() { Shape = hand.Shape, Fingers = hand.Fingers?.Select(finger => new[] { finger.Curl, finger.Spread }).ToArray() };
@@ -165,12 +169,17 @@ namespace CameraTools
             foreach (var (name, values) in file.Joints ?? new())
                 if (Enum.TryParse<PoseJoint>(name, out var joint) && values is { Length: 3 })
                     setup.SetTurn(joint, new JointTurn(values[0], values[1], values[2]));
+            foreach (var (bone, values) in file.Strands ?? new())
+                if (!string.IsNullOrEmpty(bone) && values is { Length: 3 })
+                    setup.SetTurn(PoseTarget.OfStrand(bone), new JointTurn(values[0], values[1], values[2]));
             setup.Left = FromFile(file.Left);
             setup.Right = FromFile(file.Right);
             if (file.Face is { } face)
                 setup.Face = face with { LeftClosed = Math.Clamp(face.LeftClosed, 0f, 100f), RightClosed = Math.Clamp(face.RightClosed, 0f, 100f) };
             if (file.Gaze is { } gaze)
                 setup.Gaze = gaze with { X = Math.Clamp(gaze.X, -GazePose.MaxX, GazePose.MaxX), Y = Math.Clamp(gaze.Y, -GazePose.MaxY, GazePose.MaxY) };
+            if (file.HairFollow is { } follow && float.IsFinite(follow))
+                setup.HairFollow = Math.Clamp(follow, 0f, 100f);
             return new SavedPose(file.Name ?? "Pose", setup);
         }
 
@@ -189,11 +198,14 @@ namespace CameraTools
             public int Active { get; set; }
         }
 
-        // Joints as [bend, turn, twist] by PoseJoint name.
+        // Joints as [bend, turn, twist] by PoseJoint name, and strands by their root bone's name. A file from before strands
+        // has neither Strands nor HairFollow, and loads with no strands posed and the hair following the head.
         private sealed class PoseFile
         {
             public string Name { get; set; }
             public Dictionary<string, float[]> Joints { get; set; }
+            public Dictionary<string, float[]> Strands { get; set; }
+            public float? HairFollow { get; set; }
             public HandFile Left { get; set; }
             public HandFile Right { get; set; }
             public FacePose Face { get; set; }
