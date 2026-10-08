@@ -120,6 +120,8 @@ namespace CameraTools
     // "Back hair left": the part, its position letter, then the side. Strands hang, so they bend like the arms and legs.
     public static class StrandJoints
     {
+        private const float Hanging = -1f;
+
         // In the Joint row's order; any other part keeps its own word and comes last.
         private static readonly (string Part, string Word)[] Parts = { ("Hair", "hair"), ("Skirt", "skirt"), ("Amice", "cloth") };
         private static readonly (char Letter, string Word)[] Positions = { ('B', "Back"), ('F', "Front"), ('S', "Side") };
@@ -139,7 +141,7 @@ namespace CameraTools
                 string name = count == 1 ? each.Read.Name : $"{each.Read.Name} {count}";
                 string mirror = Mirror(each.Bone);
                 return new JointInfo(PoseTarget.OfStrand(each.Bone), name, each.Bone, each.Read.Side,
-                    mirror != null && known.Contains(mirror) ? PoseTarget.OfStrand(mirror) : null, -1f);
+                    mirror != null && known.Contains(mirror) ? PoseTarget.OfStrand(mirror) : null, Hanging);
             }).ToArray();
         }
 
@@ -156,7 +158,7 @@ namespace CameraTools
             int group = Array.FindIndex(Parts, each => each.Part == part);
             var side = words.Length > 1 ? SideWords.FirstOrDefault(each => each.Letter == words[1]) : default;
             string name = string.Join(" ", new[] { position, group >= 0 ? Parts[group].Word : part.ToLowerInvariant(), side.Word }.Where(word => !string.IsNullOrEmpty(word)));
-            return (group >= 0 ? group : Parts.Length, name.Length == 0 ? bone : char.ToUpperInvariant(name[0]) + name[1..], side.Word == null ? BodySide.Center : side.Side);
+            return (group >= 0 ? group : Parts.Length, name.Length == 0 ? bone : char.ToUpperInvariant(name[0]) + name[1..], side.Side);
         }
 
         // The same bone name with the side letter swapped, or null for a strand in the middle.
