@@ -37,6 +37,7 @@ namespace CameraTools
             Poses.Load();
             Screenshot.Load();
             DepthOfField.Load();
+            FrameGuide.Load();
         }
 
         public override void OnApplicationQuit()

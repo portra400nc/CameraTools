@@ -6,6 +6,7 @@
  - Field of view adjustments
  - Game speed control (pause, slow-motion, speed up)
  - Hide UI for clean shots
+ - Frame guide: see where a crop to 7:5, 21:9 or any aspect ratio will cut the picture
  - Smooth camera movement (damping)
  - Change graphics settings and resolution while in free cam
  - Change the time of day + time-lapse
@@ -106,6 +107,14 @@ The `[CameraToolsGraphics]` section of `MelonPreferences.cfg` holds:
 | `HideOutlines` | `false` | Hides the outlines the game draws around characters, NPCs and weapons. The Graphics tab's Outlines switch sets it. Presets and the screenshot button leave it as it is. |
 
 A slot from 320x200 to 16384x16384 is accepted. A slot that does not parse falls back to its default, and the log names it.
+
+## Frame guide
+
+The Camera tab's Frame guide section draws the crop you plan to make as a frame in the middle of the screen. Turn on Show frame guide, then pick an aspect ratio, or pick Custom and type one, such as 7:5 or 2.4. Portrait turns the frame on its side. Outside the frame shades what the crop cuts off, from lines only at 0% to black at 100%. Rule of thirds adds a grid inside the frame.
+
+The guide is part of CameraTools' UI. Hide UI hides it, and the screenshot button hides it before the shot, so it never shows in a screenshot.
+
+The `[CameraToolsFrameGuide]` section of `MelonPreferences.cfg` holds the rows' values: `Shown`, `AspectRatio`, `CustomRatio`, `Portrait`, `OutsideTheFrame` (0 to 1) and `RuleOfThirds`.
 
 ## Controller
 

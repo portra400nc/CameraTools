@@ -47,6 +47,10 @@ namespace CameraTools
         public static readonly Color FocusShadow = Hex(0x000000, 0.55f);
         public static readonly Color MarkerRing = Hex(0x222835, 0.90f);
         public static readonly Color PillRing = Hex(0xd3bc8e, 0.45f);
+        public static readonly Color GuideLine = Hex(0xece5d8, 0.90f);
+        public static readonly Color GuideOutline = Hex(0x000000, 0.35f);
+        public static readonly Color GuideGrid = Hex(0xece5d8, 0.40f);
+        public static readonly Color GuideShade = Hex(0x000000);
 
         public const float Margin = 44f;
         public const float TopLegendY = 28f;
@@ -158,6 +162,12 @@ namespace CameraTools
         public const float ThumbRight = 4f;
         public const float ThumbMin = 24f;
         public const float WheelStep = 60f;
+
+        // The frame guide's ratio, inside the frame's top left corner.
+        public const float GuideLabelX = 10f;
+        public const float GuideLabelY = 8f;
+        public const float GuideLabelWidth = 200f;
+        public const int GuideLabelSize = 13;
 
         public const float PlayBarY = 24f;
         public const float PlayBarGap = 18f;

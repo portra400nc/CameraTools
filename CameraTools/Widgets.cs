@@ -301,12 +301,13 @@ namespace CameraTools
 
         public override void Sync(float step)
         {
+            Dim();
             var row = (TextRow)Row;
             string value = row.Get();
             if (shown == (value, Buffer))
                 return;
             shown = (value, Buffer);
-            Value.text = Buffer != null ? "#" + Buffer.ToUpperInvariant() + "|" : value;
+            Value.text = Buffer != null ? row.Prefix + Buffer.ToUpperInvariant() + "|" : value;
             Value.color = Buffer != null ? Style.Text : row.Tint?.Invoke() ?? Style.Dim;
         }
     }
@@ -729,7 +730,7 @@ namespace CameraTools
         public TextView TextField(Transform parent, TextRow row, float y)
         {
             var view = new TextView();
-            var rect = Item(parent, view, row, y, Style.ToggleRowHeight);
+            var rect = Item(parent, view, row, y, Style.ToggleRowHeight, row.Enabled);
             var label = Label(rect, "Label", row.Label, Style.RowSize, Style.Text, TextAnchor.MiddleLeft);
             TopLeft(label.rectTransform, Style.RowLeft, 0f, Style.RowWidth - Style.SlotValueWidth, Style.ToggleRowHeight);
             view.Value = Label(rect, "Value", "", Style.ValueSize, Style.Dim, TextAnchor.MiddleRight);

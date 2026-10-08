@@ -88,7 +88,7 @@ namespace CameraTools
 
         // Whether anything of CameraTools' is on screen, a part that is still fading out included.
         public static bool OnScreen => live != null
-            ? live.Hud.Visible || live.Focus.Visible || live.PlayBar.Visible || live.Panel.Visible || live.Toast.Visible
+            ? live.Hud.Visible || live.Guide.Visible || live.Focus.Visible || live.PlayBar.Visible || live.Panel.Visible || live.Toast.Visible
                 || live.Move.Visible || live.Markers.Visible || live.JointLayer.Visible
             : FallbackToast != null;
 
@@ -176,6 +176,7 @@ namespace CameraTools
                     Root = root, Canvas = root.GetComponent<RectTransform>(), Font = font, MissingSettings = !Graphics.HasSettings,
                 };
                 var model = UiModel.Tabs();
+                BuildGuide(ui, built, root.transform);
                 BuildFocus(built, root.transform);
                 BuildMarkers(ui, built, root.transform);
                 BuildHud(ui, built, root.transform);
@@ -200,6 +201,46 @@ namespace CameraTools
                 Object.Destroy(root);
                 throw;
             }
+        }
+
+        // Each side of the frame guide: where it sits on the frame, and the pivot that puts its line inside the frame.
+        private static readonly (float X0, float Y0, float X1, float Y1, float PivotX, float PivotY)[] GuideEdges =
+        {
+            (0f, 1f, 1f, 1f, 0.5f, 1f), (0f, 0f, 1f, 0f, 0.5f, 0f), (0f, 0f, 0f, 1f, 0f, 0.5f), (1f, 0f, 1f, 1f, 1f, 0.5f),
+        };
+
+        // The frame guide: the crop's frame with its ratio's name, shade over what the crop cuts off, and a rule of thirds
+        // grid. It is under everything else, the focus point included. Each side has a light line inside the frame and a
+        // dark one outside it, so it shows on a bright picture and a dark one.
+        private static void BuildGuide(Builder ui, Live target, Transform root)
+        {
+            var guide = Node("Guide", root);
+            Fill(guide);
+            target.Guide = new Fader(guide, V(0f, 0f), Style.HudFade);
+            target.GuideShade = new[] { "Top", "Bottom", "Left", "Right" }
+                .Select(name => Picture(guide, name, null, Style.GuideShade))
+                .ToArray();
+            var frame = Node("Frame", guide);
+            target.GuideFrame = frame;
+            foreach (var (x0, y0, x1, y1, pivotX, pivotY) in GuideEdges)
+            {
+                bool across = y0 == y1;
+                var outline = Picture(frame, "Outline", null, Style.GuideOutline).rectTransform;
+                Place(outline, V(x0, y0), V(x1, y1), V(1f - pivotX, 1f - pivotY), V(0f, 0f), across ? V(2f, 1f) : V(1f, 2f));
+                var line = Picture(frame, "Line", null, Style.GuideLine).rectTransform;
+                Place(line, V(x0, y0), V(x1, y1), V(pivotX, pivotY), V(0f, 0f), across ? V(0f, 1f) : V(1f, 0f));
+            }
+            var thirds = Node("Thirds", frame);
+            Fill(thirds);
+            foreach (float at in new[] { 1f / 3f, 2f / 3f })
+            {
+                Place(Picture(thirds, "Column", null, Style.GuideGrid).rectTransform, V(at, 0f), V(at, 1f), V(0.5f, 0.5f), V(0f, 0f), V(1f, 0f));
+                Place(Picture(thirds, "Row", null, Style.GuideGrid).rectTransform, V(0f, at), V(1f, at), V(0.5f, 0.5f), V(0f, 0f), V(0f, 1f));
+            }
+            target.GuideThirds = thirds.gameObject;
+            target.GuideLabel = ui.Label(frame, "Ratio", "", Style.GuideLabelSize, Style.Text, TextAnchor.UpperLeft);
+            TopLeft(target.GuideLabel.rectTransform, Style.GuideLabelX, Style.GuideLabelY, Style.GuideLabelWidth, Style.HintHeight);
+            DropShadow(target.GuideLabel, Style.TextShadow);
         }
 
         // The depth of field's focus point: brackets at the corners of the window its autofocus samples, and a cross in
@@ -804,14 +845,19 @@ namespace CameraTools
                 StopEditing();
         }
 
-        // The keys that type each allowed character: digits from both rows, letters from their keys.
+        // The keys that type each allowed character: digits from both rows, a point from either, letters from their keys.
         private static (KeyCode Key, char Typed)[] KeysFor(string allowed)
         {
             if (typedKeys.TryGetValue(allowed, out var keys))
                 return keys;
-            keys = allowed.SelectMany(typed => typed is >= '0' and <= '9'
-                    ? new[] { (KeyCode.Alpha0 + (typed - '0'), typed), (KeyCode.Keypad0 + (typed - '0'), typed) }
-                    : new[] { (KeyCode.A + (typed - 'a'), typed) })
+            keys = allowed.SelectMany(typed => typed switch
+                {
+                    >= '0' and <= '9' => new[] { (KeyCode.Alpha0 + (typed - '0'), typed), (KeyCode.Keypad0 + (typed - '0'), typed) },
+                    '.' => new[] { (KeyCode.Period, typed), (KeyCode.KeypadPeriod, typed) },
+                    // Shift and ; on a US keyboard, which Unity reports as Semicolon.
+                    ':' => new[] { (KeyCode.Semicolon, typed) },
+                    _ => new[] { (KeyCode.A + (typed - 'a'), typed) },
+                })
                 .ToArray();
             typedKeys[allowed] = keys;
             return keys;
@@ -956,6 +1002,7 @@ namespace CameraTools
             // Values that changed while the panel or their tab was hidden show without animating.
             bool opened = view == View.Panel && live.Shown != View.Panel;
             live.Shown = view;
+            RenderGuide(view, deltaTime);
             RenderFocus(view, deltaTime);
             RenderMarkers(view, deltaTime);
             RenderJoints(view, deltaTime);
@@ -976,6 +1023,33 @@ namespace CameraTools
             if (live.Panel.Visible)
                 RenderPanel(opened, deltaTime);
             RenderToast(deltaTime);
+        }
+
+        // The frame guide shows wherever CameraTools' UI does, and Hide UI hides it. Like the focus point, it is placed by
+        // its fractions of the canvas, so it frames the same part of the picture at any screen size.
+        private static void RenderGuide(View view, float deltaTime)
+        {
+            var area = live.Canvas.rect;
+            var frame = view != View.Hidden && area.height > 0f ? FrameGuide.Frame : null;
+            live.Guide.Update(frame != null, deltaTime);
+            if (frame is not { } guide)
+                return;
+            var shown = (CropFrame.Box(guide.Ratio, area.width / area.height), guide.Label, FrameGuide.Shade, FrameGuide.Thirds);
+            if (live.GuideShown == shown)
+                return;
+            live.GuideShown = shown;
+            var (box, _, shade, thirds) = shown;
+            float left = box.Left, right = box.Right, top = 1f - box.Top, bottom = 1f - box.Bottom;
+            Place(live.GuideFrame, V(left, bottom), V(right, top), V(0.5f, 0.5f), V(0f, 0f), V(0f, 0f));
+            var spans = new[] { (V(0f, top), V(1f, 1f)), (V(0f, 0f), V(1f, bottom)), (V(0f, bottom), V(left, top)), (V(right, bottom), V(1f, top)) };
+            for (int index = 0; index < spans.Length; index++)
+            {
+                var piece = live.GuideShade[index];
+                Place(piece.rectTransform, spans[index].Item1, spans[index].Item2, V(0.5f, 0.5f), V(0f, 0f), V(0f, 0f));
+                piece.color = Style.WithAlpha(Style.GuideShade, shade);
+            }
+            live.GuideLabel.text = guide.Label;
+            live.GuideThirds.SetActive(thirds);
         }
 
         // The focus point also shows beside the open panel, so the Focus point rows can be seen to move it. The window is
@@ -1365,6 +1439,12 @@ namespace CameraTools
             public RectTransform Canvas;
             public Font Font;
             public Fader Hud;
+            public Fader Guide;
+            public RectTransform GuideFrame;
+            public Image[] GuideShade;
+            public Text GuideLabel;
+            public GameObject GuideThirds;
+            public (ScreenBox Box, string Label, float Shade, bool Thirds)? GuideShown;
             public Fader Focus;
             public RectTransform FocusWindow;
             public ScreenBox? FocusShown;

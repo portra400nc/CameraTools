@@ -21,6 +21,7 @@ namespace CameraTools
             ChoiceRow choice => choice.Enabled,
             ActionRow action => action.Enabled,
             StepperRow stepper => stepper.Enabled,
+            TextRow text => text.Enabled,
             _ => null,
         })?.Invoke() ?? true;
     }
@@ -74,9 +75,13 @@ namespace CameraTools
     public sealed record ResolutionRow(string Label, int Slot) : Row(Label);
 
     // A value typed on the keyboard, or with Steam+X on the Deck. Allowed lists the characters it takes, in lower case;
-    // Commit gets the typed text, and Tint colours the value while it is not being typed.
+    // Commit gets the typed text, and Tint colours the value while it is not being typed. Prefix shows before the text
+    // being typed, as # before a colour's hex.
     public sealed record TextRow(string Label, Func<string> Get, Action<string> Commit, string Allowed, int MaxLength,
-        Func<Color> Tint = null) : Row(Label);
+        Func<Color> Tint = null, Func<bool> Enabled = null) : Row(Label)
+    {
+        public string Prefix { get; init; } = "";
+    }
 
     public sealed record Tab(string Name, Row[] Rows);
 
@@ -99,6 +104,21 @@ namespace CameraTools
             SliderRow.For("Field of view", settings.Fov, 1f, "0.0"),
             SliderRow.For("Damping", settings.Damping, 0.05f, "0.00"),
             new ToggleRow("Remember last position", () => settings.RememberPosition, on => settings.RememberPosition = on),
+            new Section("Frame guide"),
+            new ToggleRow("Show frame guide", () => FrameGuide.Shown, FrameGuide.SetShown),
+            new ChoiceRow("Aspect ratio", FrameGuide.Labels, () => FrameGuide.Choice, FrameGuide.SetChoice, null, () => FrameGuide.Shown),
+            new TextRow("Custom ratio", () => FrameGuide.CustomRatio, FrameGuide.SetCustom, "0123456789:.", 9,
+                Enabled: () => FrameGuide.CustomChosen),
+            new ToggleRow("Portrait", () => FrameGuide.Portrait, FrameGuide.SetPortrait, () => FrameGuide.Turnable)
+            {
+                Detail = () => "Turns the frame on its side",
+            },
+            new SliderRow("Outside the frame", 0f, 100f, 5f, "0'%'", () => FrameGuide.Shade * 100f, value => FrameGuide.SetShade(value / 100f),
+                Enabled: () => FrameGuide.Shown)
+            {
+                Detail = () => FrameGuide.ShadeNote,
+            },
+            new ToggleRow("Rule of thirds", () => FrameGuide.Thirds, FrameGuide.SetThirds, () => FrameGuide.Shown),
         });
 
         private static readonly Tab World = new("World", new Row[]
@@ -245,6 +265,7 @@ namespace CameraTools
             new TextRow("Hex", () => Lights.Current is { } light ? Colors.Hex(light.Color) : "", Lights.SetHex, "0123456789abcdef", 6,
                 () => Lights.Current is { } light ? new Color(light.Color.X, light.Color.Y, light.Color.Z, 1f) : Style.Dim)
             {
+                Prefix = "#",
                 Shown = () => Lights.HasLight,
             },
             new Section("Spheres", () => ReShade.Missing ?? (ReLight.Loaded ? null : "Needs iMMERSE ReLight"))
