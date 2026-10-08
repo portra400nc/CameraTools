@@ -144,6 +144,7 @@ namespace CameraTools
         public RectTransform Handle;
         public Text Value;
         private float shown = float.NaN;
+        private float shownTop = float.NaN;
         private string text;
 
         // Hotkeys can push game speed past the row's range; the bar stops at its end and the value shows the real one.
@@ -152,11 +153,12 @@ namespace CameraTools
             Dim();
             SyncDetail();
             var slider = (SliderRow)Row;
-            float value = slider.Get();
-            if (value == shown)
+            float value = slider.Get(), top = slider.Top;
+            if (value == shown && top == shownTop)
                 return;
             shown = value;
-            float t = Math.Clamp((value - slider.Min) / (slider.Max - slider.Min), 0f, 1f);
+            shownTop = top;
+            float t = top > slider.Min ? Math.Clamp((value - slider.Min) / (top - slider.Min), 0f, 1f) : 1f;
             Fill.anchorMax = new Vector2 { x = t, y = 0.5f };
             Handle.anchorMin = new Vector2 { x = t, y = 0.5f };
             Handle.anchorMax = new Vector2 { x = t, y = 0.5f };

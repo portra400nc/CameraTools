@@ -43,6 +43,11 @@ namespace CameraTools
     {
         public RailLook Rail { get; init; }
 
+        // Read every frame in place of Max, for a range that ends at a value read from the game, as the near clip's does.
+        public Func<float> LiveMax { get; init; }
+
+        public float Top => LiveMax != null ? Math.Max(LiveMax(), Min) : Max;
+
         public static SliderRow For(string label, Setting setting, float step, string format)
             => new(label, setting.Min, setting.Max, step, format, () => setting.Value, value => setting.Value = value);
     }
@@ -102,6 +107,10 @@ namespace CameraTools
             SliderRow.For("Roll speed", settings.RollSpeed, 0.1f, "0.0"),
             SliderRow.For("Zoom speed", settings.FovSpeed, 0.05f, "0.00"),
             SliderRow.For("Field of view", settings.Fov, 1f, "0.0"),
+            new SliderRow("Near clip", 1f, 1f, 1f, "0' cm'", () => freecam.NearClip * 100f, value => freecam.NearClip = value / 100f)
+            {
+                LiveMax = () => freecam.GameNear * 100f,
+            },
             SliderRow.For("Damping", settings.Damping, 0.05f, "0.00"),
             new ToggleRow("Remember last position", () => settings.RememberPosition, on => settings.RememberPosition = on),
             new Section("Frame guide"),

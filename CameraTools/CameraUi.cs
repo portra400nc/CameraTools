@@ -753,7 +753,7 @@ namespace CameraTools
         }
 
         private static void Step(SliderRow slider, int direction)
-            => slider.Set(Math.Clamp(slider.Get() + direction * slider.Step, slider.Min, slider.Max));
+            => slider.Set(Math.Clamp(slider.Get() + direction * slider.Step, slider.Min, slider.Top));
 
         private static void Choose(ChoiceRow choice, int direction)
         {
@@ -991,7 +991,7 @@ namespace CameraTools
                 return;
             float t = Math.Clamp((point.x - from) / (to - from), 0f, 1f);
             var slider = (SliderRow)view.Row;
-            slider.Set(slider.Min + (slider.Max - slider.Min) * t);
+            slider.Set(slider.Min + (slider.Top - slider.Min) * t);
         }
 
         private static void Render()
