@@ -107,9 +107,9 @@ namespace CameraTools
             SliderRow.For("Roll speed", settings.RollSpeed, 0.1f, "0.0"),
             SliderRow.For("Zoom speed", settings.FovSpeed, 0.05f, "0.00"),
             SliderRow.For("Field of view", settings.Fov, 1f, "0.0"),
-            new SliderRow("Near clip", 1f, 1f, 1f, "0' cm'", () => freecam.NearClip * 100f, value => freecam.NearClip = value / 100f)
+            new SliderRow("Near clip", 1f, 1f, 1f, "0' cm'", () => settings.NearClip * 100f, value => settings.NearClip = value / 100f)
             {
-                LiveMax = () => freecam.GameNear * 100f,
+                LiveMax = () => settings.GameNear * 100f,
             },
             SliderRow.For("Damping", settings.Damping, 0.05f, "0.00"),
             new ToggleRow("Remember last position", () => settings.RememberPosition, on => settings.RememberPosition = on),

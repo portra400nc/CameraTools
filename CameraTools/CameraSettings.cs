@@ -31,5 +31,18 @@ namespace CameraTools
         public Setting Fov { get; } = new(1f, 160f, 45f);
         public Setting Damping { get; } = new(0.01f, 1f, 1f);
         public bool RememberPosition { get; set; }
+
+        // The game's own near clip, read when the free camera starts.
+        public float GameNear { get; set; }
+
+        // Null while the free camera keeps the game's own near clip.
+        private float? nearClip;
+
+        // The camera cuts away anything closer than this, so a close-up needs it below the game's own.
+        public float NearClip
+        {
+            get => Math.Min(nearClip ?? GameNear, GameNear);
+            set => nearClip = value < GameNear ? value : null;
+        }
     }
 }

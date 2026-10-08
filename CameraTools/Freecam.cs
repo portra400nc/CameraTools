@@ -27,9 +27,6 @@ namespace CameraTools
         private bool hasLastPose;
         private float smoothFOV;
         private float gameFov;
-        private float gameNear;
-        // Null while the free camera keeps the game's own near clip.
-        private float? nearClip;
         // Where the world's absolute origin was last frame, in scene coordinates.
         private Vector3 worldOrigin;
 
@@ -91,8 +88,8 @@ namespace CameraTools
             targetPosition = smoothPosition;
             smoothFOV = cam.fieldOfView;
             gameFov = smoothFOV;
-            gameNear = cam.nearClipPlane;
-            CameraTools.LogOnce($"Free camera: the game's near clip is {gameNear:0.000} m and its far clip {cam.farClipPlane:0} m.");
+            settings.GameNear = cam.nearClipPlane;
+            CameraTools.LogOnce($"Free camera: the game's near clip is {settings.GameNear:0.000} m and its far clip {cam.farClipPlane:0} m.");
             worldOrigin = WorldShift.Relative(default);
         }
 
@@ -101,18 +98,9 @@ namespace CameraTools
             lastPosition = WorldShift.Absolute(smoothPosition);
             lastRotation = new Vector3(currentRotation.pitch, currentRotation.yaw, currentRotation.roll);
             hasLastPose = true;
-            cam.nearClipPlane = gameNear;
+            cam.nearClipPlane = settings.GameNear;
             SetFieldOfView(gameFov);
         }
-
-        // The camera cuts away anything closer than this, so a close-up needs it below the game's own.
-        public float NearClip
-        {
-            get => Math.Min(nearClip ?? gameNear, gameNear);
-            set => nearClip = value < gameNear ? value : null;
-        }
-
-        public float GameNear => gameNear;
 
         // What is on screen, which a camera path node records.
         public (Vector3 Position, Quaternion Rotation, float Fov) Pose
@@ -151,7 +139,7 @@ namespace CameraTools
         {
             transform.position = smoothPosition;
             currentRotation.UpdateTransform(transform);
-            cam.nearClipPlane = NearClip;
+            cam.nearClipPlane = settings.NearClip;
             SetFieldOfView(smoothFOV);
         }
 
