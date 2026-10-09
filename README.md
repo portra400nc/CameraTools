@@ -82,7 +82,6 @@ The ReShade tab drives ReShade from the free camera. It controls iMMERSE's depth
 | CapsLock | Toggle game speed to 5.0
 | Equals (=) | Apply resolution slot 2 (2560x1600 unless you change it)
 | Minus (-) | Apply resolution slot 1 (1280x800 unless you change it)
-| Home | Toggle max detail (keeps every LOD at its most detailed level)
 | Numpad + | Add a node at the end of the selected camera path (starts a path if there is none)
 | Numpad Enter | Play or stop the selected camera path
 | Numpad 1-9 | Select camera path 1 to 9 (during playback, play that path from its start)

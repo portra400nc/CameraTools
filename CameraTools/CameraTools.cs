@@ -95,10 +95,6 @@ namespace CameraTools
             {
                 SetFreecam(!freecamActive);
             }
-            if (Controls.Pressed(CamAction.ToggleMaxDetail))
-            {
-                Lod.SetMaxDetail(!Lod.MaxDetail);
-            }
             float speed = Time.timeScale;
             if (Controls.Pressed(CamAction.TogglePause))
             {

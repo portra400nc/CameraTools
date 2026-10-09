@@ -22,7 +22,6 @@ namespace CameraTools
         public static readonly Overrides None = new();
     }
 
-    // Lod is held with the Max detail hotkey rather than in Overrides.
     public sealed record Preset(string Name, Func<SettingRow, Pick> Pick, Overrides Overrides, LodLevel? Lod);
 
     // One setting's options in the settings menu's order, lowest first. Menu[position] is the option index the game stores
