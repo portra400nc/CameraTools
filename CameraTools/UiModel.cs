@@ -136,7 +136,6 @@ namespace CameraTools
             new SliderRow("Game speed", 0f, 10f, 0.1f, "0.00", () => Time.timeScale, SetGameSpeed),
             new ToggleRow("Paused", () => Time.timeScale == 0f, SetPaused),
             new ToggleRow("Pause in free camera", () => PauseInFreecam, SetPauseInFreecam),
-            new ToggleRow("Max detail", () => Lod.MaxDetail, Lod.SetMaxDetail),
             new ToggleRow("Damage numbers", () => DamageNumbers, on => DamageNumbers = on),
             new Section("Time of day"),
             new ToggleRow("Lock time of day", () => TimeOfDay.Locked, TimeOfDay.SetLocked),

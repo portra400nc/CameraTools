@@ -19,8 +19,8 @@ namespace CameraTools
         private static LodLevel sampleLevel;
         private static float nextScan;
 
-        // The level every loader is held at, or null to leave LOD to the game. The World tab's Max detail switch and the
-        // Graphics tab's Detail level both set it.
+        // The level every loader is held at, or null to leave LOD to the game. The Max detail hotkey and the Graphics
+        // tab's Detail level both set it.
         public static LodLevel? Forced { get; private set; }
 
         public static bool MaxDetail => Forced == LodLevel.MostDetail;
