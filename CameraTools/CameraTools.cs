@@ -27,6 +27,11 @@ namespace CameraTools
         private static bool callbacksRegistered;
         private static bool preCullSeen;
         private static readonly HashSet<string> logged = new();
+        private static MelonPreferences_Entry<bool> pauseInFreecam;
+        // Set while the game is paused because the free camera started, so leaving it resumes only that pause.
+        private static bool freecamPaused;
+
+        public static bool PauseInFreecam => pauseInFreecam.Value;
 
         public override void OnInitializeMelon()
         {
@@ -38,6 +43,9 @@ namespace CameraTools
             Screenshot.Load();
             DepthOfField.Load();
             FrameGuide.Load();
+            pauseInFreecam = MelonPreferences.CreateCategory("CameraTools").CreateEntry("PauseInFreeCamera", false,
+                description: "Pause the game when the free camera starts, and resume it when the free camera ends.");
+            MelonPreferences.Save();
         }
 
         public override void OnApplicationQuit()
@@ -185,6 +193,14 @@ namespace CameraTools
             Time.timeScale = paused ? 0.0f : lastTimeScale;
         }
 
+        internal static void SetPauseInFreecam(bool on)
+        {
+            if (pauseInFreecam.Value == on)
+                return;
+            pauseInFreecam.Value = on;
+            MelonPreferences.Save();
+        }
+
         private void RemoveHP()
         {
             for (hp = GameObject.Find("AvatarBoardCanvasV2(Clone)"); hp; hp = GameObject.Find("AvatarBoardCanvasV2(Clone)"))
@@ -219,6 +235,18 @@ namespace CameraTools
             else
                 freecam.OnDisable();
             CameraUi.FreecamChanged(freecamActive);
+            if (freecamActive)
+            {
+                freecamPaused = PauseInFreecam && Time.timeScale != 0f;
+                if (freecamPaused)
+                    SetPaused(true);
+            }
+            else if (freecamPaused)
+            {
+                freecamPaused = false;
+                if (Time.timeScale == 0f)
+                    SetPaused(false);
+            }
             // Cinemachine moves the game camera every frame; pausing it hands the camera to the free camera,
             // and resuming it puts the camera back where the game wants it.
             if (brain)
