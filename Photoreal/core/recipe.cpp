@@ -1,6 +1,8 @@
 #include "recipe.h"
 #include "../photoreal.h"
 
+#include <algorithm>
+
 namespace photoreal
 {
     namespace
@@ -165,13 +167,31 @@ namespace photoreal
             return !samples(*draw, [normals](const Texture &t) { return t.id == normals; });
         }
 
+        // The game writes the G-buffer in three binds: the main draws, then decals into rt0 to rt4 and into rt0, rt1, rt2
+        // and rt4. In every capture the first draw after them that samples the smoothness (rt4) is a half-size pass
+        // before the ambient pair, which reads it too (348 in 111824), so at that draw the G-buffer is whole and nothing
+        // has read it yet. A half-size draw that samples only the normals comes before the decals, so it would not do.
+        // A draw with the normals still bound as a target belongs to the G-buffer and is passed over without asking what
+        // it samples.
+        bool match_gbuffer_done(const Seen &seen, const FrameEvent &event, FrameMap &map)
+        {
+            const auto *draw = std::get_if<Draw>(&event);
+            const ResourceId normals = map[Entry::normals]->id;
+            if (!draw || std::any_of(seen.targets.color.begin(), seen.targets.color.begin() + seen.targets.count,
+                    [normals](const Texture &t) { return t.id == normals; }))
+                return false;
+            const ResourceId smoothness = map[Entry::smoothness]->id;
+            return samples(*draw, [smoothness](const Texture &t) { return t.id == smoothness; });
+        }
+
         constexpr uint32_t bit(Step s) { return 1u << static_cast<uint32_t>(s); }
         constexpr uint32_t bit(Entry e) { return 1u << static_cast<uint32_t>(e); }
 
         static_assert(PHOTOREAL_STEP_GBUFFER == bit(Step::gbuffer) && PHOTOREAL_STEP_QUARTER_SHADOW == bit(Step::quarter_shadow)
             && PHOTOREAL_STEP_SHADOW_MASK == bit(Step::shadow_mask) && PHOTOREAL_STEP_AMBIENT_PAIR == bit(Step::ambient_pair)
             && PHOTOREAL_STEP_COMBINE == bit(Step::combine) && PHOTOREAL_STEP_BLOOM == bit(Step::bloom)
-            && PHOTOREAL_STEP_TONEMAP == bit(Step::tonemap) && PHOTOREAL_STEP_FORWARD == bit(Step::forward) && static_cast<int>(Step::count) == 8);
+            && PHOTOREAL_STEP_TONEMAP == bit(Step::tonemap) && PHOTOREAL_STEP_FORWARD == bit(Step::forward)
+            && PHOTOREAL_STEP_GBUFFER_DONE == bit(Step::gbuffer_done) && static_cast<int>(Step::count) == 9);
         static_assert(PHOTOREAL_ENTRY_NORMALS == bit(Entry::normals) && PHOTOREAL_ENTRY_ALBEDO == bit(Entry::albedo)
             && PHOTOREAL_ENTRY_SPECULAR == bit(Entry::specular) && PHOTOREAL_ENTRY_MATERIAL_ID == bit(Entry::material_id)
             && PHOTOREAL_ENTRY_SMOOTHNESS == bit(Entry::smoothness) && PHOTOREAL_ENTRY_CHARACTER == bit(Entry::character)
@@ -198,6 +218,7 @@ namespace photoreal
         { Step::bloom, "bloom", { Step::combine }, { Entry::bloom }, match_bloom },
         { Step::tonemap, "tonemap", { Step::combine }, { Entry::tonemap_out, Entry::bloom_final }, match_tonemap },
         { Step::forward, "forward", { Step::combine }, {}, match_forward },
+        { Step::gbuffer_done, "gbuffer-done", { Step::gbuffer }, {}, match_gbuffer_done },
     } };
 
     bool Seen::cleared(ResourceId id, const Color &color) const

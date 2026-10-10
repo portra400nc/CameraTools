@@ -19,12 +19,13 @@ namespace
 
     uint64_t id(const FrameMap &map, Entry e) { return map[e] ? static_cast<uint64_t>(map[e]->id) : 0; }
 
-    const std::vector<Moment> k214859 = { { 129, Step::gbuffer }, { 886, Step::quarter_shadow }, { 893, Step::shadow_mask },
+    const std::vector<Moment> k214859 = { { 129, Step::gbuffer }, { 680, Step::gbuffer_done }, { 886, Step::quarter_shadow }, { 893, Step::shadow_mask },
         { 912, Step::ambient_pair }, { 926, Step::combine }, { 932, Step::forward }, { 1088, Step::bloom }, { 1118, Step::tonemap } };
 
-    // 111824, at the user's normal settings: the shadow mask is cleared at 385 in a bind without depth and drawn at 775, and
-    // the deferred draws 820 and 821 into the HDR scene and a second target come before the forward moment.
-    const std::vector<Moment> k111824 = { { 57, Step::gbuffer }, { 748, Step::quarter_shadow }, { 775, Step::shadow_mask },
+    // 111824, at the user's normal settings: the G-buffer is whole at the half-size draw 348, after the decal binds 333
+    // and 340, the shadow mask is cleared at 385 in a bind without depth and drawn at 775, and the deferred draws 820 and
+    // 821 into the HDR scene and a second target come before the forward moment.
+    const std::vector<Moment> k111824 = { { 57, Step::gbuffer }, { 348, Step::gbuffer_done }, { 748, Step::quarter_shadow }, { 775, Step::shadow_mask },
         { 800, Step::ambient_pair }, { 814, Step::combine }, { 828, Step::forward }, { 921, Step::bloom }, { 951, Step::tonemap } };
 
     // k214859 with the forward moment at seq.
@@ -79,7 +80,7 @@ int main()
         auto rows = fixture::load("fixtures/capture-20261009-201640.tsv");  // FrameCensus 1: inputs without slots
         FrameTracker tracker;
         check("201640 (v1): every step once", fixture::replay(rows, tracker) == std::vector<Moment> {
-            { 128, Step::gbuffer }, { 460, Step::quarter_shadow }, { 467, Step::shadow_mask }, { 483, Step::ambient_pair },
+            { 128, Step::gbuffer }, { 316, Step::gbuffer_done }, { 460, Step::quarter_shadow }, { 467, Step::shadow_mask }, { 483, Step::ambient_pair },
             { 497, Step::combine }, { 502, Step::forward }, { 548, Step::bloom }, { 581, Step::tonemap } });
         const FrameMap &map = tracker.map();
         check("201640 (v1): ambient diffuse 241, HDR scene 33, depth 34", id(map, Entry::ambient_diffuse) == 241 && id(map, Entry::hdr_scene) == 33
@@ -92,7 +93,7 @@ int main()
         auto rows = fixture::load("fixtures/capture-20261009-214907.tsv");
         FrameTracker tracker;
         check("214907: every step once", fixture::replay(rows, tracker) == std::vector<Moment> {
-            { 129, Step::gbuffer }, { 876, Step::quarter_shadow }, { 883, Step::shadow_mask }, { 902, Step::ambient_pair },
+            { 129, Step::gbuffer }, { 680, Step::gbuffer_done }, { 876, Step::quarter_shadow }, { 883, Step::shadow_mask }, { 902, Step::ambient_pair },
             { 916, Step::combine }, { 922, Step::forward }, { 1078, Step::bloom }, { 1108, Step::tonemap } });
         check("214907: ambient diffuse 391, HDR scene 18", id(tracker.map(), Entry::ambient_diffuse) == 391 && id(tracker.map(), Entry::hdr_scene) == 18);
     }
@@ -149,9 +150,9 @@ int main()
         fixture::drop(rows, 385, 385);
         FrameTracker tracker;
         fixture::replay(rows, tracker);
-        check("111824 without the clear at 385: no shadow mask, the other seven steps found",
+        check("111824 without the clear at 385: no shadow mask, the other eight steps found",
             !tracker.map()[Entry::shadow_mask] && tracker.matched().bits == (StepSet { Step::gbuffer, Step::quarter_shadow, Step::ambient_pair,
-                Step::combine, Step::bloom, Step::tonemap, Step::forward }).bits);
+                Step::combine, Step::bloom, Step::tonemap, Step::forward, Step::gbuffer_done }).bits);
     }
     {
         auto rows = normal;
@@ -194,7 +195,7 @@ int main()
         auto rows = walk;
         fixture::rescale(rows, { 1152, 720 }, { 3456, 2160 }, { 864, 540 });
         FrameTracker tracker;
-        check("214859 at 3456x2160: the same eight moments", fixture::replay(rows, tracker) == k214859);
+        check("214859 at 3456x2160: the same nine moments", fixture::replay(rows, tracker) == k214859);
         check("214859 at 3456x2160: render size follows", tracker.map().render == Size { 3456, 2160 });
         check("214859 at 3456x2160: quarter shadow 385 at 864x540",
             id(tracker.map(), Entry::quarter_shadow) == 385 && tracker.map()[Entry::quarter_shadow]->size == Size { 864, 540 });
@@ -203,7 +204,7 @@ int main()
         auto rows = walk;
         fixture::rescale(rows, { 1152, 720 }, { 1153, 721 }, { 289, 181 });
         FrameTracker tracker;
-        check("214859 at 1153x721, quarter ceiled to 289x181: the same eight moments", fixture::replay(rows, tracker) == k214859);
+        check("214859 at 1153x721, quarter ceiled to 289x181: the same nine moments", fixture::replay(rows, tracker) == k214859);
         check("214859 at 1153x721: render size and quarter shadow 385",
             tracker.map().render == Size { 1153, 721 } && id(tracker.map(), Entry::quarter_shadow) == 385);
     }
@@ -211,16 +212,33 @@ int main()
         auto rows = walk;
         fixture::rescale(rows, { 1152, 720 }, { 1153, 721 }, { 288, 180 });
         FrameTracker tracker;
-        check("214859 at 1153x721, quarter floored to 288x180: the same eight moments", fixture::replay(rows, tracker) == k214859);
+        check("214859 at 1153x721, quarter floored to 288x180: the same nine moments", fixture::replay(rows, tracker) == k214859);
     }
     {
         auto rows = walk;
         fixture::drop(rows, 910, 913);  // the ambient pair's bind with the main depth and both draws
         FrameTracker tracker;
-        check("214859 without the ambient pair: the other seven moments", fixture::replay(rows, tracker) == std::vector<Moment> {
-            { 129, Step::gbuffer }, { 886, Step::quarter_shadow }, { 893, Step::shadow_mask }, { 926, Step::combine },
+        check("214859 without the ambient pair: the other eight moments", fixture::replay(rows, tracker) == std::vector<Moment> {
+            { 129, Step::gbuffer }, { 680, Step::gbuffer_done }, { 886, Step::quarter_shadow }, { 893, Step::shadow_mask }, { 926, Step::combine },
             { 932, Step::forward }, { 1088, Step::bloom }, { 1118, Step::tonemap } });
         check("214859 without the ambient pair: no ambient diffuse", !tracker.map()[Entry::ambient_diffuse]);
+    }
+    {
+        auto rows = walk;
+        fixture::find(rows, 671).draw.inputs.push_back(fixture::find(rows, 680).draw.inputs[0]);
+        FrameTracker tracker;
+        check("214859 with the decal draw 671 sampling the smoothness: it draws into the G-buffer, and gbuffer-done stays 680",
+            fixture::replay(rows, tracker) == k214859);
+    }
+    {
+        auto rows = walk;
+        fixture::drop(rows, 674, 680);  // the half-size pass's bind, clears and draw
+        FrameTracker tracker;
+        std::vector<Moment> expected = k214859;
+        expected.erase(expected.begin() + 1);
+        expected.insert(expected.begin() + 5, { 927, Step::gbuffer_done });
+        check("214859 without the half-size pass: the ambient pair takes 912, and gbuffer-done falls to combine's first draw 927",
+            fixture::replay(rows, tracker) == expected);
     }
     {
         auto rows = walk;

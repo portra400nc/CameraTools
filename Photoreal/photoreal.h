@@ -53,6 +53,7 @@ enum
     PHOTOREAL_STEP_BLOOM = 1u << 5,
     PHOTOREAL_STEP_TONEMAP = 1u << 6,
     PHOTOREAL_STEP_FORWARD = 1u << 7,   // the first forward draw into the HDR scene, after the deferred combine draws
+    PHOTOREAL_STEP_GBUFFER_DONE = 1u << 8,  // the first draw that samples the G-buffer's smoothness, after its last write
 };
 
 // Frame-map entries, as bits of PhotorealStatus.entries_missing.

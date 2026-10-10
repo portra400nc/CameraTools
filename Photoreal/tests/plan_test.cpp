@@ -104,7 +104,7 @@ namespace
     const Inputs kCamera { true, SunCheck::ok };
     const Inputs kNoCamera { false, SunCheck::ok };
 
-    const char *kAllSteps = "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward";
+    const char *kAllSteps = "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward gbuffer-done";
 }
 
 int main()
@@ -203,7 +203,7 @@ int main()
         fixture::drop(rows, 1088, 1088);  // the first bloom draw, the one that samples the HDR scene
         const FrameReport report = run_frame(rows, atmosphere_on(), kCamera);
         check("no bloom moment: atmosphere skips and names the step", describe(report)
-            == "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine tonemap forward; skipped atmosphere: no bloom");
+            == "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine tonemap forward gbuffer-done; skipped atmosphere: no bloom");
     }
     {
         std::vector<fixture::Row> menu;
@@ -240,7 +240,7 @@ int main()
         fixture::drop(rows, 1100, 1200);  // everything from the tonemap on
         const FrameReport report = run_frame(rows, tonemap_on(false), kCamera);
         check("no tonemap draw: tonemap skips for want of the output it draws into", describe(report)
-            == "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom forward; skipped tonemap: missing tonemap-out");
+            == "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom forward gbuffer-done; skipped tonemap: missing tonemap-out");
     }
     {
         std::vector<fixture::Row> menu;
@@ -251,8 +251,8 @@ int main()
     {
         auto rows = walk;
         const FrameReport report = run_frame(rows, leaves_on(false, false), kCamera);
-        check("leaves run at forward", report.ran.bits == PHOTOREAL_PASS_LEAVES && describe(report) == std::string(kAllSteps) + "; ran leaves@forward");
-        check("steps wanted by leaves: gbuffer, combine and forward",
+        check("leaves run at forward gbuffer-done", report.ran.bits == PHOTOREAL_PASS_LEAVES && describe(report) == std::string(kAllSteps) + "; ran leaves@forward");
+        check("steps wanted by leaves: gbuffer, combine and forward gbuffer-done",
             report.wanted.bits == (PHOTOREAL_STEP_GBUFFER | PHOTOREAL_STEP_COMBINE | PHOTOREAL_STEP_FORWARD));
         FrameTracker tracker;
         fixture::replay(rows, tracker);
@@ -269,8 +269,8 @@ int main()
     {
         auto rows = fixture::load("fixtures/capture-20261010-111824.tsv");
         const FrameReport report = run_frame(rows, leaves_on(false, false), kCamera);
-        check("111824, the user's normal settings: leaves run at forward", describe(report)
-            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward; ran leaves@forward");
+        check("111824, the user's normal settings: leaves run at forward gbuffer-done", describe(report)
+            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward gbuffer-done; ran leaves@forward");
     }
     {
         auto rows = walk;
@@ -278,7 +278,7 @@ int main()
         const FrameReport report = run_frame(rows, leaves_on(false, false), kCamera);
         check("without the shadow mask, leaves skip and say so", report.skipped.bits == PHOTOREAL_PASS_LEAVES
             && report.missing.bits == PHOTOREAL_ENTRY_SHADOW_MASK && describe(report)
-            == "1152x720 found gbuffer quarter-shadow ambient-pair combine bloom tonemap forward; skipped leaves: missing shadow-mask");
+            == "1152x720 found gbuffer quarter-shadow ambient-pair combine bloom tonemap forward gbuffer-done; skipped leaves: missing shadow-mask");
     }
     {
         auto rows = walk;
@@ -296,7 +296,7 @@ int main()
         auto rows = fixture::load("fixtures/capture-20261010-111824.tsv");
         const FrameReport report = run_frame(rows, contact_shadows_on(true), kCamera);
         check("111824, the user's normal settings: contact shadows and ambient both run", describe(report)
-            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward; ran contact-shadows@combine ambient@combine");
+            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward gbuffer-done; ran contact-shadows@combine ambient@combine");
     }
     {
         auto rows = walk;
@@ -306,7 +306,7 @@ int main()
             report.skipped.bits == PHOTOREAL_PASS_CONTACT_SHADOWS && report.ran.bits == PHOTOREAL_PASS_AMBIENT);
         check("and the shadow mask is the missing entry", report.missing.bits == PHOTOREAL_ENTRY_SHADOW_MASK);
         check("describe says why", describe(report)
-            == "1152x720 found gbuffer quarter-shadow ambient-pair combine bloom tonemap forward; ran ambient@combine; skipped contact-shadows: missing shadow-mask");
+            == "1152x720 found gbuffer quarter-shadow ambient-pair combine bloom tonemap forward gbuffer-done; ran ambient@combine; skipped contact-shadows: missing shadow-mask");
     }
     {
         auto rows = walk;
@@ -335,7 +335,7 @@ int main()
         check("without the ambient pair, ambient skips", report.skipped.bits == PHOTOREAL_PASS_AMBIENT && report.ran.empty());
         check("and reports the missing entry", report.missing.bits == PHOTOREAL_ENTRY_AMBIENT_DIFFUSE);
         check("describe says why",
-            describe(report) == "1152x720 found gbuffer quarter-shadow shadow-mask combine bloom tonemap forward; skipped ambient: missing ambient-diffuse");
+            describe(report) == "1152x720 found gbuffer quarter-shadow shadow-mask combine bloom tonemap forward gbuffer-done; skipped ambient: missing ambient-diffuse");
     }
     {
         auto rows = walk;
@@ -356,7 +356,7 @@ int main()
         fixture::drop(rows, 924, 926);  // the HDR scene's bind and clear: every entry ambient needs, but no combine moment
         const FrameReport report = run_frame(rows, ambient_on(), kCamera);
         check("no combine moment: ambient skips and names the step",
-            describe(report) == "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair; skipped ambient: no combine");
+            describe(report) == "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair gbuffer-done; skipped ambient: no combine");
     }
     {
         auto rows = walk;
@@ -381,7 +381,7 @@ int main()
         check("the bloom-final view snapshots at tonemap and is shown",
             snapshots == std::vector<Step> { Step::tonemap } && report.view_shown() == View::bloom_final);
         check("describe names the bloom-final view", describe(report)
-            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward; view bloom-final");
+            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward gbuffer-done; view bloom-final");
     }
     {
         auto rows = fixture::load("fixtures/capture-20261010-111824.tsv");
@@ -392,7 +392,7 @@ int main()
         check("the sun-atlas view wants the gbuffer and shadow-mask steps",
             report.wanted.bits == (PHOTOREAL_STEP_GBUFFER | PHOTOREAL_STEP_SHADOW_MASK));
         check("describe names the sun-atlas view", describe(report)
-            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward; view sun-atlas");
+            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward gbuffer-done; view sun-atlas");
     }
     {
         auto rows = walk;
@@ -407,14 +407,14 @@ int main()
         const FrameReport report = run_frame(rows, view_only(PHOTOREAL_VIEW_QUARTER_SHADOW), kCamera);
         check("a view of a missing entry shows nothing and says what is missing", report.view_shown() == View::off
             && report.missing.bits == PHOTOREAL_ENTRY_QUARTER_SHADOW
-            && describe(report) == "1152x720 found gbuffer shadow-mask ambient-pair combine bloom tonemap forward; view quarter-shadow: missing quarter-shadow");
+            && describe(report) == "1152x720 found gbuffer shadow-mask ambient-pair combine bloom tonemap forward gbuffer-done; view quarter-shadow: missing quarter-shadow");
     }
     {
         auto rows = walk;
         fixture::drop(rows, 1100, 1200);  // everything from the tonemap on
         const FrameReport report = run_frame(rows, view_only(PHOTOREAL_VIEW_HDR_SCENE), kCamera);
         check("a view whose step never came names the step", report.view_shown() == View::off && report.missing.empty()
-            && describe(report) == "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom forward; view hdr-scene: no tonemap");
+            && describe(report) == "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom forward gbuffer-done; view hdr-scene: no tonemap");
     }
     {
         const auto glyphs = [](const Label &label) { return std::vector<int>(label.glyphs.begin(), label.glyphs.begin() + label.length); };
