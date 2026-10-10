@@ -44,6 +44,10 @@ cbuffer Constants : register(b0)
     float2 lens_sample;         // this frame's aperture point, x right and y up
     float cat_eye;              // PhotorealAccumulate.cat_eye
     float cat_eye_falloff;
+    float wetness;              // the wetness pass's amount: PhotorealWetness.wetness, or the weather's while that is 0
+    float wet_darkening;        // PhotorealWetness.darkening
+    float puddles;              // PhotorealWetness.puddles
+    float padding3;
 };
 
 SamplerState point_clamp : register(s0);

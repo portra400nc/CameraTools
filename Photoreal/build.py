@@ -35,7 +35,7 @@ SHADERS = [
     ("kContactPs", "contact_ps.hlsl", "ps_5_0"), ("kContactShadowsPs", "contact_shadows_ps.hlsl", "ps_5_0"),
     ("kSunPs", "sun_ps.hlsl", "ps_5_0"), ("kSunShadowsPs", "sun_shadows_ps.hlsl", "ps_5_0"), ("kLeavesPs", "leaves_ps.hlsl", "ps_5_0"),
     ("kAtmospherePs", "atmosphere_ps.hlsl", "ps_5_0"), ("kTonemapPs", "tonemap_ps.hlsl", "ps_5_0"), ("kViewPs", "view_ps.hlsl", "ps_5_0"),
-    ("kAccumulatePs", "accumulate_ps.hlsl", "ps_5_0"), ("kPresentPs", "present_ps.hlsl", "ps_5_0"),
+    ("kAccumulatePs", "accumulate_ps.hlsl", "ps_5_0"), ("kPresentPs", "present_ps.hlsl", "ps_5_0"), ("kWetnessPs", "wetness_ps.hlsl", "ps_5_0"),
 ]
 WORKSPACE_VKD3D = Path(".work/build/reshade/vkd3d/vkd3d-compiler")
 DEPS = HERE / ".deps"

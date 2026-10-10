@@ -418,6 +418,9 @@ namespace photoreal
                     case PassId::leaves:
                         call = gpu.run_leaves(map, settings.leaves, camera, settings.flip);
                         break;
+                    case PassId::wetness:
+                        call = gpu.run_wetness(map, settings.wetness, wetness_amount(settings.wetness, camera), camera, settings.flip);
+                        break;
                     case PassId::atmosphere:
                         call = gpu.run_atmosphere(map, settings.atmosphere, camera, settings.flip);
                         break;

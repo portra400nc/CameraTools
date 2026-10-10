@@ -16,6 +16,7 @@ namespace photoreal
         bool tonemap_wanted(const Settings &s) { return s.tonemap.enabled; }
         bool sun_shadows_wanted(const Settings &s) { return s.sun_shadows.enabled; }
         bool leaves_wanted(const Settings &s) { return s.leaves.enabled; }
+        bool wetness_wanted(const Settings &s) { return s.wetness.enabled; }
 
         float finite_or(float value, float fallback, float low, float high)
         {
@@ -27,7 +28,7 @@ namespace photoreal
         static_assert(PHOTOREAL_PASS_AMBIENT == bit(PassId::ambient) && PHOTOREAL_PASS_CONTACT_SHADOWS == bit(PassId::contact_shadows)
             && PHOTOREAL_PASS_ATMOSPHERE == bit(PassId::atmosphere) && PHOTOREAL_PASS_TONEMAP == bit(PassId::tonemap)
             && PHOTOREAL_PASS_SUN_SHADOWS == bit(PassId::sun_shadows) && PHOTOREAL_PASS_LEAVES == bit(PassId::leaves)
-            && static_cast<int>(PassId::count) == 6);
+            && PHOTOREAL_PASS_WETNESS == bit(PassId::wetness) && static_cast<int>(PassId::count) == 7);
         static_assert(PHOTOREAL_CURVE_AGX == static_cast<int>(Curve::agx) && PHOTOREAL_CURVE_COUNT == static_cast<int>(Curve::count));
         static_assert(PHOTOREAL_VIEW_COUNT == static_cast<int>(View::count) && PHOTOREAL_VIEW_STENCIL == static_cast<int>(View::stencil)
             && PHOTOREAL_VIEW_HDR_SCENE == static_cast<int>(View::hdr_scene) && PHOTOREAL_VIEW_BLOOM_FINAL == static_cast<int>(View::bloom_final)
@@ -48,9 +49,25 @@ namespace photoreal
         static_assert(PHOTOREAL_ACCUMULATE_PRESENT == static_cast<int>(AccumulateMode::present)
             && PHOTOREAL_ACCUMULATE_COUNT == static_cast<int>(AccumulateMode::count));
         static_assert(offsetof(PhotorealAccumulate, mode) == 4 && sizeof(PhotorealAccumulate) == 20);
+
+    namespace hlsl
+    {
+        float saturate(float x) { return std::fmin(std::fmax(x, 0.0f), 1.0f); }
+        float lerp(float a, float b, float t) { return a + (b - a) * t; }
+        float smoothstep(float edge0, float edge1, float x)
+        {
+            const float t = saturate((x - edge0) / (edge1 - edge0));
+            return t * t * (3 - 2 * t);
+        }
+
+#include "../shaders/wet.hlsli"
+    }
     }
 
     const std::array<PassSpec, static_cast<size_t>(PassId::count)> kPasses = { {
+        // The camera only for the puddles, which lie still in the world.
+        { PassId::wetness, "wetness", Step::gbuffer_done,
+          { Entry::normals, Entry::albedo, Entry::specular, Entry::material_id, Entry::smoothness, Entry::depth }, true, false, wetness_wanted },
         // Before contact shadows, which lower what it writes, and the camera only for its blur: it finds positions from
         // the game's own camera constants.
         { PassId::sun_shadows, "sun-shadows", Step::combine, { Entry::normals, Entry::depth, Entry::shadow_mask, Entry::sun_atlas }, true, true,
@@ -236,6 +253,15 @@ namespace photoreal
             a.cat_eye_falloff = finite_or(raw.cat_eye_falloff, defaults.cat_eye_falloff, 0.01f, 1.0f);
         return a;
     }
+
+    float wetness_amount(const WetnessSettings &settings, const Camera &camera)
+    {
+        return settings.wetness > 0 ? settings.wetness : camera.wetness;
+    }
+
+    float puddle_cover(float noise, float up, float wetness, float puddles) { return hlsl::puddle_cover(noise, up, wetness, puddles); }
+    float wet_share(float wetness, float up, float puddle) { return hlsl::wet_share(wetness, up, puddle); }
+    float wet_smoothness(float smoothness, float wet, float puddle) { return hlsl::wet_smoothness(smoothness, wet, puddle); }
 
     bool invert(const float m[16], float out[16])
     {

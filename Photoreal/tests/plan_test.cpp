@@ -73,6 +73,14 @@ namespace
         return parse_settings(raw);
     }
 
+    Settings wetness_on(bool ambient)
+    {
+        PhotorealSettings raw = raw_settings();
+        raw.ambient.enabled = ambient;
+        raw.wetness = { 1, 0, 0.35f, 0.3f };
+        return parse_settings(raw);
+    }
+
     Settings view_only(uint32_t view)
     {
         PhotorealSettings raw = raw_settings();
@@ -251,8 +259,8 @@ int main()
     {
         auto rows = walk;
         const FrameReport report = run_frame(rows, leaves_on(false, false), kCamera);
-        check("leaves run at forward gbuffer-done", report.ran.bits == PHOTOREAL_PASS_LEAVES && describe(report) == std::string(kAllSteps) + "; ran leaves@forward");
-        check("steps wanted by leaves: gbuffer, combine and forward gbuffer-done",
+        check("leaves run at forward", report.ran.bits == PHOTOREAL_PASS_LEAVES && describe(report) == std::string(kAllSteps) + "; ran leaves@forward");
+        check("steps wanted by leaves: gbuffer, combine and forward",
             report.wanted.bits == (PHOTOREAL_STEP_GBUFFER | PHOTOREAL_STEP_COMBINE | PHOTOREAL_STEP_FORWARD));
         FrameTracker tracker;
         fixture::replay(rows, tracker);
@@ -269,7 +277,7 @@ int main()
     {
         auto rows = fixture::load("fixtures/capture-20261010-111824.tsv");
         const FrameReport report = run_frame(rows, leaves_on(false, false), kCamera);
-        check("111824, the user's normal settings: leaves run at forward gbuffer-done", describe(report)
+        check("111824, the user's normal settings: leaves run at forward", describe(report)
             == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward gbuffer-done; ran leaves@forward");
     }
     {
@@ -285,6 +293,71 @@ int main()
         const FrameReport report = run_frame(rows, leaves_on(false, false), kNoCamera);
         check("without a camera, leaves skip and say so", report.skipped.bits == PHOTOREAL_PASS_LEAVES && report.ran.empty()
             && describe(report) == std::string(kAllSteps) + "; skipped leaves: no camera");
+    }
+    {
+        auto rows = walk;
+        const FrameReport report = run_frame(rows, wetness_on(false), kCamera);
+        check("wetness runs at gbuffer-done", report.ran.bits == PHOTOREAL_PASS_WETNESS
+            && describe(report) == std::string(kAllSteps) + "; ran wetness@gbuffer-done");
+        check("steps wanted by wetness: gbuffer and gbuffer-done", report.wanted.bits == (PHOTOREAL_STEP_GBUFFER | PHOTOREAL_STEP_GBUFFER_DONE));
+        FrameTracker tracker;
+        fixture::replay(rows, tracker);
+        const Plan at_done = plan(Step::gbuffer_done, tracker.map(), wetness_on(false), kCamera);
+        check("the gbuffer-done plan runs wetness alone", at_done.count == 1 && at_done.items[0].pass == PassId::wetness
+            && at_done.items[0].kind == Decision::Kind::run);
+    }
+    {
+        auto rows = fixture::load("fixtures/capture-20261010-111824.tsv");
+        const FrameReport report = run_frame(rows, wetness_on(true), kCamera);
+        check("111824, the user's normal settings: wetness at gbuffer-done, then ambient at combine", describe(report)
+            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward gbuffer-done; ran wetness@gbuffer-done ambient@combine");
+    }
+    {
+        auto rows = walk;
+        const FrameReport report = run_frame(rows, wetness_on(false), kNoCamera);
+        check("without a camera, wetness skips and says so", report.skipped.bits == PHOTOREAL_PASS_WETNESS && report.ran.empty()
+            && describe(report) == std::string(kAllSteps) + "; skipped wetness: no camera");
+    }
+    {
+        auto rows = fixture::slice(walk, 0, 679);  // the frame up to the half-size pass's draw
+        const FrameReport report = run_frame(rows, wetness_on(false), kCamera);
+        check("a frame that ends before gbuffer-done: wetness skips and names the step", describe(report)
+            == "1152x720 found gbuffer; skipped wetness: no gbuffer-done");
+    }
+    {
+        std::vector<fixture::Row> menu;
+        const FrameReport report = run_frame(menu, wetness_on(false), kCamera);
+        check("no G-buffer: wetness names the entries it needs", describe(report)
+            == "found nothing; skipped wetness: missing normals albedo specular material-id smoothness depth");
+    }
+    {
+        Camera rain {};
+        rain.wetness = 0.2f;
+        WetnessSettings settings;
+        check("wetness 0 follows the weather's 0.2", wetness_amount(settings, rain) == 0.2f);
+        settings.wetness = 0.75f;
+        check("wetness 0.75 replaces the weather's 0.2", wetness_amount(settings, rain) == 0.75f);
+        rain.wetness = 1;
+        settings.wetness = 0.1f;
+        check("wetness 0.1 replaces a soaked weather too", wetness_amount(settings, rain) == 0.1f);
+    }
+    {
+        const auto near = [](float a, float b) { return std::fabs(a - b) < 1e-5f; };
+        check("a soaked ground pixel is fully wet, a wall half, an overhang half", wet_share(1, 1, 0) == 1.0f && wet_share(1, 0, 0) == 0.5f
+            && wet_share(1, -1, 0) == 0.5f);
+        check("at wetness 0.4, flat ground is 0.4 wet and a 60-degree slope 0.3", near(wet_share(0.4f, 1, 0), 0.4f) && near(wet_share(0.4f, 0.5f, 0), 0.3f));
+        check("a puddle makes a pixel fully wet at any wetness", wet_share(0.2f, 1, 1) == 1.0f && near(wet_share(0.2f, 1, 0.5f), 0.6f));
+        check("dry, nothing is wet", wet_share(0, 1, 0) == 0.0f);
+        check("puddles 0.3 when soaked: noise above 0.75 is puddle, below 0.7 is not, between is the soft edge",
+            puddle_cover(0.8f, 1, 1, 0.3f) == 1.0f && puddle_cover(0.69f, 1, 1, 0.3f) == 0.0f && near(puddle_cover(0.725f, 1, 1, 0.3f), 0.5f));
+        check("puddles grow with wetness: at wetness 0.5 the threshold is 0.85", puddle_cover(0.8f, 1, 0.5f, 0.3f) == 0.0f
+            && puddle_cover(0.91f, 1, 0.5f, 0.3f) == 1.0f);
+        check("dry ground and puddles 0 have no puddles, even at noise 1", puddle_cover(1, 1, 0, 0.3f) == 0.0f && puddle_cover(1, 1, 1, 0) == 0.0f);
+        check("ground steeper than up 0.95 has no puddles, and they fade in up to 0.98", puddle_cover(0.9f, 0.95f, 1, 0.3f) == 0.0f
+            && near(puddle_cover(0.9f, 0.965f, 1, 0.3f), 0.5f) && puddle_cover(0.9f, 0.98f, 1, 0.3f) == 1.0f);
+        check("smoothness 0.3 wets to 0.9, halfway to 0.6, and in a puddle to 0.97", near(wet_smoothness(0.3f, 1, 0), 0.9f)
+            && near(wet_smoothness(0.3f, 0.5f, 0), 0.6f) && near(wet_smoothness(0.3f, 1, 1), 0.97f));
+        check("dry smoothness stays as stored", wet_smoothness(0.3f, 0, 0) == 0.3f);
     }
     {
         std::vector<fixture::Row> menu;

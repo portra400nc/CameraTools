@@ -86,6 +86,7 @@ enum
     PHOTOREAL_PASS_TONEMAP = 1u << 3,
     PHOTOREAL_PASS_SUN_SHADOWS = 1u << 4,
     PHOTOREAL_PASS_LEAVES = 1u << 5,
+    PHOTOREAL_PASS_WETNESS = 1u << 6,
 };
 
 // The tonemap pass's curves, values of PhotorealTonemap.curve.
@@ -213,7 +214,8 @@ typedef struct PhotorealWetness
     float wetness;              // 0 (the default) follows the weather, which PhotorealCamera.sky_color[3] carries; above 0
                                 // it replaces the weather's: 1 is soaked; clamped to 0..1
     float darkening;            // how much a soaked surface's albedo darkens; default 0.35, clamped to 0..1
-    float puddles;              // the share of flat ground puddles cover when soaked; default 0.3, clamped to 0..1
+    float puddles;              // how much of the flat ground puddles cover when soaked, from none at 0 to all of it at 1;
+                                // default 0.3, clamped to 0..1
 } PhotorealWetness;
 
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller

@@ -207,6 +207,12 @@ namespace photoreal
         // a texture of ours failed.
         std::optional<GameCall> run_leaves(const FrameMap &map, const LeavesSettings &settings, const Camera &camera, bool flip);
 
+        // The wetness pass, at the first draw that reads the finished G-buffer: mirror in the albedo, specular, smoothness,
+        // material id, normals and depth; draw them wet, by amount, into mirrors of the albedo, specular and smoothness on
+        // world pixels and as they were elsewhere; copy those over the game's. Does nothing while amount is 0. Empty when a
+        // texture of ours failed.
+        std::optional<GameCall> run_wetness(const FrameMap &map, const WetnessSettings &settings, float amount, const Camera &camera, bool flip);
+
         // The atmosphere pass: mirror in the HDR scene and depth; draw out = in * T + (sky + sun * sun_scatter * phase) *
         // (1 - T) on pixels with depth, where T is the transmittance of the height-fading haze along the view ray, and in
         // on the sky; copy out over the game's HDR scene. Empty when a texture of ours failed.
@@ -250,6 +256,8 @@ namespace photoreal
     private:
         void draw_fullscreen(ID3D11PixelShader *shader, ID3D11ShaderResourceView *const *srvs, UINT srv_count, ID3D11RenderTargetView *target, Size size,
             ID3D11BlendState *blend = nullptr);
+        void draw_fullscreen(ID3D11PixelShader *shader, ID3D11ShaderResourceView *const *srvs, UINT srv_count, ID3D11RenderTargetView *const *targets,
+            UINT target_count, Size size, ID3D11BlendState *blend = nullptr);
         void upload(const struct Constants &constants);
         // Copies the normals and depth into their mirrors and syncs scratch, the pass's raw result, to the render size.
         // false when a texture of ours failed.
@@ -262,7 +270,7 @@ namespace photoreal
         ComPtr<ID3D11DeviceContext1> context_;
         ComPtr<ID3D11VertexShader> fullscreen_vs_;
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, leaves_ps_, atmosphere_ps_,
-            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_;
+            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_;
         ComPtr<ID3D11SamplerState> point_, linear_, lit_compare_;
         ComPtr<ID3D11Buffer> constants_;
         ComPtr<ID3D11Buffer> game_tonemap_;    // the game's tone map constants, copied in at each tonemap pass
@@ -280,7 +288,7 @@ namespace photoreal
         ComPtr<ID3D11DepthStencilState> no_depth_;
         ComPtr<ID3D11RasterizerState> no_cull_;
         Mirror irradiance_in_, irradiance_out_, shadow_mask_in_, shadow_mask_out_, scene_in_, scene_out_, bloom_in_, tonemap_out_, normals_, depth_,
-            back_buffer_, sun_atlas_, albedo_, material_id_;
+            back_buffer_, sun_atlas_, albedo_, material_id_, albedo_out_, specular_in_, specular_out_, smoothness_in_, smoothness_out_;
         Scratch ao_;                // R8_UNORM raw occlusion, 1 = open
         Scratch contact_;           // R8_UNORM raw sun visibility, 1 = lit
         Scratch sun_;               // R8_UNORM raw soft sun visibility, 1 = lit

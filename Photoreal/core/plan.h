@@ -148,6 +148,15 @@ namespace photoreal
     // clamps the rest.
     AccumulateSettings parse_accumulate(const PhotorealAccumulate &raw);
 
+    // The wetness the wetness pass applies: the setting's while it is above 0, else the weather's from the camera.
+    float wetness_amount(const WetnessSettings &settings, const Camera &camera);
+
+    // shaders/wet.hlsli's formulas, compiled from the same source: how much puddle covers a pixel, how wet it is, and its
+    // smoothness when wet.
+    float puddle_cover(float noise, float up, float wetness, float puddles);
+    float wet_share(float wetness, float up, float puddle);
+    float wet_smoothness(float smoothness, float wet, float puddle);
+
     // Inverts a 4x4 matrix in either memory order. false when it is singular.
     bool invert(const float m[16], float out[16]);
 
@@ -155,7 +164,7 @@ namespace photoreal
     enum class GameCall : bool { keep, skip };
 
     // The PHOTOREAL_PASS_* bit order, not the run order.
-    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, leaves, count };
+    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, leaves, wetness, count };
     using PassSet = Set<PassId>;
 
     struct PassSpec
@@ -169,8 +178,8 @@ namespace photoreal
         bool (*wanted)(const Settings &);
     };
 
-    // Table order is run order within a step: sun shadows, contact shadows, then ambient at combine; leaves at forward;
-    // atmosphere at bloom; tonemap at tonemap.
+    // Table order is run order within a step: wetness at gbuffer-done; sun shadows, contact shadows, then ambient at
+    // combine; leaves at forward; atmosphere at bloom; tonemap at tonemap.
     extern const std::array<PassSpec, static_cast<size_t>(PassId::count)> kPasses;
 
     struct ViewSpec
