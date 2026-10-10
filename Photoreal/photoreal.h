@@ -194,7 +194,7 @@ typedef struct PhotorealSunShadows
 // transparent and fog draws. A leaf glows where the camera looks toward the sun through its back, and leaves lit from the
 // front are unchanged. The light is the sun's color and direction from PhotorealCamera, times the leaf's albedo and the
 // sun's visibility in the shadow mask.
-// The last block of PhotorealSettings, so a field added here goes at the end and size keeps older callers working.
+// wetness follows it in PhotorealSettings, so this block keeps its size.
 typedef struct PhotorealLeaves
 {
     uint32_t enabled;           // default 0
@@ -202,6 +202,19 @@ typedef struct PhotorealLeaves
     float scatter_sharpness;    // the power of the glow's falloff away from the sun: 1 is broad, higher gathers it closer
                                 // around the sun; default 4, clamped to 1..32
 } PhotorealLeaves;
+
+// Wet surfaces: on world pixels, after the game's last G-buffer write and before anything reads it, the G-buffer's albedo
+// darkens, its smoothness rises and its specular color moves toward water's, more on surfaces that face up, and puddles
+// form on flat ground. The game's reflections, sun light and ambient light then all see the wet surface.
+// The last block of PhotorealSettings, so a field added here goes at the end and size keeps older callers working.
+typedef struct PhotorealWetness
+{
+    uint32_t enabled;           // default 0
+    float wetness;              // 0 (the default) follows the weather, which PhotorealCamera.sky_color[3] carries; above 0
+                                // it replaces the weather's: 1 is soaked; clamped to 0..1
+    float darkening;            // how much a soaked surface's albedo darkens; default 0.35, clamped to 0..1
+    float puddles;              // the share of flat ground puddles cover when soaked; default 0.3, clamped to 0..1
+} PhotorealWetness;
 
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller
 // knows, and fields past it keep their defaults.
@@ -218,6 +231,7 @@ typedef struct PhotorealSettings
     PhotorealTonemap tonemap;
     PhotorealSunShadows sun_shadows;
     PhotorealLeaves leaves;
+    PhotorealWetness wetness;
 } PhotorealSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and

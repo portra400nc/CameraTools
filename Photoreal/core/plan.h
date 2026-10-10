@@ -79,6 +79,14 @@ namespace photoreal
         float scatter_sharpness = 4.0f;
     };
 
+    struct WetnessSettings
+    {
+        bool enabled = false;
+        float wetness = 0.0f;   // 0: the weather's
+        float darkening = 0.35f;
+        float puddles = 0.3f;
+    };
+
     // The domain form of PhotorealSettings. Built only by parse_settings, so every value in it is in range.
     struct Settings
     {
@@ -91,6 +99,7 @@ namespace photoreal
         TonemapSettings tonemap;
         SunShadowSettings sun_shadows;
         LeavesSettings leaves;
+        WetnessSettings wetness;
     };
 
     // Honors size (fields past it keep their defaults), maps an unknown view to off and an unknown curve to the game's,

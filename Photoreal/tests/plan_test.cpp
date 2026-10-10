@@ -426,7 +426,7 @@ int main()
         check("a label stops at 32 glyphs", encode_label(std::string(40, 'z')).length == 32);
     }
     {
-        FrameReport report = FrameReport::start(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, 0, 1, {}, {}, {}, {}, {}, {} }));
+        FrameReport report = FrameReport::start(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, 0, 1, {}, {}, {}, {}, {}, {}, {} }));
         check("disabled: describe says off", describe(report) == "off");
         report.error = PHOTOREAL_ERROR_SHADER;
         check("disabled by an error: describe says which", describe(report) == "off; error shader");
@@ -640,6 +640,33 @@ int main()
         check("leaves clamp: strength 9 to 4, scatter sharpness 100 to 32", high.leaves.strength == 4.0f && high.leaves.scatter_sharpness == 32.0f);
     }
     {
+        PhotorealSettings raw = raw_settings();
+        raw.leaves = { 1, 1.5f, 8 };
+        raw.wetness = { 1, 0.75f, 0.5f, 0.6f };
+        const Settings whole = parse_settings(raw);
+        check("a whole struct reads wetness: on, wetness 0.75, darkening 0.5, puddles 0.6", whole.wetness.enabled && whole.wetness.wetness == 0.75f
+            && whole.wetness.darkening == 0.5f && whole.wetness.puddles == 0.6f);
+        raw.size = 128;  // a caller built before wetness existed
+        const Settings before = parse_settings(raw);
+        check("a 128-byte struct reads its leaves block and keeps wetness off, following the weather, darkening 0.35, puddles 0.3",
+            !before.wetness.enabled && before.wetness.wetness == 0.0f && before.wetness.darkening == 0.35f && before.wetness.puddles == 0.3f
+                && before.leaves.enabled && before.leaves.strength == 1.5f);
+        raw.size = 143;
+        check("a struct one byte short of the wetness block keeps its defaults", !parse_settings(raw).wetness.enabled
+            && parse_settings(raw).wetness.darkening == 0.35f);
+        raw.size = sizeof raw;
+        raw.wetness = { 1, NAN, INFINITY, -INFINITY };
+        const Settings bad = parse_settings(raw);
+        check("wetness: NaN and infinities fall back to wetness 0, darkening 0.35, puddles 0.3", bad.wetness.wetness == 0.0f
+            && bad.wetness.darkening == 0.35f && bad.wetness.puddles == 0.3f);
+        raw.wetness = { 1, -1, -0.5f, -2 };
+        const Settings low = parse_settings(raw);
+        check("wetness clamps: -1, -0.5 and -2 to 0", low.wetness.wetness == 0.0f && low.wetness.darkening == 0.0f && low.wetness.puddles == 0.0f);
+        raw.wetness = { 1, 2, 1.5f, 3 };
+        const Settings high = parse_settings(raw);
+        check("wetness clamps: 2, 1.5 and 3 to 1", high.wetness.wetness == 1.0f && high.wetness.darkening == 1.0f && high.wetness.puddles == 1.0f);
+    }
+    {
         PhotorealCamera raw {};
         raw.world_to_view[5] = 2;
         raw.view_to_clip[14] = 0.1f;
@@ -679,7 +706,7 @@ int main()
     }
     {
         check("disabled settings want no step", wanted_steps(view_only(PHOTOREAL_VIEW_HDR_SCENE)).bits != 0
-            && wanted_steps(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, PHOTOREAL_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1 } })).empty());
+            && wanted_steps(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, PHOTOREAL_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1 }, { 1, 1, 1, 1 } })).empty());
     }
     {
         // Unity's GL.GetGPUProjectionMatrix for a 60 degree, 16:10 camera with near 0.1 and far 1000, reversed Z.

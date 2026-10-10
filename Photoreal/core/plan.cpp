@@ -37,12 +37,13 @@ namespace photoreal
         static_assert(PHOTOREAL_ERROR_STATE == 4);
         // Callers built before foliage_ao_strength send 32 bytes, those before contact shadows 36, those before their
         // foliage_strength 52, those before atmosphere 56, those before tonemap 76, those before sun shadows 100, those
-        // before leaves 116; csharp/Photoreal.cs marshals 128.
+        // before leaves 116, those before wetness 128; csharp/Photoreal.cs marshals 144.
         static_assert(offsetof(PhotorealSettings, ambient) + offsetof(PhotorealAmbient, foliage_ao_strength) == 32
             && offsetof(PhotorealSettings, contact_shadows) == 36
             && offsetof(PhotorealSettings, contact_shadows) + offsetof(PhotorealContactShadows, foliage_strength) == 52
             && offsetof(PhotorealSettings, atmosphere) == 56 && offsetof(PhotorealSettings, tonemap) == 76
-            && offsetof(PhotorealSettings, sun_shadows) == 100 && offsetof(PhotorealSettings, leaves) == 116 && sizeof(PhotorealSettings) == 128);
+            && offsetof(PhotorealSettings, sun_shadows) == 100 && offsetof(PhotorealSettings, leaves) == 116 && offsetof(PhotorealSettings, wetness) == 128
+            && sizeof(PhotorealSettings) == 144);
         static_assert(sizeof(PhotorealCamera) == 48 * sizeof(float));
         static_assert(PHOTOREAL_ACCUMULATE_PRESENT == static_cast<int>(AccumulateMode::present)
             && PHOTOREAL_ACCUMULATE_COUNT == static_cast<int>(AccumulateMode::count));
@@ -183,6 +184,15 @@ namespace photoreal
             s.leaves.enabled = l.enabled != 0;
             s.leaves.strength = finite_or(l.strength, leaves_defaults.strength, 0.0f, 4.0f);
             s.leaves.scatter_sharpness = finite_or(l.scatter_sharpness, leaves_defaults.scatter_sharpness, 1.0f, 32.0f);
+        }
+        const WetnessSettings wetness_defaults;
+        const PhotorealWetness &w = raw.wetness;
+        if (knows(offsetof(PhotorealSettings, wetness), sizeof w))
+        {
+            s.wetness.enabled = w.enabled != 0;
+            s.wetness.wetness = finite_or(w.wetness, wetness_defaults.wetness, 0.0f, 1.0f);
+            s.wetness.darkening = finite_or(w.darkening, wetness_defaults.darkening, 0.0f, 1.0f);
+            s.wetness.puddles = finite_or(w.puddles, wetness_defaults.puddles, 0.0f, 1.0f);
         }
         return s;
     }
