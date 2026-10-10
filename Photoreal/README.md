@@ -1,6 +1,6 @@
 # CameraTools Photoreal
 
-`CameraToolsPhotoreal.addon64` is a ReShade add-on that works inside Genshin Impact's own D3D11 frame. Each frame it finds the game's G-buffer and lighting buffers by format, size and order, never by shader hash. It can show any of them full screen as a debug view, and it can replace the world's ambient light before the game's combine pass reads it. A MelonLoader mod drives it through C exports.
+`CameraToolsPhotoreal.addon64` is a ReShade add-on that works inside Genshin Impact's own D3D11 frame. Each frame it finds the game's G-buffer and lighting buffers by format, size and order, never by shader hash. It can show any of them full screen as a debug view. Before the game's combine pass reads them, it can add contact shadows to the sun's shadow mask and replace the world's ambient light. A MelonLoader mod drives it through C exports.
 
 ## Layout
 
@@ -10,7 +10,7 @@
 | `core/recipe.*` | The game's frame as a table of steps (`kRecipe`) and the `FrameTracker` that matches events against it. Pure C++17. |
 | `core/plan.*` | Settings parsing, our passes (`kPasses`) and views (`kViews`), the per-step plan, the frame report and its status line. Pure C++17. |
 | `addon.cpp` | The ReShade shell: events, exports, mailboxes between the C# thread and the render thread. |
-| `gpu.*` | The D3D11 side: `StateGuard`, `Mirror`, `Scratch`, the ambient pass, snapshots and the debug composite. |
+| `gpu.*` | The D3D11 side: `StateGuard`, `Mirror`, `Scratch`, the contact-shadow and ambient passes, snapshots and the debug composite. |
 | `shaders/` | HLSL, compiled to DXBC by `build.py` and embedded in the add-on. |
 | `csharp/Photoreal.cs` | The C# binding a MelonLoader mod adds as is. |
 | `tests/` | Native tests that replay recorded FrameCensus frames through `core/`. |
@@ -60,7 +60,7 @@ Settings:
 | `ambient.ao_strength` | 0.5 | Ambient occlusion from the G-buffer normals and depth. One draw writes it raw to a render-size texture of ours, and a second blurs it over 4x4 pixels, never across sky, characters or depth jumps, and applies it. Clamped to 0 to 1. |
 | `ambient.ao_radius` | 1 | The occlusion radius in meters. Clamped to 0.05 to 10. |
 | `ambient.foliage_ao_strength` | 0.5 | Multiplies `ao_strength` on grass, vegetation and foliage (stencil 129, 136 and 137). Clamped to 0 to 1. A caller built without this field sends a 32-byte struct and gets the default. |
-| `contact_shadows.enabled` | 0 | The contact-shadow pass. A caller built without the block sends a 36-byte struct and gets the defaults. |
+| `contact_shadows.enabled` | 0 | The contact-shadow pass. It runs at the combine step before the ambient pass and lowers the sun's visibility (the shadow mask's red channel) on world pixels where a surface in the depth buffer lies between the pixel and the sun. It never brightens, and it leaves the green channel, characters and the sky as the game drew them. One draw marches 16 steps toward the sun from each pixel into a render-size texture of ours, and a second blurs the result over 4x4 pixels like the ambient pass and applies it. A caller built without the block sends a 36-byte struct and gets the defaults. |
 | `contact_shadows.length` | 0.6 | How far each world pixel looks toward the sun through the depth buffer, in meters. Clamped to 0.05 to 5. |
 | `contact_shadows.strength` | 1 | How much a surface in the way lowers the sun's visibility. Clamped to 0 to 1. |
 | `contact_shadows.thickness` | 0.25 | How deep a surface in the depth buffer is taken to be, in meters. A ray that passes further behind it is not shadowed. Clamped to 0.01 to 2. |
@@ -70,9 +70,9 @@ Settings:
 `PhotorealDescribe` reports the frame in one line with no frame counter, so a mod can log it when it changes. For example:
 
 ```
-1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap; ran ambient@combine; view normals
-1152x720 found gbuffer quarter-shadow shadow-mask combine bloom tonemap; skipped ambient: missing ambient-diffuse
-found nothing; skipped ambient: missing normals depth ambient-diffuse
+1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap; ran contact-shadows@combine ambient@combine; view normals
+1152x720 found gbuffer quarter-shadow ambient-pair combine bloom tonemap; ran ambient@combine; skipped contact-shadows: missing shadow-mask
+found nothing; skipped contact-shadows: missing normals depth shadow-mask; skipped ambient: missing normals depth ambient-diffuse
 off; error shader
 ```
 
@@ -95,11 +95,11 @@ A view is copied at its step and drawn over the back buffer at `reshade_present`
 | `stencil` | Sky black, world gray, grass green, characters magenta, vegetation dark green, foliage light green, any other value red. |
 | `ambient-diffuse`, `ambient-specular`, `hdr-scene` | HDR values, tone mapped. |
 
-The G-buffer and lighting views show what the game's combine pass reads, after the ambient pass ran. `hdr-scene` shows the image just before the game's tone map. When the view's entry was not found, the screen shows dark magenta diagonal stripes.
+The G-buffer and lighting views show what the game's combine pass reads, after the contact-shadow and ambient passes ran, so `shadow-mask` includes the contact shadows. `hdr-scene` shows the image just before the game's tone map. When the view's entry was not found, the screen shows dark magenta diagonal stripes.
 
 ## Tests
 
-`tests/run.sh` builds and runs `recipe_test.cpp` and `plan_test.cpp`. They replay four FrameCensus captures in `tests/fixtures/`, which hold only event kinds, resource ids, format names and sizes. Three are 1152x720 frames, and `capture-20261010-111824` is a 1920x1200 frame at the user's normal graphics settings. They check the moment and resource of every step, the same frame at 3456x2160 and at 1153x721 with the quarter-size target rounded either way, a frame without the ambient pair, the shadow mask's (1,1,1,0) clear in the same bind or in an earlier one, G-buffer restarts, the status line, and settings parsing.
+`tests/run.sh` builds and runs `recipe_test.cpp` and `plan_test.cpp`. They replay four FrameCensus captures in `tests/fixtures/`, which hold only event kinds, resource ids, format names and sizes. Three are 1152x720 frames, and `capture-20261010-111824` is a 1920x1200 frame at the user's normal graphics settings. They check the moment and resource of every step, the same frame at 3456x2160 and at 1153x721 with the quarter-size target rounded either way, a frame without the ambient pair, the shadow mask's (1,1,1,0) clear in the same bind or in an earlier one, G-buffer restarts, the order of the passes at combine, the status line, and settings and camera parsing.
 
 To add a capture as a fixture:
 

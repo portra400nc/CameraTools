@@ -11,6 +11,7 @@ namespace photoreal
     namespace
     {
         bool ambient_wanted(const Settings &s) { return s.ambient.enabled; }
+        bool contact_shadows_wanted(const Settings &s) { return s.contact_shadows.enabled; }
 
         float finite_or(float value, float fallback, float low, float high)
         {
@@ -19,7 +20,8 @@ namespace photoreal
 
         constexpr uint32_t bit(PassId p) { return 1u << static_cast<uint32_t>(p); }
 
-        static_assert(PHOTOREAL_PASS_AMBIENT == bit(PassId::ambient) && static_cast<int>(PassId::count) == 1);
+        static_assert(PHOTOREAL_PASS_AMBIENT == bit(PassId::ambient) && PHOTOREAL_PASS_CONTACT_SHADOWS == bit(PassId::contact_shadows)
+            && static_cast<int>(PassId::count) == 2);
         static_assert(PHOTOREAL_VIEW_COUNT == static_cast<int>(View::count) && PHOTOREAL_VIEW_STENCIL == static_cast<int>(View::stencil)
             && PHOTOREAL_VIEW_HDR_SCENE == static_cast<int>(View::hdr_scene));
 
@@ -33,6 +35,7 @@ namespace photoreal
     }
 
     const std::array<PassSpec, static_cast<size_t>(PassId::count)> kPasses = { {
+        { PassId::contact_shadows, "contact-shadows", Step::combine, { Entry::normals, Entry::depth, Entry::shadow_mask }, true, contact_shadows_wanted },
         { PassId::ambient, "ambient", Step::combine, { Entry::normals, Entry::depth, Entry::ambient_diffuse }, true, ambient_wanted },
     } };
 

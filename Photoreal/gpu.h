@@ -154,6 +154,12 @@ namespace photoreal
         // Empty when a texture of ours failed.
         std::optional<GameCall> run_ambient(const FrameMap &map, const AmbientSettings &settings, const Camera &camera, bool flip);
 
+        // The contact-shadow pass: mirror in the shadow mask, normals and depth; draw raw sun visibility into contact_ by
+        // marching each world pixel toward the sun through the depth buffer; draw out = (min(in.x, lerp(1, blurred
+        // visibility, strength)), in.y) on world pixels and in elsewhere; copy out over the game's shadow mask.
+        // Empty when a texture of ours failed.
+        std::optional<GameCall> run_contact_shadows(const FrameMap &map, const ContactShadowSettings &settings, const Camera &camera, bool flip);
+
         // At present: shown = pending, and pending starts empty for next_view (found = false until its step copies it).
         void end_frame(View next_view);
 
@@ -167,18 +173,22 @@ namespace photoreal
     private:
         void draw_fullscreen(ID3D11PixelShader *shader, ID3D11ShaderResourceView *const *srvs, UINT srv_count, ID3D11RenderTargetView *target, Size size);
         void upload(const struct Constants &constants);
+        // Copies the normals and depth into their mirrors and syncs scratch, the pass's raw result, to the render size.
+        // false when a texture of ours failed.
+        bool mirror_gbuffer(const FrameMap &map, Scratch &scratch);
 
         ComPtr<ID3D11Device> device_;
         ComPtr<ID3D11DeviceContext1> context_;
         ComPtr<ID3D11VertexShader> fullscreen_vs_;
-        ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, view_ps_;
+        ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, view_ps_;
         ComPtr<ID3D11SamplerState> point_, linear_;
         ComPtr<ID3D11Buffer> constants_;
         ComPtr<ID3D11BlendState> opaque_;
         ComPtr<ID3D11DepthStencilState> no_depth_;
         ComPtr<ID3D11RasterizerState> no_cull_;
-        Mirror irradiance_in_, irradiance_out_, normals_, depth_, back_buffer_;
+        Mirror irradiance_in_, irradiance_out_, shadow_mask_in_, shadow_mask_out_, normals_, depth_, back_buffer_;
         Scratch ao_;                // R8_UNORM raw occlusion, 1 = open
+        Scratch contact_;           // R8_UNORM raw sun visibility, 1 = lit
         Snapshot pending_, shown_;
     };
 }

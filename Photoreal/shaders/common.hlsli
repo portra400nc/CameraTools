@@ -4,6 +4,7 @@ cbuffer Constants : register(b0)
 {
     float4x4 world_to_view;     // Unity's worldToCameraMatrix, column-major in memory as HLSL's default packing reads it
     float4x4 clip_to_view;      // inverse of GL.GetGPUProjectionMatrix(projection, false)
+    float4x4 view_to_clip;      // GL.GetGPUProjectionMatrix(projection, false)
     float4 render_size;         // w, h, 1/w, 1/h
     float level;
     float ao_strength;
@@ -12,7 +13,11 @@ cbuffer Constants : register(b0)
     float projection_scale;     // pixels per world unit at distance 1: 0.5 * h * view_to_clip[1][1]
     uint decode;                // Decode in core/plan.h
     float foliage_ao_strength;  // multiplies ao_strength on stencil 129, 136 and 137
-    float padding;
+    float contact_length;       // meters
+    float3 toward_sun;          // world space, unit length, or zero when there is no sun
+    float contact_strength;
+    float contact_thickness;    // meters
+    float3 padding;
 };
 
 SamplerState point_clamp : register(s0);
@@ -32,4 +37,12 @@ float3 view_position(float2 stored, float reversed_depth)
     float4 clip = float4(screen.x * 2 - 1, 1 - screen.y * 2, reversed_depth, 1);
     float4 view = mul(clip_to_view, clip);
     return view.xyz / view.w;
+}
+
+// The stored texture coordinate of a view space point in front of the camera; view_position's inverse.
+float2 stored_of(float3 view)
+{
+    float4 clip = mul(view_to_clip, float4(view, 1));
+    float2 ndc = clip.xy / clip.w;
+    return stored_uv(float2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5));
 }

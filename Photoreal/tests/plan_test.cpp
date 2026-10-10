@@ -30,6 +30,15 @@ namespace
 
     Settings ambient_on() { return parse_settings(raw_settings()); }
 
+    Settings contact_shadows_on(bool ambient, uint32_t view = PHOTOREAL_VIEW_OFF)
+    {
+        PhotorealSettings raw = raw_settings();
+        raw.ambient.enabled = ambient;
+        raw.contact_shadows = { 1, 0.6f, 1, 0.25f };
+        raw.view = view;
+        return parse_settings(raw);
+    }
+
     Settings view_only(uint32_t view)
     {
         PhotorealSettings raw = raw_settings();
@@ -69,6 +78,62 @@ int main()
         check("ambient runs at combine", report.ran.bits == PHOTOREAL_PASS_AMBIENT && report.skipped.empty());
         check("describe names every step and the pass", describe(report) == std::string(kAllSteps) + "; ran ambient@combine");
         check("steps wanted by ambient: gbuffer and combine", report.wanted.bits == (PHOTOREAL_STEP_GBUFFER | PHOTOREAL_STEP_COMBINE));
+    }
+    {
+        auto rows = walk;
+        const FrameReport report = run_frame(rows, contact_shadows_on(true), true);
+        check("contact shadows and ambient both run", report.ran.bits == (PHOTOREAL_PASS_CONTACT_SHADOWS | PHOTOREAL_PASS_AMBIENT)
+            && report.skipped.empty());
+        check("describe lists contact shadows before ambient at combine",
+            describe(report) == std::string(kAllSteps) + "; ran contact-shadows@combine ambient@combine");
+        check("steps wanted by both: gbuffer and combine", report.wanted.bits == (PHOTOREAL_STEP_GBUFFER | PHOTOREAL_STEP_COMBINE));
+    }
+    {
+        auto rows = walk;
+        FrameTracker tracker;
+        fixture::replay(rows, tracker);
+        const Plan p = plan(Step::combine, tracker.map(), contact_shadows_on(true), true);
+        check("the combine plan runs contact shadows first, then ambient", p.count == 2
+            && p.items[0].pass == PassId::contact_shadows && p.items[0].kind == Decision::Kind::run
+            && p.items[1].pass == PassId::ambient && p.items[1].kind == Decision::Kind::run);
+        check("no other step has a pass", plan(Step::shadow_mask, tracker.map(), contact_shadows_on(true), true).count == 0
+            && plan(Step::tonemap, tracker.map(), contact_shadows_on(true), true).count == 0);
+    }
+    {
+        auto rows = fixture::load("fixtures/capture-20261010-111824.tsv");
+        const FrameReport report = run_frame(rows, contact_shadows_on(true), true);
+        check("111824, the user's normal settings: contact shadows and ambient both run", describe(report)
+            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap; ran contact-shadows@combine ambient@combine");
+    }
+    {
+        auto rows = walk;
+        fixture::drop(rows, 892, 892);  // the shadow mask's clear, so no shadow mask is found
+        const FrameReport report = run_frame(rows, contact_shadows_on(true), true);
+        check("without the shadow mask, contact shadows skip and ambient runs",
+            report.skipped.bits == PHOTOREAL_PASS_CONTACT_SHADOWS && report.ran.bits == PHOTOREAL_PASS_AMBIENT);
+        check("and the shadow mask is the missing entry", report.missing.bits == PHOTOREAL_ENTRY_SHADOW_MASK);
+        check("describe says why", describe(report)
+            == "1152x720 found gbuffer quarter-shadow ambient-pair combine bloom tonemap; ran ambient@combine; skipped contact-shadows: missing shadow-mask");
+    }
+    {
+        auto rows = walk;
+        const FrameReport report = run_frame(rows, contact_shadows_on(true), false);
+        check("without a camera, both passes skip and say so", report.skipped.bits == (PHOTOREAL_PASS_CONTACT_SHADOWS | PHOTOREAL_PASS_AMBIENT)
+            && describe(report) == std::string(kAllSteps) + "; skipped contact-shadows: no camera; skipped ambient: no camera");
+    }
+    {
+        std::vector<fixture::Row> menu;
+        const FrameReport report = run_frame(menu, contact_shadows_on(false), true);
+        check("no G-buffer: contact shadows name the entries they need",
+            describe(report) == "found nothing; skipped contact-shadows: missing normals depth shadow-mask");
+    }
+    {
+        auto rows = walk;
+        std::vector<Step> snapshots;
+        const FrameReport report = run_frame(rows, contact_shadows_on(false, PHOTOREAL_VIEW_SHADOW_MASK), true, &snapshots);
+        check("the shadow-mask view snapshots at combine, the moment contact shadows run",
+            snapshots == std::vector<Step> { Step::combine } && report.ran.bits == PHOTOREAL_PASS_CONTACT_SHADOWS);
+        check("describe names the pass and the view", describe(report) == std::string(kAllSteps) + "; ran contact-shadows@combine; view shadow-mask");
     }
     {
         auto rows = walk;

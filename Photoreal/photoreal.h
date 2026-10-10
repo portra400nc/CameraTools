@@ -75,6 +75,7 @@ enum
 enum
 {
     PHOTOREAL_PASS_AMBIENT = 1u << 0,
+    PHOTOREAL_PASS_CONTACT_SHADOWS = 1u << 1,
 };
 
 enum

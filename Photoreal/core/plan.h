@@ -68,7 +68,7 @@ namespace photoreal
     // What a pass asks of the game's call it runs before. The tonemap pass will skip the game's tonemap draw.
     enum class GameCall : bool { keep, skip };
 
-    enum class PassId : uint8_t { ambient, count };
+    enum class PassId : uint8_t { ambient, contact_shadows, count };  // the PHOTOREAL_PASS_* bit order, not the run order
     using PassSet = Set<PassId>;
 
     struct PassSpec
@@ -81,7 +81,7 @@ namespace photoreal
         bool (*wanted)(const Settings &);
     };
 
-    // Table order is run order within a step. Sun shadows will precede ambient at combine.
+    // Table order is run order within a step: contact shadows, then ambient at combine.
     extern const std::array<PassSpec, static_cast<size_t>(PassId::count)> kPasses;
 
     struct ViewSpec
