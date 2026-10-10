@@ -52,6 +52,7 @@ enum
     PHOTOREAL_STEP_COMBINE = 1u << 4,
     PHOTOREAL_STEP_BLOOM = 1u << 5,
     PHOTOREAL_STEP_TONEMAP = 1u << 6,
+    PHOTOREAL_STEP_FORWARD = 1u << 7,   // the first forward draw into the HDR scene, after the deferred combine draws
 };
 
 // Frame-map entries, as bits of PhotorealStatus.entries_missing.

@@ -20,11 +20,22 @@ namespace
     uint64_t id(const FrameMap &map, Entry e) { return map[e] ? static_cast<uint64_t>(map[e]->id) : 0; }
 
     const std::vector<Moment> k214859 = { { 129, Step::gbuffer }, { 886, Step::quarter_shadow }, { 893, Step::shadow_mask },
-        { 912, Step::ambient_pair }, { 926, Step::combine }, { 1088, Step::bloom }, { 1118, Step::tonemap } };
+        { 912, Step::ambient_pair }, { 926, Step::combine }, { 932, Step::forward }, { 1088, Step::bloom }, { 1118, Step::tonemap } };
 
-    // 111824, at the user's normal settings: the shadow mask is cleared at 385 in a bind without depth and drawn at 775.
+    // 111824, at the user's normal settings: the shadow mask is cleared at 385 in a bind without depth and drawn at 775, and
+    // the deferred draws 820 and 821 into the HDR scene and a second target come before the forward moment.
     const std::vector<Moment> k111824 = { { 57, Step::gbuffer }, { 748, Step::quarter_shadow }, { 775, Step::shadow_mask },
-        { 800, Step::ambient_pair }, { 814, Step::combine }, { 921, Step::bloom }, { 951, Step::tonemap } };
+        { 800, Step::ambient_pair }, { 814, Step::combine }, { 828, Step::forward }, { 921, Step::bloom }, { 951, Step::tonemap } };
+
+    // k214859 with the forward moment at seq.
+    std::vector<Moment> forward_at(uint32_t seq)
+    {
+        std::vector<Moment> moments = k214859;
+        for (Moment &m : moments)
+            if (m.step == Step::forward)
+                m.seq = seq;
+        return moments;
+    }
 
     using Ids = std::vector<std::pair<uint64_t, uint64_t>>;
     const Ids k214859Gbuffer = { { 19, 999 }, { 79, 901 }, { 80, 902 }, { 81, 903 }, { 82, 904 }, { 83, 905 }, { 84, 906 } };
@@ -69,7 +80,7 @@ int main()
         FrameTracker tracker;
         check("201640 (v1): every step once", fixture::replay(rows, tracker) == std::vector<Moment> {
             { 128, Step::gbuffer }, { 460, Step::quarter_shadow }, { 467, Step::shadow_mask }, { 483, Step::ambient_pair },
-            { 497, Step::combine }, { 548, Step::bloom }, { 581, Step::tonemap } });
+            { 497, Step::combine }, { 502, Step::forward }, { 548, Step::bloom }, { 581, Step::tonemap } });
         const FrameMap &map = tracker.map();
         check("201640 (v1): ambient diffuse 241, HDR scene 33, depth 34", id(map, Entry::ambient_diffuse) == 241 && id(map, Entry::hdr_scene) == 33
             && id(map, Entry::depth) == 34);
@@ -82,7 +93,7 @@ int main()
         FrameTracker tracker;
         check("214907: every step once", fixture::replay(rows, tracker) == std::vector<Moment> {
             { 129, Step::gbuffer }, { 876, Step::quarter_shadow }, { 883, Step::shadow_mask }, { 902, Step::ambient_pair },
-            { 916, Step::combine }, { 1078, Step::bloom }, { 1108, Step::tonemap } });
+            { 916, Step::combine }, { 922, Step::forward }, { 1078, Step::bloom }, { 1108, Step::tonemap } });
         check("214907: ambient diffuse 391, HDR scene 18", id(tracker.map(), Entry::ambient_diffuse) == 391 && id(tracker.map(), Entry::hdr_scene) == 18);
     }
     const std::vector<fixture::Row> normal = fixture::load("fixtures/capture-20261010-111824.tsv");
@@ -138,9 +149,9 @@ int main()
         fixture::drop(rows, 385, 385);
         FrameTracker tracker;
         fixture::replay(rows, tracker);
-        check("111824 without the clear at 385: no shadow mask, the other six steps found",
+        check("111824 without the clear at 385: no shadow mask, the other seven steps found",
             !tracker.map()[Entry::shadow_mask] && tracker.matched().bits == (StepSet { Step::gbuffer, Step::quarter_shadow, Step::ambient_pair,
-                Step::combine, Step::bloom, Step::tonemap }).bits);
+                Step::combine, Step::bloom, Step::tonemap, Step::forward }).bits);
     }
     {
         auto rows = normal;
@@ -183,7 +194,7 @@ int main()
         auto rows = walk;
         fixture::rescale(rows, { 1152, 720 }, { 3456, 2160 }, { 864, 540 });
         FrameTracker tracker;
-        check("214859 at 3456x2160: the same seven moments", fixture::replay(rows, tracker) == k214859);
+        check("214859 at 3456x2160: the same eight moments", fixture::replay(rows, tracker) == k214859);
         check("214859 at 3456x2160: render size follows", tracker.map().render == Size { 3456, 2160 });
         check("214859 at 3456x2160: quarter shadow 385 at 864x540",
             id(tracker.map(), Entry::quarter_shadow) == 385 && tracker.map()[Entry::quarter_shadow]->size == Size { 864, 540 });
@@ -192,7 +203,7 @@ int main()
         auto rows = walk;
         fixture::rescale(rows, { 1152, 720 }, { 1153, 721 }, { 289, 181 });
         FrameTracker tracker;
-        check("214859 at 1153x721, quarter ceiled to 289x181: the same seven moments", fixture::replay(rows, tracker) == k214859);
+        check("214859 at 1153x721, quarter ceiled to 289x181: the same eight moments", fixture::replay(rows, tracker) == k214859);
         check("214859 at 1153x721: render size and quarter shadow 385",
             tracker.map().render == Size { 1153, 721 } && id(tracker.map(), Entry::quarter_shadow) == 385);
     }
@@ -200,15 +211,15 @@ int main()
         auto rows = walk;
         fixture::rescale(rows, { 1152, 720 }, { 1153, 721 }, { 288, 180 });
         FrameTracker tracker;
-        check("214859 at 1153x721, quarter floored to 288x180: the same seven moments", fixture::replay(rows, tracker) == k214859);
+        check("214859 at 1153x721, quarter floored to 288x180: the same eight moments", fixture::replay(rows, tracker) == k214859);
     }
     {
         auto rows = walk;
         fixture::drop(rows, 910, 913);  // the ambient pair's bind with the main depth and both draws
         FrameTracker tracker;
-        check("214859 without the ambient pair: the other six moments", fixture::replay(rows, tracker) == std::vector<Moment> {
+        check("214859 without the ambient pair: the other seven moments", fixture::replay(rows, tracker) == std::vector<Moment> {
             { 129, Step::gbuffer }, { 886, Step::quarter_shadow }, { 893, Step::shadow_mask }, { 926, Step::combine },
-            { 1088, Step::bloom }, { 1118, Step::tonemap } });
+            { 932, Step::forward }, { 1088, Step::bloom }, { 1118, Step::tonemap } });
         check("214859 without the ambient pair: no ambient diffuse", !tracker.map()[Entry::ambient_diffuse]);
     }
     {
@@ -239,7 +250,11 @@ int main()
     }
     {
         auto rows = walk;
+        // The HDR scene is bound again after it, so the deferred draws and the forward moment keep their target.
+        std::vector<fixture::Row> rebind = fixture::slice(walk, 924, 924);
+        rebind[0].seq += 20000;
         fixture::insert_before(rows, 927, other_camera(walk, 129, 129));
+        fixture::insert_before(rows, 927, rebind);
         FrameTracker tracker;
         check("a G-buffer bind after combine is ignored", fixture::replay(rows, tracker) == k214859 && tracker.restarts() == 0
             && id(tracker.map(), Entry::depth) == 19 && id(tracker.map(), Entry::normals) == 79);
@@ -259,6 +274,32 @@ int main()
         check("begin_frame clears entries and matched steps", tracker.map().found().empty() && tracker.matched().empty()
             && tracker.map().render == Size {});
         check("a second frame through the same tracker matches the same moments", fixture::replay(rows, tracker) == k214859);
+    }
+    {
+        auto rows = walk;
+        fixture::find(rows, 932).draw.inputs.push_back(fixture::find(rows, 927).draw.inputs[4]);
+        FrameTracker tracker;
+        check("214859 with the normals at 932: that draw reads as deferred, and the forward moment is 933",
+            fixture::replay(rows, tracker) == forward_at(933));
+    }
+    {
+        // Draws into another target between the deferred and the forward draws: 932 to 934 into 13, then the HDR scene again.
+        auto rows = walk;
+        std::vector<fixture::Row> away = fixture::slice(walk, 939, 939), back = fixture::slice(walk, 944, 944);
+        away[0].seq += 20000;
+        back[0].seq += 20000;
+        fixture::insert_before(rows, 932, away);
+        fixture::insert_before(rows, 935, back);
+        FrameTracker tracker;
+        check("214859 with 932 to 934 drawn into another target: the forward moment is 935",
+            fixture::replay(rows, tracker) == forward_at(935));
+    }
+    {
+        auto rows = walk;
+        fixture::drop(rows, 924, 926);
+        FrameTracker tracker;
+        fixture::replay(rows, tracker);
+        check("214859 without the combine clear: no forward moment", !tracker.matched().has(Step::forward));
     }
     {
         EntrySet filled;

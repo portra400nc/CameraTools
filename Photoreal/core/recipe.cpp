@@ -152,13 +152,26 @@ namespace photoreal
             return true;
         }
 
+        // The game's deferred draws after the combine clear all sample the G-buffer normals: world, characters and vegetation,
+        // and in 111824 two more surface classes into the HDR scene and a second target. Its forward draws (sky,
+        // transparents, fog) do not, so the first draw into the HDR scene that does not is the moment the deferred
+        // lighting is whole and nothing has been drawn over it yet.
+        bool match_forward(const Seen &seen, const FrameEvent &event, FrameMap &map)
+        {
+            const auto *draw = std::get_if<Draw>(&event);
+            if (!draw || seen.targets.count == 0 || seen.targets.color[0].id != map[Entry::hdr_scene]->id)
+                return false;
+            const ResourceId normals = map[Entry::normals]->id;
+            return !samples(*draw, [normals](const Texture &t) { return t.id == normals; });
+        }
+
         constexpr uint32_t bit(Step s) { return 1u << static_cast<uint32_t>(s); }
         constexpr uint32_t bit(Entry e) { return 1u << static_cast<uint32_t>(e); }
 
         static_assert(PHOTOREAL_STEP_GBUFFER == bit(Step::gbuffer) && PHOTOREAL_STEP_QUARTER_SHADOW == bit(Step::quarter_shadow)
             && PHOTOREAL_STEP_SHADOW_MASK == bit(Step::shadow_mask) && PHOTOREAL_STEP_AMBIENT_PAIR == bit(Step::ambient_pair)
             && PHOTOREAL_STEP_COMBINE == bit(Step::combine) && PHOTOREAL_STEP_BLOOM == bit(Step::bloom)
-            && PHOTOREAL_STEP_TONEMAP == bit(Step::tonemap) && static_cast<int>(Step::count) == 7);
+            && PHOTOREAL_STEP_TONEMAP == bit(Step::tonemap) && PHOTOREAL_STEP_FORWARD == bit(Step::forward) && static_cast<int>(Step::count) == 8);
         static_assert(PHOTOREAL_ENTRY_NORMALS == bit(Entry::normals) && PHOTOREAL_ENTRY_ALBEDO == bit(Entry::albedo)
             && PHOTOREAL_ENTRY_SPECULAR == bit(Entry::specular) && PHOTOREAL_ENTRY_MATERIAL_ID == bit(Entry::material_id)
             && PHOTOREAL_ENTRY_SMOOTHNESS == bit(Entry::smoothness) && PHOTOREAL_ENTRY_CHARACTER == bit(Entry::character)
@@ -184,6 +197,7 @@ namespace photoreal
         { Step::combine, "combine", { Step::gbuffer }, { Entry::hdr_scene }, match_combine },
         { Step::bloom, "bloom", { Step::combine }, { Entry::bloom }, match_bloom },
         { Step::tonemap, "tonemap", { Step::combine }, { Entry::tonemap_out, Entry::bloom_final }, match_tonemap },
+        { Step::forward, "forward", { Step::combine }, {}, match_forward },
     } };
 
     bool Seen::cleared(ResourceId id, const Color &color) const
