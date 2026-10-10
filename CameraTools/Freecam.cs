@@ -4,9 +4,6 @@ using static CameraTools.CameraTools;
 
 namespace CameraTools
 {
-    // Where a lens sample moves the camera: X metres right and Y metres up, with the plane Focus metres ahead kept still.
-    internal readonly record struct LensShift(float X, float Y, float Focus);
-
     // Genshin's MelonLoader cannot register custom MonoBehaviours yet, so the free camera is a plain
     // class that CameraTools drives from OnLateUpdate while the free camera is on.
     public class Freecam
@@ -105,10 +102,6 @@ namespace CameraTools
             SetFieldOfView(gameFov);
         }
 
-        // A lens sample of a depth of field screenshot, or null. Only Apply reads it, so paths, LOD and the remembered pose
-        // never see the shift.
-        internal LensShift? Shift { get; set; }
-
         // What is on screen, which a camera path node records.
         public (Vector3 Position, Quaternion Rotation, float Fov) Pose
             => (smoothPosition, Quaternion.Euler(currentRotation.pitch, currentRotation.yaw, currentRotation.roll), smoothFOV);
@@ -144,24 +137,10 @@ namespace CameraTools
         // and written again right before the camera renders.
         public void Apply()
         {
+            transform.position = smoothPosition;
             currentRotation.UpdateTransform(transform);
-            transform.position = Shift is LensShift shift ? smoothPosition + transform.right * shift.X + transform.up * shift.Y : smoothPosition;
             cam.nearClipPlane = settings.NearClip;
             SetFieldOfView(smoothFOV);
-            if (Shift is LensShift sheared)
-                Shear(sheared);
-        }
-
-        // Unity uses a set projection for culling and drawing, and the add-on's camera push reads the non-jittered one, so
-        // both get the sheared matrix.
-        private void Shear(LensShift shift)
-        {
-            var projection = Matrix4x4.Perspective(smoothFOV, cam.aspect, cam.nearClipPlane, cam.farClipPlane);
-            var (m02, m12) = LensSampler.Shear(projection.m00, projection.m11, shift.X, shift.Y, shift.Focus);
-            projection.m02 += m02;
-            projection.m12 += m12;
-            cam.projectionMatrix = projection;
-            cam.nonJitteredProjectionMatrix = projection;
         }
 
         // Genshin's post-processing installs a jittered projection built from the game's field of view before this

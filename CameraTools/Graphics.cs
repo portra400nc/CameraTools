@@ -303,21 +303,6 @@ namespace CameraTools
             return $"{preset.Name}: {changes.Count} game settings changed" + (environment ? ". Environment detail applies after a restart" : "");
         }
 
-        // Lens depth of field moves the camera every frame, and FSR 2 would smear its history across the samples. The screenshot
-        // puts the setting back with the rest. Returns what it did, for the log.
-        public static string AntiAliasingOff()
-        {
-            const SettingKey key = SettingKey.AntiAliasing;
-            if (!OptionLists().TryGetValue(key, out var list) || GameSettings.Get(key) is not int now)
-                return "anti-aliasing unreadable";
-            if (now == list.Lowest)
-                return "anti-aliasing already off";
-            if (!GameSettings.Set(key, list.Lowest) || !GameSettings.Save())
-                return "switching anti-aliasing off failed";
-            Changed = Time.unscaledTime;
-            return $"anti-aliasing {now}->{list.Lowest}";
-        }
-
         public static GraphicsState Capture() => new(Indices(OptionLists()), active, Lod.Forced);
 
         // Unlike Restore, this returns to the captured moment, not to the user's own settings, and it leaves SavedSettings
