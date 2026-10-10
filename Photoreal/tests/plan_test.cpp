@@ -373,7 +373,7 @@ int main()
         check("a label stops at 32 glyphs", encode_label(std::string(40, 'z')).length == 32);
     }
     {
-        FrameReport report = FrameReport::start(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, 0, 1, {}, {}, {}, {}, {} }));
+        FrameReport report = FrameReport::start(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, 0, 1, {}, {}, {}, {}, {}, {} }));
         check("disabled: describe says off", describe(report) == "off");
         report.error = PHOTOREAL_ERROR_SHADER;
         check("disabled by an error: describe says which", describe(report) == "off; error shader");
@@ -561,6 +561,32 @@ int main()
             && high.sun_shadows.min_penumbra == 0.5f && high.sun_shadows.strength == 1.0f);
     }
     {
+        PhotorealSettings raw = raw_settings();
+        raw.sun_shadows = { 1, 0.05f, 0.1f, 0.8f };
+        raw.leaves = { 1, 1.5f, 8 };
+        const Settings whole = parse_settings(raw);
+        check("a whole struct reads leaves: on, strength 1.5, scatter sharpness 8", whole.leaves.enabled && whole.leaves.strength == 1.5f
+            && whole.leaves.scatter_sharpness == 8.0f);
+        raw.size = 116;  // a caller built before leaves existed
+        const Settings v5 = parse_settings(raw);
+        check("a 116-byte struct reads its sun-shadow block and keeps leaves off at strength 0.6, scatter sharpness 4", !v5.leaves.enabled
+            && v5.leaves.strength == 0.6f && v5.leaves.scatter_sharpness == 4.0f && v5.sun_shadows.enabled && v5.sun_shadows.light_size == 0.05f);
+        raw.size = 127;
+        check("a struct one byte short of the leaves block keeps its defaults", !parse_settings(raw).leaves.enabled
+            && parse_settings(raw).leaves.scatter_sharpness == 4.0f);
+        raw.size = sizeof raw;
+        raw.leaves = { 1, NAN, INFINITY };
+        const Settings bad = parse_settings(raw);
+        check("leaves: NaN and infinity fall back to strength 0.6, scatter sharpness 4", bad.leaves.strength == 0.6f
+            && bad.leaves.scatter_sharpness == 4.0f);
+        raw.leaves = { 1, -1, 0.5f };
+        const Settings low = parse_settings(raw);
+        check("leaves clamp: strength -1 to 0, scatter sharpness 0.5 to 1", low.leaves.strength == 0.0f && low.leaves.scatter_sharpness == 1.0f);
+        raw.leaves = { 1, 9, 100 };
+        const Settings high = parse_settings(raw);
+        check("leaves clamp: strength 9 to 4, scatter sharpness 100 to 32", high.leaves.strength == 4.0f && high.leaves.scatter_sharpness == 32.0f);
+    }
+    {
         PhotorealCamera raw {};
         raw.world_to_view[5] = 2;
         raw.view_to_clip[14] = 0.1f;
@@ -600,7 +626,7 @@ int main()
     }
     {
         check("disabled settings want no step", wanted_steps(view_only(PHOTOREAL_VIEW_HDR_SCENE)).bits != 0
-            && wanted_steps(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, PHOTOREAL_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 } })).empty());
+            && wanted_steps(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, PHOTOREAL_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1 } })).empty());
     }
     {
         // Unity's GL.GetGPUProjectionMatrix for a 60 degree, 16:10 camera with near 0.1 and far 1000, reversed Z.

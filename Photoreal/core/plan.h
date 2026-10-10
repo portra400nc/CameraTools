@@ -72,6 +72,13 @@ namespace photoreal
         float strength = 1.0f;
     };
 
+    struct LeavesSettings
+    {
+        bool enabled = false;
+        float strength = 0.6f;
+        float scatter_sharpness = 4.0f;
+    };
+
     // The domain form of PhotorealSettings. Built only by parse_settings, so every value in it is in range.
     struct Settings
     {
@@ -83,6 +90,7 @@ namespace photoreal
         AtmosphereSettings atmosphere;
         TonemapSettings tonemap;
         SunShadowSettings sun_shadows;
+        LeavesSettings leaves;
     };
 
     // Honors size (fields past it keep their defaults), maps an unknown view to off and an unknown curve to the game's,
