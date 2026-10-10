@@ -375,7 +375,7 @@ namespace photoreal
             log(reshade::log::level::info, "comparing " + std::to_string(variants.size()) + " settings variants into " + files->folder.u8string() + ".");
             worker.push([files, text = settings_tsv(variants)] { write_file(files->folder / "settings.tsv", text); });
             compare_count = static_cast<uint32_t>(variants.size());
-            capture = Capture { std::move(variants), settings, 0, std::nullopt, {}, {}, 0, files };
+            capture = Capture { std::move(variants), settings, 0, std::nullopt, {}, 0, files };
         }
 
         // Reads the next variant's two copies and hands them to the worker, which saves the PNG and rewrites
