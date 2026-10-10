@@ -126,7 +126,7 @@ namespace CameraToolsPhotoreal
         // shadows 0.6 m long that take surfaces to be 0.25 m thick and leave grass, vegetation and foliage unshadowed, and
         // haze that dims a pixel 500 m away by 15%, thins by e every 50 m up, and glows around the sun, a tone map that
         // reproduces the game's, full-strength sun shadows whose soft edge is 0.03 m wide per meter from the caster and at
-        // least 0.02 m, light through leaves at strength 0.6 that gathers around the sun with sharpness 4, wet surfaces
+        // least 0.02 m, light through leaves at strength 1 that gathers around the sun with sharpness 4, wet surfaces
         // that follow the weather, darken by 0.35 when soaked and grow puddles on flat ground at 0.3, and sun light that
         // falls by e every 1.5 m it passes through leaves.
         public static PhotorealSettings Defaults => new()
@@ -138,7 +138,7 @@ namespace CameraToolsPhotoreal
             Atmosphere = new PhotorealAtmosphere { Density = 0.000325f, HeightFalloff = 0.02f, SunScatter = 1, Anisotropy = 0.7f },
             Tonemap = new PhotorealTonemap { Curve = PhotorealCurve.Game, BloomStrength = 1, Saturation = 1, Contrast = 1 },
             SunShadows = new PhotorealSunShadows { LightSize = 0.03f, MinPenumbra = 0.02f, Strength = 1 },
-            Leaves = new PhotorealLeaves { Strength = 0.6f, ScatterSharpness = 4 },
+            Leaves = new PhotorealLeaves { Strength = 1, ScatterSharpness = 4 },
             Wetness = new PhotorealWetness { Wetness = 0, Darkening = 0.35f, Puddles = 0.3f },
             LeavesTransmission = new PhotorealLeavesTransmission { Depth = 1.5f },
         };

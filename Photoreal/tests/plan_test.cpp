@@ -69,7 +69,7 @@ namespace
         PhotorealSettings raw = raw_settings();
         raw.ambient.enabled = ambient;
         raw.atmosphere = { atmosphere, 0.000325f, 0.02f, 1, 0.7f };
-        raw.leaves = { 1, 0.6f, 4 };
+        raw.leaves = { 1, 1, 4 };
         return parse_settings(raw);
     }
 
@@ -735,15 +735,15 @@ int main()
             && whole.leaves.scatter_sharpness == 8.0f);
         raw.size = 116;  // a caller built before leaves existed
         const Settings v5 = parse_settings(raw);
-        check("a 116-byte struct reads its sun-shadow block and keeps leaves off at strength 0.6, scatter sharpness 4", !v5.leaves.enabled
-            && v5.leaves.strength == 0.6f && v5.leaves.scatter_sharpness == 4.0f && v5.sun_shadows.enabled && v5.sun_shadows.light_size == 0.05f);
+        check("a 116-byte struct reads its sun-shadow block and keeps leaves off at strength 1, scatter sharpness 4", !v5.leaves.enabled
+            && v5.leaves.strength == 1.0f && v5.leaves.scatter_sharpness == 4.0f && v5.sun_shadows.enabled && v5.sun_shadows.light_size == 0.05f);
         raw.size = 127;
         check("a struct one byte short of the leaves block keeps its defaults", !parse_settings(raw).leaves.enabled
             && parse_settings(raw).leaves.scatter_sharpness == 4.0f);
         raw.size = sizeof raw;
         raw.leaves = { 1, NAN, INFINITY };
         const Settings bad = parse_settings(raw);
-        check("leaves: NaN and infinity fall back to strength 0.6, scatter sharpness 4", bad.leaves.strength == 0.6f
+        check("leaves: NaN and infinity fall back to strength 1, scatter sharpness 4", bad.leaves.strength == 1.0f
             && bad.leaves.scatter_sharpness == 4.0f);
         raw.leaves = { 1, -1, 0.5f };
         const Settings low = parse_settings(raw);

@@ -75,7 +75,7 @@ namespace photoreal
     struct LeavesSettings
     {
         bool enabled = false;
-        float strength = 0.6f;
+        float strength = 1.0f;
         float scatter_sharpness = 4.0f;
         float depth = 1.5f;     // PhotorealLeavesTransmission.depth
     };

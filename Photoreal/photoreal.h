@@ -200,7 +200,7 @@ typedef struct PhotorealSunShadows
 typedef struct PhotorealLeaves
 {
     uint32_t enabled;           // default 0
-    float strength;             // multiplies the light let through; default 0.6, clamped to 0..4
+    float strength;             // multiplies the light let through; default 1, clamped to 0..4
     float scatter_sharpness;    // the power of the glow's falloff away from the sun: 1 is broad, higher gathers it closer
                                 // around the sun; default 4, clamped to 1..32
 } PhotorealLeaves;
