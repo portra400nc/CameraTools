@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define PHOTOREAL_VERSION 3
+#define PHOTOREAL_VERSION 4
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -152,6 +152,8 @@ typedef struct PhotorealCamera
     float sun_direction[4];     // xyz: the direction toward the sun in world space, such as minus the sun light's
                                 // forward; any length. Zero or non-finite means no sun: contact shadows add nothing.
                                 // w is unused.
+    float sun_color[4];         // rgb: the sun light's color in linear RGB times its intensity; w is unused
+    float sky_color[4];         // rgb: the sky's ambient light in linear RGB; w is unused
 } PhotorealCamera;
 
 typedef struct PhotorealStatus

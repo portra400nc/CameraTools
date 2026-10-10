@@ -100,7 +100,7 @@ namespace CameraToolsPhotoreal
     internal static class Photoreal
     {
         private const string ModuleName = "CameraToolsPhotoreal.addon64";
-        private const uint Version = 3;
+        private const uint Version = 4;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -109,7 +109,7 @@ namespace CameraToolsPhotoreal
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate ulong ApplyCall(ref PhotorealSettings settings);
 
-        // PhotorealCamera is two float[16] and a float[4] in a row, so one float[36] passes it without a struct.
+        // PhotorealCamera is two float[16] and three float[4] in a row, so one float[44] passes it without a struct.
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void SetCameraCall([In] float[] camera);
 
@@ -124,7 +124,7 @@ namespace CameraToolsPhotoreal
 
         private sealed record AddOn(IntPtr Module, ApplyCall Apply, SetCameraCall SetCamera, GetStatusCall GetStatus, DescribeCall Describe, CompareCall Compare);
 
-        private static readonly float[] camera = new float[36];
+        private static readonly float[] camera = new float[44];
         private static readonly byte[] line = new byte[512];
         private static AddOn addOn;
         // A loaded module that is not an add-on of this version, so it is reported once and not tried again.
@@ -146,8 +146,10 @@ namespace CameraToolsPhotoreal
         // From Camera.onPreCull of the main camera, every frame while Photoreal is enabled. viewToClip is
         // GL.GetGPUProjectionMatrix(camera.projectionMatrix, false): Settings.Flip owns the vertical orientation.
         // towardSun is the world direction toward the sun, such as -sunLight.transform.forward, of any length;
-        // Vector3.zero means no sun, and contact shadows then add nothing.
-        public static void SetCamera(Matrix4x4 worldToView, Matrix4x4 viewToClip, Vector3 towardSun)
+        // Vector3.zero means no sun, and contact shadows then add nothing. sunColor is the sun light's color in linear RGB
+        // times its intensity, and skyColor the sky's ambient light in linear RGB; the atmosphere pass scatters both, and
+        // their alpha is ignored.
+        public static void SetCamera(Matrix4x4 worldToView, Matrix4x4 viewToClip, Vector3 towardSun, Color sunColor, Color skyColor)
         {
             if (addOn == null)
                 return;
@@ -157,6 +159,14 @@ namespace CameraToolsPhotoreal
             camera[33] = towardSun.y;
             camera[34] = towardSun.z;
             camera[35] = 0;
+            camera[36] = sunColor.r;
+            camera[37] = sunColor.g;
+            camera[38] = sunColor.b;
+            camera[39] = 0;
+            camera[40] = skyColor.r;
+            camera[41] = skyColor.g;
+            camera[42] = skyColor.b;
+            camera[43] = 0;
             addOn.SetCamera(camera);
         }
 

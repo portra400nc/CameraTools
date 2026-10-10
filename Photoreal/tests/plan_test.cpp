@@ -342,6 +342,22 @@ int main()
         raw.sun_direction[0] = INFINITY;
         const Camera inf = parse_camera(raw);
         check("an infinite sun direction becomes zero", inf.toward_sun[0] == 0.0f && inf.toward_sun[1] == 0.0f && inf.toward_sun[2] == 0.0f);
+        raw.sun_color[0] = 4.5f;
+        raw.sun_color[1] = 3;
+        raw.sun_color[2] = 2.25f;
+        raw.sun_color[3] = 9;
+        raw.sky_color[0] = 0.2f;
+        raw.sky_color[1] = 0.3f;
+        raw.sky_color[2] = 0.5f;
+        const Camera lit = parse_camera(raw);
+        check("the sun color (4.5, 3, 2.25) and sky color (0.2, 0.3, 0.5) are copied", lit.sun_color[0] == 4.5f && lit.sun_color[1] == 3.0f
+            && lit.sun_color[2] == 2.25f && lit.sky_color[0] == 0.2f && lit.sky_color[1] == 0.3f && lit.sky_color[2] == 0.5f);
+        raw.sun_color[0] = NAN;
+        raw.sun_color[1] = -2;
+        raw.sky_color[2] = INFINITY;
+        const Camera bad = parse_camera(raw);
+        check("a NaN, a negative and an infinite color component become 0, and the rest stay", bad.sun_color[0] == 0.0f
+            && bad.sun_color[1] == 0.0f && bad.sun_color[2] == 2.25f && bad.sky_color[1] == 0.3f && bad.sky_color[2] == 0.0f);
     }
     {
         check("disabled settings want no step", wanted_steps(view_only(PHOTOREAL_VIEW_HDR_SCENE)).bits != 0

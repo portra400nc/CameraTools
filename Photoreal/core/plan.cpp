@@ -33,7 +33,7 @@ namespace photoreal
             && offsetof(PhotorealSettings, contact_shadows) == 36
             && offsetof(PhotorealSettings, contact_shadows) + offsetof(PhotorealContactShadows, foliage_strength) == 52
             && sizeof(PhotorealSettings) == 56);
-        static_assert(sizeof(PhotorealCamera) == 36 * sizeof(float));
+        static_assert(sizeof(PhotorealCamera) == 44 * sizeof(float));
     }
 
     const std::array<PassSpec, static_cast<size_t>(PassId::count)> kPasses = { {
@@ -132,6 +132,11 @@ namespace photoreal
         if (std::isfinite(length) && length > 0)
             for (int i = 0; i < 3; i++)
                 c.toward_sun[i] = static_cast<float>(raw.sun_direction[i] / length);
+        for (int i = 0; i < 3; i++)
+        {
+            c.sun_color[i] = finite_or(raw.sun_color[i], 0.0f, 0.0f, INFINITY);
+            c.sky_color[i] = finite_or(raw.sky_color[i], 0.0f, 0.0f, INFINITY);
+        }
         return c;
     }
 

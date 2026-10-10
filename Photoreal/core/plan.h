@@ -59,9 +59,12 @@ namespace photoreal
         float world_to_view[16];
         float view_to_clip[16];
         float toward_sun[3];    // unit length, or zero when there is no sun
+        float sun_color[3];     // linear RGB times intensity, each at least 0
+        float sky_color[3];     // linear RGB, each at least 0
     };
 
-    // Copies the matrices and normalizes the sun direction. A zero or non-finite direction becomes zero.
+    // Copies the matrices and normalizes the sun direction. A zero or non-finite direction becomes zero. A color
+    // component that is not finite becomes 0, and a negative one 0 too.
     Camera parse_camera(const PhotorealCamera &raw);
 
     // Inverts a 4x4 matrix in either memory order. false when it is singular.
