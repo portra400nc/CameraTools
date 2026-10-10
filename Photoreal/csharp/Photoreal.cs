@@ -39,6 +39,7 @@ namespace CameraToolsPhotoreal
         public float Length;
         public float Strength;
         public float Thickness;
+        public float FoliageStrength;
     }
 
     // PhotorealSettings in photoreal.h, field for field.
@@ -54,13 +55,13 @@ namespace CameraToolsPhotoreal
 
         // The add-on's defaults: everything off, game targets upside down, and when switched on ambient level 0.6, AO
         // strength 0.5 at a 1 m radius, half that strength on grass, vegetation and foliage, and full-strength contact
-        // shadows 0.6 m long that take surfaces to be 0.25 m thick.
+        // shadows 0.6 m long that take surfaces to be 0.25 m thick and leave grass, vegetation and foliage unshadowed.
         public static PhotorealSettings Defaults => new()
         {
             Size = (uint)Marshal.SizeOf<PhotorealSettings>(),
             Flip = 1,
             Ambient = new PhotorealAmbient { Level = 0.6f, AoStrength = 0.5f, AoRadius = 1, FoliageAoStrength = 0.5f },
-            ContactShadows = new PhotorealContactShadows { Length = 0.6f, Strength = 1, Thickness = 0.25f },
+            ContactShadows = new PhotorealContactShadows { Length = 0.6f, Strength = 1, Thickness = 0.25f, FoliageStrength = 0 },
         };
     }
 

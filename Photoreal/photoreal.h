@@ -104,6 +104,7 @@ typedef struct PhotorealAmbient
 // Screen-space contact shadows: each world pixel looks toward the sun through the depth buffer for length meters, and a
 // surface in the way lowers the sun's visibility in the game's shadow mask before the combine pass reads it. They add
 // the small shadows the game's shadow map is too coarse for, such as a character's feet on the ground. Never brightens.
+// Grass (stencil 129) never casts: its blades would shadow each other and the ground between them.
 // The last block of PhotorealSettings, so a field added here goes at the end and size keeps older callers working.
 typedef struct PhotorealContactShadows
 {
@@ -112,6 +113,8 @@ typedef struct PhotorealContactShadows
     float strength;             // 0 no contact shadows, 1 full; default 1, clamped to 0..1
     float thickness;            // how deep a surface in the depth buffer is taken to be, in meters, so a ray passing
                                 // behind a thin pole is not shadowed; default 0.25, clamped to 0.01..2
+    float foliage_strength;     // multiplies strength on grass, vegetation and foliage (stencil 129, 136, 137), whose
+                                // dense alpha-tested blades shadow each other into speckle; default 0, clamped to 0..1
 } PhotorealContactShadows;
 
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller

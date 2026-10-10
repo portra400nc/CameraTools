@@ -5,8 +5,8 @@
 
 static const int kSteps = 16;
 
-// 1 where nothing in the depth buffer lies between the surface and the sun within contact_length, 0 where something
-// does near the surface, fading back to 1 for hits in the far half of the ray, so the ray's end draws no edge.
+// 1 where nothing in the depth buffer but grass lies between the surface and the sun within contact_length, 0 where
+// something does near the surface, fading back to 1 for hits in the far half of the ray, so the ray's end draws no edge.
 float sun_visibility(int2 pixel, float3 p, float3 n, float3 l)
 {
     // The ray starts one pixel's footprint off the surface. Depth read at the nearest pixel center differs from the
@@ -27,6 +27,8 @@ float sun_visibility(int2 pixel, float3 p, float3 n, float3 l)
         float d = depth.Load(int3(q, 0));
         if (d <= 0)
             continue;                       // sky
+        if (is_grass(stencil.Load(int3(q, 0)).g))
+            continue;                       // grass blades would shadow each other and the ground between them
         float in_front = view_position((q + 0.5) * render_size.zw, d).z - ray.z;
         if (in_front > 0 && in_front < contact_thickness)
             return saturate(2 * t / contact_length - 1);

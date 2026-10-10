@@ -18,7 +18,8 @@ cbuffer Constants : register(b0)
     float contact_strength;
     float contact_thickness;    // meters
     uint label_length;          // glyphs in label
-    float2 padding;
+    float contact_foliage_strength;  // multiplies contact_strength on stencil 129, 136 and 137
+    float padding;
     uint4 label[2];             // the debug composite's view name, glyph indices from encode_label, four per uint, low byte first
 };
 
@@ -27,6 +28,11 @@ SamplerState linear_clamp : register(s1);
 
 // The game's character test: bit 0x04 marks characters, 0x80 the lit world. Sky is 0.
 bool is_world(uint stencil) { return (stencil & 0x84u) == 0x80u; }
+
+bool is_grass(uint stencil) { return stencil == 129; }
+
+// Grass, vegetation and foliage: alpha-tested, so their depth is noisy at the pixel scale.
+bool is_foliage(uint stencil) { return stencil == 129 || stencil == 136 || stencil == 137; }
 
 // The texture coordinate in a stored game target of a point on screen, uv (0, 0) being the top left.
 float2 stored_uv(float2 uv) { return flip > 0.5 ? float2(uv.x, 1 - uv.y) : uv; }

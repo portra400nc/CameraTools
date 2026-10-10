@@ -4,9 +4,6 @@
 
 Texture2D<float3> irradiance : register(t0);    // mirror of the game's diffuse irradiance (ambient pair rt1)
 
-// Grass, vegetation and foliage: alpha-tested, so their depth is noisy at the pixel scale and so is their occlusion.
-bool is_foliage(uint s) { return s == 129 || s == 136 || s == 137; }
-
 float3 main(float4 position : SV_Position) : SV_Target0
 {
     int2 pixel = int2(position.xy);

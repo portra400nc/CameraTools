@@ -27,10 +27,12 @@ namespace photoreal
 
         const char *const kErrorNames[] = { "none", "not-d3d11", "shader", "texture", "state" };
         static_assert(PHOTOREAL_ERROR_STATE == 4);
-        // Callers built before foliage_ao_strength send 32 bytes, those before contact shadows 36; csharp/Photoreal.cs
-        // marshals 52.
+        // Callers built before foliage_ao_strength send 32 bytes, those before contact shadows 36, those before their
+        // foliage_strength 52; csharp/Photoreal.cs marshals 56.
         static_assert(offsetof(PhotorealSettings, ambient) + offsetof(PhotorealAmbient, foliage_ao_strength) == 32
-            && offsetof(PhotorealSettings, contact_shadows) == 36 && sizeof(PhotorealSettings) == 52);
+            && offsetof(PhotorealSettings, contact_shadows) == 36
+            && offsetof(PhotorealSettings, contact_shadows) + offsetof(PhotorealContactShadows, foliage_strength) == 52
+            && sizeof(PhotorealSettings) == 56);
         static_assert(sizeof(PhotorealCamera) == 36 * sizeof(float));
     }
 
@@ -105,14 +107,17 @@ namespace photoreal
         if (knows(ambient + offsetof(PhotorealAmbient, foliage_ao_strength), sizeof raw.ambient.foliage_ao_strength))
             s.ambient.foliage_ao_strength = finite_or(raw.ambient.foliage_ao_strength, defaults.foliage_ao_strength, 0.0f, 1.0f);
         const ContactShadowSettings contact_defaults;
-        if (knows(offsetof(PhotorealSettings, contact_shadows), sizeof raw.contact_shadows))
+        const PhotorealContactShadows &c = raw.contact_shadows;
+        constexpr size_t contact = offsetof(PhotorealSettings, contact_shadows);
+        if (knows(contact, offsetof(PhotorealContactShadows, foliage_strength)))  // the block as version 2 first shipped it
         {
-            const PhotorealContactShadows &c = raw.contact_shadows;
             s.contact_shadows.enabled = c.enabled != 0;
             s.contact_shadows.length = finite_or(c.length, contact_defaults.length, 0.05f, 5.0f);
             s.contact_shadows.strength = finite_or(c.strength, contact_defaults.strength, 0.0f, 1.0f);
             s.contact_shadows.thickness = finite_or(c.thickness, contact_defaults.thickness, 0.01f, 2.0f);
         }
+        if (knows(contact + offsetof(PhotorealContactShadows, foliage_strength), sizeof c.foliage_strength))
+            s.contact_shadows.foliage_strength = finite_or(c.foliage_strength, contact_defaults.foliage_strength, 0.0f, 1.0f);
         return s;
     }
 

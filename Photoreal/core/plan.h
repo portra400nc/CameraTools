@@ -36,6 +36,7 @@ namespace photoreal
         float length = 0.6f;
         float strength = 1.0f;
         float thickness = 0.25f;
+        float foliage_strength = 0.0f;
     };
 
     // The domain form of PhotorealSettings. Built only by parse_settings, so every value in it is in range.

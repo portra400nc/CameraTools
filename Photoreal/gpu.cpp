@@ -24,7 +24,8 @@ namespace photoreal
         float contact_strength;
         float contact_thickness;
         uint32_t label_length;
-        float padding[2];
+        float contact_foliage_strength;
+        float padding;
         uint32_t label[8];
     };
     static_assert(sizeof(Constants) == 304 && offsetof(Constants, label) == 272, "Constants must match common.hlsli");
@@ -430,6 +431,7 @@ namespace photoreal
         constants.contact_length = settings.length;
         constants.contact_strength = settings.strength;
         constants.contact_thickness = settings.thickness;
+        constants.contact_foliage_strength = settings.foliage_strength;
         upload(constants);
 
         ID3D11DeviceContext1 *c = context_.Get();

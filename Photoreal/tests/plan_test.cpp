@@ -34,7 +34,7 @@ namespace
     {
         PhotorealSettings raw = raw_settings();
         raw.ambient.enabled = ambient;
-        raw.contact_shadows = { 1, 0.6f, 1, 0.25f };
+        raw.contact_shadows = { 1, 0.6f, 1, 0.25f, 0 };
         raw.view = view;
         return parse_settings(raw);
     }
@@ -261,31 +261,40 @@ int main()
     }
     {
         PhotorealSettings raw = raw_settings();
-        raw.contact_shadows = { 1, 1.2f, 0.7f, 0.3f };
+        raw.contact_shadows = { 1, 1.2f, 0.7f, 0.3f, 0.4f };
         const Settings whole = parse_settings(raw);
-        check("a whole struct reads contact shadows: on, length 1.2, strength 0.7, thickness 0.3", whole.contact_shadows.enabled
-            && whole.contact_shadows.length == 1.2f && whole.contact_shadows.strength == 0.7f && whole.contact_shadows.thickness == 0.3f);
+        check("a whole struct reads contact shadows: on, length 1.2, strength 0.7, thickness 0.3, foliage 0.4", whole.contact_shadows.enabled
+            && whole.contact_shadows.length == 1.2f && whole.contact_shadows.strength == 0.7f && whole.contact_shadows.thickness == 0.3f
+            && whole.contact_shadows.foliage_strength == 0.4f);
+        raw.size = 52;  // a caller built before foliage_strength existed
+        const Settings v2 = parse_settings(raw);
+        check("a 52-byte struct reads its contact-shadow block and keeps foliage strength at 0", v2.contact_shadows.enabled
+            && v2.contact_shadows.length == 1.2f && v2.contact_shadows.strength == 0.7f && v2.contact_shadows.thickness == 0.3f
+            && v2.contact_shadows.foliage_strength == 0.0f);
+        raw.size = 55;
+        check("a struct one byte short of foliage strength keeps it at 0", parse_settings(raw).contact_shadows.foliage_strength == 0.0f
+            && parse_settings(raw).contact_shadows.thickness == 0.3f);
         raw.size = 36;  // a caller built before contact shadows existed
         const Settings v1 = parse_settings(raw);
         check("a 36-byte struct reads its ambient block and keeps contact shadows off at length 0.6, strength 1, thickness 0.25",
             v1.ambient.enabled && v1.ambient.foliage_ao_strength == 0.7f && !v1.contact_shadows.enabled && v1.contact_shadows.length == 0.6f
-                && v1.contact_shadows.strength == 1.0f && v1.contact_shadows.thickness == 0.25f);
+                && v1.contact_shadows.strength == 1.0f && v1.contact_shadows.thickness == 0.25f && v1.contact_shadows.foliage_strength == 0.0f);
         raw.size = 51;
         check("a struct one byte short of the contact-shadow block keeps its defaults", !parse_settings(raw).contact_shadows.enabled
             && parse_settings(raw).contact_shadows.thickness == 0.25f);
         raw.size = sizeof raw;
-        raw.contact_shadows = { 1, NAN, INFINITY, -INFINITY };
+        raw.contact_shadows = { 1, NAN, INFINITY, -INFINITY, NAN };
         const Settings bad = parse_settings(raw);
-        check("contact shadows: NaN and infinities fall back to length 0.6, strength 1, thickness 0.25", bad.contact_shadows.length == 0.6f
-            && bad.contact_shadows.strength == 1.0f && bad.contact_shadows.thickness == 0.25f);
-        raw.contact_shadows = { 1, 0.01f, -1, 5 };
+        check("contact shadows: NaN and infinities fall back to length 0.6, strength 1, thickness 0.25, foliage 0", bad.contact_shadows.length == 0.6f
+            && bad.contact_shadows.strength == 1.0f && bad.contact_shadows.thickness == 0.25f && bad.contact_shadows.foliage_strength == 0.0f);
+        raw.contact_shadows = { 1, 0.01f, -1, 5, -1 };
         const Settings low = parse_settings(raw);
-        check("contact shadows clamp: length 0.01 to 0.05, strength -1 to 0, thickness 5 to 2", low.contact_shadows.length == 0.05f
-            && low.contact_shadows.strength == 0.0f && low.contact_shadows.thickness == 2.0f);
-        raw.contact_shadows = { 1, 9, 2, 0.001f };
+        check("contact shadows clamp: length 0.01 to 0.05, strength -1 to 0, thickness 5 to 2, foliage -1 to 0", low.contact_shadows.length == 0.05f
+            && low.contact_shadows.strength == 0.0f && low.contact_shadows.thickness == 2.0f && low.contact_shadows.foliage_strength == 0.0f);
+        raw.contact_shadows = { 1, 9, 2, 0.001f, 3 };
         const Settings high = parse_settings(raw);
-        check("contact shadows clamp: length 9 to 5, strength 2 to 1, thickness 0.001 to 0.01", high.contact_shadows.length == 5.0f
-            && high.contact_shadows.strength == 1.0f && high.contact_shadows.thickness == 0.01f);
+        check("contact shadows clamp: length 9 to 5, strength 2 to 1, thickness 0.001 to 0.01, foliage 3 to 1", high.contact_shadows.length == 5.0f
+            && high.contact_shadows.strength == 1.0f && high.contact_shadows.thickness == 0.01f && high.contact_shadows.foliage_strength == 1.0f);
     }
     {
         PhotorealCamera raw {};
@@ -311,7 +320,7 @@ int main()
     }
     {
         check("disabled settings want no step", wanted_steps(view_only(PHOTOREAL_VIEW_HDR_SCENE)).bits != 0
-            && wanted_steps(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, PHOTOREAL_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1 } })).empty());
+            && wanted_steps(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, PHOTOREAL_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 } })).empty());
     }
     {
         // Unity's GL.GetGPUProjectionMatrix for a 60 degree, 16:10 camera with near 0.1 and far 1000, reversed Z.
