@@ -119,7 +119,7 @@ namespace CameraToolsPhotoreal
         // haze that dims a pixel 500 m away by 15%, thins by e every 50 m up, and glows around the sun, a tone map that
         // reproduces the game's, full-strength sun shadows whose soft edge is 0.03 m wide per meter from the caster and at
         // least 0.02 m, light through leaves at strength 0.6 that gathers around the sun with sharpness 4, and wet surfaces
-        // that follow the weather, darken by 0.35 when soaked and cover 30% of flat ground with puddles.
+        // that follow the weather, darken by 0.35 when soaked and grow puddles on flat ground at 0.3.
         public static PhotorealSettings Defaults => new()
         {
             Size = (uint)Marshal.SizeOf<PhotorealSettings>(),

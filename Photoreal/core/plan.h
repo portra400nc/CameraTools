@@ -128,9 +128,8 @@ namespace photoreal
 
     // Copies the matrices and normalizes the sun direction. A zero or non-finite direction becomes zero. A color
     // component that is not finite becomes 0, and a negative one 0 too. The weather's wetness clamps to 0..1, and one that
-    // is not finite reads as dry. A lens coordinate that is not finite becomes 0
-    // and the rest clamp to -1..1; an index that is not a finite number from 0 to 2^32 becomes 0, and a mark that is not a
-    // finite nonzero number reads as unmarked.
+    // is not finite reads as dry. A lens coordinate that is not finite becomes 0 and the rest clamp to -1..1; an index that
+    // is not a finite number from 0 to 2^32 becomes 0, and a mark that is not a finite nonzero number reads as unmarked.
     Camera parse_camera(const PhotorealCamera &raw);
 
     enum class AccumulateMode : uint8_t { off, add, present, count };  // PHOTOREAL_ACCUMULATE_*
