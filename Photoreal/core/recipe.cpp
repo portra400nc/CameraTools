@@ -123,6 +123,10 @@ namespace photoreal
             return true;
         }
 
+        // Every census capture's tonemap draw reads the bloom chain's last result at t1. When the slot holds anything but a
+        // quarter-size R11G11B10 texture, the tonemap step still matches and bloom-final stays empty.
+        constexpr uint32_t kTonemapBloomSlot = 1;
+
         bool match_tonemap(const Seen &seen, const FrameEvent &event, FrameMap &map)
         {
             const auto *draw = std::get_if<Draw>(&event);
@@ -130,6 +134,11 @@ namespace photoreal
             if (!draw || !rt || !is(*rt, Format::r8g8b8a8_unorm, map.render) || !samples_hdr(*draw, map))
                 return false;
             map[Entry::tonemap_out] = *rt;
+            uint32_t count = 0;
+            const Texture *inputs = draw->queries.ps_inputs(&count);
+            if (count > kTonemapBloomSlot && inputs[kTonemapBloomSlot].format == Format::r11g11b10_float
+                && inputs[kTonemapBloomSlot].size.is_quarter_of(map.render))
+                map[Entry::bloom_final] = inputs[kTonemapBloomSlot];
             return true;
         }
 
@@ -147,12 +156,12 @@ namespace photoreal
             && PHOTOREAL_ENTRY_SHADOW_MASK == bit(Entry::shadow_mask) && PHOTOREAL_ENTRY_AMBIENT_SPECULAR == bit(Entry::ambient_specular)
             && PHOTOREAL_ENTRY_AMBIENT_DIFFUSE == bit(Entry::ambient_diffuse) && PHOTOREAL_ENTRY_HDR_SCENE == bit(Entry::hdr_scene)
             && PHOTOREAL_ENTRY_BLOOM == bit(Entry::bloom) && PHOTOREAL_ENTRY_TONEMAP_OUT == bit(Entry::tonemap_out)
-            && static_cast<int>(Entry::count) == 14);
+            && PHOTOREAL_ENTRY_BLOOM_FINAL == bit(Entry::bloom_final) && static_cast<int>(Entry::count) == 15);
     }
 
     const std::array<const char *, static_cast<size_t>(Entry::count)> kEntryNames = {
         "normals", "albedo", "specular", "material-id", "smoothness", "character", "depth",
-        "quarter-shadow", "shadow-mask", "ambient-specular", "ambient-diffuse", "hdr-scene", "bloom", "tonemap-out",
+        "quarter-shadow", "shadow-mask", "ambient-specular", "ambient-diffuse", "hdr-scene", "bloom", "tonemap-out", "bloom-final",
     };
 
     const std::array<StepSpec, static_cast<size_t>(Step::count)> kRecipe = { {
@@ -163,7 +172,7 @@ namespace photoreal
         { Step::ambient_pair, "ambient-pair", { Step::gbuffer }, { Entry::ambient_specular, Entry::ambient_diffuse }, match_ambient_pair },
         { Step::combine, "combine", { Step::gbuffer }, { Entry::hdr_scene }, match_combine },
         { Step::bloom, "bloom", { Step::combine }, { Entry::bloom }, match_bloom },
-        { Step::tonemap, "tonemap", { Step::combine }, { Entry::tonemap_out }, match_tonemap },
+        { Step::tonemap, "tonemap", { Step::combine }, { Entry::tonemap_out, Entry::bloom_final }, match_tonemap },
     } };
 
     bool Seen::cleared(ResourceId id, const Color &color) const

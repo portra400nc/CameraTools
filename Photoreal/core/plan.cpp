@@ -23,7 +23,7 @@ namespace photoreal
         static_assert(PHOTOREAL_PASS_AMBIENT == bit(PassId::ambient) && PHOTOREAL_PASS_CONTACT_SHADOWS == bit(PassId::contact_shadows)
             && static_cast<int>(PassId::count) == 2);
         static_assert(PHOTOREAL_VIEW_COUNT == static_cast<int>(View::count) && PHOTOREAL_VIEW_STENCIL == static_cast<int>(View::stencil)
-            && PHOTOREAL_VIEW_HDR_SCENE == static_cast<int>(View::hdr_scene));
+            && PHOTOREAL_VIEW_HDR_SCENE == static_cast<int>(View::hdr_scene) && PHOTOREAL_VIEW_BLOOM_FINAL == static_cast<int>(View::bloom_final));
 
         const char *const kErrorNames[] = { "none", "not-d3d11", "shader", "texture", "state" };
         static_assert(PHOTOREAL_ERROR_STATE == 4);
@@ -56,6 +56,7 @@ namespace photoreal
         { View::ambient_diffuse, "ambient-diffuse", Entry::ambient_diffuse, Step::combine, Decode::hdr },
         { View::ambient_specular, "ambient-specular", Entry::ambient_specular, Step::combine, Decode::hdr },
         { View::hdr_scene, "hdr-scene", Entry::hdr_scene, Step::tonemap, Decode::hdr },
+        { View::bloom_final, "bloom-final", Entry::bloom_final, Step::tonemap, Decode::hdr },
     } };
 
     Label encode_label(std::string_view text)

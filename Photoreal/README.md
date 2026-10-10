@@ -97,9 +97,9 @@ A view is copied at its step and drawn over the back buffer at `reshade_present`
 | `smoothness`, `character`, `shadow-mask`, `quarter-shadow` | The red channel as gray. |
 | `depth` | Reversed depth: near is bright, the sky is black. |
 | `stencil` | Sky black, world gray, grass green, characters magenta, vegetation dark green, foliage light green, any other value red. |
-| `ambient-diffuse`, `ambient-specular`, `hdr-scene` | HDR values, tone mapped. |
+| `ambient-diffuse`, `ambient-specular`, `hdr-scene`, `bloom-final` | HDR values, tone mapped. |
 
-The G-buffer and lighting views show what the game's combine pass reads, after the contact-shadow and ambient passes ran, so `shadow-mask` includes the contact shadows. `hdr-scene` shows the image just before the game's tone map. When the view's entry was not found, the screen shows dark magenta diagonal stripes, and the label ends in `MISSING`.
+The G-buffer and lighting views show what the game's combine pass reads, after the contact-shadow and ambient passes ran, so `shadow-mask` includes the contact shadows. `hdr-scene` shows the image just before the game's tone map, and `bloom-final` the quarter-size bloom the tone map adds to it. When the view's entry was not found, the screen shows dark magenta diagonal stripes, and the label ends in `MISSING`.
 
 ## Comparison capture
 

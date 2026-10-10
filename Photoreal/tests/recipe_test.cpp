@@ -58,6 +58,8 @@ int main()
         check("214859: shadow mask 387, quarter shadow 385", id(map, Entry::shadow_mask) == 387 && id(map, Entry::quarter_shadow) == 385);
         check("214859: HDR scene 18, bloom 469, tonemap output 474",
             id(map, Entry::hdr_scene) == 18 && id(map, Entry::bloom) == 469 && id(map, Entry::tonemap_out) == 474);
+        check("214859: final bloom 473 at 288x180, the tonemap draw's t1",
+            id(map, Entry::bloom_final) == 473 && map[Entry::bloom_final]->size == Size { 288, 180 });
         check("214859: no restart", tracker.restarts() == 0);
     }
     {
@@ -70,6 +72,7 @@ int main()
         check("201640 (v1): ambient diffuse 241, HDR scene 33, depth 34", id(map, Entry::ambient_diffuse) == 241 && id(map, Entry::hdr_scene) == 33
             && id(map, Entry::depth) == 34);
         check("201640 (v1): quarter shadow is 237, not a later lone R8", id(map, Entry::quarter_shadow) == 237);
+        check("201640 (v1): final bloom 284, second in bound order", id(map, Entry::bloom_final) == 284);
     }
     {
         auto rows = fixture::load("fixtures/capture-20261009-214907.tsv");
@@ -95,6 +98,23 @@ int main()
         check("111824: ambient specular 277, diffuse 278", id(map, Entry::ambient_specular) == 277 && id(map, Entry::ambient_diffuse) == 278);
         check("111824: HDR scene 17, bloom 357, tonemap output 362",
             id(map, Entry::hdr_scene) == 17 && id(map, Entry::bloom) == 357 && id(map, Entry::tonemap_out) == 362);
+        check("111824: final bloom 361 at 480x300", id(map, Entry::bloom_final) == 361 && map[Entry::bloom_final]->size == Size { 480, 300 });
+    }
+    {
+        auto rows = normal;
+        std::vector<Texture> &inputs = fixture::find(rows, 951).draw.inputs;
+        std::swap(inputs[1], inputs[2]);
+        FrameTracker tracker;
+        fixture::replay(rows, tracker);
+        check("111824 with the final bloom moved to t2: the tonemap step is found without it",
+            id(tracker.map(), Entry::tonemap_out) == 362 && !tracker.map()[Entry::bloom_final]);
+    }
+    {
+        auto rows = normal;
+        fixture::find(rows, 951).draw.inputs.resize(1);
+        FrameTracker tracker;
+        fixture::replay(rows, tracker);
+        check("111824 with only t0 bound at the tonemap draw: no final bloom", tracker.matched().has(Step::tonemap) && !tracker.map()[Entry::bloom_final]);
     }
     {
         auto rows = normal;

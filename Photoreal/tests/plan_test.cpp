@@ -182,6 +182,22 @@ int main()
             report.wanted.bits == (PHOTOREAL_STEP_GBUFFER | PHOTOREAL_STEP_COMBINE | PHOTOREAL_STEP_TONEMAP));
     }
     {
+        auto rows = fixture::load("fixtures/capture-20261010-111824.tsv");
+        std::vector<Step> snapshots;
+        const FrameReport report = run_frame(rows, view_only(PHOTOREAL_VIEW_BLOOM_FINAL), true, &snapshots);
+        check("the bloom-final view snapshots at tonemap and is shown",
+            snapshots == std::vector<Step> { Step::tonemap } && report.view_shown() == View::bloom_final);
+        check("describe names the bloom-final view", describe(report)
+            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap; view bloom-final");
+    }
+    {
+        auto rows = walk;
+        fixture::find(rows, 1118).draw.inputs.resize(1);
+        const FrameReport report = run_frame(rows, view_only(PHOTOREAL_VIEW_BLOOM_FINAL), true);
+        check("without a final bloom at the tonemap draw, the view says it is missing", report.view_shown() == View::off
+            && report.missing.bits == PHOTOREAL_ENTRY_BLOOM_FINAL && describe(report) == std::string(kAllSteps) + "; view bloom-final: missing bloom-final");
+    }
+    {
         auto rows = walk;
         fixture::drop(rows, 884, 886);  // the quarter shadow's bind and draw
         const FrameReport report = run_frame(rows, view_only(PHOTOREAL_VIEW_QUARTER_SHADOW), true);

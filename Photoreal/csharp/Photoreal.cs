@@ -14,7 +14,7 @@ namespace CameraToolsPhotoreal
     internal enum PhotorealView : uint
     {
         Off, Normals, Albedo, Specular, MaterialId, Smoothness, Character, Depth, Stencil,
-        ShadowMask, QuarterShadow, AmbientDiffuse, AmbientSpecular, HdrScene, Count,
+        ShadowMask, QuarterShadow, AmbientDiffuse, AmbientSpecular, HdrScene, BloomFinal, Count,
     }
 
     // PHOTOREAL_ERROR_* in photoreal.h.
