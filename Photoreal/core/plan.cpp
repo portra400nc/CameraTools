@@ -41,7 +41,10 @@ namespace photoreal
             && offsetof(PhotorealSettings, contact_shadows) + offsetof(PhotorealContactShadows, foliage_strength) == 52
             && offsetof(PhotorealSettings, atmosphere) == 56 && offsetof(PhotorealSettings, tonemap) == 76
             && offsetof(PhotorealSettings, sun_shadows) == 100 && sizeof(PhotorealSettings) == 116);
-        static_assert(sizeof(PhotorealCamera) == 44 * sizeof(float));
+        static_assert(sizeof(PhotorealCamera) == 48 * sizeof(float));
+        static_assert(PHOTOREAL_ACCUMULATE_PRESENT == static_cast<int>(AccumulateMode::present)
+            && PHOTOREAL_ACCUMULATE_COUNT == static_cast<int>(AccumulateMode::count));
+        static_assert(offsetof(PhotorealAccumulate, mode) == 4 && sizeof(PhotorealAccumulate) == 20);
     }
 
     const std::array<PassSpec, static_cast<size_t>(PassId::count)> kPasses = { {
@@ -187,7 +190,28 @@ namespace photoreal
             c.sun_color[i] = finite_or(raw.sun_color[i], 0.0f, 0.0f, INFINITY);
             c.sky_color[i] = finite_or(raw.sky_color[i], 0.0f, 0.0f, INFINITY);
         }
+        c.lens.x = finite_or(raw.lens_sample[0], 0.0f, -1.0f, 1.0f);
+        c.lens.y = finite_or(raw.lens_sample[1], 0.0f, -1.0f, 1.0f);
+        const float index = raw.lens_sample[2];
+        c.lens.index = std::isfinite(index) && index >= 0 && index < 4294967296.0f ? static_cast<uint32_t>(index) : 0;
+        c.lens.mark = std::isfinite(raw.lens_sample[3]) && raw.lens_sample[3] != 0;
         return c;
+    }
+
+    AccumulateSettings parse_accumulate(const PhotorealAccumulate &raw)
+    {
+        const auto knows = [&raw](size_t offset, size_t bytes) { return raw.size >= offset + bytes; };
+        const AccumulateSettings defaults;
+        AccumulateSettings a;
+        if (knows(offsetof(PhotorealAccumulate, mode), sizeof raw.mode) && raw.mode < static_cast<uint32_t>(AccumulateMode::count))
+            a.mode = static_cast<AccumulateMode>(raw.mode);
+        if (knows(offsetof(PhotorealAccumulate, generation), sizeof raw.generation))
+            a.generation = raw.generation;
+        if (knows(offsetof(PhotorealAccumulate, cat_eye), sizeof raw.cat_eye))
+            a.cat_eye = finite_or(raw.cat_eye, defaults.cat_eye, 0.0f, 1.0f);
+        if (knows(offsetof(PhotorealAccumulate, cat_eye_falloff), sizeof raw.cat_eye_falloff))
+            a.cat_eye_falloff = finite_or(raw.cat_eye_falloff, defaults.cat_eye_falloff, 0.01f, 1.0f);
+        return a;
     }
 
     bool invert(const float m[16], float out[16])
@@ -382,6 +406,10 @@ namespace photoreal
             if (report.restarts != 0)
                 line += "; restarts " + std::to_string(report.restarts);
         }
+        if (report.accumulate == AccumulateMode::add)
+            line += "; accumulating";
+        else if (report.accumulate == AccumulateMode::present)
+            line += "; presenting " + std::to_string(report.accumulated) + " samples";
         if (report.compare_count != 0)
             line += "; comparing " + std::to_string(report.compare_saved) + "/" + std::to_string(report.compare_count);
         if (report.error != PHOTOREAL_ERROR_NONE && report.error < std::size(kErrorNames))

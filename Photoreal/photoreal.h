@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define PHOTOREAL_VERSION 4
+#define PHOTOREAL_VERSION 5
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -92,6 +92,15 @@ enum
     PHOTOREAL_CURVE_AGX,        // AgX, after Benjamin Wrensch's minimal fit
     PHOTOREAL_CURVE_NEUTRAL,    // Khronos PBR Neutral
     PHOTOREAL_CURVE_COUNT,
+};
+
+// What the accumulator does with the HDR scene at the bloom step, values of PhotorealAccumulate.mode.
+enum
+{
+    PHOTOREAL_ACCUMULATE_OFF = 0,   // nothing; the sum is kept
+    PHOTOREAL_ACCUMULATE_ADD,       // adds each marked frame's HDR scene into the sum
+    PHOTOREAL_ACCUMULATE_PRESENT,   // writes the sum's average over the HDR scene every frame
+    PHOTOREAL_ACCUMULATE_COUNT,
 };
 
 enum
@@ -193,6 +202,24 @@ typedef struct PhotorealSettings
     PhotorealSunShadows sun_shadows;
 } PhotorealSettings;
 
+// Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and
+// shears its projection so the focus plane stays put, and marks one frame of each point in the camera's lens_sample.
+// The accumulator adds the HDR scene of each marked frame into a 32-bit float sum at the bloom step, after our passes
+// and before the game's bloom and tone map, and then writes the sum's average over the HDR scene while the caller takes
+// its screenshot, so bloom and the tone map run on the blurred image.
+// Separate from PhotorealSettings so a screenshot can accumulate without knowing the passes another caller set.
+typedef struct PhotorealAccumulate
+{
+    uint32_t size;              // sizeof(PhotorealAccumulate) as the caller compiled it
+    uint32_t mode;              // PHOTOREAL_ACCUMULATE_*; unknown values read as off
+    uint32_t generation;        // the sum belongs to one generation: a new value, or a new render size, empties it at the
+                                // next bloom step
+    float cat_eye;              // optical vignetting: at each pixel, only lens points within 1 of a center that moves out
+                                // to cat_eye at the picture's corners count, so bokeh turns to cat's eyes toward the edges
+                                // and swirls; 0 (the default) is round everywhere, 0.3 to 0.6 is Helios-like; clamped to 0..1
+    float cat_eye_falloff;      // the width of the cut's soft edge in aperture radii; default 0.1, clamped to 0.01..1
+} PhotorealAccumulate;
+
 #define PHOTOREAL_COMPARE_MAX 16
 
 // One settings variant of a comparison capture.
@@ -215,12 +242,16 @@ typedef struct PhotorealCamera
                                 // w is unused.
     float sun_color[4];         // rgb: the sun light's color in linear RGB times its intensity; w is unused
     float sky_color[4];         // rgb: the sky's ambient light in linear RGB; w is unused
+    float lens_sample[4];       // xy: the point in the unit aperture disk the camera was moved to, x right and y up, clamped
+                                // to -1..1; z: the sample's index, a whole number; w: 1 on the one frame of the sample the
+                                // accumulator adds, else 0. All zero when no depth of field is being sampled.
 } PhotorealCamera;
 
 typedef struct PhotorealStatus
 {
     uint32_t size;              // set by the caller; the add-on writes at most this many bytes
-    uint32_t armed;             // 1 while settings.enabled reached the render thread and no error disarmed the add-on
+    uint32_t armed;             // 1 while the add-on follows the game's frame: settings.enabled, an accumulation or a depth
+                                // read reached the render thread, and no error disarmed it
     uint64_t frames;            // presents since the add-on loaded
     uint64_t settings_applied;  // the generation PhotorealApply returned for the settings the last frame used
     uint32_t render_width;      // main depth size of the last frame, 0 when no G-buffer was found
@@ -235,6 +266,9 @@ typedef struct PhotorealStatus
     uint32_t restarts;          // G-buffer binds that restarted the last frame (another camera drew first)
     uint32_t error;             // PHOTOREAL_ERROR_*
     uint32_t compare_remaining; // variants of the comparison capture not yet saved, 0 when none runs
+    uint32_t accum_mode;        // PHOTOREAL_ACCUMULATE_* the last frame ran
+    uint32_t accum_samples;     // frames added into the sum since it was last emptied
+    uint32_t accum_generation;  // the generation the sum belongs to, 0 before the first bloom step with an accumulation
 } PhotorealStatus;
 
 PHOTOREAL_EXPORT uint32_t PhotorealVersion(void);
@@ -255,6 +289,17 @@ PHOTOREAL_EXPORT void PhotorealSetCamera(const PhotorealCamera *camera);
 PHOTOREAL_EXPORT uint32_t PhotorealCompare(const PhotorealVariant *variants, uint32_t count);
 
 PHOTOREAL_EXPORT void PhotorealGetStatus(PhotorealStatus *status);
+
+// Copies the accumulation's state; it takes effect at the next frame boundary, like PhotorealApply. A null pointer, or a
+// size too small to hold mode, changes nothing. It works whether settings.enabled is on or not.
+PHOTOREAL_EXPORT void PhotorealSetAccumulate(const PhotorealAccumulate *accumulate);
+
+// Asks for the view-space depth in meters (the distance along the camera's forward axis) at a point on the screen, u and
+// v from 0 at the top left to 1, and returns the newest answer read from a frame that began after the point was first
+// asked for, or -1 while there is none, or for a point off the screen. The render thread copies the depth at the bloom
+// step and reads it back without waiting, so an answer comes a few presents later: call it once a frame until it is not
+// negative. Asking for another point, or not asking for 60 presents, forgets the answer.
+PHOTOREAL_EXPORT float PhotorealDepthAt(float u, float v);
 
 // Writes the last frame's report as one UTF-8 line with its terminator, such as
 // "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap; ran ambient@combine; view normals"

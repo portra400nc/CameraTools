@@ -10,6 +10,7 @@
 
 struct PhotorealSettings;  // photoreal.h, read only by parse_settings
 struct PhotorealCamera;    // photoreal.h, read only by parse_camera
+struct PhotorealAccumulate;  // photoreal.h, read only by parse_accumulate
 
 namespace photoreal
 {
@@ -89,6 +90,14 @@ namespace photoreal
     // settings. raw must be a whole struct; the shell copies the caller's bytes into one first.
     Settings parse_settings(const PhotorealSettings &raw);
 
+    // The aperture point a frame was rendered from, and whether the accumulator adds the frame.
+    struct LensSample
+    {
+        float x = 0, y = 0;     // in the unit disk, x right and y up
+        uint32_t index = 0;
+        bool mark = false;
+    };
+
     struct Camera
     {
         float world_to_view[16];
@@ -96,11 +105,29 @@ namespace photoreal
         float toward_sun[3];    // unit length, or zero when there is no sun
         float sun_color[3];     // linear RGB times intensity, each at least 0
         float sky_color[3];     // linear RGB, each at least 0
+        LensSample lens;
     };
 
     // Copies the matrices and normalizes the sun direction. A zero or non-finite direction becomes zero. A color
-    // component that is not finite becomes 0, and a negative one 0 too.
+    // component that is not finite becomes 0, and a negative one 0 too. A lens coordinate that is not finite becomes 0
+    // and the rest clamp to -1..1; an index that is not a finite number from 0 to 2^32 becomes 0, and a mark that is not a
+    // finite nonzero number reads as unmarked.
     Camera parse_camera(const PhotorealCamera &raw);
+
+    enum class AccumulateMode : uint8_t { off, add, present, count };  // PHOTOREAL_ACCUMULATE_*
+
+    // The domain form of PhotorealAccumulate. Built only by parse_accumulate, so every value in it is in range.
+    struct AccumulateSettings
+    {
+        AccumulateMode mode = AccumulateMode::off;
+        uint32_t generation = 0;
+        float cat_eye = 0.0f;
+        float cat_eye_falloff = 0.1f;
+    };
+
+    // Honors size like parse_settings, maps an unknown mode to off, replaces non-finite floats with the default and
+    // clamps the rest.
+    AccumulateSettings parse_accumulate(const PhotorealAccumulate &raw);
 
     // Inverts a 4x4 matrix in either memory order. false when it is singular.
     bool invert(const float m[16], float out[16]);
@@ -207,6 +234,8 @@ namespace photoreal
         uint32_t restarts = 0;
         uint32_t error = 0;     // PHOTOREAL_ERROR_*
         uint32_t compare_saved = 0, compare_count = 0;  // a comparison capture's progress; count 0 when none runs
+        AccumulateMode accumulate = AccumulateMode::off;
+        uint32_t accumulated = 0;   // the sum's frames, which present mode reports
 
         // A frame's report as it starts: armed and the view follow the settings, until the shell says otherwise.
         static FrameReport start(const Settings &settings);
@@ -223,7 +252,8 @@ namespace photoreal
     };
 
     // "1152x720 found gbuffer ... tonemap; ran ambient@combine; view normals", or
-    // "found nothing; skipped ambient: missing normals depth ambient-diffuse", or "off; comparing 2/5". Names come from
-    // kRecipe, kEntryNames, kPasses and kViews.
+    // "found nothing; skipped ambient: missing normals depth ambient-diffuse", or "off; comparing 2/5", or
+    // "1152x720 found ...; presenting 96 samples". Accumulating names no count, so the line does not change every frame.
+    // Names come from kRecipe, kEntryNames, kPasses and kViews.
     std::string describe(const FrameReport &report);
 }
