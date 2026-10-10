@@ -24,7 +24,7 @@ namespace
         raw.size = sizeof raw;
         raw.enabled = 1;
         raw.flip = 1;
-        raw.ambient = { 1, 0.4f, 0.8f, 1.5f };
+        raw.ambient = { 1, 0.4f, 0.8f, 1.5f, 0.7f };
         return raw;
     }
 
@@ -150,32 +150,44 @@ int main()
         raw.size = 8;  // a caller that only knows size and enabled
         raw.view = 3;
         raw.flip = 0;
-        raw.ambient = { 1, 2, 0.5f, 2 };
+        raw.ambient = { 1, 2, 0.25f, 2, 0.75f };
         const Settings s = parse_settings(raw);
         check("a short struct reads what it holds", s.enabled);
-        check("a short struct keeps later fields at their defaults", s.view == View::off && s.flip && !s.ambient.enabled
-            && s.ambient.level == 1.0f && s.ambient.ao_strength == 1.0f && s.ambient.ao_radius == 1.0f);
+        check("a short struct keeps later fields at their defaults: level 0.6, strength 0.5, radius 1, foliage 0.5",
+            s.view == View::off && s.flip && !s.ambient.enabled && s.ambient.level == 0.6f && s.ambient.ao_strength == 0.5f
+            && s.ambient.ao_radius == 1.0f && s.ambient.foliage_ao_strength == 0.5f);
         raw.size = 4;
         check("a struct too short for enabled reads as off", !parse_settings(raw).enabled);
+        raw.size = 32;  // a caller built before foliage_ao_strength existed
+        const Settings v1 = parse_settings(raw);
+        check("a 32-byte struct reads its ambient block and keeps foliage strength at 0.5", v1.ambient.enabled
+            && v1.ambient.level == 2.0f && v1.ambient.ao_strength == 0.25f && v1.ambient.ao_radius == 2.0f
+            && v1.ambient.foliage_ao_strength == 0.5f);
+        raw.size = sizeof raw;
+        check("a whole struct reads foliage strength 0.75", parse_settings(raw).ambient.foliage_ao_strength == 0.75f);
     }
     {
         PhotorealSettings raw = raw_settings();
         raw.view = 99;
         raw.flip = 0;
-        raw.ambient = { 1, NAN, -3, INFINITY };
+        raw.ambient = { 1, NAN, -3, INFINITY, NAN };
         const Settings s = parse_settings(raw);
         check("an unknown view reads as off", s.view == View::off);
         check("flip 0 reads as upright", !s.flip);
-        check("NaN and infinity fall back to the defaults, and -3 clamps to 0",
-            s.ambient.level == 1.0f && s.ambient.ao_strength == 0.0f && s.ambient.ao_radius == 1.0f);
-        raw.ambient = { 1, 9, 2, 0.001f };
+        check("NaN and infinity fall back to the defaults, and -3 clamps to 0", s.ambient.level == 0.6f
+            && s.ambient.ao_strength == 0.0f && s.ambient.ao_radius == 1.0f && s.ambient.foliage_ao_strength == 0.5f);
+        raw.ambient = { 1, 9, 2, 0.001f, 3 };
         const Settings c = parse_settings(raw);
-        check("out-of-range floats clamp: level 4, strength 1, radius 0.05",
-            c.ambient.level == 4.0f && c.ambient.ao_strength == 1.0f && c.ambient.ao_radius == 0.05f);
+        check("out-of-range floats clamp: level 4, strength 1, radius 0.05, foliage 1", c.ambient.level == 4.0f
+            && c.ambient.ao_strength == 1.0f && c.ambient.ao_radius == 0.05f && c.ambient.foliage_ao_strength == 1.0f);
+        raw.ambient.foliage_ao_strength = -INFINITY;
+        check("foliage strength -infinity falls back to 0.5", parse_settings(raw).ambient.foliage_ao_strength == 0.5f);
+        raw.ambient.foliage_ao_strength = -1;
+        check("foliage strength -1 clamps to 0", parse_settings(raw).ambient.foliage_ao_strength == 0.0f);
     }
     {
         check("disabled settings want no step", wanted_steps(view_only(PHOTOREAL_VIEW_HDR_SCENE)).bits != 0
-            && wanted_steps(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, PHOTOREAL_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1 } })).empty());
+            && wanted_steps(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, PHOTOREAL_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 } })).empty());
     }
     {
         // Unity's GL.GetGPUProjectionMatrix for a 60 degree, 16:10 camera with near 0.1 and far 1000, reversed Z.

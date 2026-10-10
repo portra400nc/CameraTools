@@ -22,9 +22,10 @@ namespace photoreal
     struct AmbientSettings
     {
         bool enabled = false;
-        float level = 1.0f;
-        float ao_strength = 1.0f;
+        float level = 0.6f;
+        float ao_strength = 0.5f;
         float ao_radius = 1.0f;
+        float foliage_ao_strength = 0.5f;
     };
 
     // The domain form of PhotorealSettings. Built only by parse_settings, so every value in it is in range.

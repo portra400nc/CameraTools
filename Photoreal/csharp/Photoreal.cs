@@ -28,6 +28,7 @@ namespace CameraToolsPhotoreal
         public float Level;
         public float AoStrength;
         public float AoRadius;
+        public float FoliageAoStrength;
     }
 
     // PhotorealSettings in photoreal.h, field for field.
@@ -40,12 +41,13 @@ namespace CameraToolsPhotoreal
         public uint Flip;
         public PhotorealAmbient Ambient;
 
-        // The add-on's defaults: everything off, game targets upside down, ambient level 1 and full AO when switched on.
+        // The add-on's defaults: everything off, game targets upside down, and when switched on ambient level 0.6, AO
+        // strength 0.5 at a 1 m radius, and half that strength on grass, vegetation and foliage.
         public static PhotorealSettings Defaults => new()
         {
             Size = (uint)Marshal.SizeOf<PhotorealSettings>(),
             Flip = 1,
-            Ambient = new PhotorealAmbient { Level = 1, AoStrength = 1, AoRadius = 1 },
+            Ambient = new PhotorealAmbient { Level = 0.6f, AoStrength = 0.5f, AoRadius = 1, FoliageAoStrength = 0.5f },
         };
     }
 

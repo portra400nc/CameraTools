@@ -88,13 +88,16 @@ enum
 };
 
 // The ambient pass replaces the game's diffuse irradiance on world pixels (stencil & 0x84 == 0x80) before the combine
-// pass reads it. Characters and the sky keep the game's value.
+// pass reads it. Characters and the sky keep the game's value. The last block of PhotorealSettings, so a field added
+// here goes at the end and size keeps older callers working.
 typedef struct PhotorealAmbient
 {
-    uint32_t enabled;   // default 0
-    float level;        // multiplies the game's irradiance; default 1 keeps it, clamped to 0..4
-    float ao_strength;  // 0 no ambient occlusion, default 1 full
-    float ao_radius;    // in world units (meters), default 1, clamped to 0.05..10
+    uint32_t enabled;           // default 0
+    float level;                // multiplies the game's irradiance; default 0.6, clamped to 0..4
+    float ao_strength;          // 0 no ambient occlusion, 1 full; default 0.5
+    float ao_radius;            // in world units (meters), default 1, clamped to 0.05..10
+    float foliage_ao_strength;  // multiplies ao_strength on grass, vegetation and foliage (stencil 129, 136, 137),
+                                // whose alpha-tested depth makes noisy occlusion; default 0.5, clamped to 0..1
 } PhotorealAmbient;
 
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller

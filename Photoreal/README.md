@@ -56,9 +56,10 @@ Settings:
 | `view` | off | The debug view, a `PHOTOREAL_VIEW_*` value. Unknown values read as off. |
 | `flip` | 1 | Game targets are stored upside down. The debug views and the ambient pass both read it, so an upright debug view means the ambient pass reconstructs positions upright too. |
 | `ambient.enabled` | 0 | The ambient pass. |
-| `ambient.level` | 1 | Multiplies the game's diffuse irradiance on world pixels. Clamped to 0 to 4. |
-| `ambient.ao_strength` | 1 | Ambient occlusion from the G-buffer normals and depth. Clamped to 0 to 1. |
+| `ambient.level` | 0.6 | Multiplies the game's diffuse irradiance on world pixels. Clamped to 0 to 4. |
+| `ambient.ao_strength` | 0.5 | Ambient occlusion from the G-buffer normals and depth. Clamped to 0 to 1. |
 | `ambient.ao_radius` | 1 | The occlusion radius in meters. Clamped to 0.05 to 10. |
+| `ambient.foliage_ao_strength` | 0.5 | Multiplies `ao_strength` on grass, vegetation and foliage (stencil 129, 136 and 137). Clamped to 0 to 1. A caller built without this field sends a 32-byte struct and gets the default. |
 
 ## Status line
 

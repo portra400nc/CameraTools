@@ -24,6 +24,8 @@ namespace photoreal
 
         const char *const kErrorNames[] = { "none", "not-d3d11", "shader", "texture", "state" };
         static_assert(PHOTOREAL_ERROR_STATE == 4);
+        // Callers built before foliage_ao_strength send 32 bytes; csharp/Photoreal.cs marshals 36.
+        static_assert(offsetof(PhotorealSettings, ambient) + offsetof(PhotorealAmbient, foliage_ao_strength) == 32 && sizeof(PhotorealSettings) == 36);
     }
 
     const std::array<PassSpec, static_cast<size_t>(PassId::count)> kPasses = { {
@@ -57,14 +59,17 @@ namespace photoreal
             s.view = static_cast<View>(raw.view);
         if (knows(offsetof(PhotorealSettings, flip), sizeof raw.flip))
             s.flip = raw.flip != 0;
-        if (knows(offsetof(PhotorealSettings, ambient), sizeof raw.ambient))
+        const AmbientSettings defaults;
+        constexpr size_t ambient = offsetof(PhotorealSettings, ambient);
+        if (knows(ambient, offsetof(PhotorealAmbient, foliage_ao_strength)))  // the block as version 1 first shipped it
         {
-            const AmbientSettings defaults;
             s.ambient.enabled = raw.ambient.enabled != 0;
             s.ambient.level = finite_or(raw.ambient.level, defaults.level, 0.0f, 4.0f);
             s.ambient.ao_strength = finite_or(raw.ambient.ao_strength, defaults.ao_strength, 0.0f, 1.0f);
             s.ambient.ao_radius = finite_or(raw.ambient.ao_radius, defaults.ao_radius, 0.05f, 10.0f);
         }
+        if (knows(ambient + offsetof(PhotorealAmbient, foliage_ao_strength), sizeof raw.ambient.foliage_ao_strength))
+            s.ambient.foliage_ao_strength = finite_or(raw.ambient.foliage_ao_strength, defaults.foliage_ao_strength, 0.0f, 1.0f);
         return s;
     }
 
