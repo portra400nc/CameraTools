@@ -14,6 +14,7 @@ namespace photoreal
         bool contact_shadows_wanted(const Settings &s) { return s.contact_shadows.enabled; }
         bool atmosphere_wanted(const Settings &s) { return s.atmosphere.enabled; }
         bool tonemap_wanted(const Settings &s) { return s.tonemap.enabled; }
+        bool sun_shadows_wanted(const Settings &s) { return s.sun_shadows.enabled; }
 
         float finite_or(float value, float fallback, float low, float high)
         {
@@ -24,7 +25,7 @@ namespace photoreal
 
         static_assert(PHOTOREAL_PASS_AMBIENT == bit(PassId::ambient) && PHOTOREAL_PASS_CONTACT_SHADOWS == bit(PassId::contact_shadows)
             && PHOTOREAL_PASS_ATMOSPHERE == bit(PassId::atmosphere) && PHOTOREAL_PASS_TONEMAP == bit(PassId::tonemap)
-            && static_cast<int>(PassId::count) == 4);
+            && PHOTOREAL_PASS_SUN_SHADOWS == bit(PassId::sun_shadows) && static_cast<int>(PassId::count) == 5);
         static_assert(PHOTOREAL_CURVE_AGX == static_cast<int>(Curve::agx) && PHOTOREAL_CURVE_COUNT == static_cast<int>(Curve::count));
         static_assert(PHOTOREAL_VIEW_COUNT == static_cast<int>(View::count) && PHOTOREAL_VIEW_STENCIL == static_cast<int>(View::stencil)
             && PHOTOREAL_VIEW_HDR_SCENE == static_cast<int>(View::hdr_scene) && PHOTOREAL_VIEW_BLOOM_FINAL == static_cast<int>(View::bloom_final)
@@ -44,11 +45,16 @@ namespace photoreal
     }
 
     const std::array<PassSpec, static_cast<size_t>(PassId::count)> kPasses = { {
-        { PassId::contact_shadows, "contact-shadows", Step::combine, { Entry::normals, Entry::depth, Entry::shadow_mask }, true, contact_shadows_wanted },
-        { PassId::ambient, "ambient", Step::combine, { Entry::normals, Entry::depth, Entry::ambient_diffuse }, true, ambient_wanted },
-        { PassId::atmosphere, "atmosphere", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, atmosphere_wanted },
+        // Before contact shadows, which lower what it writes, and the camera only for its blur: it finds positions from
+        // the game's own camera constants.
+        { PassId::sun_shadows, "sun-shadows", Step::combine, { Entry::normals, Entry::depth, Entry::shadow_mask, Entry::sun_atlas }, true, true,
+          sun_shadows_wanted },
+        { PassId::contact_shadows, "contact-shadows", Step::combine, { Entry::normals, Entry::depth, Entry::shadow_mask }, true, false,
+          contact_shadows_wanted },
+        { PassId::ambient, "ambient", Step::combine, { Entry::normals, Entry::depth, Entry::ambient_diffuse }, true, false, ambient_wanted },
+        { PassId::atmosphere, "atmosphere", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, false, atmosphere_wanted },
         // bloom-final is optional: a tone map draw without one still gets ours, without bloom.
-        { PassId::tonemap, "tonemap", Step::tonemap, { Entry::hdr_scene, Entry::tonemap_out }, false, tonemap_wanted },
+        { PassId::tonemap, "tonemap", Step::tonemap, { Entry::hdr_scene, Entry::tonemap_out }, false, false, tonemap_wanted },
     } };
 
     const std::array<const char *, static_cast<size_t>(Curve::count)> kCurveNames = { "game", "agx", "neutral" };
@@ -211,7 +217,7 @@ namespace photoreal
         return true;
     }
 
-    Plan plan(Step step, const FrameMap &map, const Settings &settings, bool camera_known)
+    Plan plan(Step step, const FrameMap &map, const Settings &settings, const Inputs &inputs)
     {
         Plan p;
         const EntrySet found = map.found();
@@ -219,12 +225,13 @@ namespace photoreal
         {
             if (spec.at != step)
                 continue;
-            Decision d { Decision::Kind::off, spec.id, {}, false };
+            Decision d { Decision::Kind::off, spec.id, {}, false, SunCheck::ok };
             if (settings.enabled && spec.wanted(settings))
             {
                 d.missing = spec.needs.minus(found);
-                d.camera_missing = spec.needs_camera && !camera_known;
-                d.kind = d.missing.empty() && !d.camera_missing ? Decision::Kind::run : Decision::Kind::skip;
+                d.camera_missing = spec.needs_camera && !inputs.camera;
+                d.sun = spec.needs_sun ? inputs.sun : SunCheck::ok;
+                d.kind = d.missing.empty() && !d.camera_missing && d.sun == SunCheck::ok ? Decision::Kind::run : Decision::Kind::skip;
             }
             p.items[p.count++] = d;
         }
@@ -269,7 +276,7 @@ namespace photoreal
             else if (d.kind == Decision::Kind::skip)
             {
                 skipped.add(d.pass);
-                why[static_cast<size_t>(d.pass)] = { d.missing, false, d.camera_missing, false };
+                why[static_cast<size_t>(d.pass)] = { d.missing, false, d.camera_missing, false, d.sun };
                 missing |= d.missing;
             }
         }
@@ -295,7 +302,7 @@ namespace photoreal
         why[static_cast<size_t>(pass)] = { {}, false, false, true };
     }
 
-    void FrameReport::finish(const FrameTracker &tracker, const Settings &settings, bool camera_known)
+    void FrameReport::finish(const FrameTracker &tracker, const Settings &settings, const Inputs &inputs)
     {
         render = tracker.map().render;
         found = tracker.matched();
@@ -308,7 +315,8 @@ namespace photoreal
                 continue;
             const EntrySet absent = spec.needs.minus(entries);
             skipped.add(spec.id);
-            why[static_cast<size_t>(spec.id)] = { absent, absent.empty(), spec.needs_camera && !camera_known, false };
+            why[static_cast<size_t>(spec.id)] = { absent, absent.empty(), spec.needs_camera && !inputs.camera, false,
+                spec.needs_sun ? inputs.sun : SunCheck::ok };
             missing |= absent;
         }
         if (view != View::off && !entries.has(kViews[static_cast<size_t>(view)].entry))
@@ -356,6 +364,8 @@ namespace photoreal
                     reasons += std::string(reasons.empty() ? "" : ",") + " no " + kRecipe[static_cast<size_t>(spec.at)].name;
                 if (why.camera_missing)
                     reasons += std::string(reasons.empty() ? "" : ",") + " no camera";
+                if (why.sun != SunCheck::ok)
+                    reasons += std::string(reasons.empty() ? "" : ",") + " sun constants " + kSunCheckNames[static_cast<size_t>(why.sun)];
                 if (why.failed)
                     reasons += std::string(reasons.empty() ? "" : ",") + " no texture";
                 line += reasons;

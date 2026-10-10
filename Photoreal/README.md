@@ -1,6 +1,6 @@
 # CameraTools Photoreal
 
-`CameraToolsPhotoreal.addon64` is a ReShade add-on that works inside Genshin Impact's own D3D11 frame. Each frame it finds the game's G-buffer and lighting buffers by format, size and order, never by shader hash. It can show any of them full screen as a debug view. Before the game's combine pass reads them, it can add contact shadows to the sun's shadow mask and replace the world's ambient light. Before the game's bloom reads the HDR scene, it can add aerial perspective, and it can draw its own tone map in place of the game's. It can also render one frame with several settings variants and save each as a PNG, so effects can be judged from images. A MelonLoader mod drives it through C exports.
+`CameraToolsPhotoreal.addon64` is a ReShade add-on that works inside Genshin Impact's own D3D11 frame. Each frame it finds the game's G-buffer and lighting buffers by format, size and order, never by shader hash. It can show any of them full screen as a debug view. Before the game's combine pass reads them, it can draw the sun's shadows again with soft edges from the game's own shadow atlas, add contact shadows to them, and replace the world's ambient light. Before the game's bloom reads the HDR scene, it can add aerial perspective, and it can draw its own tone map in place of the game's. It can also render one frame with several settings variants and save each as a PNG, so effects can be judged from images. A MelonLoader mod drives it through C exports.
 
 ## Layout
 
@@ -13,7 +13,7 @@
 | `core/compare.*` | The comparison capture's variants, its schedule of presents (`compare_tick`), back buffer pixels, flicker and TSV rows. Pure C++17. |
 | `core/png.*` | A minimal PNG encoder: 8-bit RGB with stored deflate blocks, so the add-on needs no compression library. Pure C++17. |
 | `addon.cpp` | The ReShade shell: events, exports, mailboxes between the C# thread and the render thread, and the capture's file writer thread. |
-| `gpu.*` | The D3D11 side: `StateGuard`, `Mirror`, `Scratch`, `Staging`, the contact-shadow, ambient, atmosphere and tonemap passes, snapshots and the debug composite. |
+| `gpu.*` | The D3D11 side: `StateGuard`, `Mirror`, `Scratch`, `Staging`, the sun constants' copies and readback, the sun-shadow, contact-shadow, ambient, atmosphere and tonemap passes, snapshots and the debug composite. |
 | `shaders/` | HLSL, compiled to DXBC by `build.py` and embedded in the add-on. |
 | `csharp/Photoreal.cs` | The C# binding a MelonLoader mod adds as is. |
 | `tests/` | Native tests that replay recorded FrameCensus frames through `core/`. |
@@ -80,6 +80,22 @@ Settings:
 | `tonemap.bloom_strength` | 1 | Multiplies the game's bloom intensity. Clamped to 0 to 4. |
 | `tonemap.saturation` | 1 | Mixes each color with its luma before the curve: 0 is gray. Clamped to 0 to 2. |
 | `tonemap.contrast` | 1 | A power around middle gray (0.18) before the curve. Clamped to 0.5 to 2. |
+| `sun_shadows.enabled` | 0 | The [sun-shadow pass](#sun-shadows). It runs at the combine step, before the contact-shadow pass, and replaces the sun's visibility in the shadow mask's red channel on world pixels with its own, whose penumbra widens with the distance to what casts the shadow. A caller built without the block sends a 100-byte struct and gets the defaults. |
+| `sun_shadows.light_size` | 0.03 | The penumbra's width per meter between the shadow and its caster. The real sun's is 0.0093. The default gives a branch 10 m up a 0.3 m soft edge. Clamped to 0 to 0.2. |
+| `sun_shadows.min_penumbra` | 0.02 | The penumbra's least width in meters, where the shadow meets its caster. Clamped to 0 to 0.5. |
+| `sun_shadows.strength` | 1 | How much the sun's shadows darken: 0 leaves the sun everywhere, 1 is full. Clamped to 0 to 1. |
+
+## Sun shadows
+
+The game draws the sun's shadow mask in one full-screen draw, which the frame map's `shadow-mask` step finds. That draw samples the sun's shadow atlas at t2, a D16 texture of one square tile per cascade (4096x2048 with 8 cascades at the user's normal settings, 6144x4096 with 6 at PCSS High), and reads the cascades and the camera from its pixel shader constant buffers b0 to b3, of 768, 192, 352 and 912 bytes. At that draw, before it runs, the add-on:
+
+1. Copies the four buffers into four of its own on the GPU, for this frame's pass, and into a CPU-readable buffer, one of three in turn.
+2. Copies the atlas into a mirror, because the next frame's shadow pass draws over it.
+3. Reads back, without waiting, the newest of the two previous frames' CPU-readable copies the GPU has finished, and `core/sun.cpp` parses it: the atlas's size and grid, the cascades in use (up to the first whose tile center is off the grid), their spheres, matrices and depth ranges, the shadow distance, and the camera. It checks that the radii rows repeat the spheres, the radii grow, the tiles are square and on the grid, the depth ranges in b0 match the matrices, the camera's basis is orthonormal and the camera is at cascade 0.
+
+The pass runs only when the draw's buffers had those sizes, the last parse passed every check and described an atlas of this frame's size. Otherwise the status line says `sun constants <check>`, such as `sun constants unread` for the first frame or two after the pass is switched on. The readback only gates the pass and gives the cascade count and grid, which change only with the graphics settings. The pass draws with this frame's own copies, so its shadows stay on the atlas while the camera moves.
+
+The first draw reconstructs each world pixel's position exactly as the game's shadow shaders do, from the game's own camera constants, picks the first cascade whose sphere holds it, and projects it into the atlas. In the outer tenth of a cascade's radius, a growing share of pixels take the next cascade, so the blur fades one into the other. A blocker search of 16 point taps finds how far the casters lie above the pixel toward the sun, and 16 bilinear comparison taps (lit where the pixel is at least as near the sun as the atlas) average the visibility over a disc as wide as `light_size` times that distance, at least `min_penumbra`, and at most 24 atlas texels in radius. The taps follow a Vogel disc turned by the 4x4 pattern, so each pixel's pattern is the same every frame. Each tap compares against the receiver's plane, which the depth buffer gives, so a wide penumbra does not shadow a slanted surface with itself. The second draw blurs the result over 4x4 pixels like the contact-shadow pass and writes it to the mask. Pixels past the game's shadow distance or outside every cascade keep the game's value.
 
 ## Tone map
 
@@ -102,13 +118,14 @@ The game's values come from the skipped draw's own constant buffer at b0, which 
 `PhotorealDescribe` reports the frame in one line with no frame counter, so a mod can log it when it changes. For example:
 
 ```
-1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap; ran contact-shadows@combine ambient@combine atmosphere@bloom tonemap@tonemap; view normals
+1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap; ran sun-shadows@combine contact-shadows@combine ambient@combine atmosphere@bloom tonemap@tonemap; view normals
+1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap; ran ambient@combine; skipped sun-shadows: sun constants unread
 1152x720 found gbuffer quarter-shadow ambient-pair combine bloom tonemap; ran ambient@combine; skipped contact-shadows: missing shadow-mask
 found nothing; skipped contact-shadows: missing normals depth shadow-mask; skipped ambient: missing normals depth ambient-diffuse
 off; error shader
 ```
 
-The parts are the render size and the steps found, the passes that ran and the step they ran at, each skipped pass with its reason, the debug view, the G-buffer restarts, a comparison capture's progress as `comparing <saved>/<variants>`, and an error. A skip reason is `missing <entries>`, `no <step>`, `no camera`, or `no texture`. A view that could not be shown says `missing <entry>` or `no <step>`.
+The parts are the render size and the steps found, the passes that ran and the step they ran at, each skipped pass with its reason, the debug view, the G-buffer restarts, a comparison capture's progress as `comparing <saved>/<variants>`, and an error. A skip reason is `missing <entries>`, `no <step>`, `no camera`, `sun constants <check>`, or `no texture`. The checks are `unread`, `signature` (the shadow-mask draw's constant buffers had other sizes), `atlas-changed`, and the parse's `not-finite`, `atlas`, `tiles`, `radii-rows`, `radii-order`, `depth-range`, `basis` and `camera`. A view that could not be shown says `missing <entry>` or `no <step>`.
 
 The errors are `not-d3d11`, `shader` (our shaders or states failed to create), `texture` (a texture of ours failed to create this frame), and `state`. A `state` error means the game's render target 0, depth view or pixel shader differed after the add-on restored state. The add-on then stays off until the game restarts and writes which binding moved to `ReShade.log`.
 
@@ -128,7 +145,7 @@ A view is copied at its step and drawn over the back buffer at `reshade_present`
 | `ambient-diffuse`, `ambient-specular`, `hdr-scene`, `bloom-final` | HDR values, tone mapped. |
 | `sun-atlas` | The sun's shadow atlas, which the game's shadow-mask draw samples at t2, as gray, stretched over the screen: one square tile per cascade, nearest first, in rows from the top left. Stored depth grows toward the sun, and 0, where nothing was drawn, is black. It is copied at that draw. |
 
-The G-buffer and lighting views show what the game's combine pass reads, after the contact-shadow and ambient passes ran, so `shadow-mask` includes the contact shadows. `hdr-scene` shows the image just before the game's tone map, after the atmosphere pass, and `bloom-final` the quarter-size bloom the tone map adds to it. When the view's entry was not found, the screen shows dark magenta diagonal stripes, and the label ends in `MISSING`.
+The G-buffer and lighting views show what the game's combine pass reads, after the sun-shadow, contact-shadow and ambient passes ran, so `shadow-mask` includes the soft sun shadows and the contact shadows. `hdr-scene` shows the image just before the game's tone map, after the atmosphere pass, and `bloom-final` the quarter-size bloom the tone map adds to it. When the view's entry was not found, the screen shows dark magenta diagonal stripes, and the label ends in `MISSING`.
 
 ## Comparison capture
 

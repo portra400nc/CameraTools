@@ -1,4 +1,4 @@
-// Shared by every shader. Registers stay inside gpu.h's ranges: t0-t7, s0-s1, b0-b1.
+// Shared by every shader. Registers stay inside gpu.h's ranges: t0-t7, s0-s2, b0-b4.
 
 cbuffer Constants : register(b0)
 {
@@ -33,6 +33,13 @@ cbuffer Constants : register(b0)
     float saturation;
     float contrast;
     float padding2;
+    uint sun_cascades;          // the cascades the game uses, from SunShadowConstants in core/sun.h
+    uint sun_columns;           // the atlas's grid of cascade tiles
+    uint sun_rows;
+    float sun_light_size;       // penumbra width per meter between caster and receiver
+    float sun_min_penumbra;     // meters
+    float sun_strength;
+    float2 padding3;
 };
 
 SamplerState point_clamp : register(s0);

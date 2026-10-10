@@ -82,6 +82,7 @@ enum
     PHOTOREAL_PASS_CONTACT_SHADOWS = 1u << 1,
     PHOTOREAL_PASS_ATMOSPHERE = 1u << 2,
     PHOTOREAL_PASS_TONEMAP = 1u << 3,
+    PHOTOREAL_PASS_SUN_SHADOWS = 1u << 4,
 };
 
 // The tonemap pass's curves, values of PhotorealTonemap.curve.

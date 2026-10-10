@@ -3,6 +3,7 @@
 #pragma once
 
 #include "recipe.h"
+#include "sun.h"
 
 #include <string>
 #include <string_view>
@@ -107,7 +108,8 @@ namespace photoreal
     // What a pass asks of the game's call it runs before. The tonemap pass skips the game's tonemap draw.
     enum class GameCall : bool { keep, skip };
 
-    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, count };  // the PHOTOREAL_PASS_* bit order, not the run order
+    // The PHOTOREAL_PASS_* bit order, not the run order.
+    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, count };
     using PassSet = Set<PassId>;
 
     struct PassSpec
@@ -117,11 +119,12 @@ namespace photoreal
         Step at;                // runs when this step completes, before the game's call
         EntrySet needs;         // runs only when every one was found by then
         bool needs_camera;
+        bool needs_sun;         // the game's sun shadow constants, checked this frame
         bool (*wanted)(const Settings &);
     };
 
-    // Table order is run order within a step: contact shadows, then ambient at combine; atmosphere at bloom; tonemap at
-    // tonemap.
+    // Table order is run order within a step: sun shadows, contact shadows, then ambient at combine; atmosphere at bloom;
+    // tonemap at tonemap.
     extern const std::array<PassSpec, static_cast<size_t>(PassId::count)> kPasses;
 
     struct ViewSpec
@@ -155,6 +158,7 @@ namespace photoreal
         PassId pass;
         EntrySet missing;       // skip only
         bool camera_missing;    // skip only
+        SunCheck sun;           // skip only: not ok when the pass needs the sun constants and this frame's are unusable
     };
 
     // The passes subscribed to a step, in table order, each with what to do now.
@@ -164,7 +168,14 @@ namespace photoreal
         uint8_t count = 0;
     };
 
-    Plan plan(Step step, const FrameMap &map, const Settings &settings, bool camera_known);
+    // What the frame has besides its map: a camera from PhotorealSetCamera, and the verdict on the sun constants.
+    struct Inputs
+    {
+        bool camera = false;
+        SunCheck sun = SunCheck::unread;
+    };
+
+    Plan plan(Step step, const FrameMap &map, const Settings &settings, const Inputs &inputs);
 
     // The steps a frame must reach for these settings: the steps of wanted passes, the view's snapshot step, and
     // their prerequisites.
@@ -177,6 +188,7 @@ namespace photoreal
         bool step_missed = false;   // its step never came, though every entry it needs was found
         bool camera_missing = false;
         bool failed = false;        // its inputs were there, but a texture of ours could not be made
+        SunCheck sun = SunCheck::ok;
     };
 
     // One frame's outcome, built by the shell as steps complete, published at present.
@@ -205,7 +217,7 @@ namespace photoreal
         // A pass that was to run, but whose GPU side could not.
         void note_failed(PassId pass);
         // At present: a wanted pass whose step never came counts as skipped, missing its needs minus what was found.
-        void finish(const FrameTracker &tracker, const Settings &settings, bool camera_known);
+        void finish(const FrameTracker &tracker, const Settings &settings, const Inputs &inputs);
 
         View view_shown() const { return view_found ? view : View::off; }
     };

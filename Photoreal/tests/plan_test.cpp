@@ -39,6 +39,14 @@ namespace
         return parse_settings(raw);
     }
 
+    Settings sun_shadows_on(bool contact_shadows)
+    {
+        PhotorealSettings raw = raw_settings();
+        raw.contact_shadows = { contact_shadows, 0.6f, 1, 0.25f, 0 };
+        raw.sun_shadows = { 1, 0.03f, 0.02f, 1 };
+        return parse_settings(raw);
+    }
+
     Settings atmosphere_on()
     {
         PhotorealSettings raw = raw_settings();
@@ -65,7 +73,7 @@ namespace
     }
 
     // Replays a fixture as the shell does: at every moment, plan the passes, note the plan and the view; finish at the end.
-    FrameReport run_frame(std::vector<fixture::Row> &rows, const Settings &settings, bool camera_known, std::vector<Step> *snapshots = nullptr)
+    FrameReport run_frame(std::vector<fixture::Row> &rows, const Settings &settings, const Inputs &inputs, std::vector<Step> *snapshots = nullptr)
     {
         FrameTracker tracker;
         FrameReport report = FrameReport::start(settings);
@@ -75,13 +83,17 @@ namespace
             const std::optional<Step> step = tracker.feed(fixture::event(row));
             if (!step)
                 continue;
-            report.note(plan(*step, tracker.map(), settings, camera_known));
+            report.note(plan(*step, tracker.map(), settings, inputs));
             if (report.note_view(*step, tracker.map()) && snapshots)
                 snapshots->push_back(*step);
         }
-        report.finish(tracker, settings, camera_known);
+        report.finish(tracker, settings, inputs);
         return report;
     }
+
+    // A camera, and sun constants that passed their checks this frame.
+    const Inputs kCamera { true, SunCheck::ok };
+    const Inputs kNoCamera { false, SunCheck::ok };
 
     const char *kAllSteps = "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap";
 }
@@ -91,14 +103,14 @@ int main()
     const std::vector<fixture::Row> walk = fixture::load("fixtures/capture-20261009-214859.tsv");
     {
         auto rows = walk;
-        const FrameReport report = run_frame(rows, ambient_on(), true);
+        const FrameReport report = run_frame(rows, ambient_on(), kCamera);
         check("ambient runs at combine", report.ran.bits == PHOTOREAL_PASS_AMBIENT && report.skipped.empty());
         check("describe names every step and the pass", describe(report) == std::string(kAllSteps) + "; ran ambient@combine");
         check("steps wanted by ambient: gbuffer and combine", report.wanted.bits == (PHOTOREAL_STEP_GBUFFER | PHOTOREAL_STEP_COMBINE));
     }
     {
         auto rows = walk;
-        const FrameReport report = run_frame(rows, contact_shadows_on(true), true);
+        const FrameReport report = run_frame(rows, contact_shadows_on(true), kCamera);
         check("contact shadows and ambient both run", report.ran.bits == (PHOTOREAL_PASS_CONTACT_SHADOWS | PHOTOREAL_PASS_AMBIENT)
             && report.skipped.empty());
         check("describe lists contact shadows before ambient at combine",
@@ -109,94 +121,134 @@ int main()
         auto rows = walk;
         FrameTracker tracker;
         fixture::replay(rows, tracker);
-        const Plan p = plan(Step::combine, tracker.map(), contact_shadows_on(true), true);
-        check("the combine plan runs contact shadows first, then ambient", p.count == 2
-            && p.items[0].pass == PassId::contact_shadows && p.items[0].kind == Decision::Kind::run
-            && p.items[1].pass == PassId::ambient && p.items[1].kind == Decision::Kind::run);
-        const Plan at_tonemap = plan(Step::tonemap, tracker.map(), contact_shadows_on(true), true);
-        check("the shadow-mask step has no pass, and the tonemap step only tonemap, off", plan(Step::shadow_mask, tracker.map(), contact_shadows_on(true), true).count == 0
+        const Plan p = plan(Step::combine, tracker.map(), contact_shadows_on(true), kCamera);
+        check("the combine plan holds sun shadows, off, then runs contact shadows, then ambient", p.count == 3
+            && p.items[0].pass == PassId::sun_shadows && p.items[0].kind == Decision::Kind::off
+            && p.items[1].pass == PassId::contact_shadows && p.items[1].kind == Decision::Kind::run
+            && p.items[2].pass == PassId::ambient && p.items[2].kind == Decision::Kind::run);
+        const Plan at_tonemap = plan(Step::tonemap, tracker.map(), contact_shadows_on(true), kCamera);
+        check("the shadow-mask step has no pass, and the tonemap step only tonemap, off", plan(Step::shadow_mask, tracker.map(), contact_shadows_on(true), kCamera).count == 0
             && at_tonemap.count == 1 && at_tonemap.items[0].pass == PassId::tonemap && at_tonemap.items[0].kind == Decision::Kind::off);
     }
     {
         auto rows = walk;
-        const FrameReport report = run_frame(rows, atmosphere_on(), true);
+        const FrameReport report = run_frame(rows, sun_shadows_on(true), kCamera);
+        check("sun shadows run at combine before contact shadows and ambient", report.ran.bits
+            == (PHOTOREAL_PASS_SUN_SHADOWS | PHOTOREAL_PASS_CONTACT_SHADOWS | PHOTOREAL_PASS_AMBIENT) && describe(report)
+            == std::string(kAllSteps) + "; ran sun-shadows@combine contact-shadows@combine ambient@combine");
+        check("steps wanted by sun shadows: gbuffer and combine", report.wanted.bits == (PHOTOREAL_STEP_GBUFFER | PHOTOREAL_STEP_COMBINE));
+        FrameTracker tracker;
+        fixture::replay(rows, tracker);
+        const Plan p = plan(Step::combine, tracker.map(), sun_shadows_on(true), kCamera);
+        check("the combine plan runs sun shadows first", p.count == 3 && p.items[0].pass == PassId::sun_shadows
+            && p.items[0].kind == Decision::Kind::run && p.items[1].pass == PassId::contact_shadows);
+    }
+    {
+        auto rows = walk;
+        const FrameReport report = run_frame(rows, sun_shadows_on(false), Inputs { true, SunCheck::unread });
+        check("before any constants were read back, sun shadows skip and say so, and ambient runs", report.skipped.bits
+            == PHOTOREAL_PASS_SUN_SHADOWS && report.ran.bits == PHOTOREAL_PASS_AMBIENT && report.missing.empty() && describe(report)
+            == std::string(kAllSteps) + "; ran ambient@combine; skipped sun-shadows: sun constants unread");
+    }
+    {
+        auto rows = walk;
+        const FrameReport report = run_frame(rows, sun_shadows_on(true), Inputs { false, SunCheck::radii_order });
+        check("constants that failed a check and no camera: both reasons", describe(report) == std::string(kAllSteps)
+            + "; skipped sun-shadows: no camera, sun constants radii-order; skipped contact-shadows: no camera; skipped ambient: no camera");
+    }
+    {
+        auto rows = walk;
+        fixture::find(rows, 893).draw.inputs.resize(2);
+        const FrameReport report = run_frame(rows, sun_shadows_on(false), Inputs { true, SunCheck::unread });
+        check("a shadow-mask draw without the atlas at t2: sun shadows miss sun-atlas", report.missing.bits == PHOTOREAL_ENTRY_SUN_ATLAS
+            && describe(report) == std::string(kAllSteps) + "; ran ambient@combine; skipped sun-shadows: missing sun-atlas, sun constants unread");
+    }
+    {
+        std::vector<fixture::Row> menu;
+        const FrameReport report = run_frame(menu, sun_shadows_on(false), Inputs { true, SunCheck::unread });
+        check("no G-buffer: sun shadows name the entries they need", describe(report)
+            == "found nothing; skipped sun-shadows: missing normals depth shadow-mask sun-atlas, sun constants unread; skipped ambient: missing normals depth ambient-diffuse");
+    }
+    {
+        auto rows = walk;
+        const FrameReport report = run_frame(rows, atmosphere_on(), kCamera);
         check("atmosphere runs at bloom", describe(report) == std::string(kAllSteps) + "; ran atmosphere@bloom");
         check("steps wanted by atmosphere: gbuffer, combine and bloom",
             report.wanted.bits == (PHOTOREAL_STEP_GBUFFER | PHOTOREAL_STEP_COMBINE | PHOTOREAL_STEP_BLOOM));
         FrameTracker tracker;
         fixture::replay(rows, tracker);
-        const Plan at_bloom = plan(Step::bloom, tracker.map(), atmosphere_on(), true);
+        const Plan at_bloom = plan(Step::bloom, tracker.map(), atmosphere_on(), kCamera);
         check("the bloom plan runs atmosphere alone", at_bloom.count == 1 && at_bloom.items[0].pass == PassId::atmosphere
             && at_bloom.items[0].kind == Decision::Kind::run);
-        check("the combine plan holds contact shadows and ambient, both off", plan(Step::combine, tracker.map(), atmosphere_on(), true).count == 2
-            && plan(Step::combine, tracker.map(), atmosphere_on(), true).items[0].kind == Decision::Kind::off);
+        check("the combine plan holds sun shadows, contact shadows and ambient, all off", plan(Step::combine, tracker.map(), atmosphere_on(), kCamera).count == 3
+            && plan(Step::combine, tracker.map(), atmosphere_on(), kCamera).items[0].kind == Decision::Kind::off);
     }
     {
         auto rows = walk;
-        const FrameReport report = run_frame(rows, atmosphere_on(), false);
+        const FrameReport report = run_frame(rows, atmosphere_on(), kNoCamera);
         check("without a camera, atmosphere skips and says so", report.skipped.bits == PHOTOREAL_PASS_ATMOSPHERE
             && describe(report) == std::string(kAllSteps) + "; skipped atmosphere: no camera");
     }
     {
         auto rows = walk;
         fixture::drop(rows, 1088, 1088);  // the first bloom draw, the one that samples the HDR scene
-        const FrameReport report = run_frame(rows, atmosphere_on(), true);
+        const FrameReport report = run_frame(rows, atmosphere_on(), kCamera);
         check("no bloom moment: atmosphere skips and names the step", describe(report)
             == "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine tonemap; skipped atmosphere: no bloom");
     }
     {
         std::vector<fixture::Row> menu;
-        const FrameReport report = run_frame(menu, atmosphere_on(), true);
+        const FrameReport report = run_frame(menu, atmosphere_on(), kCamera);
         check("no G-buffer: atmosphere names the entries it needs", describe(report) == "found nothing; skipped atmosphere: missing depth hdr-scene"
             && report.missing.bits == (PHOTOREAL_ENTRY_DEPTH | PHOTOREAL_ENTRY_HDR_SCENE));
     }
     {
         auto rows = walk;
-        const FrameReport report = run_frame(rows, tonemap_on(true), true);
+        const FrameReport report = run_frame(rows, tonemap_on(true), kCamera);
         check("atmosphere runs at bloom and tonemap at tonemap", describe(report) == std::string(kAllSteps) + "; ran atmosphere@bloom tonemap@tonemap");
         check("steps wanted by atmosphere and tonemap: gbuffer, combine, bloom and tonemap",
             report.wanted.bits == (PHOTOREAL_STEP_GBUFFER | PHOTOREAL_STEP_COMBINE | PHOTOREAL_STEP_BLOOM | PHOTOREAL_STEP_TONEMAP));
         FrameTracker tracker;
         fixture::replay(rows, tracker);
-        const Plan at_tonemap = plan(Step::tonemap, tracker.map(), tonemap_on(false), false);
+        const Plan at_tonemap = plan(Step::tonemap, tracker.map(), tonemap_on(false), kNoCamera);
         check("the tonemap plan runs tonemap alone, without a camera", at_tonemap.count == 1 && at_tonemap.items[0].pass == PassId::tonemap
             && at_tonemap.items[0].kind == Decision::Kind::run);
     }
     {
         auto rows = walk;
-        const FrameReport report = run_frame(rows, tonemap_on(true), false);
+        const FrameReport report = run_frame(rows, tonemap_on(true), kNoCamera);
         check("without a camera, tonemap still runs and atmosphere skips",
             describe(report) == std::string(kAllSteps) + "; ran tonemap@tonemap; skipped atmosphere: no camera");
     }
     {
         auto rows = walk;
         fixture::find(rows, 1118).draw.inputs.resize(1);
-        const FrameReport report = run_frame(rows, tonemap_on(false), true);
+        const FrameReport report = run_frame(rows, tonemap_on(false), kCamera);
         check("without a final bloom, tonemap still runs", report.ran.bits == PHOTOREAL_PASS_TONEMAP && report.missing.empty());
     }
     {
         auto rows = walk;
         fixture::drop(rows, 1100, 1200);  // everything from the tonemap on
-        const FrameReport report = run_frame(rows, tonemap_on(false), true);
+        const FrameReport report = run_frame(rows, tonemap_on(false), kCamera);
         check("no tonemap draw: tonemap skips for want of the output it draws into", describe(report)
             == "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom; skipped tonemap: missing tonemap-out");
     }
     {
         std::vector<fixture::Row> menu;
-        const FrameReport report = run_frame(menu, tonemap_on(true), true);
+        const FrameReport report = run_frame(menu, tonemap_on(true), kCamera);
         check("no G-buffer: atmosphere and tonemap name the entries they need", describe(report)
             == "found nothing; skipped atmosphere: missing depth hdr-scene; skipped tonemap: missing hdr-scene tonemap-out");
     }
     {
         auto rows = fixture::load("fixtures/capture-20261010-111824.tsv");
-        const FrameReport report = run_frame(rows, contact_shadows_on(true), true);
+        const FrameReport report = run_frame(rows, contact_shadows_on(true), kCamera);
         check("111824, the user's normal settings: contact shadows and ambient both run", describe(report)
             == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap; ran contact-shadows@combine ambient@combine");
     }
     {
         auto rows = walk;
         fixture::drop(rows, 892, 892);  // the shadow mask's clear, so no shadow mask is found
-        const FrameReport report = run_frame(rows, contact_shadows_on(true), true);
+        const FrameReport report = run_frame(rows, contact_shadows_on(true), kCamera);
         check("without the shadow mask, contact shadows skip and ambient runs",
             report.skipped.bits == PHOTOREAL_PASS_CONTACT_SHADOWS && report.ran.bits == PHOTOREAL_PASS_AMBIENT);
         check("and the shadow mask is the missing entry", report.missing.bits == PHOTOREAL_ENTRY_SHADOW_MASK);
@@ -205,20 +257,20 @@ int main()
     }
     {
         auto rows = walk;
-        const FrameReport report = run_frame(rows, contact_shadows_on(true), false);
+        const FrameReport report = run_frame(rows, contact_shadows_on(true), kNoCamera);
         check("without a camera, both passes skip and say so", report.skipped.bits == (PHOTOREAL_PASS_CONTACT_SHADOWS | PHOTOREAL_PASS_AMBIENT)
             && describe(report) == std::string(kAllSteps) + "; skipped contact-shadows: no camera; skipped ambient: no camera");
     }
     {
         std::vector<fixture::Row> menu;
-        const FrameReport report = run_frame(menu, contact_shadows_on(false), true);
+        const FrameReport report = run_frame(menu, contact_shadows_on(false), kCamera);
         check("no G-buffer: contact shadows name the entries they need",
             describe(report) == "found nothing; skipped contact-shadows: missing normals depth shadow-mask");
     }
     {
         auto rows = walk;
         std::vector<Step> snapshots;
-        const FrameReport report = run_frame(rows, contact_shadows_on(false, PHOTOREAL_VIEW_SHADOW_MASK), true, &snapshots);
+        const FrameReport report = run_frame(rows, contact_shadows_on(false, PHOTOREAL_VIEW_SHADOW_MASK), kCamera, &snapshots);
         check("the shadow-mask view snapshots at combine, the moment contact shadows run",
             snapshots == std::vector<Step> { Step::combine } && report.ran.bits == PHOTOREAL_PASS_CONTACT_SHADOWS);
         check("describe names the pass and the view", describe(report) == std::string(kAllSteps) + "; ran contact-shadows@combine; view shadow-mask");
@@ -226,7 +278,7 @@ int main()
     {
         auto rows = walk;
         fixture::drop(rows, 910, 913);
-        const FrameReport report = run_frame(rows, ambient_on(), true);
+        const FrameReport report = run_frame(rows, ambient_on(), kCamera);
         check("without the ambient pair, ambient skips", report.skipped.bits == PHOTOREAL_PASS_AMBIENT && report.ran.empty());
         check("and reports the missing entry", report.missing.bits == PHOTOREAL_ENTRY_AMBIENT_DIFFUSE);
         check("describe says why",
@@ -234,13 +286,13 @@ int main()
     }
     {
         auto rows = walk;
-        const FrameReport report = run_frame(rows, ambient_on(), false);
+        const FrameReport report = run_frame(rows, ambient_on(), kNoCamera);
         check("without a camera, ambient skips and says so", report.skipped.bits == PHOTOREAL_PASS_AMBIENT
             && describe(report) == std::string(kAllSteps) + "; skipped ambient: no camera");
     }
     {
         std::vector<fixture::Row> menu;  // a frame with no G-buffer: a loading screen or a menu
-        const FrameReport report = run_frame(menu, ambient_on(), true);
+        const FrameReport report = run_frame(menu, ambient_on(), kCamera);
         check("no G-buffer: nothing runs", report.ran.empty() && report.skipped.bits == PHOTOREAL_PASS_AMBIENT);
         check("no G-buffer: describe says so", describe(report) == "found nothing; skipped ambient: missing normals depth ambient-diffuse");
         check("no G-buffer: status bits name the missing entries",
@@ -249,14 +301,14 @@ int main()
     {
         auto rows = walk;
         fixture::drop(rows, 924, 926);  // the HDR scene's bind and clear: every entry ambient needs, but no combine moment
-        const FrameReport report = run_frame(rows, ambient_on(), true);
+        const FrameReport report = run_frame(rows, ambient_on(), kCamera);
         check("no combine moment: ambient skips and names the step",
             describe(report) == "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair; skipped ambient: no combine");
     }
     {
         auto rows = walk;
         std::vector<Step> snapshots;
-        const FrameReport report = run_frame(rows, view_only(PHOTOREAL_VIEW_NORMALS), true, &snapshots);
+        const FrameReport report = run_frame(rows, view_only(PHOTOREAL_VIEW_NORMALS), kCamera, &snapshots);
         check("the normals view snapshots once, at combine", snapshots == std::vector<Step> { Step::combine });
         check("the normals view is shown", report.view_shown() == View::normals);
         check("describe names the view", describe(report) == std::string(kAllSteps) + "; view normals");
@@ -264,7 +316,7 @@ int main()
     {
         auto rows = walk;
         std::vector<Step> snapshots;
-        const FrameReport report = run_frame(rows, view_only(PHOTOREAL_VIEW_HDR_SCENE), true, &snapshots);
+        const FrameReport report = run_frame(rows, view_only(PHOTOREAL_VIEW_HDR_SCENE), kCamera, &snapshots);
         check("the HDR view snapshots at tonemap", snapshots == std::vector<Step> { Step::tonemap } && report.view_shown() == View::hdr_scene);
         check("the HDR view wants the steps up to tonemap",
             report.wanted.bits == (PHOTOREAL_STEP_GBUFFER | PHOTOREAL_STEP_COMBINE | PHOTOREAL_STEP_TONEMAP));
@@ -272,7 +324,7 @@ int main()
     {
         auto rows = fixture::load("fixtures/capture-20261010-111824.tsv");
         std::vector<Step> snapshots;
-        const FrameReport report = run_frame(rows, view_only(PHOTOREAL_VIEW_BLOOM_FINAL), true, &snapshots);
+        const FrameReport report = run_frame(rows, view_only(PHOTOREAL_VIEW_BLOOM_FINAL), kCamera, &snapshots);
         check("the bloom-final view snapshots at tonemap and is shown",
             snapshots == std::vector<Step> { Step::tonemap } && report.view_shown() == View::bloom_final);
         check("describe names the bloom-final view", describe(report)
@@ -281,7 +333,7 @@ int main()
     {
         auto rows = fixture::load("fixtures/capture-20261010-111824.tsv");
         std::vector<Step> snapshots;
-        const FrameReport report = run_frame(rows, view_only(PHOTOREAL_VIEW_SUN_ATLAS), true, &snapshots);
+        const FrameReport report = run_frame(rows, view_only(PHOTOREAL_VIEW_SUN_ATLAS), kCamera, &snapshots);
         check("the sun-atlas view snapshots at the shadow-mask draw and is shown",
             snapshots == std::vector<Step> { Step::shadow_mask } && report.view_shown() == View::sun_atlas);
         check("the sun-atlas view wants the gbuffer and shadow-mask steps",
@@ -292,14 +344,14 @@ int main()
     {
         auto rows = walk;
         fixture::find(rows, 1118).draw.inputs.resize(1);
-        const FrameReport report = run_frame(rows, view_only(PHOTOREAL_VIEW_BLOOM_FINAL), true);
+        const FrameReport report = run_frame(rows, view_only(PHOTOREAL_VIEW_BLOOM_FINAL), kCamera);
         check("without a final bloom at the tonemap draw, the view says it is missing", report.view_shown() == View::off
             && report.missing.bits == PHOTOREAL_ENTRY_BLOOM_FINAL && describe(report) == std::string(kAllSteps) + "; view bloom-final: missing bloom-final");
     }
     {
         auto rows = walk;
         fixture::drop(rows, 884, 886);  // the quarter shadow's bind and draw
-        const FrameReport report = run_frame(rows, view_only(PHOTOREAL_VIEW_QUARTER_SHADOW), true);
+        const FrameReport report = run_frame(rows, view_only(PHOTOREAL_VIEW_QUARTER_SHADOW), kCamera);
         check("a view of a missing entry shows nothing and says what is missing", report.view_shown() == View::off
             && report.missing.bits == PHOTOREAL_ENTRY_QUARTER_SHADOW
             && describe(report) == "1152x720 found gbuffer shadow-mask ambient-pair combine bloom tonemap; view quarter-shadow: missing quarter-shadow");
@@ -307,7 +359,7 @@ int main()
     {
         auto rows = walk;
         fixture::drop(rows, 1100, 1200);  // everything from the tonemap on
-        const FrameReport report = run_frame(rows, view_only(PHOTOREAL_VIEW_HDR_SCENE), true);
+        const FrameReport report = run_frame(rows, view_only(PHOTOREAL_VIEW_HDR_SCENE), kCamera);
         check("a view whose step never came names the step", report.view_shown() == View::off && report.missing.empty()
             && describe(report) == "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom; view hdr-scene: no tonemap");
     }
@@ -331,13 +383,13 @@ int main()
     }
     {
         auto rows = walk;
-        FrameReport report = run_frame(rows, ambient_on(), true);
+        FrameReport report = run_frame(rows, ambient_on(), kCamera);
         report.compare_count = 16;
         check("a capture's progress ends an armed line", describe(report) == std::string(kAllSteps) + "; ran ambient@combine; comparing 0/16");
     }
     {
         auto rows = walk;
-        FrameReport report = run_frame(rows, ambient_on(), true);
+        FrameReport report = run_frame(rows, ambient_on(), kCamera);
         report.note_failed(PassId::ambient);
         report.error = PHOTOREAL_ERROR_TEXTURE;
         check("a pass whose texture failed is skipped",

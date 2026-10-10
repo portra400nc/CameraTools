@@ -86,6 +86,8 @@ namespace photoreal
         uint64_t settings_seen = 0, camera_seen = 0, compare_seen = 0;
         Camera camera {};
         uint32_t camera_age = UINT32_MAX;
+        SunParse sun_parse;                 // the newest constants read back, from one or two frames before
+        SunCheck sun_frame = SunCheck::unread;  // this frame's verdict on them
         uint64_t frames = 0;
         uint32_t sticky_error = PHOTOREAL_ERROR_NONE;   // NOT_D3D11, SHADER or STATE: the add-on stays disarmed
         uint32_t frame_error = PHOTOREAL_ERROR_NONE;    // TEXTURE: this frame only
@@ -274,11 +276,28 @@ namespace photoreal
 
         bool camera_known() { return camera_age != UINT32_MAX; }
 
+        Inputs inputs() { return { camera_known(), sun_frame }; }
+
+        // At the shadow-mask draw, before it runs: parse the newest finished readback of an earlier frame's constants,
+        // then copy this draw's. The pass draws with this frame's copies on the GPU, so it stays exact while the camera
+        // moves. The readback only decides whether it runs and gives the cascade layout, which changes only with the
+        // graphics settings, and with it the atlas's size, which sun_check compares.
+        void gather_sun(const FrameMap &map)
+        {
+            if (!settings.enabled || !settings.sun_shadows.enabled || !map[Entry::sun_atlas])
+                return;
+            if (const std::optional<SunCbuffers> bytes = gpu.sun_constants(frames))
+                sun_parse = parse_sun_shadows(*bytes);
+            sun_frame = sun_check(sun_parse, gpu.gather_sun(*map[Entry::sun_atlas], frames), map[Entry::sun_atlas]->size);
+        }
+
         // The work at one moment. Returns the event's return value: true skips the game's call.
         bool on_step(Step step)
         {
             const FrameMap &map = tracker.map();
-            const Plan p = plan(step, map, settings, camera_known());
+            if (step == Step::shadow_mask)
+                gather_sun(map);
+            const Plan p = plan(step, map, settings, inputs());
             report.note(p);
             bool skip = false;
             const char *moved = nullptr;
@@ -298,6 +317,9 @@ namespace photoreal
                     {
                     case PassId::ambient:
                         call = gpu.run_ambient(map, settings.ambient, camera, settings.flip);
+                        break;
+                    case PassId::sun_shadows:
+                        call = gpu.run_sun_shadows(map, settings.sun_shadows, camera, sun_parse.constants, settings.flip);
                         break;
                     case PassId::contact_shadows:
                         call = gpu.run_contact_shadows(map, settings.contact_shadows, camera, settings.flip);
@@ -513,7 +535,7 @@ namespace photoreal
 
             frames++;
             if (report.armed)
-                report.finish(tracker, settings, camera_known());
+                report.finish(tracker, settings, inputs());
             report.error = sticky_error != PHOTOREAL_ERROR_NONE ? sticky_error : frame_error;
 
             std::vector<Variant> variants;
@@ -537,6 +559,9 @@ namespace photoreal
             else if (camera_age != UINT32_MAX)
                 camera_age++;
             frame_error = PHOTOREAL_ERROR_NONE;
+            sun_frame = SunCheck::unread;
+            if (!settings.enabled || !settings.sun_shadows.enabled)
+                sun_parse = {};
 
             const bool arm = settings.enabled && sticky_error == PHOTOREAL_ERROR_NONE && gpu.ready();
             gpu.end_frame(arm ? settings.view : View::off);
@@ -572,7 +597,7 @@ namespace photoreal
 using namespace photoreal;
 
 extern "C" __declspec(dllexport) const char *NAME = "CameraTools Photoreal";
-extern "C" __declspec(dllexport) const char *DESCRIPTION = "Finds Genshin's G-buffer and lighting buffers each frame, shows them as debug views, relights the world's ambient light, adds contact shadows to the sun's and aerial perspective to the scene, replaces the game's tone map, and saves comparison captures of settings variants. Driven by CameraTools.";
+extern "C" __declspec(dllexport) const char *DESCRIPTION = "Finds Genshin's G-buffer and lighting buffers each frame, shows them as debug views, relights the world's ambient light, softens the sun's shadows and adds contact shadows to them, adds aerial perspective to the scene, replaces the game's tone map, and saves comparison captures of settings variants. Driven by CameraTools.";
 
 extern "C" uint32_t PhotorealVersion(void)
 {

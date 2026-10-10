@@ -17,8 +17,8 @@ namespace photoreal
 
     // Our shaders declare registers only inside these ranges, and StateGuard saves and restores exactly these.
     constexpr UINT kSrvSlots = 8;       // t0..t7
-    constexpr UINT kSamplerSlots = 2;   // s0..s1
-    constexpr UINT kCbSlots = 2;        // b0..b1
+    constexpr UINT kSamplerSlots = 3;   // s0..s2
+    constexpr UINT kCbSlots = 5;        // b0..b4
     constexpr UINT kUavSlots = 2;       // u0..u1, compute only (no v1 pass uses compute; the path tracer will)
     constexpr UINT kSoSlots = D3D11_SO_BUFFER_SLOT_COUNT;
     constexpr UINT kClassInstances = 256;
@@ -171,6 +171,23 @@ namespace photoreal
         // Empty when a texture of ours failed.
         std::optional<GameCall> run_ambient(const FrameMap &map, const AmbientSettings &settings, const Camera &camera, bool flip);
 
+        // At the game's shadow-mask draw, before it runs: copies the draw's pixel shader constants b0 to b3 into our own
+        // buffers for this frame's sun-shadow pass and into frame's staging buffer for sun_constants, and the atlas into
+        // its mirror. false when the draw's buffers are not the sizes kSunCbufferBytes names; then nothing is copied.
+        bool gather_sun(const Texture &atlas, uint64_t frame);
+
+        // The newest constants staged one or two frames before frame whose copy the GPU has finished, read without
+        // waiting. Empty when neither has finished.
+        std::optional<SunCbuffers> sun_constants(uint64_t frame);
+
+        // The sun-shadow pass: mirror in the shadow mask, normals and depth; draw raw sun visibility into sun_ from the
+        // atlas and the constants gather_sun copied this frame, with a penumbra that widens with the distance to the
+        // blockers; draw out = (blurred visibility, in.y) on world pixels and in elsewhere; copy out over the game's
+        // shadow mask. sun gives the cascades in use and the atlas's grid. Empty when gather_sun copied nothing this frame
+        // or a texture of ours failed.
+        std::optional<GameCall> run_sun_shadows(const FrameMap &map, const SunShadowSettings &settings, const Camera &camera,
+            const SunShadowConstants &sun, bool flip);
+
         // The contact-shadow pass: mirror in the shadow mask, normals and depth; draw raw sun visibility into contact_ by
         // marching each world pixel toward the sun through the depth buffer; draw out = (min(in.x, lerp(1, blurred
         // visibility, strength)), in.y) on world pixels and in elsewhere; copy out over the game's shadow mask.
@@ -215,17 +232,29 @@ namespace photoreal
         ComPtr<ID3D11Device> device_;
         ComPtr<ID3D11DeviceContext1> context_;
         ComPtr<ID3D11VertexShader> fullscreen_vs_;
-        ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, atmosphere_ps_, tonemap_ps_, view_ps_;
-        ComPtr<ID3D11SamplerState> point_, linear_;
+        ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_, tonemap_ps_,
+            view_ps_;
+        ComPtr<ID3D11SamplerState> point_, linear_, lit_compare_;
         ComPtr<ID3D11Buffer> constants_;
         ComPtr<ID3D11Buffer> game_tonemap_;    // the game's tone map constants, copied in at each tonemap pass
+        ComPtr<ID3D11Buffer> game_sun_[4];     // the game's b0 to b3 at its shadow-mask draw, bound at b1 to b4
+        // Three, so a frame reads one of the two before it while it writes its own.
+        struct SunStage
+        {
+            ComPtr<ID3D11Buffer> buffer;        // b0 to b3 back to back, CPU-readable
+            uint64_t frame = 0;
+            bool pending = false;               // copied and not yet read
+        };
+        std::array<SunStage, 3> sun_stages_;
+        bool sun_ready_ = false;                // gather_sun copied the constants and the atlas this frame
         ComPtr<ID3D11BlendState> opaque_;
         ComPtr<ID3D11DepthStencilState> no_depth_;
         ComPtr<ID3D11RasterizerState> no_cull_;
         Mirror irradiance_in_, irradiance_out_, shadow_mask_in_, shadow_mask_out_, scene_in_, scene_out_, bloom_in_, tonemap_out_, normals_, depth_,
-            back_buffer_;
+            back_buffer_, sun_atlas_;
         Scratch ao_;                // R8_UNORM raw occlusion, 1 = open
         Scratch contact_;           // R8_UNORM raw sun visibility, 1 = lit
+        Scratch sun_;               // R8_UNORM raw soft sun visibility, 1 = lit
         Snapshot pending_, shown_;
         Staging copies_[2];
     };
