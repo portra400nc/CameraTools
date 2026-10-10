@@ -27,6 +27,17 @@ namespace CameraTools
             return Math.Clamp(x, 0f, 1f);
         }
 
+        // Linearize's inverse: the depth buffer value that linearizes to linear.
+        public float Raw(float linear)
+        {
+            float x = linear * FarPlane / (1f + linear * (FarPlane - 1f));
+            if (Reversed)
+                x = 1f - x;
+            if (Logarithmic)
+                x = (MathF.Sqrt(0.04975f * 0.04975f + 4f * 0.95025f * x) - 0.04975f) / (2f * 0.95025f);
+            return x / Multiplier;
+        }
+
         // mmx_camera.fxh's depth_to_z: the distance along the view in ReLight's own units.
         public float ProjectedZ(float linear) => linear * FarPlane + 1f;
 
