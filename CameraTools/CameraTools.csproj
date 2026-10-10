@@ -17,6 +17,10 @@
     <Il2CppAssemblies Condition="'$(Il2CppAssemblies)' == ''">$(GameDir)/MelonLoader/Il2CppAssemblies</Il2CppAssemblies>
   </PropertyGroup>
   <ItemGroup>
+    <!-- The Photoreal add-on's binding, from the add-on's own folder, so the two never drift apart. -->
+    <Compile Include="../Photoreal/csharp/Photoreal.cs" Link="Photoreal.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <Reference Include="$(MelonLoaderNet6)\MelonLoader.dll" Private="false" />
     <Reference Include="$(MelonLoaderNet6)\Il2CppInterop.Runtime.dll" Private="false" />
     <Reference Include="$(MelonLoaderNet6)\Il2CppInterop.Common.dll" Private="false" />

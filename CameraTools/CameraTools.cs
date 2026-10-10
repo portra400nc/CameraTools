@@ -42,6 +42,7 @@ namespace CameraTools
             Poses.Load();
             Screenshot.Load();
             DepthOfField.Load();
+            LensDepthOfField.Load();
             FrameGuide.Load();
             pauseInFreecam = MelonPreferences.CreateCategory("CameraTools").CreateEntry("PauseInFreeCamera", false,
                 description: "Pause the game when the free camera starts, and resume it when the free camera ends.");
@@ -129,6 +130,7 @@ namespace CameraTools
             // After the speed notice, so unpausing the game for playback does not show one.
             PathPlayback.Update();
             ReShade.Update();
+            CameraToolsPhotoreal.Photoreal.Update();
             DepthOfField.Update();
 
             // After the hotkeys, so the key that closes the settings panel does not also fire its camera action.
@@ -152,8 +154,8 @@ namespace CameraTools
                 GameCamera.Update(maincam);
                 // Before playback poses the camera, which already accounts for the current shift.
                 freecam.FollowWorldShift();
-                // While the sticks move a light or turn a joint, the camera stays put.
-                if (!PathPlayback.Drive(freecam) && !Lights.Moving && !Posing.Editing)
+                // While the sticks move a light or turn a joint, or a screenshot steps through lens samples, the camera stays put.
+                if (!PathPlayback.Drive(freecam) && !Lights.Moving && !Posing.Editing && !Screenshot.HoldsCamera)
                     freecam.Update();
                 freecam.LateUpdate();
             }
@@ -331,6 +333,8 @@ namespace CameraTools
             }
             if (freecamActive && camera)
                 freecam.Apply();
+            if (rendering == maincam)
+                LensDepthOfField.Push(rendering);
         }
 
         // Genshin's camera system writes the gameplay pose after every script LateUpdate, and scenery culling reads the

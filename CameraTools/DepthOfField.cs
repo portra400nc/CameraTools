@@ -1,3 +1,4 @@
+using CameraToolsPhotoreal;
 using MelonLoader;
 using UnityEngine;
 using static CameraTools.CameraTools;
@@ -21,6 +22,8 @@ namespace CameraTools
         private const float MaxFocalLength = 350f;
         // Of the point's -1 to 1 per second at full deflection: edge to edge in two seconds.
         private const float SteerSpeed = 1f;
+        // The lens samples' f-number while the shader's is unknown.
+        private const float LensFNumber = 2.8f;
         // Presents until a set reads back: one applies it, and the next refreshes the bridge's copy if it had not yet.
         private const ulong SetPresents = 2;
 
@@ -196,6 +199,44 @@ namespace CameraTools
             var point = cells[(int)Id.FocusPoint];
             return Lens.FocusWindow(point.X, point.Y, Value(Id.FocusRange), aspect);
         }
+
+        // The f-number the shader blurs with, for the lens samples.
+        public static float FNumber => Known(Id.Aperture) && Value(Id.Aperture) > 0f ? Value(Id.Aperture) : LensFNumber;
+
+        // Where the lens samples focus, in metres along the view, and where that came from: the manual focus distance, or
+        // the depth the Photoreal add-on reads under the focus point, at the screen's centre while the point is unknown.
+        // Null while ReShade or the add-on has not answered yet; ask once a frame until it is not. near and far are the
+        // camera's clip planes, which the depth buffer was drawn with.
+        public static (float Metres, string From)? LensFocus(float near, float far)
+        {
+            if (Known(Id.FocusMode) && Mode == ManualFocus && Known(Id.FocusDepth))
+            {
+                // The shader squares the uniform into the linear depth it compares against.
+                float linear = Value(Id.FocusDepth) * Value(Id.FocusDepth);
+                if (ReLight.ReadDepth(Effect) is not DepthSettings depth)
+                    return null;
+                return (LensSampler.ViewDepth(depth.Raw(linear), near, far), $"the manual distance {Value(Id.FocusDepth):0.000}");
+            }
+            var point = Aiming ? cells[(int)Id.FocusPoint] : default;
+            float u = point.X * 0.5f + 0.5f, v = point.Y * 0.5f + 0.5f;
+            float metres = Photoreal.DepthAt(u, v);
+            return metres > 0f ? (metres, $"the depth at ({u:0.00}, {v:0.00})") : null;
+        }
+
+        // The lens samples blur the screenshot themselves, so the shader steps aside while they run, without the preset
+        // hearing of it. Returns whether it was on, for Resume.
+        public static bool Suspend()
+        {
+            if (!Known(Id.Technique) || Value(Id.Technique) == 0f)
+                return false;
+            Write(Id.Technique, 0f);
+            return true;
+        }
+
+        public static void Resume() => Write(Id.Technique, 1f);
+
+        // The shader is off, or not loaded, as far as the bridge has read back.
+        public static bool Off => !Known(Id.Technique) || Value(Id.Technique) == 0f && presents >= cells[(int)Id.Technique].Until;
 
         // Before the screenshot changes the window's size: a resize makes ReShade load its effects again from the preset,
         // which has to hold the current values and no paint.

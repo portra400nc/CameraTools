@@ -46,12 +46,9 @@ namespace CameraTools
         private static readonly EffectName OverlayBehavior = new(Effect, "LIGHT_OVERLAY_BEHAVIOR");
         private static readonly EffectName OverlayOpacity = new(Effect, "LIGHT_OVERLAY_OPACITY");
         private static readonly EffectName Ambient = new(Effect, "AMBIENT_INTENSITY");
-        private static readonly EffectName[] DepthDefinitions =
+        private static readonly string[] DepthDefinitions =
         {
-            new(Effect, "RESHADE_DEPTH_MULTIPLIER"),
-            new(Effect, "RESHADE_DEPTH_INPUT_IS_LOGARITHMIC"),
-            new(Effect, "RESHADE_DEPTH_INPUT_IS_REVERSED"),
-            new(Effect, "RESHADE_DEPTH_LINEARIZATION_FAR_PLANE"),
+            "RESHADE_DEPTH_MULTIPLIER", "RESHADE_DEPTH_INPUT_IS_LOGARITHMIC", "RESHADE_DEPTH_INPUT_IS_REVERSED", "RESHADE_DEPTH_LINEARIZATION_FAR_PLANE",
         };
 
         public readonly record struct Sphere(Vector3 Position, float Radius, Color Color, float Intensity);
@@ -72,7 +69,7 @@ namespace CameraTools
                 depthConnection = ReShade.Connections;
                 depth = null;
             }
-            depth ??= ReadDepth();
+            depth ??= ReadDepth(Effect);
             if (depth is not DepthSettings settings)
                 return -1;
             int count = 0, highlighted = -1;
@@ -106,13 +103,14 @@ namespace CameraTools
             ReShade.SetFloat(Ambient, 1f);
         }
 
-        private static DepthSettings? ReadDepth()
+        // ReShade's depth settings as an effect sees them, or null while the bridge cannot read them.
+        public static DepthSettings? ReadDepth(string effect)
         {
             for (int i = 0; i < DepthDefinitions.Length; i++)
-                if (!ReShade.TryGetDefinition(DepthDefinitions[i], out definitionValues[i]))
+                if (!ReShade.TryGetDefinition(new EffectName(effect, DepthDefinitions[i]), out definitionValues[i]))
                     return null;
             var read = DepthSettings.Parse(definitionValues[0], definitionValues[1], definitionValues[2], definitionValues[3]);
-            CameraTools.LogOnce($"Lights: ReShade's depth settings for ReLight are {read}.");
+            CameraTools.LogOnce($"ReShade's depth settings for {effect} are {read}.");
             return read;
         }
     }

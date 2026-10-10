@@ -1,3 +1,4 @@
+using CameraToolsPhotoreal;
 using MelonLoader;
 using UnityEngine;
 using static CameraTools.CameraTools;
@@ -21,6 +22,19 @@ namespace CameraTools
         // Since is when this wait began. Dirty is the bridge's present count when CameraTools last had something on screen.
         public sealed record Settling(ShotBefore Before, bool Resized, float Started, float Since, ulong Dirty) : Busy(Before, Resized, Started);
 
+        // Lens depth of field, after Settling: waits for the shader to switch off, the Photoreal add-on to empty its sum for
+        // Generation, and the focus distance. Since is when this wait began.
+        public sealed record Focusing(ShotBefore Before, bool Resized, float Started, float Since, uint Generation) : Busy(Before, Resized, Started);
+
+        // Index is the lens sample on screen, and Frame how many frames it has been there.
+        public sealed record Sampling(ShotBefore Before, bool Resized, float Started, uint Generation, LensPlan Plan, int Index, int Frame)
+            : Busy(Before, Resized, Started);
+
+        // The camera is back at the centre, and the add-on was asked to present the average at the bridge's present count
+        // Presents, at the time Since.
+        public sealed record Presenting(ShotBefore Before, bool Resized, float Started, float Since, uint Generation, LensPlan Plan, ulong Presents)
+            : Busy(Before, Resized, Started);
+
         // Shots is the bridge's screenshot count when the capture was requested.
         public sealed record Saving(ShotBefore Before, bool Resized, float Started, float Requested, ulong Shots) : Busy(Before, Resized, Started);
     }
@@ -39,6 +53,12 @@ namespace CameraTools
         // Presents between asking ReShade to save its preset and resizing. A resize destroys ReShade's runtime and loads
         // the effects from the preset again, so a save still queued then would lose the depth of field's last changes.
         private const ulong SaveFrames = 3;
+        private const float LensTimeout = 15f;
+        // Frames each lens sample stays on screen. The first is marked: whether the add-on takes the camera push before the
+        // frame renders or one frame later, the frame it adds then shows that sample.
+        private const int HoldFrames = 2;
+        // Presents after the add-on reports present mode before the capture, so the average reaches ReShade's frame.
+        private const ulong PresentFrames = 2;
 
         // Name completes "timed out waiting for ...".
         private sealed record Condition(string Name, Func<ShotState.Settling, BridgeStatus, bool> Met);
@@ -64,6 +84,14 @@ namespace CameraTools
         // Each runs even if an earlier one throws.
         private static readonly (string What, Action<ShotState.Busy> Run)[] Restores =
         {
+            ("the lens samples", _ =>
+            {
+                LensDepthOfField.Centre();
+                LensDepthOfField.Accumulate(PhotorealAccumulateMode.Off, 0);
+                if (shaderSuspended)
+                    DepthOfField.Resume();
+                shaderSuspended = false;
+            }),
             ("the graphics settings", busy => Graphics.PutBack(busy.Before.Graphics)),
             ("the resolution", busy =>
             {
@@ -88,8 +116,13 @@ namespace CameraTools
         // Since when ReShade has drawn its effects at the screenshot's size without a break. The depth of field's
         // autofocus only moves while it is drawn, and starts again when ReShade loads its effects again.
         private static float? focusing;
+        // The lens samples switched iMMERSE's depth of field off, and Finish switches it on again.
+        private static bool shaderSuspended;
 
         public static ShotState State { get; private set; } = new ShotState.Idle();
+
+        // The lens samples move the camera, so the user's input must not.
+        public static bool HoldsCamera => State is ShotState.Focusing or ShotState.Sampling or ShotState.Presenting;
 
         public static bool Countdown
         {
@@ -119,6 +152,11 @@ namespace CameraTools
         {
             if (State is not ShotState.Idle || !freecamActive || !ReShade.Connected)
                 return;
+            if (LensDepthOfField.Enabled && !Photoreal.Connected)
+            {
+                CameraUi.Toast("Lens depth of field needs the Photoreal add-on");
+                return;
+            }
             float now = Time.unscaledTime;
             var before = new ShotBefore(CameraUi.PanelOpen, uiHidden, Graphics.Capture(), Window);
             var slot = Graphics.Slot(1);
@@ -136,6 +174,8 @@ namespace CameraTools
                 CameraUi.ClosePanel();
                 SetUiHidden(true);
                 string preset = Graphics.ApplyQuietly(Graphics.Screenshot);
+                if (LensDepthOfField.Enabled)
+                    preset += $"; lens depth of field, {Graphics.AntiAliasingOff()}";
                 if (resized)
                     resize = (slot, bridge.Presents + SaveFrames);
                 ReShade.SetEffects(true);
@@ -158,6 +198,7 @@ namespace CameraTools
                 string stopped = !freecamActive ? "Screenshot cancelled: the free camera is off"
                     : !uiHidden ? "Screenshot cancelled"
                     : !ReShade.Connected ? "Screenshot failed: ReShade was unloaded"
+                    : HoldsCamera && !Photoreal.Connected ? "Screenshot failed: the Photoreal add-on was unloaded"
                     : null;
                 if (stopped != null)
                 {
@@ -182,6 +223,15 @@ namespace CameraTools
                         break;
                     case ShotState.Settling settling:
                         Settle(settling);
+                        break;
+                    case ShotState.Focusing lensFocusing:
+                        Focus(lensFocusing);
+                        break;
+                    case ShotState.Sampling sampling:
+                        Sample(sampling);
+                        break;
+                    case ShotState.Presenting presenting:
+                        Present(presenting);
                         break;
                     case ShotState.Saving saving:
                         Save(saving);
@@ -226,15 +276,98 @@ namespace CameraTools
             var unmet = Array.Find(Conditions, condition => !condition.Met(settling, bridge));
             if (unmet == null)
             {
-                ReShade.SaveScreenshot();
-                Melon<CameraTools>.Logger.Msg($"Screenshot: capture requested {now - settling.Started:0.0} s after the button, "
+                Melon<CameraTools>.Logger.Msg($"Screenshot: settled {now - settling.Started:0.0} s after the button, "
                     + $"{now - settling.Since:0.0} s of them waiting after the countdown; window {Window}; {bridge}.");
-                State = new ShotState.Saving(settling.Before, settling.Resized, settling.Started, now, bridge.Screenshots);
+                if (LensDepthOfField.Enabled)
+                    StartLens(settling, now);
+                else
+                    Capture(settling, now, bridge);
                 return;
             }
             if (now - settling.Since >= SettleTimeout)
                 Finish(settling, $"Screenshot failed: timed out waiting for {unmet.Name}",
                     $"timed out after {SettleTimeout:0} s waiting for {unmet.Name}; window {Window}; {bridge}");
+        }
+
+        private static void Capture(ShotState.Busy busy, float now, BridgeStatus bridge)
+        {
+            ReShade.SaveScreenshot();
+            Melon<CameraTools>.Logger.Msg($"Screenshot: capture requested {now - busy.Started:0.0} s after the button; window {Window}; {bridge}.");
+            State = new ShotState.Saving(busy.Before, busy.Resized, busy.Started, now, bridge.Screenshots);
+        }
+
+        // A generation the add-on's sum does not have yet, so it empties before the first sample.
+        private static void StartLens(ShotState.Settling settling, float now)
+        {
+            uint generation = Photoreal.Status.AccumGeneration + 1;
+            shaderSuspended = DepthOfField.Suspend();
+            LensDepthOfField.Accumulate(PhotorealAccumulateMode.Add, generation);
+            State = new ShotState.Focusing(settling.Before, settling.Resized, settling.Started, now, generation);
+        }
+
+        private static void Focus(ShotState.Focusing focusing)
+        {
+            float now = Time.unscaledTime;
+            var focus = DepthOfField.LensFocus(cam.nearClipPlane, cam.farClipPlane);
+            string waiting = !DepthOfField.Off ? "the depth of field shader to switch off"
+                : Photoreal.Status.AccumGeneration != focusing.Generation ? "the Photoreal add-on to start accumulating"
+                : focus == null ? "the focus distance"
+                : null;
+            if (waiting == null)
+            {
+                var (metres, from) = focus.Value;
+                float fNumber = DepthOfField.FNumber;
+                var plan = LensDepthOfField.Plan(metres, fNumber);
+                Melon<CameraTools>.Logger.Msg($"Screenshot: lens depth of field focused at {metres:0.00} m from {from}; f/{fNumber:0.##}, "
+                    + $"aperture radius {plan.Radius * 1000f:0.00} mm, {plan.Count} samples, "
+                    + $"{(plan.Blades >= 3 ? $"{plan.Blades} blades at {plan.Rotation:0.#} degrees" : "round")}, cat's eye {LensDepthOfField.CatEye:0.##}.");
+                var sampling = new ShotState.Sampling(focusing.Before, focusing.Resized, focusing.Started, focusing.Generation, plan, 0, 0);
+                State = sampling;
+                Sample(sampling);
+                return;
+            }
+            if (now - focusing.Since >= LensTimeout)
+                Finish(focusing, $"Screenshot failed: timed out waiting for {waiting}",
+                    $"timed out after {LensTimeout:0} s waiting for {waiting}; {Photoreal.Describe()}");
+        }
+
+        // One frame of one sample. Runs before the free camera applies its pose and pushes the camera this frame.
+        private static void Sample(ShotState.Sampling sampling)
+        {
+            if (sampling.Index == sampling.Plan.Count)
+            {
+                LensDepthOfField.Centre();
+                LensDepthOfField.Accumulate(PhotorealAccumulateMode.Present, sampling.Generation);
+                State = new ShotState.Presenting(sampling.Before, sampling.Resized, sampling.Started, Time.unscaledTime, sampling.Generation,
+                    sampling.Plan, ReShade.Status.Presents);
+                return;
+            }
+            LensDepthOfField.Show(sampling.Plan, sampling.Index, mark: sampling.Frame == 0);
+            State = sampling.Frame + 1 < HoldFrames ? sampling with { Frame = sampling.Frame + 1 } : sampling with { Index = sampling.Index + 1, Frame = 0 };
+        }
+
+        private static void Present(ShotState.Presenting presenting)
+        {
+            float now = Time.unscaledTime;
+            var status = Photoreal.Status;
+            var bridge = ReShade.Status;
+            if (status.AccumMode == PhotorealAccumulateMode.Present && status.AccumGeneration == presenting.Generation
+                && bridge.Presents >= presenting.Presents + PresentFrames)
+            {
+                if (status.AccumSamples == 0)
+                {
+                    Finish(presenting, "Screenshot failed: no lens sample reached the Photoreal add-on",
+                        $"the add-on added no lens sample; {Photoreal.Describe()}");
+                    return;
+                }
+                Melon<CameraTools>.Logger.Msg($"Screenshot: the add-on averaged {status.AccumSamples} of {presenting.Plan.Count} lens samples "
+                    + $"in {now - presenting.Started:0.0} s since the button; {Photoreal.Describe()}");
+                Capture(presenting, now, bridge);
+                return;
+            }
+            if (now - presenting.Since >= LensTimeout)
+                Finish(presenting, "Screenshot failed: the Photoreal add-on did not present the lens samples",
+                    $"timed out after {LensTimeout:0} s waiting for the add-on to present generation {presenting.Generation}; {Photoreal.Describe()}");
         }
 
         private static void Save(ShotState.Saving saving)
