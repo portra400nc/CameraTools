@@ -55,7 +55,7 @@ namespace photoreal
         float wetness;
         float wet_darkening;
         float puddles;
-        float padding3;
+        float leaves_depth;
     };
     static_assert(sizeof(Constants) == 432 && offsetof(Constants, wetness) == 416 && offsetof(Constants, label) == 272 && offsetof(Constants, sun_color) == 304
         && offsetof(Constants, sky_color) == 320 && offsetof(Constants, bloom_strength) == 352 && offsetof(Constants, sun_cascades) == 368
@@ -682,7 +682,8 @@ namespace photoreal
         return GameCall::keep;
     }
 
-    std::optional<GameCall> Gpu::run_leaves(const FrameMap &map, const LeavesSettings &settings, const Camera &camera, bool flip)
+    std::optional<GameCall> Gpu::run_leaves(const FrameMap &map, const LeavesSettings &settings, const Camera &camera,
+        const SunShadowConstants *sun, bool flip)
     {
         const Texture &scene = *map[Entry::hdr_scene], &mask = *map[Entry::shadow_mask], &albedo = *map[Entry::albedo],
             &material = *map[Entry::material_id], &normals = *map[Entry::normals], &depth = *map[Entry::depth];
@@ -697,6 +698,15 @@ namespace photoreal
             return std::nullopt;
         constants.leaves_strength = settings.strength;
         constants.leaves_scatter_sharpness = settings.scatter_sharpness;
+        constants.leaves_depth = settings.depth;
+        // Without this frame's atlas, sun_cascades stays 0 and the shader takes the shadow mask's visibility.
+        const bool atlas = sun != nullptr && sun_ready_;
+        if (atlas)
+        {
+            constants.sun_cascades = sun->cascades;
+            constants.sun_columns = sun->columns;
+            constants.sun_rows = sun->rows;
+        }
         upload(constants);
 
         ID3D11DeviceContext1 *c = context_.Get();
@@ -706,9 +716,12 @@ namespace photoreal
         material_id_.copy_from(c, native(material));
         normals_.copy_from(c, native(normals));
         depth_.copy_from(c, native(depth));
+        // Bound either way, so the shader's buffers at b1 to b4 are always the sizes it declares.
+        ID3D11Buffer *const game[] = { game_sun_[0].Get(), game_sun_[1].Get(), game_sun_[2].Get(), game_sun_[3].Get() };
+        c->PSSetConstantBuffers(1, 4, game);
         ID3D11ShaderResourceView *const srvs[] = { shadow_mask_in_.srv(), normals_.srv(), depth_.srv(), depth_.stencil_srv(), nullptr, albedo_.srv(),
-            material_id_.srv() };
-        draw_fullscreen(leaves_ps_.Get(), srvs, 7, scene_out_.rtv(), map.render, additive_.Get());
+            material_id_.srv(), atlas ? sun_atlas_.srv() : nullptr };
+        draw_fullscreen(leaves_ps_.Get(), srvs, 8, scene_out_.rtv(), map.render, additive_.Get());
         scene_out_.copy_to(c, native(scene));
         return GameCall::keep;
     }

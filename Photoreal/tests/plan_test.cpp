@@ -359,6 +359,18 @@ int main()
             == "found nothing; skipped wetness: missing normals albedo specular material-id smoothness depth");
     }
     {
+        const auto near = [](float a, float b) { return std::fabs(a - b) < 1e-5f; };
+        check("a caster 0.01 depth units above a leaf in a 100 m deep cascade is 1 m of foliage", near(leaf_thickness(0.51f, 0.5f, 100), 1.0f));
+        check("a leaf the atlas holds itself, or one nearer the sun than the atlas, has no foliage above it",
+            leaf_thickness(0.5f, 0.5f, 100) == 0.0f && leaf_thickness(0.4f, 0.5f, 100) == 0.0f);
+        check("an empty atlas texel, stored 0, is no foliage", leaf_thickness(0, 0.3f, 100) == 0.0f);
+        check("no foliage lets all the light through", leaf_transmission(0, 1.5f) == 1.0f);
+        check("1.5 m of foliage at depth 1.5 lets 1/e through, 3 m 1/e^2", near(leaf_transmission(1.5f, 1.5f), 0.367879f)
+            && near(leaf_transmission(3, 1.5f), 0.135335f));
+        check("4.5 m into a crown: 0.0498 at depth 1.5, 0.6376 at depth 10, under 1e-19 at depth 0.1", near(leaf_transmission(4.5f, 1.5f), 0.0497871f)
+            && near(leaf_transmission(4.5f, 10), 0.637628f) && leaf_transmission(4.5f, 0.1f) < 1e-19f);
+    }
+    {
         Camera rain {};
         rain.wetness = 0.2f;
         WetnessSettings settings;

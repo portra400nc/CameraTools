@@ -57,6 +57,7 @@ struct Receiver
     float2 plane;           // the receiver plane's depth change per unit of u and of v
 };
 
+// n tilts the receiver's plane; 0 keeps it flat across the light.
 Receiver project(int c, float3 p, float3 n)
 {
     // Picked by an unrolled loop, not game_b3[15 + 4 * c]: vkd3d-compiler declares a dynamically indexed buffer as

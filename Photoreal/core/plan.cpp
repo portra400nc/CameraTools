@@ -60,8 +60,11 @@ namespace photoreal
             const float t = saturate((x - edge0) / (edge1 - edge0));
             return t * t * (3 - 2 * t);
         }
+        float max(float a, float b) { return std::fmax(a, b); }
+        float exp(float x) { return std::exp(x); }
 
 #include "../shaders/wet.hlsli"
+#include "../shaders/leaves.hlsli"
     }
     }
 
@@ -269,6 +272,8 @@ namespace photoreal
     float puddle_cover(float noise, float up, float wetness, float puddles) { return hlsl::puddle_cover(noise, up, wetness, puddles); }
     float wet_share(float wetness, float up, float puddle) { return hlsl::wet_share(wetness, up, puddle); }
     float wet_smoothness(float smoothness, float wet, float puddle) { return hlsl::wet_smoothness(smoothness, wet, puddle); }
+    float leaf_thickness(float stored, float receiver, float meters_per_depth) { return hlsl::leaf_thickness(stored, receiver, meters_per_depth); }
+    float leaf_transmission(float thickness, float depth) { return hlsl::leaf_transmission(thickness, depth); }
 
     bool invert(const float m[16], float out[16])
     {

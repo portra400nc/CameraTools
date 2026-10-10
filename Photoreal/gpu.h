@@ -203,9 +203,12 @@ namespace photoreal
         std::optional<GameCall> run_contact_shadows(const FrameMap &map, const ContactShadowSettings &settings, const Camera &camera, bool flip);
 
         // The leaves pass: mirror in the HDR scene, shadow mask, normals, albedo, material id and depth; add the sun light let
-        // through leaves and grass toward the camera into the scene's mirror; copy it over the game's HDR scene. Empty when
-        // a texture of ours failed.
-        std::optional<GameCall> run_leaves(const FrameMap &map, const LeavesSettings &settings, const Camera &camera, bool flip);
+        // through leaves and grass toward the camera into the scene's mirror; copy it over the game's HDR scene. Each leaf's
+        // share of the sun comes through the foliage between it and the sun, measured in the atlas and the constants
+        // gather_sun copied this frame when sun gives their cascades and the copies were made, and from the shadow mask
+        // otherwise. Empty when a texture of ours failed.
+        std::optional<GameCall> run_leaves(const FrameMap &map, const LeavesSettings &settings, const Camera &camera, const SunShadowConstants *sun,
+            bool flip);
 
         // The wetness pass, at the first draw that reads the finished G-buffer: mirror in the albedo, specular, smoothness,
         // material id, normals and depth; draw them wet, by amount, into mirrors of the albedo, specular and smoothness on

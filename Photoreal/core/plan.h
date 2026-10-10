@@ -157,6 +157,11 @@ namespace photoreal
     float wet_share(float wetness, float up, float puddle);
     float wet_smoothness(float smoothness, float wet, float puddle);
 
+    // shaders/leaves.hlsli's formulas, compiled from the same source: the meters of foliage between a leaf and the sun at
+    // one atlas tap, and the share of sun light that comes through them.
+    float leaf_thickness(float stored, float receiver, float meters_per_depth);
+    float leaf_transmission(float thickness, float depth);
+
     // Inverts a 4x4 matrix in either memory order. false when it is singular.
     bool invert(const float m[16], float out[16]);
 

@@ -47,7 +47,7 @@ cbuffer Constants : register(b0)
     float wetness;              // the wetness pass's amount: PhotorealWetness.wetness, or the weather's while that is 0
     float wet_darkening;        // PhotorealWetness.darkening
     float puddles;              // PhotorealWetness.puddles
-    float padding3;
+    float leaves_depth;         // PhotorealLeavesTransmission.depth: meters of foliage that dim the sun light by e
 };
 
 SamplerState point_clamp : register(s0);

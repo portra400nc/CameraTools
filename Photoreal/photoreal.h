@@ -194,7 +194,8 @@ typedef struct PhotorealSunShadows
 // leaf passes on toward the camera is added to the HDR scene after the game's deferred lighting and before its sky,
 // transparent and fog draws. A leaf glows where the camera looks toward the sun through its back, and leaves lit from the
 // front are unchanged. The light is the sun's color and direction from PhotorealCamera, times the leaf's albedo and the
-// sun's visibility in the shadow mask.
+// share of the sun that reaches it through the foliage in front of it (PhotorealLeavesTransmission), or the sun's
+// visibility in the shadow mask where the game's sun shadow atlas cannot say.
 // wetness follows it in PhotorealSettings, so this block keeps its size.
 typedef struct PhotorealLeaves
 {
