@@ -237,14 +237,17 @@ namespace photoreal
                 {
                     ID3D11ShaderResourceView *srvs[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = {};
                     context_->PSGetShaderResources(0, D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT, srvs);
-                    for (ID3D11ShaderResourceView *srv : srvs)
+                    for (uint32_t slot = 0; slot < D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT; slot++)
                     {
+                        ID3D11ShaderResourceView *srv = srvs[slot];
+                        Texture &t = draw_inputs[slot];
+                        t = {};
                         if (srv == nullptr)
                             continue;
+                        count_ = slot + 1;
                         ID3D11Resource *resource = nullptr;
                         srv->GetResource(&resource);
-                        Texture &t = draw_inputs[count_++];
-                        t = { static_cast<ResourceId>(reinterpret_cast<uintptr_t>(resource)), Format::unknown, {} };
+                        t.id = static_cast<ResourceId>(reinterpret_cast<uintptr_t>(resource));
                         D3D11_RESOURCE_DIMENSION dimension;
                         resource->GetType(&dimension);
                         if (dimension == D3D11_RESOURCE_DIMENSION_TEXTURE2D)

@@ -8,7 +8,7 @@
 
 namespace photoreal::fixture
 {
-    // A draw's inputs as the fixture recorded them. Answers DrawQueries as NativeDraw does in the add-on.
+    // A draw's inputs as the fixture recorded them, one per slot. Answers DrawQueries as NativeDraw does in the add-on.
     class FixtureDraw final : public DrawQueries
     {
     public:
@@ -26,7 +26,7 @@ namespace photoreal::fixture
         FixtureDraw draw;   // draw
     };
 
-    // Parses <id>:<FORMAT>:<w>x<h> lists. FORMAT names map to Format through a table of the names the census writes,
+    // Parses <id>:<FORMAT>:<w>x<h> lists, where - is an empty slot. FORMAT names map to Format through a table of the names the census writes,
     // and any other name to Format::unknown, which no matcher accepts.
     std::vector<Row> load(const std::string &path);
 

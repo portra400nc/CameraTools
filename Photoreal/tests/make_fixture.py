@@ -8,7 +8,8 @@ tests need one trivial parser and no census format knowledge. This script is the
 
 Columns: seq, event (bind|clear|draw), targets, depth, inputs, clear. A texture is <id>:<FORMAT>:<w>x<h>, a list is
 comma-separated, and - is empty. targets are the bound color targets for a bind and the cleared target for a clear.
-inputs are a draw's pixel shader resources, with the resource's own format, in slot order.
+inputs are a draw's pixel shader resources, with the resource's own format, one per slot from t0 to the last bound
+slot, and - for a slot with nothing bound. Version 1 captures have no slots, so their inputs take their bound order.
 """
 
 import csv
@@ -37,8 +38,10 @@ def main():
         # v2 "slot:id,...", v1 "id,..." in bound order; either way the resource's own format.
         if text in ("-", ""):
             return "-"
-        ids = [part.split(":")[-1] for part in text.split(",")]
-        return ",".join(f"{i}:{resources[i][0]}:{resources[i][1]}" for i in ids if i in resources)
+        parts = [part.split(":") for part in text.split(",")]
+        slots = {int(p[0]) if len(p) == 2 else n: p[-1] for n, p in enumerate(parts)}
+        cell = lambda i: f"{i}:{resources[i][0]}:{resources[i][1]}" if i in resources else "-"
+        return ",".join(cell(slots[s]) if s in slots else "-" for s in range(max(slots) + 1))
 
     rows = []
     with open(capture / "events.tsv") as f:

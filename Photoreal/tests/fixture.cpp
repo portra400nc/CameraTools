@@ -51,7 +51,7 @@ namespace photoreal::fixture
             std::vector<Texture> list;
             if (text != "-")
                 for (const std::string &part : split(text, ','))
-                    list.push_back(texture(part));
+                    list.push_back(part == "-" ? Texture {} : texture(part));
             return list;
         }
 

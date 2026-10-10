@@ -70,7 +70,8 @@ namespace photoreal
     class DrawQueries
     {
     public:
-        // Every bound pixel shader resource, with its resource format and size. Memoized by the implementation.
+        // The pixel shader resources indexed by slot, from t0 to the last bound slot, each with its resource format and
+        // size. A slot with nothing bound holds an empty Texture. Memoized by the implementation.
         virtual const Texture *ps_inputs(uint32_t *count) = 0;
 
     protected:
