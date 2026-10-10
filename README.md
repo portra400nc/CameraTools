@@ -16,6 +16,7 @@
  - Character posing: freeze the active character, turn their joints, shape their hands and face, and save poses
  - One-button screenshots through ReShade, at max quality with effects on
  - Depth of field through ReShade, with a focus point you move on the screen
+ - Lens depth of field in screenshots: the Photoreal add-on averages renders from points across a real aperture, with optional bladed and cat's-eye bokeh
  - Configurable hotkeys
  - Controller support (XInput, including the Steam Deck)
 
@@ -49,7 +50,7 @@ Freeze the active character, turn their joints with the sticks, shape their hand
 
 ## ReShade
 
-The ReShade tab drives ReShade from the free camera. It controls iMMERSE's depth of field, with a focus point you move on the screen, and it takes a screenshot at max quality with one button.
+The ReShade tab drives ReShade from the free camera. It controls iMMERSE's depth of field, with a focus point you move on the screen, and it takes a screenshot at max quality with one button. With the Photoreal add-on, the screenshot can blur through a real lens's aperture instead.
 
 [Use ReShade from CameraTools](RESHADE.md)
 

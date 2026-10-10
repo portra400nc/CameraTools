@@ -1,6 +1,6 @@
 # CameraTools Photoreal
 
-`CameraToolsPhotoreal.addon64` is a ReShade add-on that works inside Genshin Impact's own D3D11 frame. Each frame it finds the game's G-buffer and lighting buffers by format, size and order, never by shader hash. It can show any of them full screen as a debug view. Before the game's combine pass reads them, it can draw the sun's shadows again with soft edges from the game's own shadow atlas, add contact shadows to them, and replace the world's ambient light. Before the game's bloom reads the HDR scene, it can add aerial perspective, and it can draw its own tone map in place of the game's. It can also render one frame with several settings variants and save each as a PNG, so effects can be judged from images. A MelonLoader mod drives it through C exports.
+`CameraToolsPhotoreal.addon64` is a ReShade add-on that works inside Genshin Impact's own D3D11 frame. Each frame it finds the game's G-buffer and lighting buffers by format, size and order, never by shader hash. It can show any of them full screen as a debug view. Before the game's combine pass reads them, it can draw the sun's shadows again with soft edges from the game's own shadow atlas, add contact shadows to them, and replace the world's ambient light. Before the game's bloom reads the HDR scene, it can add aerial perspective, average lens samples into depth of field, and it can draw its own tone map in place of the game's. It can also render one frame with several settings variants and save each as a PNG, so effects can be judged from images. A MelonLoader mod drives it through C exports.
 
 ## Layout
 
@@ -10,11 +10,12 @@
 | `core/recipe.*` | The game's frame as a table of steps (`kRecipe`) and the `FrameTracker` that matches events against it. Pure C++17. |
 | `core/plan.*` | Settings parsing, our passes (`kPasses`) and views (`kViews`), the per-step plan, the frame report and its status line. Pure C++17. |
 | `core/sun.*` | The game's sun shadow constants: the four constant buffers of its shadow-mask draw, parsed into cascades, atlas grid and camera, and checked. Pure C++17. |
+| `core/accumulate.*` | The accumulator's schedule (`accumulate_tick`), the cat's-eye weight, and the depth read's pixel and meters. Pure C++17. |
 | `core/compare.*` | The comparison capture's variants, its schedule of presents (`compare_tick`), back buffer pixels, flicker and TSV rows. Pure C++17. |
 | `core/png.*` | A minimal PNG encoder: 8-bit RGB with stored deflate blocks, so the add-on needs no compression library. Pure C++17. |
 | `addon.cpp` | The ReShade shell: events, exports, mailboxes between the C# thread and the render thread, and the capture's file writer thread. |
 | `gpu.*` | The D3D11 side: `StateGuard`, `Mirror`, `Scratch`, `Staging`, the sun constants' copies and readback, the sun-shadow, contact-shadow, ambient, atmosphere and tonemap passes, snapshots and the debug composite. |
-| `shaders/` | HLSL, compiled to DXBC by `build.py` and embedded in the add-on. |
+| `shaders/` | HLSL, compiled to DXBC by `build.py` and embedded in the add-on. `cat_eye.hlsli` also compiles as C++ in `core/accumulate.cpp`, so the tests check the shader's own arithmetic. |
 | `csharp/Photoreal.cs` | The C# binding a MelonLoader mod adds as is. |
 | `tests/` | Native tests that replay recorded FrameCensus frames through `core/`. |
 
@@ -45,9 +46,11 @@ All exports use the C calling convention. Every one may be called from any threa
 
 | Export | Does |
 |---|---|
-| `uint32_t PhotorealVersion(void)` | Returns `PHOTOREAL_VERSION`, 4. Version 2 added the sun direction to `PhotorealCamera`, so a binding of version 1 must not call `PhotorealSetCamera`. Version 3 added `PhotorealCompare` and `PhotorealStatus.compare_remaining`. Version 4 added the sun and sky colors to `PhotorealCamera`, which has no size field, so a binding of an earlier version must not call `PhotorealSetCamera`. |
+| `uint32_t PhotorealVersion(void)` | Returns `PHOTOREAL_VERSION`, 5. Version 2 added the sun direction to `PhotorealCamera`, so a binding of version 1 must not call `PhotorealSetCamera`. Version 3 added `PhotorealCompare` and `PhotorealStatus.compare_remaining`. Version 4 added the sun and sky colors to `PhotorealCamera`. Version 5 added its lens sample, `PhotorealSetAccumulate`, `PhotorealDepthAt` and the status's three accumulator fields. `PhotorealCamera` has no size field, so a binding of an earlier version must not call `PhotorealSetCamera`. |
 | `uint64_t PhotorealApply(const PhotorealSettings *)` | Copies the whole desired state and returns its generation. `size` says which fields the caller knows, and later fields keep their defaults. |
-| `void PhotorealSetCamera(const PhotorealCamera *)` | Unity's `worldToCameraMatrix` and `GL.GetGPUProjectionMatrix(projectionMatrix, false)`, in Unity's column-major memory order, then the world direction toward the sun, the sun light's color in linear RGB times its intensity, and the sky's ambient light in linear RGB, each as four floats with the last unused. The direction may have any length; zero means no sun. A color component that is negative or not finite reads as 0. Call it every frame from the main camera's `onPreCull` while Photoreal is on. |
+| `void PhotorealSetCamera(const PhotorealCamera *)` | Unity's `worldToCameraMatrix` and `GL.GetGPUProjectionMatrix(projectionMatrix, false)`, in Unity's column-major memory order, then the world direction toward the sun, the sun light's color in linear RGB times its intensity, and the sky's ambient light in linear RGB, each as four floats with the last unused. The direction may have any length; zero means no sun. A color component that is negative or not finite reads as 0. Then the [lens sample](#lens-depth-of-field): the aperture point x and y, the sample's index, and 1 on the frame to add, else 0; all zero when no depth of field is sampled. Call it every frame from the main camera's `onPreCull`, after anything that moves the camera, so the add-on gets the camera that renders. Only one caller should push the camera. |
+| `void PhotorealSetAccumulate(const PhotorealAccumulate *)` | The accumulator's mode, generation and cat's eye; see [Lens depth of field](#lens-depth-of-field). Separate from the settings, so a screenshot can accumulate whatever passes another caller set, and it works while `enabled` is 0. |
+| `float PhotorealDepthAt(float u, float v)` | The view-space depth in meters at a screen point, from 0 at the top left to 1, read from a frame after the point was first asked for, or -1 until then. Call it once a frame until it is not negative. |
 | `void PhotorealGetStatus(PhotorealStatus *)` | Copies the last frame's status. Set `size` first. |
 | `uint32_t PhotorealDescribe(char *, uint32_t)` | Writes the last frame's status line and returns its length, or 0 when the buffer is too small. |
 | `uint32_t PhotorealCompare(const PhotorealVariant *, uint32_t)` | Starts a [comparison capture](#comparison-capture) of 1 to 16 variants. Each `PhotorealVariant` is a 32-byte UTF-8 name and a `PhotorealSettings`. Returns 1 when accepted, and 0 when a capture is still running or saving, or the input is invalid: a null pointer, no variants, more than 16, an empty name, or settings whose `size` does not hold `enabled`. |
@@ -84,6 +87,25 @@ Settings:
 | `sun_shadows.light_size` | 0.03 | The penumbra's width per meter between the shadow and its caster. The real sun's is 0.0093. The default gives a branch 10 m up a 0.3 m soft edge. Clamped to 0 to 0.2. |
 | `sun_shadows.min_penumbra` | 0.02 | The penumbra's least width in meters, where the shadow meets its caster. Clamped to 0 to 0.5. |
 | `sun_shadows.strength` | 1 | How much the sun's shadows darken: 0 leaves the sun everywhere, 1 is full. Clamped to 0 to 1. |
+
+## Lens depth of field
+
+The add-on averages HDR frames rendered from points across a virtual aperture, which the caller moves the camera to. For each point, the caller moves the camera by (x, y) times the aperture's radius along its right and up axes and shears the projection by `m02 -= m00 * x / F` and `m12 -= m11 * y / F` (Unity's view space looks down -z), so the plane F meters ahead keeps its place on the screen and everything nearer or farther moves by the circle of confusion of a lens with that aperture. It pushes that camera with the point in `lens_sample` and sets w to 1 on the one frame to add.
+
+`PhotorealAccumulate`:
+
+| Field | Default | Meaning |
+|---|---|---|
+| `mode` | off | `PHOTOREAL_ACCUMULATE_ADD` (1): at the bloom step, after the atmosphere pass and before the game's first bloom draw, the HDR scene of each frame whose camera came that frame with a marked lens sample is added into an RGBA32F sum of ours, rgb times the cat's-eye weight and the weight in alpha. A sample is added once, however many frames are marked. `PHOTOREAL_ACCUMULATE_PRESENT` (2): every frame at the bloom step, sum.rgb / sum.a replaces the HDR scene, so the game's bloom, our tone map, ReShade's effects and screenshots all see the average. A pixel with no weight keeps the scene. Off (0) does nothing and keeps the sum. Unknown values read as off. |
+| `generation` | 0 | The sum belongs to one generation and one render size. In add mode, a new generation or render size empties it at the next bloom step, sample or not. Present mode presents only a sum of its own generation and size with at least one frame in it. |
+| `cat_eye` | 0 | Optical vignetting. At each pixel, a lens point counts only within 1 of a center that moves from the middle of the aperture at the picture's center out to `cat_eye` at its corners, so out-of-focus highlights turn to cat's eyes toward the edges and swirl. Clamped to 0 to 1. |
+| `cat_eye_falloff` | 0.1 | The width of that cut's soft edge, in aperture radii. Clamped to 0.01 to 1. |
+
+The status reports `accum_mode`, `accum_samples` (frames in the sum) and `accum_generation` (the sum's generation, 0 before the first bloom step in add mode), and the status line ends in `; accumulating` or `; presenting <n> samples`.
+
+Where the camera push and the render thread's frames line up is unknown, so the caller should hold each point for 2 frames and mark the first. Whether the add-on takes the push before the frame renders or one frame later, the frame it then adds shows that point. The accumulator needs the game's bloom step, so it does nothing while the game's bloom is off.
+
+`PhotorealDepthAt` gives the focus distance F. At the bloom step, the add-on copies the main depth into its mirror and the asked point's texel into a 1x1 CPU-readable texture, reads it at a later present without waiting, and turns the reversed depth into meters through the inverse of that frame's pushed `view_to_clip`. A new point, or 60 presents without a call, forgets the answer.
 
 ## Sun shadows
 
@@ -125,11 +147,11 @@ found nothing; skipped contact-shadows: missing normals depth shadow-mask; skipp
 off; error shader
 ```
 
-The parts are the render size and the steps found, the passes that ran and the step they ran at, each skipped pass with its reason, the debug view, the G-buffer restarts, a comparison capture's progress as `comparing <saved>/<variants>`, and an error. A skip reason is `missing <entries>`, `no <step>`, `no camera`, `sun constants <check>`, or `no texture`. The checks are `unread`, `signature` (the shadow-mask draw's constant buffers had other sizes), `atlas-changed`, and the parse's `not-finite`, `atlas`, `tiles`, `radii-rows`, `radii-order`, `depth-range`, `basis` and `camera`. A view that could not be shown says `missing <entry>` or `no <step>`.
+The parts are the render size and the steps found, the passes that ran and the step they ran at, each skipped pass with its reason, the debug view, the G-buffer restarts, the accumulator as `accumulating` or `presenting <n> samples`, a comparison capture's progress as `comparing <saved>/<variants>`, and an error. A skip reason is `missing <entries>`, `no <step>`, `no camera`, `sun constants <check>`, or `no texture`. The checks are `unread`, `signature` (the shadow-mask draw's constant buffers had other sizes), `atlas-changed`, and the parse's `not-finite`, `atlas`, `tiles`, `radii-rows`, `radii-order`, `depth-range`, `basis` and `camera`. A view that could not be shown says `missing <entry>` or `no <step>`.
 
 The errors are `not-d3d11`, `shader` (our shaders or states failed to create), `texture` (a texture of ours failed to create this frame), and `state`. A `state` error means the game's render target 0, depth view or pixel shader differed after the add-on restored state. The add-on then stays off until the game restarts and writes which binding moved to `ReShade.log`.
 
-`PhotorealStatus` carries the same facts as bit sets (`PHOTOREAL_STEP_*`, `PHOTOREAL_PASS_*`, `PHOTOREAL_ENTRY_*`), plus the frame count, the settings generation the last frame used, the frames since the last camera, and `compare_remaining`, the variants of a comparison capture not yet saved.
+`PhotorealStatus` carries the same facts as bit sets (`PHOTOREAL_STEP_*`, `PHOTOREAL_PASS_*`, `PHOTOREAL_ENTRY_*`), plus the frame count, the settings generation the last frame used, the frames since the last camera, `compare_remaining`, the variants of a comparison capture not yet saved, and the accumulator's mode, samples and generation. `armed` is 1 while the add-on follows the game's frame, which it does while `enabled` is on, an accumulation runs, or `PhotorealDepthAt` is being asked.
 
 ## Debug views
 
@@ -175,7 +197,7 @@ The capture stops early when the add-on is off after an error, the D3D11 device 
 
 ## Tests
 
-`tests/run.sh` builds and runs every `*_test.cpp`. `png_test.cpp` checks the PNG encoder's bytes for a 2x2 image and writes a 300x200 image that `check_png.py` decodes with Python's `zlib`. `sun_test.cpp` parses the shadow-mask draw's four constant buffers from captures `111824` and `214859`, which `tests/fixtures/<capture>-sun-b0.bin` to `b3.bin` hold as the census dumped them, checks their cascades, atlas, matrices, distances and camera against literal values, and breaks one value at a time to check each rejection. `compare_test.cpp` checks the capture's schedule, variant parsing, pixels, flicker and TSV rows. `recipe_test.cpp` and `plan_test.cpp` replay four FrameCensus captures in `tests/fixtures/`, which hold only event kinds, resource ids, format names and sizes, with each draw's inputs by slot. Three are 1152x720 frames, and `capture-20261010-111824` is a 1920x1200 frame at the user's normal graphics settings. They check the moment and resource of every step, the same frame at 3456x2160 and at 1153x721 with the quarter-size target rounded either way, a frame without the ambient pair, the shadow mask's (1,1,1,0) clear in the same bind or in an earlier one, G-buffer restarts, the order of the passes at each step, the status line, the debug label's glyphs, and settings and camera parsing.
+`tests/run.sh` builds and runs every `*_test.cpp`. `png_test.cpp` checks the PNG encoder's bytes for a 2x2 image and writes a 300x200 image that `check_png.py` decodes with Python's `zlib`. `sun_test.cpp` parses the shadow-mask draw's four constant buffers from captures `111824` and `214859`, which `tests/fixtures/<capture>-sun-b0.bin` to `b3.bin` hold as the census dumped them, checks their cascades, atlas, matrices, distances and camera against literal values, and breaks one value at a time to check each rejection. `compare_test.cpp` checks the capture's schedule, variant parsing, pixels, flicker and TSV rows. `accumulate_test.cpp` checks which frames clear, add and present, the cat's-eye weight at the center, the corners and its soft edge, the depth read's stored pixel and meters, and parsing of `PhotorealAccumulate` and the lens sample. `recipe_test.cpp` and `plan_test.cpp` replay four FrameCensus captures in `tests/fixtures/`, which hold only event kinds, resource ids, format names and sizes, with each draw's inputs by slot. Three are 1152x720 frames, and `capture-20261010-111824` is a 1920x1200 frame at the user's normal graphics settings. They check the moment and resource of every step, the same frame at 3456x2160 and at 1153x721 with the quarter-size target rounded either way, a frame without the ambient pair, the shadow mask's (1,1,1,0) clear in the same bind or in an earlier one, G-buffer restarts, the order of the passes at each step, the status line, the debug label's glyphs, and settings and camera parsing.
 
 To add a capture as a fixture:
 
