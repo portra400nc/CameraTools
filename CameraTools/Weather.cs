@@ -40,6 +40,9 @@ namespace CameraTools
 
         public static int Choice => held?.Choice ?? 0;
 
+        // Whether the weather asked for rains, or null while the game's weather shows.
+        public static bool? Raining => held == null ? null : Options[held.Choice].Climate is Climate.CLIMATE_RAIN or Climate.CLIMATE_THUNDERSTORM;
+
         public static void SetChoice(int index)
         {
             try

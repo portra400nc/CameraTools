@@ -122,11 +122,13 @@ namespace photoreal
         float toward_sun[3];    // unit length, or zero when there is no sun
         float sun_color[3];     // linear RGB times intensity, each at least 0
         float sky_color[3];     // linear RGB, each at least 0
+        float wetness;          // the weather's, 0 dry to 1 soaked
         LensSample lens;
     };
 
     // Copies the matrices and normalizes the sun direction. A zero or non-finite direction becomes zero. A color
-    // component that is not finite becomes 0, and a negative one 0 too. A lens coordinate that is not finite becomes 0
+    // component that is not finite becomes 0, and a negative one 0 too. The weather's wetness clamps to 0..1, and one that
+    // is not finite reads as dry. A lens coordinate that is not finite becomes 0
     // and the rest clamp to -1..1; an index that is not a finite number from 0 to 2^32 becomes 0, and a mark that is not a
     // finite nonzero number reads as unmarked.
     Camera parse_camera(const PhotorealCamera &raw);

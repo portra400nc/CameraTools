@@ -703,6 +703,15 @@ int main()
         const Camera bad = parse_camera(raw);
         check("a NaN, a negative and an infinite color component become 0, and the rest stay", bad.sun_color[0] == 0.0f
             && bad.sun_color[1] == 0.0f && bad.sun_color[2] == 2.25f && bad.sky_color[1] == 0.3f && bad.sky_color[2] == 0.0f);
+        check("a camera with nothing in sky_color[3] brings a dry weather", bad.wetness == 0.0f);
+        raw.sky_color[3] = 0.25f;
+        check("sky_color[3] 0.25 is the weather's wetness", parse_camera(raw).wetness == 0.25f);
+        raw.sky_color[3] = 3;
+        check("a weather wetness of 3 clamps to 1", parse_camera(raw).wetness == 1.0f);
+        raw.sky_color[3] = -1;
+        check("a weather wetness of -1 clamps to 0", parse_camera(raw).wetness == 0.0f);
+        raw.sky_color[3] = NAN;
+        check("a NaN weather wetness reads as dry", parse_camera(raw).wetness == 0.0f);
     }
     {
         check("disabled settings want no step", wanted_steps(view_only(PHOTOREAL_VIEW_HDR_SCENE)).bits != 0

@@ -273,7 +273,8 @@ typedef struct PhotorealCamera
                                 // forward; any length. Zero or non-finite means no sun: contact shadows add nothing.
                                 // w is unused.
     float sun_color[4];         // rgb: the sun light's color in linear RGB times its intensity; w is unused
-    float sky_color[4];         // rgb: the sky's ambient light in linear RGB; w is unused
+    float sky_color[4];         // rgb: the sky's ambient light in linear RGB; w: the weather's wetness, 0 dry to 1 soaked,
+                                // clamped to 0..1, which the wetness pass follows while PhotorealWetness.wetness is 0
     float lens_sample[4];       // xy: the point in the unit aperture disk the camera was moved to, x right and y up, clamped
                                 // to -1..1; z: the sample's index, a whole number; w: 1 on the one frame of the sample the
                                 // accumulator adds, else 0. All zero when no depth of field is being sampled.

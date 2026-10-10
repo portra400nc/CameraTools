@@ -212,6 +212,7 @@ namespace photoreal
             c.sun_color[i] = finite_or(raw.sun_color[i], 0.0f, 0.0f, INFINITY);
             c.sky_color[i] = finite_or(raw.sky_color[i], 0.0f, 0.0f, INFINITY);
         }
+        c.wetness = finite_or(raw.sky_color[3], 0.0f, 0.0f, 1.0f);
         c.lens.x = finite_or(raw.lens_sample[0], 0.0f, -1.0f, 1.0f);
         c.lens.y = finite_or(raw.lens_sample[1], 0.0f, -1.0f, 1.0f);
         const float index = raw.lens_sample[2];

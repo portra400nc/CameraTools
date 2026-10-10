@@ -246,8 +246,10 @@ namespace CameraToolsPhotoreal
         // Vector3.zero means no sun, and contact shadows then add nothing. sunColor is the sun light's color in linear RGB
         // times its intensity, and skyColor the sky's ambient light in linear RGB; the atmosphere pass scatters both, and
         // their alpha is ignored. lens is the aperture point this frame renders from, default while no depth of field is
-        // being sampled.
-        public static void SetCamera(Matrix4x4 worldToView, Matrix4x4 viewToClip, Vector3 towardSun, Color sunColor, Color skyColor, LensSample lens)
+        // being sampled. wetness is the weather's, 0 dry to 1 soaked, which the wetness pass follows while
+        // Settings.Wetness.Wetness is 0.
+        public static void SetCamera(Matrix4x4 worldToView, Matrix4x4 viewToClip, Vector3 towardSun, Color sunColor, Color skyColor, LensSample lens,
+            float wetness)
         {
             if (addOn == null)
                 return;
@@ -264,7 +266,7 @@ namespace CameraToolsPhotoreal
             camera[40] = skyColor.r;
             camera[41] = skyColor.g;
             camera[42] = skyColor.b;
-            camera[43] = 0;
+            camera[43] = wetness;
             camera[44] = lens.X;
             camera[45] = lens.Y;
             camera[46] = lens.Index;
