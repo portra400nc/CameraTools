@@ -204,7 +204,6 @@ namespace photoreal
             Settings before;
             uint32_t present = 0;
             std::optional<Size> render;         // the first armed frame's, which every later armed frame must match
-            StepSet found;
             std::vector<std::string> lines;     // describe() at each variant's second copy
             uint32_t read = 0;                  // variants read back and handed to the worker
             std::shared_ptr<CompareFiles> files;
@@ -425,13 +424,14 @@ namespace photoreal
                 return "there is no D3D11 device";
             if (c.present > 0 && report.armed)
             {
+                // Optional steps come and go between paused frames (the Deck showed bloom missing for single frames), so
+                // only a new render size or a frame without the G-buffer and combine steps stops the capture.
                 if (!c.render)
-                {
                     c.render = report.render;
-                    c.found = report.found;
-                }
-                else if (report.render != *c.render || report.found.bits != c.found.bits)
-                    return "the frame map changed";
+                else if (report.render != *c.render)
+                    return "the render size changed";
+                if (!report.found.has(Step::gbuffer) || !report.found.has(Step::combine))
+                    return "the frame had no G-buffer or combine step";
             }
             const CompareTick tick = compare_tick(c.present++, static_cast<uint32_t>(c.variants.size()));
             if (tick.copy)
