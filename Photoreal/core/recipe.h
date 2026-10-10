@@ -7,6 +7,7 @@
 #include <initializer_list>
 #include <optional>
 #include <variant>
+#include <vector>
 
 namespace photoreal
 {
@@ -82,11 +83,16 @@ namespace photoreal
 
     using FrameEvent = std::variant<BindTargets, ClearTarget, Draw>;
 
-    // The targets bound now, and the color each was last cleared to since it was bound.
-    struct Bound
+    // What a step's match sees besides the event: the targets bound now, and every clear earlier in the frame, whatever
+    // was bound since. The game clears some targets in one bind and draws into them in a later one.
+    struct Seen
     {
+        struct Clear { ResourceId id; Color color; };
+
         Targets targets;
-        std::array<std::optional<Color>, kMaxTargets> cleared {};
+        std::vector<Clear> clears;  // emptied, not freed, at each frame, so the hot path stops allocating after a frame
+
+        bool cleared(ResourceId id, const Color &color) const;
     };
 
     enum class Entry : uint8_t
@@ -129,15 +135,15 @@ namespace photoreal
         EntrySet found() const;
     };
 
-    // One row of the recipe. match sees the targets bound when the event happens and the map so far; it returns
-    // whether the event completes the step, and only then writes the step's entries into map.
+    // One row of the recipe. match sees the targets bound when the event happens, the frame's clears and the map so
+    // far; it returns whether the event completes the step, and only then writes the step's entries into map.
     struct StepSpec
     {
         Step step;
         const char *name;   // "quarter-shadow"; the single source of the name in status lines
         StepSet after;      // prerequisites matched earlier this frame
         EntrySet fills;     // the entries this step is the only writer of
-        bool (*match)(const Bound &bound, const FrameEvent &event, FrameMap &map);
+        bool (*match)(const Seen &seen, const FrameEvent &event, FrameMap &map);
     };
 
     extern const std::array<StepSpec, static_cast<size_t>(Step::count)> kRecipe;
@@ -145,7 +151,8 @@ namespace photoreal
     // Feeds one frame's events through kRecipe. Rules:
     //  - a step matches at most once per frame, and only after its prerequisites;
     //  - a gbuffer bind with a different depth before combine restarts the frame (another camera drew first);
-    //  - after combine the frame is committed and gbuffer binds are ignored.
+    //  - after combine the frame is committed and gbuffer binds are ignored;
+    //  - clears are facts of the frame: a restart keeps them, begin_frame forgets them.
     class FrameTracker
     {
     public:
@@ -159,7 +166,7 @@ namespace photoreal
         uint32_t restarts() const { return restarts_; }
 
     private:
-        Bound bound_;
+        Seen seen_;
         FrameMap map_;
         StepSet matched_;
         uint32_t restarts_ = 0;

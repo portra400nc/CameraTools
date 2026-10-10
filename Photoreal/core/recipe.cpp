@@ -39,7 +39,7 @@ namespace photoreal
 
         // Each matcher checks the cheap facts (targets) before the costly one (what the draw samples).
 
-        bool match_gbuffer(const Bound &, const FrameEvent &event, FrameMap &map)
+        bool match_gbuffer(const Seen &, const FrameEvent &event, FrameMap &map)
         {
             const auto *bind = std::get_if<BindTargets>(&event);
             if (!bind || !is_gbuffer(bind->targets))
@@ -53,13 +53,13 @@ namespace photoreal
             return true;
         }
 
-        bool match_quarter_shadow(const Bound &bound, const FrameEvent &event, FrameMap &map)
+        bool match_quarter_shadow(const Seen &seen, const FrameEvent &event, FrameMap &map)
         {
             const auto *draw = std::get_if<Draw>(&event);
-            const Texture *rt = single_target(bound.targets);
+            const Texture *rt = single_target(seen.targets);
             if (!draw || !rt || rt->format != Format::r8_unorm || !rt->size.is_quarter_of(map.render))
                 return false;
-            // The sun's shadow atlas: 6144x4096 D16 in every capture.
+            // The sun's shadow atlas, D16: 6144x4096 at low settings, 4096x2048 at the user's normal ones.
             const bool atlas = samples(*draw, [](const Texture &t) {
                 return (t.format == Format::r16_typeless || t.format == Format::d16_unorm || t.format == Format::r16_unorm) && t.size.width >= 4096;
             });
@@ -69,22 +69,23 @@ namespace photoreal
             return true;
         }
 
-        // The game clears the shadow mask to (1,1,1,0) right after binding it; the clear tells it apart from any other
-        // render-size R8G8 target drawn with the main depth.
-        bool match_shadow_mask(const Bound &bound, const FrameEvent &event, FrameMap &map)
+        // The game clears the shadow mask to (1,1,1,0) earlier in the frame; the clear tells it apart from any other
+        // render-size R8G8 target drawn with the main depth. In the 1152x720 captures the clear follows the bind with
+        // the main depth; at 1920x1200 it comes in a bind of its own, without depth, almost 400 events before the draw.
+        bool match_shadow_mask(const Seen &seen, const FrameEvent &event, FrameMap &map)
         {
-            const Texture *rt = single_target(bound.targets);
-            if (!std::holds_alternative<Draw>(event) || !rt || !is(*rt, Format::r8g8_unorm, map.render) || !main_depth_bound(bound.targets, map))
+            const Texture *rt = single_target(seen.targets);
+            if (!std::holds_alternative<Draw>(event) || !rt || !is(*rt, Format::r8g8_unorm, map.render) || !main_depth_bound(seen.targets, map))
                 return false;
-            if (bound.cleared[0] != Color { 1, 1, 1, 0 })
+            if (!seen.cleared(rt->id, Color { 1, 1, 1, 0 }))
                 return false;
             map[Entry::shadow_mask] = *rt;
             return true;
         }
 
-        bool match_ambient_pair(const Bound &bound, const FrameEvent &event, FrameMap &map)
+        bool match_ambient_pair(const Seen &seen, const FrameEvent &event, FrameMap &map)
         {
-            const Targets &t = bound.targets;
+            const Targets &t = seen.targets;
             if (!std::holds_alternative<Draw>(event) || t.count != 2 || !main_depth_bound(t, map))
                 return false;
             if (!is(t.color[0], Format::r11g11b10_float, map.render) || !is(t.color[1], Format::r11g11b10_float, map.render))
@@ -95,12 +96,12 @@ namespace photoreal
         }
 
         // The game rebinds the HDR scene several times without drawing, so the anchor is its clear, not a bind.
-        bool match_combine(const Bound &bound, const FrameEvent &event, FrameMap &map)
+        bool match_combine(const Seen &seen, const FrameEvent &event, FrameMap &map)
         {
             const auto *clear = std::get_if<ClearTarget>(&event);
-            if (!clear || !is(clear->cleared, Format::r11g11b10_float, map.render) || !main_depth_bound(bound.targets, map))
+            if (!clear || !is(clear->cleared, Format::r11g11b10_float, map.render) || !main_depth_bound(seen.targets, map))
                 return false;
-            if (bound.targets.count == 0 || bound.targets.color[0].id != clear->cleared.id)
+            if (seen.targets.count == 0 || seen.targets.color[0].id != clear->cleared.id)
                 return false;
             map[Entry::hdr_scene] = clear->cleared;
             return true;
@@ -112,20 +113,20 @@ namespace photoreal
             return samples(draw, [hdr](const Texture &t) { return t.id == hdr; });
         }
 
-        bool match_bloom(const Bound &bound, const FrameEvent &event, FrameMap &map)
+        bool match_bloom(const Seen &seen, const FrameEvent &event, FrameMap &map)
         {
             const auto *draw = std::get_if<Draw>(&event);
-            const Texture *rt = single_target(bound.targets);
+            const Texture *rt = single_target(seen.targets);
             if (!draw || !rt || rt->format != Format::r11g11b10_float || !rt->size.is_quarter_of(map.render) || !samples_hdr(*draw, map))
                 return false;
             map[Entry::bloom] = *rt;
             return true;
         }
 
-        bool match_tonemap(const Bound &bound, const FrameEvent &event, FrameMap &map)
+        bool match_tonemap(const Seen &seen, const FrameEvent &event, FrameMap &map)
         {
             const auto *draw = std::get_if<Draw>(&event);
-            const Texture *rt = single_target(bound.targets);
+            const Texture *rt = single_target(seen.targets);
             if (!draw || !rt || !is(*rt, Format::r8g8b8a8_unorm, map.render) || !samples_hdr(*draw, map))
                 return false;
             map[Entry::tonemap_out] = *rt;
@@ -165,6 +166,14 @@ namespace photoreal
         { Step::tonemap, "tonemap", { Step::combine }, { Entry::tonemap_out }, match_tonemap },
     } };
 
+    bool Seen::cleared(ResourceId id, const Color &color) const
+    {
+        for (const Clear &clear : clears)
+            if (clear.id == id && clear.color == color)
+                return true;
+        return false;
+    }
+
     EntrySet FrameMap::found() const
     {
         EntrySet set;
@@ -176,7 +185,8 @@ namespace photoreal
 
     void FrameTracker::begin_frame()
     {
-        // bound_ survives: targets bound at the end of one frame are still bound at the start of the next.
+        // The targets survive: those bound at the end of one frame are still bound at the start of the next.
+        seen_.clears.clear();
         map_ = {};
         matched_ = {};
         restarts_ = 0;
@@ -199,7 +209,7 @@ namespace photoreal
         {
             if (matched_.has(spec.step) || !matched_.contains(spec.after))
                 continue;
-            if (spec.match(bound_, event, map_))
+            if (spec.match(seen_, event, map_))
             {
                 matched_.add(spec.step);
                 result = spec.step;
@@ -207,13 +217,11 @@ namespace photoreal
             }
         }
 
-        // After matching, so a match sees the targets bound before this event.
+        // After matching, so a match sees the targets bound and the clears done before this event.
         if (bind)
-            bound_ = Bound { bind->targets, {} };
+            seen_.targets = bind->targets;
         else if (const auto *clear = std::get_if<ClearTarget>(&event))
-            for (uint8_t i = 0; i < bound_.targets.count; i++)
-                if (bound_.targets.color[i].id == clear->cleared.id)
-                    bound_.cleared[i] = clear->color;
+            seen_.clears.push_back({ clear->cleared.id, clear->color });
         return result;
     }
 }

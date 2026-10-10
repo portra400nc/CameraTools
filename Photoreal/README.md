@@ -95,7 +95,7 @@ The G-buffer and lighting views show what the game's combine pass reads, after t
 
 ## Tests
 
-`tests/run.sh` builds and runs `recipe_test.cpp` and `plan_test.cpp`. They replay three FrameCensus captures in `tests/fixtures/`, which hold only event kinds, resource ids, format names and sizes. They check the moment and resource of every step, the same frame at 3456x2160 and at 1153x721 with the quarter-size target rounded either way, a frame without the ambient pair, the shadow mask's (1,1,1,0) clear, G-buffer restarts, the status line, and settings parsing.
+`tests/run.sh` builds and runs `recipe_test.cpp` and `plan_test.cpp`. They replay four FrameCensus captures in `tests/fixtures/`, which hold only event kinds, resource ids, format names and sizes. Three are 1152x720 frames, and `capture-20261010-111824` is a 1920x1200 frame at the user's normal graphics settings. They check the moment and resource of every step, the same frame at 3456x2160 and at 1153x721 with the quarter-size target rounded either way, a frame without the ambient pair, the shadow mask's (1,1,1,0) clear in the same bind or in an earlier one, G-buffer restarts, the status line, and settings parsing.
 
 To add a capture as a fixture:
 
