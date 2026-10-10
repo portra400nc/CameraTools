@@ -1,18 +1,9 @@
 // The ambient pass's first draw: raw occlusion into our render-size scratch, 1 on pixels that are not world. Each pixel
 // rotates its directions by a 4x4 pattern, so the raw result is noisy; ambient_ps.hlsl's 4x4 blur averages it away.
-#include "ambient.hlsli"
+#include "gbuffer.hlsli"
 
 static const int kDirections = 8;
 static const int kSteps = 4;
-
-// The 4x4 Bayer order, (0 8 2 10 / 12 4 14 6 / 3 11 1 9 / 15 7 13 5) / 16. Any 4x4 window of pixels holds each of the
-// 16 values once, so one blur window sees 16 rotations of the 8 directions, evenly spread.
-float pattern(int2 pixel)
-{
-    uint2 p = uint2(pixel) & 3u;
-    uint z = p.x ^ p.y;
-    return ((z & 1u) * 8 + (p.y & 1u) * 4 + (z >> 1) * 2 + (p.y >> 1) + 0.5) / 16;
-}
 
 // Horizon-style occlusion: how much of the hemisphere around n the depth buffer covers within ao_radius.
 float ambient_occlusion(int2 pixel, float3 p, float3 n)
