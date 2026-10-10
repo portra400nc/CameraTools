@@ -207,7 +207,7 @@ typedef struct PhotorealLeaves
 // Wet surfaces: on world pixels, after the game's last G-buffer write and before anything reads it, the G-buffer's albedo
 // darkens, its smoothness rises and its specular color moves toward water's, more on surfaces that face up, and puddles
 // form on flat ground. The game's reflections, sun light and ambient light then all see the wet surface.
-// The last block of PhotorealSettings, so a field added here goes at the end and size keeps older callers working.
+// leaves_transmission follows it in PhotorealSettings, so this block keeps its size.
 typedef struct PhotorealWetness
 {
     uint32_t enabled;           // default 0
@@ -217,6 +217,16 @@ typedef struct PhotorealWetness
     float puddles;              // how much of the flat ground puddles cover when soaked, from none at 0 to all of it at 1;
                                 // default 0.3, clamped to 0..1
 } PhotorealWetness;
+
+// Light through leaves, continued: PhotorealLeaves keeps its size, so the leaves pass's later fields go here. How much sun
+// light reaches a leaf through the foliage between it and the sun, read from the game's sun shadow atlas, which the
+// add-on copies whenever the leaves or sun-shadow pass is on: from the caster nearest the sun down to the leaf, the light
+// falls by e every depth meters. A leaf with nothing above it gets all of it.
+// The last block of PhotorealSettings, so a field added here goes at the end and size keeps older callers working.
+typedef struct PhotorealLeavesTransmission
+{
+    float depth;                // how far sun light reaches into foliage, in meters; default 1.5, clamped to 0.1..10
+} PhotorealLeavesTransmission;
 
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller
 // knows, and fields past it keep their defaults.
@@ -234,6 +244,7 @@ typedef struct PhotorealSettings
     PhotorealSunShadows sun_shadows;
     PhotorealLeaves leaves;
     PhotorealWetness wetness;
+    PhotorealLeavesTransmission leaves_transmission;
 } PhotorealSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and

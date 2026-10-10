@@ -499,7 +499,7 @@ int main()
         check("a label stops at 32 glyphs", encode_label(std::string(40, 'z')).length == 32);
     }
     {
-        FrameReport report = FrameReport::start(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, 0, 1, {}, {}, {}, {}, {}, {}, {} }));
+        FrameReport report = FrameReport::start(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, 0, 1, {}, {}, {}, {}, {}, {}, {}, {} }));
         check("disabled: describe says off", describe(report) == "off");
         report.error = PHOTOREAL_ERROR_SHADER;
         check("disabled by an error: describe says which", describe(report) == "off; error shader");
@@ -740,6 +740,28 @@ int main()
         check("wetness clamps: 2, 1.5 and 3 to 1", high.wetness.wetness == 1.0f && high.wetness.darkening == 1.0f && high.wetness.puddles == 1.0f);
     }
     {
+        PhotorealSettings raw = raw_settings();
+        raw.wetness = { 1, 0.75f, 0.5f, 0.6f };
+        raw.leaves_transmission = { 3 };
+        check("a whole struct reads the leaves' transmission: depth 3", parse_settings(raw).leaves.depth == 3.0f);
+        raw.size = 144;  // a caller built before leaves_transmission existed
+        const Settings before = parse_settings(raw);
+        check("a 144-byte struct reads its wetness block and keeps the leaves' depth at 1.5", before.leaves.depth == 1.5f
+            && before.wetness.enabled && before.wetness.puddles == 0.6f);
+        raw.size = 147;
+        check("a struct one byte short of the leaves' transmission keeps depth 1.5", parse_settings(raw).leaves.depth == 1.5f);
+        check("the default settings let light 1.5 m into leaves", Settings {}.leaves.depth == 1.5f);
+        raw.size = sizeof raw;
+        raw.leaves_transmission = { NAN };
+        check("leaves' transmission: NaN falls back to depth 1.5", parse_settings(raw).leaves.depth == 1.5f);
+        raw.leaves_transmission = { INFINITY };
+        check("leaves' transmission: infinity falls back to depth 1.5", parse_settings(raw).leaves.depth == 1.5f);
+        raw.leaves_transmission = { 0 };
+        check("leaves' transmission clamps: depth 0 to 0.1", parse_settings(raw).leaves.depth == 0.1f);
+        raw.leaves_transmission = { 50 };
+        check("leaves' transmission clamps: depth 50 to 10", parse_settings(raw).leaves.depth == 10.0f);
+    }
+    {
         PhotorealCamera raw {};
         raw.world_to_view[5] = 2;
         raw.view_to_clip[14] = 0.1f;
@@ -788,7 +810,7 @@ int main()
     }
     {
         check("disabled settings want no step", wanted_steps(view_only(PHOTOREAL_VIEW_HDR_SCENE)).bits != 0
-            && wanted_steps(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, PHOTOREAL_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1 }, { 1, 1, 1, 1 } })).empty());
+            && wanted_steps(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, PHOTOREAL_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1 }, { 1, 1, 1, 1 }, { 1 } })).empty());
     }
     {
         // Unity's GL.GetGPUProjectionMatrix for a 60 degree, 16:10 camera with near 0.1 and far 1000, reversed Z.

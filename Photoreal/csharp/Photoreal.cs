@@ -97,6 +97,13 @@ namespace CameraToolsPhotoreal
         public float Puddles;
     }
 
+    // PhotorealLeavesTransmission in photoreal.h, field for field.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct PhotorealLeavesTransmission
+    {
+        public float Depth;
+    }
+
     // PhotorealSettings in photoreal.h, field for field.
     [StructLayout(LayoutKind.Sequential)]
     internal struct PhotorealSettings
@@ -112,14 +119,16 @@ namespace CameraToolsPhotoreal
         public PhotorealSunShadows SunShadows;
         public PhotorealLeaves Leaves;
         public PhotorealWetness Wetness;
+        public PhotorealLeavesTransmission LeavesTransmission;
 
         // The add-on's defaults: everything off, game targets upside down, and when switched on ambient level 0.6, AO
         // strength 0.5 at a 1 m radius, half that strength on grass, vegetation and foliage, full-strength contact
         // shadows 0.6 m long that take surfaces to be 0.25 m thick and leave grass, vegetation and foliage unshadowed, and
         // haze that dims a pixel 500 m away by 15%, thins by e every 50 m up, and glows around the sun, a tone map that
         // reproduces the game's, full-strength sun shadows whose soft edge is 0.03 m wide per meter from the caster and at
-        // least 0.02 m, light through leaves at strength 0.6 that gathers around the sun with sharpness 4, and wet surfaces
-        // that follow the weather, darken by 0.35 when soaked and grow puddles on flat ground at 0.3.
+        // least 0.02 m, light through leaves at strength 0.6 that gathers around the sun with sharpness 4, wet surfaces
+        // that follow the weather, darken by 0.35 when soaked and grow puddles on flat ground at 0.3, and sun light that
+        // falls by e every 1.5 m it passes through leaves.
         public static PhotorealSettings Defaults => new()
         {
             Size = (uint)Marshal.SizeOf<PhotorealSettings>(),
@@ -131,6 +140,7 @@ namespace CameraToolsPhotoreal
             SunShadows = new PhotorealSunShadows { LightSize = 0.03f, MinPenumbra = 0.02f, Strength = 1 },
             Leaves = new PhotorealLeaves { Strength = 0.6f, ScatterSharpness = 4 },
             Wetness = new PhotorealWetness { Wetness = 0, Darkening = 0.35f, Puddles = 0.3f },
+            LeavesTransmission = new PhotorealLeavesTransmission { Depth = 1.5f },
         };
     }
 

@@ -38,13 +38,14 @@ namespace photoreal
         static_assert(PHOTOREAL_ERROR_STATE == 4);
         // Callers built before foliage_ao_strength send 32 bytes, those before contact shadows 36, those before their
         // foliage_strength 52, those before atmosphere 56, those before tonemap 76, those before sun shadows 100, those
-        // before leaves 116, those before wetness 128; csharp/Photoreal.cs marshals 144.
+        // before leaves 116, those before wetness 128, those before leaves_transmission 144; csharp/Photoreal.cs marshals
+        // 148.
         static_assert(offsetof(PhotorealSettings, ambient) + offsetof(PhotorealAmbient, foliage_ao_strength) == 32
             && offsetof(PhotorealSettings, contact_shadows) == 36
             && offsetof(PhotorealSettings, contact_shadows) + offsetof(PhotorealContactShadows, foliage_strength) == 52
             && offsetof(PhotorealSettings, atmosphere) == 56 && offsetof(PhotorealSettings, tonemap) == 76
             && offsetof(PhotorealSettings, sun_shadows) == 100 && offsetof(PhotorealSettings, leaves) == 116 && offsetof(PhotorealSettings, wetness) == 128
-            && sizeof(PhotorealSettings) == 144);
+            && offsetof(PhotorealSettings, leaves_transmission) == 144 && sizeof(PhotorealSettings) == 148);
         static_assert(sizeof(PhotorealCamera) == 48 * sizeof(float));
         static_assert(PHOTOREAL_ACCUMULATE_PRESENT == static_cast<int>(AccumulateMode::present)
             && PHOTOREAL_ACCUMULATE_COUNT == static_cast<int>(AccumulateMode::count));
@@ -211,6 +212,9 @@ namespace photoreal
             s.wetness.darkening = finite_or(w.darkening, wetness_defaults.darkening, 0.0f, 1.0f);
             s.wetness.puddles = finite_or(w.puddles, wetness_defaults.puddles, 0.0f, 1.0f);
         }
+        const PhotorealLeavesTransmission &lt = raw.leaves_transmission;
+        if (knows(offsetof(PhotorealSettings, leaves_transmission), sizeof lt))
+            s.leaves.depth = finite_or(lt.depth, leaves_defaults.depth, 0.1f, 10.0f);
         return s;
     }
 
