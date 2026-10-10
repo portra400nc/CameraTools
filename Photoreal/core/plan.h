@@ -74,9 +74,9 @@ namespace photoreal
         TonemapSettings tonemap;
     };
 
-    // Honors size (fields past it keep their defaults), maps an unknown view to off and an unknown curve to the game's, replaces non-finite floats with the
-    // default and clamps the rest. Never fails: the worst input is the default settings. raw must be a whole struct;
-    // the shell copies the caller's bytes into one first.
+    // Honors size (fields past it keep their defaults), maps an unknown view to off and an unknown curve to the game's,
+    // replaces non-finite floats with the default and clamps the rest. Never fails: the worst input is the default
+    // settings. raw must be a whole struct; the shell copies the caller's bytes into one first.
     Settings parse_settings(const PhotorealSettings &raw);
 
     struct Camera

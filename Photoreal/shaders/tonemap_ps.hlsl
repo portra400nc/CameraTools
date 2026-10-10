@@ -21,7 +21,7 @@ struct Grade
     float exposure;
     float bloom;        // the bloom texture's weight
     float3x3 color;     // rows: what red, green and blue each become
-    float gamma;        // a power after the encode; 1 at default brightness
+    float gamma;        // a power after the encode; 1 in every census capture
 };
 
 Grade game_grade()
@@ -31,7 +31,8 @@ Grade game_grade()
     g.bloom = game[22].y;
     g.color = float3x3(game[99].xyz, game[100].xyz, game[101].xyz);
     g.gamma = game[20].y;
-    // Comparisons with NaN are false, so a NaN anywhere also falls back. The fallback is the census's 1920x1200 frame.
+    // Comparisons with NaN are false, so a NaN anywhere also falls back. The fallback is the census's 1920x1200 frame,
+    // with its exposure of 0.985 rounded to 1.
     bool known = g.exposure > 0 && g.exposure < 100 && g.bloom >= 0 && g.bloom < 100 && g.gamma > 0.1 && g.gamma < 10
         && all(abs(g.color[0]) < 100) && all(abs(g.color[1]) < 100) && all(abs(g.color[2]) < 100);
     if (!known)

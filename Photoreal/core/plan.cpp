@@ -44,7 +44,7 @@ namespace photoreal
         { PassId::contact_shadows, "contact-shadows", Step::combine, { Entry::normals, Entry::depth, Entry::shadow_mask }, true, contact_shadows_wanted },
         { PassId::ambient, "ambient", Step::combine, { Entry::normals, Entry::depth, Entry::ambient_diffuse }, true, ambient_wanted },
         { PassId::atmosphere, "atmosphere", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, atmosphere_wanted },
-        // bloom-final is optional: with bloom off in the game, its tone map has none to add either.
+        // bloom-final is optional: a tone map draw without one still gets ours, without bloom.
         { PassId::tonemap, "tonemap", Step::tonemap, { Entry::hdr_scene, Entry::tonemap_out }, false, tonemap_wanted },
     } };
 
