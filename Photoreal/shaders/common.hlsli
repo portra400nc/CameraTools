@@ -21,6 +21,13 @@ cbuffer Constants : register(b0)
     float contact_foliage_strength;  // multiplies contact_strength on stencil 129, 136 and 137
     float padding;
     uint4 label[2];             // the debug composite's view name, glyph indices from encode_label, four per uint, low byte first
+    float3 sun_color;           // linear RGB times intensity
+    float atmosphere_density;   // extinction per meter at the camera's height
+    float3 sky_color;           // linear RGB
+    float height_falloff;       // per meter
+    float sun_scatter;
+    float anisotropy;           // Henyey-Greenstein g
+    float2 padding2;
 };
 
 SamplerState point_clamp : register(s0);

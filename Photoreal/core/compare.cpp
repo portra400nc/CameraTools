@@ -11,7 +11,7 @@ namespace photoreal
     namespace
     {
         static_assert(PHOTOREAL_COMPARE_MAX == kCompareMax && sizeof(PhotorealVariant) == 32 + sizeof(PhotorealSettings));
-        static_assert(sizeof(PhotorealSettings) == 56, "settings_tsv writes every field: give a new one a column");
+        static_assert(sizeof(PhotorealSettings) == 76, "settings_tsv writes every field: give a new one a column");
         // compare_remaining took the padding at the end, so a caller built before it still sends 72 bytes.
         static_assert(offsetof(PhotorealStatus, compare_remaining) == 68 && sizeof(PhotorealStatus) == 72);
 
@@ -122,16 +122,19 @@ namespace photoreal
     {
         std::string out = "index\tname\tenabled\tview\tflip\tambient.enabled\tambient.level\tambient.ao_strength\tambient.ao_radius"
                           "\tambient.foliage_ao_strength\tcontact_shadows.enabled\tcontact_shadows.length\tcontact_shadows.strength"
-                          "\tcontact_shadows.thickness\tcontact_shadows.foliage_strength\n";
+                          "\tcontact_shadows.thickness\tcontact_shadows.foliage_strength\tatmosphere.enabled\tatmosphere.density"
+                          "\tatmosphere.height_falloff\tatmosphere.sun_scatter\tatmosphere.anisotropy\n";
         for (size_t i = 0; i < variants.size(); i++)
         {
             const Settings &s = variants[i].settings;
             const AmbientSettings &a = s.ambient;
             const ContactShadowSettings &c = s.contact_shadows;
+            const AtmosphereSettings &h = s.atmosphere;
             out += std::to_string(i) + '\t' + variants[i].name + '\t' + (s.enabled ? "1" : "0") + '\t' + kViews[static_cast<size_t>(s.view)].name
                 + '\t' + (s.flip ? "1" : "0") + '\t' + (a.enabled ? "1" : "0") + '\t' + number(a.level) + '\t' + number(a.ao_strength) + '\t'
                 + number(a.ao_radius) + '\t' + number(a.foliage_ao_strength) + '\t' + (c.enabled ? "1" : "0") + '\t' + number(c.length) + '\t'
-                + number(c.strength) + '\t' + number(c.thickness) + '\t' + number(c.foliage_strength) + '\n';
+                + number(c.strength) + '\t' + number(c.thickness) + '\t' + number(c.foliage_strength) + '\t' + (h.enabled ? "1" : "0") + '\t'
+                + number(h.density) + '\t' + number(h.height_falloff) + '\t' + number(h.sun_scatter) + '\t' + number(h.anisotropy) + '\n';
         }
         return out;
     }

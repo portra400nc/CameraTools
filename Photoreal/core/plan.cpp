@@ -12,6 +12,7 @@ namespace photoreal
     {
         bool ambient_wanted(const Settings &s) { return s.ambient.enabled; }
         bool contact_shadows_wanted(const Settings &s) { return s.contact_shadows.enabled; }
+        bool atmosphere_wanted(const Settings &s) { return s.atmosphere.enabled; }
 
         float finite_or(float value, float fallback, float low, float high)
         {
@@ -21,24 +22,25 @@ namespace photoreal
         constexpr uint32_t bit(PassId p) { return 1u << static_cast<uint32_t>(p); }
 
         static_assert(PHOTOREAL_PASS_AMBIENT == bit(PassId::ambient) && PHOTOREAL_PASS_CONTACT_SHADOWS == bit(PassId::contact_shadows)
-            && static_cast<int>(PassId::count) == 2);
+            && PHOTOREAL_PASS_ATMOSPHERE == bit(PassId::atmosphere) && static_cast<int>(PassId::count) == 3);
         static_assert(PHOTOREAL_VIEW_COUNT == static_cast<int>(View::count) && PHOTOREAL_VIEW_STENCIL == static_cast<int>(View::stencil)
             && PHOTOREAL_VIEW_HDR_SCENE == static_cast<int>(View::hdr_scene) && PHOTOREAL_VIEW_BLOOM_FINAL == static_cast<int>(View::bloom_final));
 
         const char *const kErrorNames[] = { "none", "not-d3d11", "shader", "texture", "state" };
         static_assert(PHOTOREAL_ERROR_STATE == 4);
         // Callers built before foliage_ao_strength send 32 bytes, those before contact shadows 36, those before their
-        // foliage_strength 52; csharp/Photoreal.cs marshals 56.
+        // foliage_strength 52, those before atmosphere 56; csharp/Photoreal.cs marshals 76.
         static_assert(offsetof(PhotorealSettings, ambient) + offsetof(PhotorealAmbient, foliage_ao_strength) == 32
             && offsetof(PhotorealSettings, contact_shadows) == 36
             && offsetof(PhotorealSettings, contact_shadows) + offsetof(PhotorealContactShadows, foliage_strength) == 52
-            && sizeof(PhotorealSettings) == 56);
+            && offsetof(PhotorealSettings, atmosphere) == 56 && sizeof(PhotorealSettings) == 76);
         static_assert(sizeof(PhotorealCamera) == 44 * sizeof(float));
     }
 
     const std::array<PassSpec, static_cast<size_t>(PassId::count)> kPasses = { {
         { PassId::contact_shadows, "contact-shadows", Step::combine, { Entry::normals, Entry::depth, Entry::shadow_mask }, true, contact_shadows_wanted },
         { PassId::ambient, "ambient", Step::combine, { Entry::normals, Entry::depth, Entry::ambient_diffuse }, true, ambient_wanted },
+        { PassId::atmosphere, "atmosphere", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, atmosphere_wanted },
     } };
 
     const std::array<ViewSpec, static_cast<size_t>(View::count)> kViews = { {
@@ -119,6 +121,16 @@ namespace photoreal
         }
         if (knows(contact + offsetof(PhotorealContactShadows, foliage_strength), sizeof c.foliage_strength))
             s.contact_shadows.foliage_strength = finite_or(c.foliage_strength, contact_defaults.foliage_strength, 0.0f, 1.0f);
+        const AtmosphereSettings atmosphere_defaults;
+        const PhotorealAtmosphere &a = raw.atmosphere;
+        if (knows(offsetof(PhotorealSettings, atmosphere), sizeof a))
+        {
+            s.atmosphere.enabled = a.enabled != 0;
+            s.atmosphere.density = finite_or(a.density, atmosphere_defaults.density, 0.0f, 0.01f);
+            s.atmosphere.height_falloff = finite_or(a.height_falloff, atmosphere_defaults.height_falloff, 0.0f, 1.0f);
+            s.atmosphere.sun_scatter = finite_or(a.sun_scatter, atmosphere_defaults.sun_scatter, 0.0f, 10.0f);
+            s.atmosphere.anisotropy = finite_or(a.anisotropy, atmosphere_defaults.anisotropy, -0.95f, 0.95f);
+        }
         return s;
     }
 

@@ -39,6 +39,15 @@ namespace photoreal
         float foliage_strength = 0.0f;
     };
 
+    struct AtmosphereSettings
+    {
+        bool enabled = false;
+        float density = 0.000325f;
+        float height_falloff = 0.02f;
+        float sun_scatter = 1.0f;
+        float anisotropy = 0.7f;
+    };
+
     // The domain form of PhotorealSettings. Built only by parse_settings, so every value in it is in range.
     struct Settings
     {
@@ -47,6 +56,7 @@ namespace photoreal
         bool flip = true;
         AmbientSettings ambient;
         ContactShadowSettings contact_shadows;
+        AtmosphereSettings atmosphere;
     };
 
     // Honors size (fields past it keep their defaults), maps an unknown view to off, replaces non-finite floats with the
@@ -73,7 +83,7 @@ namespace photoreal
     // What a pass asks of the game's call it runs before. The tonemap pass will skip the game's tonemap draw.
     enum class GameCall : bool { keep, skip };
 
-    enum class PassId : uint8_t { ambient, contact_shadows, count };  // the PHOTOREAL_PASS_* bit order, not the run order
+    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, count };  // the PHOTOREAL_PASS_* bit order, not the run order
     using PassSet = Set<PassId>;
 
     struct PassSpec
@@ -86,7 +96,7 @@ namespace photoreal
         bool (*wanted)(const Settings &);
     };
 
-    // Table order is run order within a step: contact shadows, then ambient at combine.
+    // Table order is run order within a step: contact shadows, then ambient at combine; atmosphere at bloom.
     extern const std::array<PassSpec, static_cast<size_t>(PassId::count)> kPasses;
 
     struct ViewSpec

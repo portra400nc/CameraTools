@@ -78,6 +78,7 @@ enum
 {
     PHOTOREAL_PASS_AMBIENT = 1u << 0,
     PHOTOREAL_PASS_CONTACT_SHADOWS = 1u << 1,
+    PHOTOREAL_PASS_ATMOSPHERE = 1u << 2,
 };
 
 enum
@@ -107,7 +108,7 @@ typedef struct PhotorealAmbient
 // surface in the way lowers the sun's visibility in the game's shadow mask before the combine pass reads it. They add
 // the small shadows the game's shadow map is too coarse for, such as a character's feet on the ground. Never brightens.
 // Grass (stencil 129) never casts: its blades would shadow each other and the ground between them.
-// The last block of PhotorealSettings, so a field added here goes at the end and size keeps older callers working.
+// atmosphere follows it in PhotorealSettings, so this block keeps its size.
 typedef struct PhotorealContactShadows
 {
     uint32_t enabled;           // default 0
@@ -118,6 +119,22 @@ typedef struct PhotorealContactShadows
     float foliage_strength;     // multiplies strength on grass, vegetation and foliage (stencil 129, 136, 137), whose
                                 // dense alpha-tested blades shadow each other into speckle; default 0, clamped to 0..1
 } PhotorealContactShadows;
+
+// Aerial perspective: haze between the camera and each pixel dims the HDR scene and scatters sky and sun light into the
+// view, before the game's bloom and tone map read it. The haze thins with height above the camera, and the sun's part
+// gathers around the sun. The sky (depth 0) keeps the game's color. Light comes from PhotorealCamera's sun and sky colors.
+// The last block of PhotorealSettings, so a field added here goes at the end and size keeps older callers working.
+typedef struct PhotorealAtmosphere
+{
+    uint32_t enabled;           // default 0
+    float density;              // extinction per meter at the camera's height; default 0.000325, which hazes a pixel 500 m
+                                // away level with the camera by 15%; clamped to 0..0.01
+    float height_falloff;       // per meter: the haze thins by e every 1 / height_falloff meters above the camera and
+                                // thickens as fast below it; default 0.02, clamped to 0..1
+    float sun_scatter;          // multiplies the sun light scattered toward the camera; default 1, clamped to 0..10
+    float anisotropy;           // Henyey-Greenstein g: 0 scatters sun light evenly, toward 1 into a glow around the sun;
+                                // default 0.7, clamped to -0.95..0.95
+} PhotorealAtmosphere;
 
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller
 // knows, and fields past it keep their defaults.
@@ -130,6 +147,7 @@ typedef struct PhotorealSettings
                         // view-space reconstruction both read it, so an upright debug view proves the passes right too
     PhotorealAmbient ambient;
     PhotorealContactShadows contact_shadows;
+    PhotorealAtmosphere atmosphere;
 } PhotorealSettings;
 
 #define PHOTOREAL_COMPARE_MAX 16

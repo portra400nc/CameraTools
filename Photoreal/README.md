@@ -1,6 +1,6 @@
 # CameraTools Photoreal
 
-`CameraToolsPhotoreal.addon64` is a ReShade add-on that works inside Genshin Impact's own D3D11 frame. Each frame it finds the game's G-buffer and lighting buffers by format, size and order, never by shader hash. It can show any of them full screen as a debug view. Before the game's combine pass reads them, it can add contact shadows to the sun's shadow mask and replace the world's ambient light. It can also render one frame with several settings variants and save each as a PNG, so effects can be judged from images. A MelonLoader mod drives it through C exports.
+`CameraToolsPhotoreal.addon64` is a ReShade add-on that works inside Genshin Impact's own D3D11 frame. Each frame it finds the game's G-buffer and lighting buffers by format, size and order, never by shader hash. It can show any of them full screen as a debug view. Before the game's combine pass reads them, it can add contact shadows to the sun's shadow mask and replace the world's ambient light. Before the game's bloom reads the HDR scene, it can add aerial perspective. It can also render one frame with several settings variants and save each as a PNG, so effects can be judged from images. A MelonLoader mod drives it through C exports.
 
 ## Layout
 
@@ -12,7 +12,7 @@
 | `core/compare.*` | The comparison capture's variants, its schedule of presents (`compare_tick`), back buffer pixels, flicker and TSV rows. Pure C++17. |
 | `core/png.*` | A minimal PNG encoder: 8-bit RGB with stored deflate blocks, so the add-on needs no compression library. Pure C++17. |
 | `addon.cpp` | The ReShade shell: events, exports, mailboxes between the C# thread and the render thread, and the capture's file writer thread. |
-| `gpu.*` | The D3D11 side: `StateGuard`, `Mirror`, `Scratch`, `Staging`, the contact-shadow and ambient passes, snapshots and the debug composite. |
+| `gpu.*` | The D3D11 side: `StateGuard`, `Mirror`, `Scratch`, `Staging`, the contact-shadow, ambient and atmosphere passes, snapshots and the debug composite. |
 | `shaders/` | HLSL, compiled to DXBC by `build.py` and embedded in the add-on. |
 | `csharp/Photoreal.cs` | The C# binding a MelonLoader mod adds as is. |
 | `tests/` | Native tests that replay recorded FrameCensus frames through `core/`. |
@@ -68,13 +68,18 @@ Settings:
 | `contact_shadows.strength` | 1 | How much a surface in the way lowers the sun's visibility. Clamped to 0 to 1. |
 | `contact_shadows.thickness` | 0.25 | How deep a surface in the depth buffer is taken to be, in meters. A ray that passes further behind it is not shadowed. Clamped to 0.01 to 2. |
 | `contact_shadows.foliage_strength` | 0 | Multiplies `strength` on grass, vegetation and foliage (stencil 129, 136 and 137), whose dense blades otherwise shadow each other into dark speckle. Clamped to 0 to 1. A caller built without this field sends a 52-byte struct and gets the default. |
+| `atmosphere.enabled` | 0 | The atmosphere pass. It runs at the bloom step, just before the game's first bloom draw, when the HDR scene is complete, so the game's bloom and tone map see the haze. On every pixel with depth, the sky excepted, it reconstructs the distance d and the view ray from the camera, takes the haze's optical depth as `density` times the integral of exp(-`height_falloff` * (h - camera height)) along the ray, in closed form, and with T = exp(-optical depth) writes scene * T + (sky color + sun color * `sun_scatter` * phase) * (1 - T). The phase is Henyey-Greenstein of the angle between the ray and the sun. The colors come from `PhotorealSetCamera`, so without a camera the pass skips. A caller built without the block sends a 56-byte struct and gets the defaults. |
+| `atmosphere.density` | 0.000325 | The haze's extinction per meter at the camera's height. The default hazes a pixel 500 m away and level with the camera by 15%. Clamped to 0 to 0.01. |
+| `atmosphere.height_falloff` | 0.02 | Per meter. The haze thins by a factor of e every 1 / `height_falloff` meters above the camera and thickens as fast below it, so a valley far below the camera fills with haze. 0 makes the haze even. Clamped to 0 to 1. |
+| `atmosphere.sun_scatter` | 1 | Multiplies the sun light the haze scatters toward the camera. Clamped to 0 to 10. |
+| `atmosphere.anisotropy` | 0.7 | The Henyey-Greenstein g: 0 scatters sun light evenly, and toward 1 gathers it into a glow around the sun. Clamped to -0.95 to 0.95. |
 
 ## Status line
 
 `PhotorealDescribe` reports the frame in one line with no frame counter, so a mod can log it when it changes. For example:
 
 ```
-1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap; ran contact-shadows@combine ambient@combine; view normals
+1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap; ran contact-shadows@combine ambient@combine atmosphere@bloom; view normals
 1152x720 found gbuffer quarter-shadow ambient-pair combine bloom tonemap; ran ambient@combine; skipped contact-shadows: missing shadow-mask
 found nothing; skipped contact-shadows: missing normals depth shadow-mask; skipped ambient: missing normals depth ambient-diffuse
 off; error shader
@@ -129,7 +134,7 @@ The capture stops early when the add-on is off after an error, the D3D11 device 
 
 ## Tests
 
-`tests/run.sh` builds and runs every `*_test.cpp`. `png_test.cpp` checks the PNG encoder's bytes for a 2x2 image and writes a 300x200 image that `check_png.py` decodes with Python's `zlib`. `compare_test.cpp` checks the capture's schedule, variant parsing, pixels, flicker and TSV rows. `recipe_test.cpp` and `plan_test.cpp` replay four FrameCensus captures in `tests/fixtures/`, which hold only event kinds, resource ids, format names and sizes, with each draw's inputs by slot. Three are 1152x720 frames, and `capture-20261010-111824` is a 1920x1200 frame at the user's normal graphics settings. They check the moment and resource of every step, the same frame at 3456x2160 and at 1153x721 with the quarter-size target rounded either way, a frame without the ambient pair, the shadow mask's (1,1,1,0) clear in the same bind or in an earlier one, G-buffer restarts, the order of the passes at combine, the status line, the debug label's glyphs, and settings and camera parsing.
+`tests/run.sh` builds and runs every `*_test.cpp`. `png_test.cpp` checks the PNG encoder's bytes for a 2x2 image and writes a 300x200 image that `check_png.py` decodes with Python's `zlib`. `compare_test.cpp` checks the capture's schedule, variant parsing, pixels, flicker and TSV rows. `recipe_test.cpp` and `plan_test.cpp` replay four FrameCensus captures in `tests/fixtures/`, which hold only event kinds, resource ids, format names and sizes, with each draw's inputs by slot. Three are 1152x720 frames, and `capture-20261010-111824` is a 1920x1200 frame at the user's normal graphics settings. They check the moment and resource of every step, the same frame at 3456x2160 and at 1153x721 with the quarter-size target rounded either way, a frame without the ambient pair, the shadow mask's (1,1,1,0) clear in the same bind or in an earlier one, G-buffer restarts, the order of the passes at each step, the status line, the debug label's glyphs, and settings and camera parsing.
 
 To add a capture as a fixture:
 

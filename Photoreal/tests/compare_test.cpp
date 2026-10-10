@@ -28,6 +28,7 @@ namespace
         v.settings.flip = 1;
         v.settings.ambient = { 1, 0.6f, 0.5f, 1, 0.5f };
         v.settings.contact_shadows = { 0, 0.6f, 1, 0.25f, 0 };
+        v.settings.atmosphere = { 0, 0.000325f, 0.02f, 1, 0.7f };
         return v;
     }
 
@@ -111,12 +112,14 @@ int main()
         PhotorealVariant raw[] = { variant("off", 0), variant("shadows", 1) };
         raw[1].settings.view = PHOTOREAL_VIEW_SHADOW_MASK;
         raw[1].settings.contact_shadows = { 1, 1.2f, 0.7f, 0.3f, 0.4f };
+        raw[1].settings.atmosphere = { 1, 0.001f, 0.05f, 2, 0.5f };
         check("settings.tsv writes every parsed field, one row per variant", settings_tsv(*parse_variants(raw, 2))
             == "index\tname\tenabled\tview\tflip\tambient.enabled\tambient.level\tambient.ao_strength\tambient.ao_radius"
                "\tambient.foliage_ao_strength\tcontact_shadows.enabled\tcontact_shadows.length\tcontact_shadows.strength"
-               "\tcontact_shadows.thickness\tcontact_shadows.foliage_strength\n"
-               "0\toff\t0\toff\t1\t1\t0.6\t0.5\t1\t0.5\t0\t0.6\t1\t0.25\t0\n"
-               "1\tshadows\t1\tshadow-mask\t1\t1\t0.6\t0.5\t1\t0.5\t1\t1.2\t0.7\t0.3\t0.4\n");
+               "\tcontact_shadows.thickness\tcontact_shadows.foliage_strength\tatmosphere.enabled\tatmosphere.density"
+               "\tatmosphere.height_falloff\tatmosphere.sun_scatter\tatmosphere.anisotropy\n"
+               "0\toff\t0\toff\t1\t1\t0.6\t0.5\t1\t0.5\t0\t0.6\t1\t0.25\t0\t0\t0.000325\t0.02\t1\t0.7\n"
+               "1\tshadows\t1\tshadow-mask\t1\t1\t0.6\t0.5\t1\t0.5\t1\t1.2\t0.7\t0.3\t0.4\t1\t0.001\t0.05\t2\t0.5\n");
     }
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;

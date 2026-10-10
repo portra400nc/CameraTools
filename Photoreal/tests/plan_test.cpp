@@ -39,6 +39,14 @@ namespace
         return parse_settings(raw);
     }
 
+    Settings atmosphere_on()
+    {
+        PhotorealSettings raw = raw_settings();
+        raw.ambient.enabled = 0;
+        raw.atmosphere = { 1, 0.000325f, 0.02f, 1, 0.7f };
+        return parse_settings(raw);
+    }
+
     Settings view_only(uint32_t view)
     {
         PhotorealSettings raw = raw_settings();
@@ -98,6 +106,39 @@ int main()
             && p.items[1].pass == PassId::ambient && p.items[1].kind == Decision::Kind::run);
         check("no other step has a pass", plan(Step::shadow_mask, tracker.map(), contact_shadows_on(true), true).count == 0
             && plan(Step::tonemap, tracker.map(), contact_shadows_on(true), true).count == 0);
+    }
+    {
+        auto rows = walk;
+        const FrameReport report = run_frame(rows, atmosphere_on(), true);
+        check("atmosphere runs at bloom", describe(report) == std::string(kAllSteps) + "; ran atmosphere@bloom");
+        check("steps wanted by atmosphere: gbuffer, combine and bloom",
+            report.wanted.bits == (PHOTOREAL_STEP_GBUFFER | PHOTOREAL_STEP_COMBINE | PHOTOREAL_STEP_BLOOM));
+        FrameTracker tracker;
+        fixture::replay(rows, tracker);
+        const Plan at_bloom = plan(Step::bloom, tracker.map(), atmosphere_on(), true);
+        check("the bloom plan runs atmosphere alone", at_bloom.count == 1 && at_bloom.items[0].pass == PassId::atmosphere
+            && at_bloom.items[0].kind == Decision::Kind::run);
+        check("the combine plan holds contact shadows and ambient, both off", plan(Step::combine, tracker.map(), atmosphere_on(), true).count == 2
+            && plan(Step::combine, tracker.map(), atmosphere_on(), true).items[0].kind == Decision::Kind::off);
+    }
+    {
+        auto rows = walk;
+        const FrameReport report = run_frame(rows, atmosphere_on(), false);
+        check("without a camera, atmosphere skips and says so", report.skipped.bits == PHOTOREAL_PASS_ATMOSPHERE
+            && describe(report) == std::string(kAllSteps) + "; skipped atmosphere: no camera");
+    }
+    {
+        auto rows = walk;
+        fixture::drop(rows, 1088, 1088);  // the first bloom draw, the one that samples the HDR scene
+        const FrameReport report = run_frame(rows, atmosphere_on(), true);
+        check("no bloom moment: atmosphere skips and names the step", describe(report)
+            == "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine tonemap; skipped atmosphere: no bloom");
+    }
+    {
+        std::vector<fixture::Row> menu;
+        const FrameReport report = run_frame(menu, atmosphere_on(), true);
+        check("no G-buffer: atmosphere names the entries it needs", describe(report) == "found nothing; skipped atmosphere: missing depth hdr-scene"
+            && report.missing.bits == (PHOTOREAL_ENTRY_DEPTH | PHOTOREAL_ENTRY_HDR_SCENE));
     }
     {
         auto rows = fixture::load("fixtures/capture-20261010-111824.tsv");
@@ -222,7 +263,7 @@ int main()
         check("a label stops at 32 glyphs", encode_label(std::string(40, 'z')).length == 32);
     }
     {
-        FrameReport report = FrameReport::start(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, 0, 1, {}, {} }));
+        FrameReport report = FrameReport::start(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, 0, 1, {}, {}, {} }));
         check("disabled: describe says off", describe(report) == "off");
         report.error = PHOTOREAL_ERROR_SHADER;
         check("disabled by an error: describe says which", describe(report) == "off; error shader");
@@ -322,6 +363,36 @@ int main()
             && high.contact_shadows.strength == 1.0f && high.contact_shadows.thickness == 0.01f && high.contact_shadows.foliage_strength == 1.0f);
     }
     {
+        PhotorealSettings raw = raw_settings();
+        raw.atmosphere = { 1, 0.002f, 0.05f, 3, -0.2f };
+        const Settings whole = parse_settings(raw);
+        check("a whole struct reads atmosphere: on, density 0.002, falloff 0.05, sun scatter 3, anisotropy -0.2", whole.atmosphere.enabled
+            && whole.atmosphere.density == 0.002f && whole.atmosphere.height_falloff == 0.05f && whole.atmosphere.sun_scatter == 3.0f
+            && whole.atmosphere.anisotropy == -0.2f);
+        raw.size = 56;  // a caller built before atmosphere existed
+        const Settings v3 = parse_settings(raw);
+        check("a 56-byte struct keeps atmosphere off at density 0.000325, falloff 0.02, sun scatter 1, anisotropy 0.7",
+            !v3.atmosphere.enabled && v3.atmosphere.density == 0.000325f && v3.atmosphere.height_falloff == 0.02f
+                && v3.atmosphere.sun_scatter == 1.0f && v3.atmosphere.anisotropy == 0.7f && v3.contact_shadows.foliage_strength == 0.0f);
+        raw.size = 75;
+        check("a struct one byte short of the atmosphere block keeps its defaults", !parse_settings(raw).atmosphere.enabled
+            && parse_settings(raw).atmosphere.density == 0.000325f);
+        raw.size = sizeof raw;
+        raw.atmosphere = { 1, NAN, INFINITY, -INFINITY, NAN };
+        const Settings bad = parse_settings(raw);
+        check("atmosphere: NaN and infinities fall back to density 0.000325, falloff 0.02, sun scatter 1, anisotropy 0.7",
+            bad.atmosphere.density == 0.000325f && bad.atmosphere.height_falloff == 0.02f && bad.atmosphere.sun_scatter == 1.0f
+                && bad.atmosphere.anisotropy == 0.7f);
+        raw.atmosphere = { 1, -1, -1, -1, -1 };
+        const Settings low = parse_settings(raw);
+        check("atmosphere clamps: density, falloff and sun scatter -1 to 0, anisotropy -1 to -0.95", low.atmosphere.density == 0.0f
+            && low.atmosphere.height_falloff == 0.0f && low.atmosphere.sun_scatter == 0.0f && low.atmosphere.anisotropy == -0.95f);
+        raw.atmosphere = { 1, 1, 2, 20, 1 };
+        const Settings high = parse_settings(raw);
+        check("atmosphere clamps: density 1 to 0.01, falloff 2 to 1, sun scatter 20 to 10, anisotropy 1 to 0.95", high.atmosphere.density == 0.01f
+            && high.atmosphere.height_falloff == 1.0f && high.atmosphere.sun_scatter == 10.0f && high.atmosphere.anisotropy == 0.95f);
+    }
+    {
         PhotorealCamera raw {};
         raw.world_to_view[5] = 2;
         raw.view_to_clip[14] = 0.1f;
@@ -361,7 +432,7 @@ int main()
     }
     {
         check("disabled settings want no step", wanted_steps(view_only(PHOTOREAL_VIEW_HDR_SCENE)).bits != 0
-            && wanted_steps(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, PHOTOREAL_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 } })).empty());
+            && wanted_steps(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, PHOTOREAL_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 } })).empty());
     }
     {
         // Unity's GL.GetGPUProjectionMatrix for a 60 degree, 16:10 camera with near 0.1 and far 1000, reversed Z.
