@@ -56,6 +56,33 @@ namespace photoreal
         { View::hdr_scene, "hdr-scene", Entry::hdr_scene, Step::tonemap, Decode::hdr },
     } };
 
+    Label encode_label(std::string_view text)
+    {
+        Label label;
+        for (const char ch : text.substr(0, label.glyphs.size()))
+        {
+            uint8_t glyph = 38;
+            if (ch == ' ')
+                glyph = 0;
+            else if (ch >= 'a' && ch <= 'z')
+                glyph = static_cast<uint8_t>(1 + ch - 'a');
+            else if (ch >= 'A' && ch <= 'Z')
+                glyph = static_cast<uint8_t>(1 + ch - 'A');
+            else if (ch >= '0' && ch <= '9')
+                glyph = static_cast<uint8_t>(27 + ch - '0');
+            else if (ch == '-')
+                glyph = 37;
+            label.glyphs[label.length++] = glyph;
+        }
+        return label;
+    }
+
+    Label view_label(View view, bool found)
+    {
+        const std::string name = kViews[static_cast<size_t>(view)].name;
+        return encode_label(found ? name : name + " missing");
+    }
+
     Settings parse_settings(const PhotorealSettings &raw)
     {
         const auto knows = [&raw](size_t offset, size_t bytes) { return raw.size >= offset + bytes; };

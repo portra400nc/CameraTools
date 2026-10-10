@@ -5,6 +5,7 @@
 #include "recipe.h"
 
 #include <string>
+#include <string_view>
 
 struct PhotorealSettings;  // photoreal.h, read only by parse_settings
 struct PhotorealCamera;    // photoreal.h, read only by parse_camera
@@ -94,6 +95,20 @@ namespace photoreal
     };
 
     extern const std::array<ViewSpec, static_cast<size_t>(View::count)> kViews;  // kViews[off] is unused
+
+    // The debug composite's label, as glyph indices into shaders/view_ps.hlsl's font: 0 space, 1-26 A-Z, 27-36 0-9,
+    // 37 '-', 38 '?'.
+    struct Label
+    {
+        std::array<uint8_t, 32> glyphs {};
+        uint8_t length = 0;
+    };
+
+    // Letters of either case share a glyph, and any other character reads as '?'. Text past the capacity is cut.
+    Label encode_label(std::string_view text);
+
+    // The view's name as describe() writes it, then " missing" when its entry was not found.
+    Label view_label(View view, bool found);
 
     struct Decision
     {

@@ -197,6 +197,15 @@ int main()
             && describe(report) == "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom; view hdr-scene: no tonemap");
     }
     {
+        const auto glyphs = [](const Label &label) { return std::vector<int>(label.glyphs.begin(), label.glyphs.begin() + label.length); };
+        check("the shadow-mask label spells SHADOW-MASK in font glyphs",
+            glyphs(view_label(View::shadow_mask, true)) == std::vector<int> { 19, 8, 1, 4, 15, 23, 37, 13, 1, 19, 11 });
+        check("a missing view's label adds a space and MISSING",
+            glyphs(view_label(View::hdr_scene, false)) == std::vector<int> { 8, 4, 18, 37, 19, 3, 5, 14, 5, 0, 13, 9, 19, 19, 9, 14, 7 });
+        check("digits, either case, and an unknown character as '?'", glyphs(encode_label("Ab09_")) == std::vector<int> { 1, 2, 27, 36, 38 });
+        check("a label stops at 32 glyphs", encode_label(std::string(40, 'z')).length == 32);
+    }
+    {
         FrameReport report = FrameReport::start(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, 0, 1, {}, {} }));
         check("disabled: describe says off", describe(report) == "off");
         report.error = PHOTOREAL_ERROR_SHADER;
