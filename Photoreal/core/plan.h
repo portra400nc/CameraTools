@@ -7,6 +7,7 @@
 #include <string>
 
 struct PhotorealSettings;  // photoreal.h, read only by parse_settings
+struct PhotorealCamera;    // photoreal.h, read only by parse_camera
 
 namespace photoreal
 {
@@ -28,6 +29,14 @@ namespace photoreal
         float foliage_ao_strength = 0.5f;
     };
 
+    struct ContactShadowSettings
+    {
+        bool enabled = false;
+        float length = 0.6f;
+        float strength = 1.0f;
+        float thickness = 0.25f;
+    };
+
     // The domain form of PhotorealSettings. Built only by parse_settings, so every value in it is in range.
     struct Settings
     {
@@ -35,6 +44,7 @@ namespace photoreal
         View view = View::off;
         bool flip = true;
         AmbientSettings ambient;
+        ContactShadowSettings contact_shadows;
     };
 
     // Honors size (fields past it keep their defaults), maps an unknown view to off, replaces non-finite floats with the
@@ -46,7 +56,11 @@ namespace photoreal
     {
         float world_to_view[16];
         float view_to_clip[16];
+        float toward_sun[3];    // unit length, or zero when there is no sun
     };
+
+    // Copies the matrices and normalizes the sun direction. A zero or non-finite direction becomes zero.
+    Camera parse_camera(const PhotorealCamera &raw);
 
     // Inverts a 4x4 matrix in either memory order. false when it is singular.
     bool invert(const float m[16], float out[16]);

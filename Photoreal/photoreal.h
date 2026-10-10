@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define PHOTOREAL_VERSION 1
+#define PHOTOREAL_VERSION 2
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -88,8 +88,8 @@ enum
 };
 
 // The ambient pass replaces the game's diffuse irradiance on world pixels (stencil & 0x84 == 0x80) before the combine
-// pass reads it. Characters and the sky keep the game's value. The last block of PhotorealSettings, so a field added
-// here goes at the end and size keeps older callers working.
+// pass reads it. Characters and the sky keep the game's value. contact_shadows follows it in PhotorealSettings, so this
+// block keeps its size.
 typedef struct PhotorealAmbient
 {
     uint32_t enabled;           // default 0
@@ -99,6 +99,19 @@ typedef struct PhotorealAmbient
     float foliage_ao_strength;  // multiplies ao_strength on grass, vegetation and foliage (stencil 129, 136, 137),
                                 // whose alpha-tested depth makes noisy occlusion; default 0.5, clamped to 0..1
 } PhotorealAmbient;
+
+// Screen-space contact shadows: each world pixel looks toward the sun through the depth buffer for length meters, and a
+// surface in the way lowers the sun's visibility in the game's shadow mask before the combine pass reads it. They add
+// the small shadows the game's shadow map is too coarse for, such as a character's feet on the ground. Never brightens.
+// The last block of PhotorealSettings, so a field added here goes at the end and size keeps older callers working.
+typedef struct PhotorealContactShadows
+{
+    uint32_t enabled;           // default 0
+    float length;               // how far each pixel looks toward the sun, in meters; default 0.6, clamped to 0.05..5
+    float strength;             // 0 no contact shadows, 1 full; default 1, clamped to 0..1
+    float thickness;            // how deep a surface in the depth buffer is taken to be, in meters, so a ray passing
+                                // behind a thin pole is not shadowed; default 0.25, clamped to 0.01..2
+} PhotorealContactShadows;
 
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller
 // knows, and fields past it keep their defaults.
@@ -110,6 +123,7 @@ typedef struct PhotorealSettings
     uint32_t flip;      // 1 (the default): game targets are stored upside down. Debug views and the ambient pass's
                         // view-space reconstruction both read it, so an upright debug view proves the passes right too
     PhotorealAmbient ambient;
+    PhotorealContactShadows contact_shadows;
 } PhotorealSettings;
 
 // Unity's main camera for the frame being drawn, as Unity lays out Matrix4x4 in memory (column-major).
@@ -119,6 +133,9 @@ typedef struct PhotorealCamera
 {
     float world_to_view[16];
     float view_to_clip[16];
+    float sun_direction[4];     // xyz: the direction toward the sun in world space, such as minus the sun light's
+                                // forward; any length. Zero or non-finite means no sun: contact shadows add nothing.
+                                // w is unused.
 } PhotorealCamera;
 
 typedef struct PhotorealStatus

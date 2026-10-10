@@ -42,9 +42,9 @@ All exports use the C calling convention. Every one may be called from any threa
 
 | Export | Does |
 |---|---|
-| `uint32_t PhotorealVersion(void)` | Returns `PHOTOREAL_VERSION`, 1. |
+| `uint32_t PhotorealVersion(void)` | Returns `PHOTOREAL_VERSION`, 2. Version 2 added the sun direction to `PhotorealCamera`, so a binding of version 1 must not call `PhotorealSetCamera`. |
 | `uint64_t PhotorealApply(const PhotorealSettings *)` | Copies the whole desired state and returns its generation. `size` says which fields the caller knows, and later fields keep their defaults. |
-| `void PhotorealSetCamera(const PhotorealCamera *)` | Unity's `worldToCameraMatrix` and `GL.GetGPUProjectionMatrix(projectionMatrix, false)`, in Unity's column-major memory order. Call it every frame from the main camera's `onPreCull` while Photoreal is on. |
+| `void PhotorealSetCamera(const PhotorealCamera *)` | Unity's `worldToCameraMatrix` and `GL.GetGPUProjectionMatrix(projectionMatrix, false)`, in Unity's column-major memory order, then the world direction toward the sun as four floats, the last unused. The direction may have any length; zero means no sun. Call it every frame from the main camera's `onPreCull` while Photoreal is on. |
 | `void PhotorealGetStatus(PhotorealStatus *)` | Copies the last frame's status. Set `size` first. |
 | `uint32_t PhotorealDescribe(char *, uint32_t)` | Writes the last frame's status line and returns its length, or 0 when the buffer is too small. |
 
@@ -60,6 +60,10 @@ Settings:
 | `ambient.ao_strength` | 0.5 | Ambient occlusion from the G-buffer normals and depth. One draw writes it raw to a render-size texture of ours, and a second blurs it over 4x4 pixels, never across sky, characters or depth jumps, and applies it. Clamped to 0 to 1. |
 | `ambient.ao_radius` | 1 | The occlusion radius in meters. Clamped to 0.05 to 10. |
 | `ambient.foliage_ao_strength` | 0.5 | Multiplies `ao_strength` on grass, vegetation and foliage (stencil 129, 136 and 137). Clamped to 0 to 1. A caller built without this field sends a 32-byte struct and gets the default. |
+| `contact_shadows.enabled` | 0 | The contact-shadow pass. A caller built without the block sends a 36-byte struct and gets the defaults. |
+| `contact_shadows.length` | 0.6 | How far each world pixel looks toward the sun through the depth buffer, in meters. Clamped to 0.05 to 5. |
+| `contact_shadows.strength` | 1 | How much a surface in the way lowers the sun's visibility. Clamped to 0 to 1. |
+| `contact_shadows.thickness` | 0.25 | How deep a surface in the depth buffer is taken to be, in meters. A ray that passes further behind it is not shadowed. Clamped to 0.01 to 2. |
 
 ## Status line
 

@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <cstring>
 #include <iterator>
 
 namespace photoreal
@@ -24,8 +25,11 @@ namespace photoreal
 
         const char *const kErrorNames[] = { "none", "not-d3d11", "shader", "texture", "state" };
         static_assert(PHOTOREAL_ERROR_STATE == 4);
-        // Callers built before foliage_ao_strength send 32 bytes; csharp/Photoreal.cs marshals 36.
-        static_assert(offsetof(PhotorealSettings, ambient) + offsetof(PhotorealAmbient, foliage_ao_strength) == 32 && sizeof(PhotorealSettings) == 36);
+        // Callers built before foliage_ao_strength send 32 bytes, those before contact shadows 36; csharp/Photoreal.cs
+        // marshals 52.
+        static_assert(offsetof(PhotorealSettings, ambient) + offsetof(PhotorealAmbient, foliage_ao_strength) == 32
+            && offsetof(PhotorealSettings, contact_shadows) == 36 && sizeof(PhotorealSettings) == 52);
+        static_assert(sizeof(PhotorealCamera) == 36 * sizeof(float));
     }
 
     const std::array<PassSpec, static_cast<size_t>(PassId::count)> kPasses = { {
@@ -70,7 +74,29 @@ namespace photoreal
         }
         if (knows(ambient + offsetof(PhotorealAmbient, foliage_ao_strength), sizeof raw.ambient.foliage_ao_strength))
             s.ambient.foliage_ao_strength = finite_or(raw.ambient.foliage_ao_strength, defaults.foliage_ao_strength, 0.0f, 1.0f);
+        const ContactShadowSettings contact_defaults;
+        if (knows(offsetof(PhotorealSettings, contact_shadows), sizeof raw.contact_shadows))
+        {
+            const PhotorealContactShadows &c = raw.contact_shadows;
+            s.contact_shadows.enabled = c.enabled != 0;
+            s.contact_shadows.length = finite_or(c.length, contact_defaults.length, 0.05f, 5.0f);
+            s.contact_shadows.strength = finite_or(c.strength, contact_defaults.strength, 0.0f, 1.0f);
+            s.contact_shadows.thickness = finite_or(c.thickness, contact_defaults.thickness, 0.01f, 2.0f);
+        }
         return s;
+    }
+
+    Camera parse_camera(const PhotorealCamera &raw)
+    {
+        Camera c {};
+        std::memcpy(c.world_to_view, raw.world_to_view, sizeof c.world_to_view);
+        std::memcpy(c.view_to_clip, raw.view_to_clip, sizeof c.view_to_clip);
+        const double x = raw.sun_direction[0], y = raw.sun_direction[1], z = raw.sun_direction[2];
+        const double length = std::sqrt(x * x + y * y + z * z);
+        if (std::isfinite(length) && length > 0)
+            for (int i = 0; i < 3; i++)
+                c.toward_sun[i] = static_cast<float>(raw.sun_direction[i] / length);
+        return c;
     }
 
     bool invert(const float m[16], float out[16])

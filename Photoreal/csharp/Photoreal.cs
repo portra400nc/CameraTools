@@ -31,6 +31,16 @@ namespace CameraToolsPhotoreal
         public float FoliageAoStrength;
     }
 
+    // PhotorealContactShadows in photoreal.h, field for field.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct PhotorealContactShadows
+    {
+        public uint Enabled;
+        public float Length;
+        public float Strength;
+        public float Thickness;
+    }
+
     // PhotorealSettings in photoreal.h, field for field.
     [StructLayout(LayoutKind.Sequential)]
     internal struct PhotorealSettings
@@ -40,14 +50,17 @@ namespace CameraToolsPhotoreal
         public PhotorealView View;
         public uint Flip;
         public PhotorealAmbient Ambient;
+        public PhotorealContactShadows ContactShadows;
 
         // The add-on's defaults: everything off, game targets upside down, and when switched on ambient level 0.6, AO
-        // strength 0.5 at a 1 m radius, and half that strength on grass, vegetation and foliage.
+        // strength 0.5 at a 1 m radius, half that strength on grass, vegetation and foliage, and full-strength contact
+        // shadows 0.6 m long that take surfaces to be 0.25 m thick.
         public static PhotorealSettings Defaults => new()
         {
             Size = (uint)Marshal.SizeOf<PhotorealSettings>(),
             Flip = 1,
             Ambient = new PhotorealAmbient { Level = 0.6f, AoStrength = 0.5f, AoRadius = 1, FoliageAoStrength = 0.5f },
+            ContactShadows = new PhotorealContactShadows { Length = 0.6f, Strength = 1, Thickness = 0.25f },
         };
     }
 
@@ -76,7 +89,7 @@ namespace CameraToolsPhotoreal
     internal static class Photoreal
     {
         private const string ModuleName = "CameraToolsPhotoreal.addon64";
-        private const uint Version = 1;
+        private const uint Version = 2;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -85,7 +98,7 @@ namespace CameraToolsPhotoreal
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate ulong ApplyCall(ref PhotorealSettings settings);
 
-        // PhotorealCamera is two float[16] in a row, so one float[32] passes it without a struct.
+        // PhotorealCamera is two float[16] and a float[4] in a row, so one float[36] passes it without a struct.
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void SetCameraCall([In] float[] camera);
 
@@ -97,7 +110,7 @@ namespace CameraToolsPhotoreal
 
         private sealed record AddOn(IntPtr Module, ApplyCall Apply, SetCameraCall SetCamera, GetStatusCall GetStatus, DescribeCall Describe);
 
-        private static readonly float[] camera = new float[32];
+        private static readonly float[] camera = new float[36];
         private static readonly byte[] line = new byte[512];
         private static AddOn addOn;
         // A loaded module that is not an add-on of this version, so it is reported once and not tried again.
@@ -118,12 +131,18 @@ namespace CameraToolsPhotoreal
 
         // From Camera.onPreCull of the main camera, every frame while Photoreal is enabled. viewToClip is
         // GL.GetGPUProjectionMatrix(camera.projectionMatrix, false): Settings.Flip owns the vertical orientation.
-        public static void SetCamera(Matrix4x4 worldToView, Matrix4x4 viewToClip)
+        // towardSun is the world direction toward the sun, such as -sunLight.transform.forward, of any length;
+        // Vector3.zero means no sun, and contact shadows then add nothing.
+        public static void SetCamera(Matrix4x4 worldToView, Matrix4x4 viewToClip, Vector3 towardSun)
         {
             if (addOn == null)
                 return;
             ColumnMajor(worldToView, 0);
             ColumnMajor(viewToClip, 16);
+            camera[32] = towardSun.x;
+            camera[33] = towardSun.y;
+            camera[34] = towardSun.z;
+            camera[35] = 0;
             addOn.SetCamera(camera);
         }
 

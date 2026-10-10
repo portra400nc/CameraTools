@@ -352,10 +352,7 @@ extern "C" void PhotorealSetCamera(const PhotorealCamera *raw)
 {
     if (raw == nullptr)
         return;
-    Camera c;
-    std::memcpy(c.world_to_view, raw->world_to_view, sizeof c.world_to_view);
-    std::memcpy(c.view_to_clip, raw->view_to_clip, sizeof c.view_to_clip);
-    camera_box.put(c);
+    camera_box.put(parse_camera(*raw));
 }
 
 extern "C" void PhotorealGetStatus(PhotorealStatus *status)
