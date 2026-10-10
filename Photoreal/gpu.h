@@ -166,7 +166,8 @@ namespace photoreal
         // At the pending view's snapshot step: copies the entry into pending. false when the copy could not be made.
         bool snapshot(const Texture &entry);
 
-        // At reshade_present: draws shown over the back buffer through a mirror of it, then copies the mirror over it.
+        // At reshade_present: draws shown over the back buffer through a mirror of it, with the view's name in the top-left
+        // corner, then copies the mirror over it.
         // Returns the tripwire's finding, null when state came back intact.
         const char *composite(ID3D11Resource *back_buffer, bool flip);
 

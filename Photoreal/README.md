@@ -84,7 +84,7 @@ The errors are `not-d3d11`, `shader` (our shaders or states failed to create), `
 
 ## Debug views
 
-A view is copied at its step and drawn over the back buffer at `reshade_present`, after ReShade's effects and overlay, so ReShade screenshots do not include it.
+A view is copied at its step and drawn over the back buffer at `reshade_present`, after ReShade's effects and overlay, so ReShade screenshots do not include it. The view's name, as the status line writes it, sits in white capitals on a dark box in the top-left corner, so it shows even though the view covers the mod's own messages. The shader draws it from a built-in 5x7 font at 3 screen pixels per font pixel at 800 lines, scaled with the back buffer's height.
 
 | View | Shows |
 |---|---|
@@ -95,11 +95,11 @@ A view is copied at its step and drawn over the back buffer at `reshade_present`
 | `stencil` | Sky black, world gray, grass green, characters magenta, vegetation dark green, foliage light green, any other value red. |
 | `ambient-diffuse`, `ambient-specular`, `hdr-scene` | HDR values, tone mapped. |
 
-The G-buffer and lighting views show what the game's combine pass reads, after the contact-shadow and ambient passes ran, so `shadow-mask` includes the contact shadows. `hdr-scene` shows the image just before the game's tone map. When the view's entry was not found, the screen shows dark magenta diagonal stripes.
+The G-buffer and lighting views show what the game's combine pass reads, after the contact-shadow and ambient passes ran, so `shadow-mask` includes the contact shadows. `hdr-scene` shows the image just before the game's tone map. When the view's entry was not found, the screen shows dark magenta diagonal stripes, and the label ends in `MISSING`.
 
 ## Tests
 
-`tests/run.sh` builds and runs `recipe_test.cpp` and `plan_test.cpp`. They replay four FrameCensus captures in `tests/fixtures/`, which hold only event kinds, resource ids, format names and sizes. Three are 1152x720 frames, and `capture-20261010-111824` is a 1920x1200 frame at the user's normal graphics settings. They check the moment and resource of every step, the same frame at 3456x2160 and at 1153x721 with the quarter-size target rounded either way, a frame without the ambient pair, the shadow mask's (1,1,1,0) clear in the same bind or in an earlier one, G-buffer restarts, the order of the passes at combine, the status line, and settings and camera parsing.
+`tests/run.sh` builds and runs `recipe_test.cpp` and `plan_test.cpp`. They replay four FrameCensus captures in `tests/fixtures/`, which hold only event kinds, resource ids, format names and sizes. Three are 1152x720 frames, and `capture-20261010-111824` is a 1920x1200 frame at the user's normal graphics settings. They check the moment and resource of every step, the same frame at 3456x2160 and at 1153x721 with the quarter-size target rounded either way, a frame without the ambient pair, the shadow mask's (1,1,1,0) clear in the same bind or in an earlier one, G-buffer restarts, the order of the passes at combine, the status line, the debug label's glyphs, and settings and camera parsing.
 
 To add a capture as a fixture:
 

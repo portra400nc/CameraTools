@@ -5,7 +5,7 @@ cbuffer Constants : register(b0)
     float4x4 world_to_view;     // Unity's worldToCameraMatrix, column-major in memory as HLSL's default packing reads it
     float4x4 clip_to_view;      // inverse of GL.GetGPUProjectionMatrix(projection, false)
     float4x4 view_to_clip;      // GL.GetGPUProjectionMatrix(projection, false)
-    float4 render_size;         // w, h, 1/w, 1/h
+    float4 render_size;         // w, h, 1/w, 1/h; the back buffer's in the debug composite
     float level;
     float ao_strength;
     float ao_radius;
@@ -17,7 +17,9 @@ cbuffer Constants : register(b0)
     float3 toward_sun;          // world space, unit length, or zero when there is no sun
     float contact_strength;
     float contact_thickness;    // meters
-    float3 padding;
+    uint label_length;          // glyphs in label
+    float2 padding;
+    uint4 label[2];             // the debug composite's view name, glyph indices from encode_label, four per uint, low byte first
 };
 
 SamplerState point_clamp : register(s0);
