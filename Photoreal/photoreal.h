@@ -79,6 +79,16 @@ enum
     PHOTOREAL_PASS_AMBIENT = 1u << 0,
     PHOTOREAL_PASS_CONTACT_SHADOWS = 1u << 1,
     PHOTOREAL_PASS_ATMOSPHERE = 1u << 2,
+    PHOTOREAL_PASS_TONEMAP = 1u << 3,
+};
+
+// The tonemap pass's curves, values of PhotorealTonemap.curve.
+enum
+{
+    PHOTOREAL_CURVE_GAME = 0,   // the game's filmic x(1.36x + 0.047) / (x(0.93x + 0.56) + 0.14)
+    PHOTOREAL_CURVE_AGX,        // AgX, after Benjamin Wrensch's minimal fit
+    PHOTOREAL_CURVE_NEUTRAL,    // Khronos PBR Neutral
+    PHOTOREAL_CURVE_COUNT,
 };
 
 enum
@@ -123,7 +133,7 @@ typedef struct PhotorealContactShadows
 // Aerial perspective: haze between the camera and each pixel dims the HDR scene and scatters sky and sun light into the
 // view, before the game's bloom and tone map read it. The haze thins with height above the camera, and the sun's part
 // gathers around the sun. The sky (depth 0) keeps the game's color. Light comes from PhotorealCamera's sun and sky colors.
-// The last block of PhotorealSettings, so a field added here goes at the end and size keeps older callers working.
+// tonemap follows it in PhotorealSettings, so this block keeps its size.
 typedef struct PhotorealAtmosphere
 {
     uint32_t enabled;           // default 0
@@ -135,6 +145,20 @@ typedef struct PhotorealAtmosphere
     float anisotropy;           // Henyey-Greenstein g: 0 scatters sun light evenly, toward 1 into a glow around the sun;
                                 // default 0.7, clamped to -0.95..0.95
 } PhotorealAtmosphere;
+
+// Our tone map in place of the game's: the add-on skips the game's tone map draw and draws into its output instead,
+// from the HDR scene, the game's final bloom, and the game's exposure, bloom intensity, color matrix and display gamma,
+// read each frame from the skipped draw's constants. With the defaults it reproduces the game's image.
+// The last block of PhotorealSettings, so a field added here goes at the end and size keeps older callers working.
+typedef struct PhotorealTonemap
+{
+    uint32_t enabled;           // default 0
+    float exposure_ev;          // stops added to the game's exposure; default 0, clamped to -10..10
+    uint32_t curve;             // PHOTOREAL_CURVE_*; unknown values read as the game's, the default
+    float bloom_strength;       // multiplies the game's bloom intensity; default 1, clamped to 0..4
+    float saturation;           // 0 gray, 1 unchanged; default 1, clamped to 0..2
+    float contrast;             // a power around middle gray (0.18) before the curve; default 1, clamped to 0.5..2
+} PhotorealTonemap;
 
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller
 // knows, and fields past it keep their defaults.
@@ -148,6 +172,7 @@ typedef struct PhotorealSettings
     PhotorealAmbient ambient;
     PhotorealContactShadows contact_shadows;
     PhotorealAtmosphere atmosphere;
+    PhotorealTonemap tonemap;
 } PhotorealSettings;
 
 #define PHOTOREAL_COMPARE_MAX 16

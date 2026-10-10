@@ -182,6 +182,11 @@ namespace photoreal
         // on the sky; copy out over the game's HDR scene. Empty when a texture of ours failed.
         std::optional<GameCall> run_atmosphere(const FrameMap &map, const AtmosphereSettings &settings, const Camera &camera, bool flip);
 
+        // The tonemap pass, at the game's tone map draw: copy the draw's constants (b0) into ours; mirror in the HDR scene
+        // and the final bloom; draw the tone mapped, encoded image into a mirror of the game's output; copy it over the
+        // output, and skip the game's draw. Empty when a texture of ours failed, and the game's draw then runs.
+        std::optional<GameCall> run_tonemap(const FrameMap &map, const TonemapSettings &settings);
+
         // At present: shown = pending, and pending starts empty for next_view (found = false until its step copies it).
         void end_frame(View next_view);
 
@@ -203,17 +208,22 @@ namespace photoreal
         // Copies the normals and depth into their mirrors and syncs scratch, the pass's raw result, to the render size.
         // false when a texture of ours failed.
         bool mirror_gbuffer(const FrameMap &map, Scratch &scratch);
+        // Copies the game's bound pixel shader constants at b0 into game_tonemap_. false when none are bound or they are
+        // too small for the rows the tonemap shader reads.
+        bool copy_game_tonemap_constants();
 
         ComPtr<ID3D11Device> device_;
         ComPtr<ID3D11DeviceContext1> context_;
         ComPtr<ID3D11VertexShader> fullscreen_vs_;
-        ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, atmosphere_ps_, view_ps_;
+        ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, atmosphere_ps_, tonemap_ps_, view_ps_;
         ComPtr<ID3D11SamplerState> point_, linear_;
         ComPtr<ID3D11Buffer> constants_;
+        ComPtr<ID3D11Buffer> game_tonemap_;    // the game's tone map constants, copied in at each tonemap pass
         ComPtr<ID3D11BlendState> opaque_;
         ComPtr<ID3D11DepthStencilState> no_depth_;
         ComPtr<ID3D11RasterizerState> no_cull_;
-        Mirror irradiance_in_, irradiance_out_, shadow_mask_in_, shadow_mask_out_, scene_in_, scene_out_, normals_, depth_, back_buffer_;
+        Mirror irradiance_in_, irradiance_out_, shadow_mask_in_, shadow_mask_out_, scene_in_, scene_out_, bloom_in_, tonemap_out_, normals_, depth_,
+            back_buffer_;
         Scratch ao_;                // R8_UNORM raw occlusion, 1 = open
         Scratch contact_;           // R8_UNORM raw sun visibility, 1 = lit
         Snapshot pending_, shown_;

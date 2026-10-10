@@ -47,6 +47,15 @@ namespace
         return parse_settings(raw);
     }
 
+    Settings tonemap_on(bool atmosphere)
+    {
+        PhotorealSettings raw = raw_settings();
+        raw.ambient.enabled = 0;
+        raw.atmosphere = { atmosphere, 0.000325f, 0.02f, 1, 0.7f };
+        raw.tonemap = { 1, 0, PHOTOREAL_CURVE_GAME, 1, 1, 1 };
+        return parse_settings(raw);
+    }
+
     Settings view_only(uint32_t view)
     {
         PhotorealSettings raw = raw_settings();
@@ -104,8 +113,9 @@ int main()
         check("the combine plan runs contact shadows first, then ambient", p.count == 2
             && p.items[0].pass == PassId::contact_shadows && p.items[0].kind == Decision::Kind::run
             && p.items[1].pass == PassId::ambient && p.items[1].kind == Decision::Kind::run);
-        check("no other step has a pass", plan(Step::shadow_mask, tracker.map(), contact_shadows_on(true), true).count == 0
-            && plan(Step::tonemap, tracker.map(), contact_shadows_on(true), true).count == 0);
+        const Plan at_tonemap = plan(Step::tonemap, tracker.map(), contact_shadows_on(true), true);
+        check("the shadow-mask step has no pass, and the tonemap step only tonemap, off", plan(Step::shadow_mask, tracker.map(), contact_shadows_on(true), true).count == 0
+            && at_tonemap.count == 1 && at_tonemap.items[0].pass == PassId::tonemap && at_tonemap.items[0].kind == Decision::Kind::off);
     }
     {
         auto rows = walk;
@@ -139,6 +149,43 @@ int main()
         const FrameReport report = run_frame(menu, atmosphere_on(), true);
         check("no G-buffer: atmosphere names the entries it needs", describe(report) == "found nothing; skipped atmosphere: missing depth hdr-scene"
             && report.missing.bits == (PHOTOREAL_ENTRY_DEPTH | PHOTOREAL_ENTRY_HDR_SCENE));
+    }
+    {
+        auto rows = walk;
+        const FrameReport report = run_frame(rows, tonemap_on(true), true);
+        check("atmosphere runs at bloom and tonemap at tonemap", describe(report) == std::string(kAllSteps) + "; ran atmosphere@bloom tonemap@tonemap");
+        check("steps wanted by atmosphere and tonemap: gbuffer, combine, bloom and tonemap",
+            report.wanted.bits == (PHOTOREAL_STEP_GBUFFER | PHOTOREAL_STEP_COMBINE | PHOTOREAL_STEP_BLOOM | PHOTOREAL_STEP_TONEMAP));
+        FrameTracker tracker;
+        fixture::replay(rows, tracker);
+        const Plan at_tonemap = plan(Step::tonemap, tracker.map(), tonemap_on(false), false);
+        check("the tonemap plan runs tonemap alone, without a camera", at_tonemap.count == 1 && at_tonemap.items[0].pass == PassId::tonemap
+            && at_tonemap.items[0].kind == Decision::Kind::run);
+    }
+    {
+        auto rows = walk;
+        const FrameReport report = run_frame(rows, tonemap_on(true), false);
+        check("without a camera, tonemap still runs and atmosphere skips",
+            describe(report) == std::string(kAllSteps) + "; ran tonemap@tonemap; skipped atmosphere: no camera");
+    }
+    {
+        auto rows = walk;
+        fixture::find(rows, 1118).draw.inputs.resize(1);
+        const FrameReport report = run_frame(rows, tonemap_on(false), true);
+        check("without a final bloom, tonemap still runs", report.ran.bits == PHOTOREAL_PASS_TONEMAP && report.missing.empty());
+    }
+    {
+        auto rows = walk;
+        fixture::drop(rows, 1100, 1200);  // everything from the tonemap on
+        const FrameReport report = run_frame(rows, tonemap_on(false), true);
+        check("no tonemap draw: tonemap skips for want of the output it draws into", describe(report)
+            == "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom; skipped tonemap: missing tonemap-out");
+    }
+    {
+        std::vector<fixture::Row> menu;
+        const FrameReport report = run_frame(menu, tonemap_on(true), true);
+        check("no G-buffer: atmosphere and tonemap name the entries they need", describe(report)
+            == "found nothing; skipped atmosphere: missing depth hdr-scene; skipped tonemap: missing hdr-scene tonemap-out");
     }
     {
         auto rows = fixture::load("fixtures/capture-20261010-111824.tsv");
@@ -263,7 +310,7 @@ int main()
         check("a label stops at 32 glyphs", encode_label(std::string(40, 'z')).length == 32);
     }
     {
-        FrameReport report = FrameReport::start(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, 0, 1, {}, {}, {} }));
+        FrameReport report = FrameReport::start(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, 0, 1, {}, {}, {}, {} }));
         check("disabled: describe says off", describe(report) == "off");
         report.error = PHOTOREAL_ERROR_SHADER;
         check("disabled by an error: describe says which", describe(report) == "off; error shader");
@@ -393,6 +440,36 @@ int main()
             && high.atmosphere.height_falloff == 1.0f && high.atmosphere.sun_scatter == 10.0f && high.atmosphere.anisotropy == 0.95f);
     }
     {
+        PhotorealSettings raw = raw_settings();
+        raw.tonemap = { 1, -1.5f, PHOTOREAL_CURVE_NEUTRAL, 0.5f, 1.2f, 1.1f };
+        const Settings whole = parse_settings(raw);
+        check("a whole struct reads tonemap: on, -1.5 EV, neutral, bloom 0.5, saturation 1.2, contrast 1.1", whole.tonemap.enabled
+            && whole.tonemap.exposure_ev == -1.5f && whole.tonemap.curve == Curve::neutral && whole.tonemap.bloom_strength == 0.5f
+            && whole.tonemap.saturation == 1.2f && whole.tonemap.contrast == 1.1f);
+        raw.size = 76;  // a caller built before tonemap existed
+        const Settings v3 = parse_settings(raw);
+        check("a 76-byte struct keeps tonemap off at 0 EV, the game's curve, bloom 1, saturation 1, contrast 1", !v3.tonemap.enabled
+            && v3.tonemap.exposure_ev == 0.0f && v3.tonemap.curve == Curve::game && v3.tonemap.bloom_strength == 1.0f
+            && v3.tonemap.saturation == 1.0f && v3.tonemap.contrast == 1.0f);
+        raw.size = 99;
+        check("a struct one byte short of the tonemap block keeps its defaults", !parse_settings(raw).tonemap.enabled
+            && parse_settings(raw).tonemap.curve == Curve::game);
+        raw.size = sizeof raw;
+        raw.tonemap = { 1, NAN, 7, INFINITY, NAN, -INFINITY };
+        const Settings bad = parse_settings(raw);
+        check("tonemap: NaN and infinities fall back to 0 EV, bloom 1, saturation 1, contrast 1, and curve 7 reads as the game's",
+            bad.tonemap.exposure_ev == 0.0f && bad.tonemap.curve == Curve::game && bad.tonemap.bloom_strength == 1.0f
+                && bad.tonemap.saturation == 1.0f && bad.tonemap.contrast == 1.0f);
+        raw.tonemap = { 1, -20, PHOTOREAL_CURVE_AGX, -1, -1, 0.1f };
+        const Settings low = parse_settings(raw);
+        check("tonemap clamps: -20 EV to -10, bloom and saturation -1 to 0, contrast 0.1 to 0.5, and keeps AgX", low.tonemap.exposure_ev == -10.0f
+            && low.tonemap.curve == Curve::agx && low.tonemap.bloom_strength == 0.0f && low.tonemap.saturation == 0.0f && low.tonemap.contrast == 0.5f);
+        raw.tonemap = { 1, 20, PHOTOREAL_CURVE_GAME, 9, 5, 3 };
+        const Settings high = parse_settings(raw);
+        check("tonemap clamps: 20 EV to 10, bloom 9 to 4, saturation 5 to 2, contrast 3 to 2", high.tonemap.exposure_ev == 10.0f
+            && high.tonemap.bloom_strength == 4.0f && high.tonemap.saturation == 2.0f && high.tonemap.contrast == 2.0f);
+    }
+    {
         PhotorealCamera raw {};
         raw.world_to_view[5] = 2;
         raw.view_to_clip[14] = 0.1f;
@@ -432,7 +509,7 @@ int main()
     }
     {
         check("disabled settings want no step", wanted_steps(view_only(PHOTOREAL_VIEW_HDR_SCENE)).bits != 0
-            && wanted_steps(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, PHOTOREAL_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 } })).empty());
+            && wanted_steps(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, PHOTOREAL_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 } })).empty());
     }
     {
         // Unity's GL.GetGPUProjectionMatrix for a 60 degree, 16:10 camera with near 0.1 and far 1000, reversed Z.

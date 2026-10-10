@@ -53,6 +53,21 @@ namespace CameraToolsPhotoreal
         public float Anisotropy;
     }
 
+    // PHOTOREAL_CURVE_* in photoreal.h, in order.
+    internal enum PhotorealCurve : uint { Game, AgX, Neutral }
+
+    // PhotorealTonemap in photoreal.h, field for field.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct PhotorealTonemap
+    {
+        public uint Enabled;
+        public float ExposureEv;
+        public PhotorealCurve Curve;
+        public float BloomStrength;
+        public float Saturation;
+        public float Contrast;
+    }
+
     // PhotorealSettings in photoreal.h, field for field.
     [StructLayout(LayoutKind.Sequential)]
     internal struct PhotorealSettings
@@ -64,11 +79,13 @@ namespace CameraToolsPhotoreal
         public PhotorealAmbient Ambient;
         public PhotorealContactShadows ContactShadows;
         public PhotorealAtmosphere Atmosphere;
+        public PhotorealTonemap Tonemap;
 
         // The add-on's defaults: everything off, game targets upside down, and when switched on ambient level 0.6, AO
         // strength 0.5 at a 1 m radius, half that strength on grass, vegetation and foliage, full-strength contact
         // shadows 0.6 m long that take surfaces to be 0.25 m thick and leave grass, vegetation and foliage unshadowed, and
-        // haze that dims a pixel 500 m away by 15%, thins by e every 50 m up, and glows around the sun.
+        // haze that dims a pixel 500 m away by 15%, thins by e every 50 m up, and glows around the sun, and a tone map
+        // that reproduces the game's.
         public static PhotorealSettings Defaults => new()
         {
             Size = (uint)Marshal.SizeOf<PhotorealSettings>(),
@@ -76,6 +93,7 @@ namespace CameraToolsPhotoreal
             Ambient = new PhotorealAmbient { Level = 0.6f, AoStrength = 0.5f, AoRadius = 1, FoliageAoStrength = 0.5f },
             ContactShadows = new PhotorealContactShadows { Length = 0.6f, Strength = 1, Thickness = 0.25f, FoliageStrength = 0 },
             Atmosphere = new PhotorealAtmosphere { Density = 0.000325f, HeightFalloff = 0.02f, SunScatter = 1, Anisotropy = 0.7f },
+            Tonemap = new PhotorealTonemap { Curve = PhotorealCurve.Game, BloomStrength = 1, Saturation = 1, Contrast = 1 },
         };
     }
 

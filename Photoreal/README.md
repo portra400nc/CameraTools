@@ -1,6 +1,6 @@
 # CameraTools Photoreal
 
-`CameraToolsPhotoreal.addon64` is a ReShade add-on that works inside Genshin Impact's own D3D11 frame. Each frame it finds the game's G-buffer and lighting buffers by format, size and order, never by shader hash. It can show any of them full screen as a debug view. Before the game's combine pass reads them, it can add contact shadows to the sun's shadow mask and replace the world's ambient light. Before the game's bloom reads the HDR scene, it can add aerial perspective. It can also render one frame with several settings variants and save each as a PNG, so effects can be judged from images. A MelonLoader mod drives it through C exports.
+`CameraToolsPhotoreal.addon64` is a ReShade add-on that works inside Genshin Impact's own D3D11 frame. Each frame it finds the game's G-buffer and lighting buffers by format, size and order, never by shader hash. It can show any of them full screen as a debug view. Before the game's combine pass reads them, it can add contact shadows to the sun's shadow mask and replace the world's ambient light. Before the game's bloom reads the HDR scene, it can add aerial perspective, and it can draw its own tone map in place of the game's. It can also render one frame with several settings variants and save each as a PNG, so effects can be judged from images. A MelonLoader mod drives it through C exports.
 
 ## Layout
 
@@ -12,7 +12,7 @@
 | `core/compare.*` | The comparison capture's variants, its schedule of presents (`compare_tick`), back buffer pixels, flicker and TSV rows. Pure C++17. |
 | `core/png.*` | A minimal PNG encoder: 8-bit RGB with stored deflate blocks, so the add-on needs no compression library. Pure C++17. |
 | `addon.cpp` | The ReShade shell: events, exports, mailboxes between the C# thread and the render thread, and the capture's file writer thread. |
-| `gpu.*` | The D3D11 side: `StateGuard`, `Mirror`, `Scratch`, `Staging`, the contact-shadow, ambient and atmosphere passes, snapshots and the debug composite. |
+| `gpu.*` | The D3D11 side: `StateGuard`, `Mirror`, `Scratch`, `Staging`, the contact-shadow, ambient, atmosphere and tonemap passes, snapshots and the debug composite. |
 | `shaders/` | HLSL, compiled to DXBC by `build.py` and embedded in the add-on. |
 | `csharp/Photoreal.cs` | The C# binding a MelonLoader mod adds as is. |
 | `tests/` | Native tests that replay recorded FrameCensus frames through `core/`. |
@@ -73,13 +73,35 @@ Settings:
 | `atmosphere.height_falloff` | 0.02 | Per meter. The haze thins by a factor of e every 1 / `height_falloff` meters above the camera and thickens as fast below it, so a valley far below the camera fills with haze. 0 makes the haze even. Clamped to 0 to 1. |
 | `atmosphere.sun_scatter` | 1 | Multiplies the sun light the haze scatters toward the camera. Clamped to 0 to 10. |
 | `atmosphere.anisotropy` | 0.7 | The Henyey-Greenstein g: 0 scatters sun light evenly, and toward 1 gathers it into a glow around the sun. Clamped to -0.95 to 0.95. |
+| `tonemap.enabled` | 0 | The [tonemap pass](#tone-map). It runs at the tonemap step, skips the game's tone map draw and draws in its place. It needs no camera. A caller built without the block sends a 76-byte struct and gets the defaults. |
+| `tonemap.exposure_ev` | 0 | Stops added to the game's exposure. Clamped to -10 to 10. |
+| `tonemap.curve` | 0 | `PHOTOREAL_CURVE_GAME` (0), the game's filmic curve x(1.36x + 0.047) / (x(0.93x + 0.56) + 0.14); `PHOTOREAL_CURVE_AGX` (1), AgX after Benjamin Wrensch's minimal fit; or `PHOTOREAL_CURVE_NEUTRAL` (2), Khronos PBR Neutral. Unknown values read as 0. |
+| `tonemap.bloom_strength` | 1 | Multiplies the game's bloom intensity. Clamped to 0 to 4. |
+| `tonemap.saturation` | 1 | Mixes each color with its luma before the curve: 0 is gray. Clamped to 0 to 2. |
+| `tonemap.contrast` | 1 | A power around middle gray (0.18) before the curve. Clamped to 0.5 to 2. |
+
+## Tone map
+
+The game's tone map draw reads the HDR scene at t0 and the bloom chain's last result at t1, a quarter-size R11G11B10 texture the frame map calls `bloom-final`, and writes the render-size R8G8B8A8 target the next pass reads. The tonemap pass returns `GameCall::skip` for that draw and draws through a mirror of its target instead:
+
+1. HDR scene + final bloom, bilinear, times the game's bloom intensity times `bloom_strength`. Without `bloom-final` the pass adds no bloom.
+2. The game's 3x3 color matrix, then the game's exposure times 2^`exposure_ev`.
+3. `saturation` and `contrast`, then the curve.
+4. The game's encode, max(x^(1/2.4) * 1.055 - 0.055, 0), raised to the game's display gamma; the encoded luma in alpha, as the game's shader variant at the user's normal settings writes it; and the game's dither, interleaved gradient noise of -0.5/255 to 1.5/255.
+
+The game's values come from the skipped draw's own constant buffer at b0, which the pass copies on the GPU each frame into a buffer of its own at b1: exposure is row 22.z, bloom intensity 22.y, the color matrix rows 99 to 101, and the display gamma 20.y. They sit at those rows in all three tone map shader variants the census found. At the user's normal settings they were exposure 0.985, bloom 0.75, a color matrix within 0.0006 of identity, and gamma 1. When the buffer is too small, or a value is out of range or NaN, the shader uses exposure 1, bloom 0.75, the identity matrix and gamma 1. With the defaults and curve 0, the pass computes what the game's draw computes at the user's normal settings, except for these, all off or absent in that capture:
+
+- Eye adaptation (row 98.x and a 1x1 texture at t4).
+- The screen overlay at t3 (row 25.x).
+- The HDR display path (row 20.x), which PQ-encodes and applies a 3D LUT at t2. The pass always writes the SDR encode.
+- The 2D 256x16 color LUT. Only the shader variant in capture `201640`, at low settings, samples one, and its rows 104 and 105 differ from the other variants, so the pass leaves it out.
 
 ## Status line
 
 `PhotorealDescribe` reports the frame in one line with no frame counter, so a mod can log it when it changes. For example:
 
 ```
-1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap; ran contact-shadows@combine ambient@combine atmosphere@bloom; view normals
+1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap; ran contact-shadows@combine ambient@combine atmosphere@bloom tonemap@tonemap; view normals
 1152x720 found gbuffer quarter-shadow ambient-pair combine bloom tonemap; ran ambient@combine; skipped contact-shadows: missing shadow-mask
 found nothing; skipped contact-shadows: missing normals depth shadow-mask; skipped ambient: missing normals depth ambient-diffuse
 off; error shader
@@ -104,7 +126,7 @@ A view is copied at its step and drawn over the back buffer at `reshade_present`
 | `stencil` | Sky black, world gray, grass green, characters magenta, vegetation dark green, foliage light green, any other value red. |
 | `ambient-diffuse`, `ambient-specular`, `hdr-scene`, `bloom-final` | HDR values, tone mapped. |
 
-The G-buffer and lighting views show what the game's combine pass reads, after the contact-shadow and ambient passes ran, so `shadow-mask` includes the contact shadows. `hdr-scene` shows the image just before the game's tone map, and `bloom-final` the quarter-size bloom the tone map adds to it. When the view's entry was not found, the screen shows dark magenta diagonal stripes, and the label ends in `MISSING`.
+The G-buffer and lighting views show what the game's combine pass reads, after the contact-shadow and ambient passes ran, so `shadow-mask` includes the contact shadows. `hdr-scene` shows the image just before the game's tone map, after the atmosphere pass, and `bloom-final` the quarter-size bloom the tone map adds to it. When the view's entry was not found, the screen shows dark magenta diagonal stripes, and the label ends in `MISSING`.
 
 ## Comparison capture
 

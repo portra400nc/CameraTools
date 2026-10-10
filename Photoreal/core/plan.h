@@ -48,6 +48,20 @@ namespace photoreal
         float anisotropy = 0.7f;
     };
 
+    enum class Curve : uint8_t { game, agx, neutral, count };  // PHOTOREAL_CURVE_*, one branch each in shaders/tonemap_ps.hlsl
+
+    extern const std::array<const char *, static_cast<size_t>(Curve::count)> kCurveNames;
+
+    struct TonemapSettings
+    {
+        bool enabled = false;
+        float exposure_ev = 0.0f;
+        Curve curve = Curve::game;
+        float bloom_strength = 1.0f;
+        float saturation = 1.0f;
+        float contrast = 1.0f;
+    };
+
     // The domain form of PhotorealSettings. Built only by parse_settings, so every value in it is in range.
     struct Settings
     {
@@ -57,9 +71,10 @@ namespace photoreal
         AmbientSettings ambient;
         ContactShadowSettings contact_shadows;
         AtmosphereSettings atmosphere;
+        TonemapSettings tonemap;
     };
 
-    // Honors size (fields past it keep their defaults), maps an unknown view to off, replaces non-finite floats with the
+    // Honors size (fields past it keep their defaults), maps an unknown view to off and an unknown curve to the game's, replaces non-finite floats with the
     // default and clamps the rest. Never fails: the worst input is the default settings. raw must be a whole struct;
     // the shell copies the caller's bytes into one first.
     Settings parse_settings(const PhotorealSettings &raw);
@@ -80,10 +95,10 @@ namespace photoreal
     // Inverts a 4x4 matrix in either memory order. false when it is singular.
     bool invert(const float m[16], float out[16]);
 
-    // What a pass asks of the game's call it runs before. The tonemap pass will skip the game's tonemap draw.
+    // What a pass asks of the game's call it runs before. The tonemap pass skips the game's tonemap draw.
     enum class GameCall : bool { keep, skip };
 
-    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, count };  // the PHOTOREAL_PASS_* bit order, not the run order
+    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, count };  // the PHOTOREAL_PASS_* bit order, not the run order
     using PassSet = Set<PassId>;
 
     struct PassSpec
@@ -96,7 +111,8 @@ namespace photoreal
         bool (*wanted)(const Settings &);
     };
 
-    // Table order is run order within a step: contact shadows, then ambient at combine; atmosphere at bloom.
+    // Table order is run order within a step: contact shadows, then ambient at combine; atmosphere at bloom; tonemap at
+    // tonemap.
     extern const std::array<PassSpec, static_cast<size_t>(PassId::count)> kPasses;
 
     struct ViewSpec

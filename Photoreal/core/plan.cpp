@@ -13,6 +13,7 @@ namespace photoreal
         bool ambient_wanted(const Settings &s) { return s.ambient.enabled; }
         bool contact_shadows_wanted(const Settings &s) { return s.contact_shadows.enabled; }
         bool atmosphere_wanted(const Settings &s) { return s.atmosphere.enabled; }
+        bool tonemap_wanted(const Settings &s) { return s.tonemap.enabled; }
 
         float finite_or(float value, float fallback, float low, float high)
         {
@@ -22,18 +23,20 @@ namespace photoreal
         constexpr uint32_t bit(PassId p) { return 1u << static_cast<uint32_t>(p); }
 
         static_assert(PHOTOREAL_PASS_AMBIENT == bit(PassId::ambient) && PHOTOREAL_PASS_CONTACT_SHADOWS == bit(PassId::contact_shadows)
-            && PHOTOREAL_PASS_ATMOSPHERE == bit(PassId::atmosphere) && static_cast<int>(PassId::count) == 3);
+            && PHOTOREAL_PASS_ATMOSPHERE == bit(PassId::atmosphere) && PHOTOREAL_PASS_TONEMAP == bit(PassId::tonemap)
+            && static_cast<int>(PassId::count) == 4);
+        static_assert(PHOTOREAL_CURVE_AGX == static_cast<int>(Curve::agx) && PHOTOREAL_CURVE_COUNT == static_cast<int>(Curve::count));
         static_assert(PHOTOREAL_VIEW_COUNT == static_cast<int>(View::count) && PHOTOREAL_VIEW_STENCIL == static_cast<int>(View::stencil)
             && PHOTOREAL_VIEW_HDR_SCENE == static_cast<int>(View::hdr_scene) && PHOTOREAL_VIEW_BLOOM_FINAL == static_cast<int>(View::bloom_final));
 
         const char *const kErrorNames[] = { "none", "not-d3d11", "shader", "texture", "state" };
         static_assert(PHOTOREAL_ERROR_STATE == 4);
         // Callers built before foliage_ao_strength send 32 bytes, those before contact shadows 36, those before their
-        // foliage_strength 52, those before atmosphere 56; csharp/Photoreal.cs marshals 76.
+        // foliage_strength 52, those before atmosphere 56, those before tonemap 76; csharp/Photoreal.cs marshals 100.
         static_assert(offsetof(PhotorealSettings, ambient) + offsetof(PhotorealAmbient, foliage_ao_strength) == 32
             && offsetof(PhotorealSettings, contact_shadows) == 36
             && offsetof(PhotorealSettings, contact_shadows) + offsetof(PhotorealContactShadows, foliage_strength) == 52
-            && offsetof(PhotorealSettings, atmosphere) == 56 && sizeof(PhotorealSettings) == 76);
+            && offsetof(PhotorealSettings, atmosphere) == 56 && offsetof(PhotorealSettings, tonemap) == 76 && sizeof(PhotorealSettings) == 100);
         static_assert(sizeof(PhotorealCamera) == 44 * sizeof(float));
     }
 
@@ -41,7 +44,11 @@ namespace photoreal
         { PassId::contact_shadows, "contact-shadows", Step::combine, { Entry::normals, Entry::depth, Entry::shadow_mask }, true, contact_shadows_wanted },
         { PassId::ambient, "ambient", Step::combine, { Entry::normals, Entry::depth, Entry::ambient_diffuse }, true, ambient_wanted },
         { PassId::atmosphere, "atmosphere", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, atmosphere_wanted },
+        // bloom-final is optional: with bloom off in the game, its tone map has none to add either.
+        { PassId::tonemap, "tonemap", Step::tonemap, { Entry::hdr_scene, Entry::tonemap_out }, false, tonemap_wanted },
     } };
+
+    const std::array<const char *, static_cast<size_t>(Curve::count)> kCurveNames = { "game", "agx", "neutral" };
 
     const std::array<ViewSpec, static_cast<size_t>(View::count)> kViews = { {
         { View::off, "off", Entry::count, Step::count, Decode::rgb },
@@ -130,6 +137,17 @@ namespace photoreal
             s.atmosphere.height_falloff = finite_or(a.height_falloff, atmosphere_defaults.height_falloff, 0.0f, 1.0f);
             s.atmosphere.sun_scatter = finite_or(a.sun_scatter, atmosphere_defaults.sun_scatter, 0.0f, 10.0f);
             s.atmosphere.anisotropy = finite_or(a.anisotropy, atmosphere_defaults.anisotropy, -0.95f, 0.95f);
+        }
+        const TonemapSettings tonemap_defaults;
+        const PhotorealTonemap &t = raw.tonemap;
+        if (knows(offsetof(PhotorealSettings, tonemap), sizeof t))
+        {
+            s.tonemap.enabled = t.enabled != 0;
+            s.tonemap.exposure_ev = finite_or(t.exposure_ev, tonemap_defaults.exposure_ev, -10.0f, 10.0f);
+            s.tonemap.curve = t.curve < static_cast<uint32_t>(Curve::count) ? static_cast<Curve>(t.curve) : Curve::game;
+            s.tonemap.bloom_strength = finite_or(t.bloom_strength, tonemap_defaults.bloom_strength, 0.0f, 4.0f);
+            s.tonemap.saturation = finite_or(t.saturation, tonemap_defaults.saturation, 0.0f, 2.0f);
+            s.tonemap.contrast = finite_or(t.contrast, tonemap_defaults.contrast, 0.5f, 2.0f);
         }
         return s;
     }

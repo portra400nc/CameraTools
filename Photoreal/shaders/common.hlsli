@@ -27,7 +27,12 @@ cbuffer Constants : register(b0)
     float height_falloff;       // per meter
     float sun_scatter;
     float anisotropy;           // Henyey-Greenstein g
-    float2 padding2;
+    float exposure_scale;       // 2 ^ tonemap.exposure_ev
+    uint curve;                 // Curve in core/plan.h
+    float bloom_strength;       // multiplies the game's bloom intensity
+    float saturation;
+    float contrast;
+    float padding2;
 };
 
 SamplerState point_clamp : register(s0);
