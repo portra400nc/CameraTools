@@ -65,6 +65,15 @@ namespace CameraToolsPhotoreal
         };
     }
 
+    // PhotorealVariant in photoreal.h: a 32-byte UTF-8 name, then the settings.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct PhotorealVariant
+    {
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)]
+        public byte[] Name;
+        public PhotorealSettings Settings;
+    }
+
     // PhotorealStatus in photoreal.h, field for field. Bit fields use PHOTOREAL_STEP_*, PHOTOREAL_PASS_* and PHOTOREAL_ENTRY_*.
     [StructLayout(LayoutKind.Sequential)]
     internal struct PhotorealStatus
@@ -84,13 +93,14 @@ namespace CameraToolsPhotoreal
         public uint CameraAge;
         public uint Restarts;
         public PhotorealError Error;
+        public uint CompareRemaining;
     }
 
     // The only class that knows CameraToolsPhotoreal.addon64.
     internal static class Photoreal
     {
         private const string ModuleName = "CameraToolsPhotoreal.addon64";
-        private const uint Version = 2;
+        private const uint Version = 3;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -107,9 +117,12 @@ namespace CameraToolsPhotoreal
         private delegate void GetStatusCall(ref PhotorealStatus status);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate uint CompareCall([In] PhotorealVariant[] variants, uint count);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate uint DescribeCall([Out] byte[] text, uint size);
 
-        private sealed record AddOn(IntPtr Module, ApplyCall Apply, SetCameraCall SetCamera, GetStatusCall GetStatus, DescribeCall Describe);
+        private sealed record AddOn(IntPtr Module, ApplyCall Apply, SetCameraCall SetCamera, GetStatusCall GetStatus, DescribeCall Describe, CompareCall Compare);
 
         private static readonly float[] camera = new float[36];
         private static readonly byte[] line = new byte[512];
@@ -145,6 +158,27 @@ namespace CameraToolsPhotoreal
             camera[34] = towardSun.z;
             camera[35] = 0;
             addOn.SetCamera(camera);
+        }
+
+        // Starts a comparison capture of up to 16 variants: the add-on renders each one's settings on the following frames
+        // and saves a PNG of each to <ReShade base path>\Photoreal\compare-<time>\, then restores the settings it had.
+        // Names longer than 32 UTF-8 bytes are cut. False while the add-on is not loaded, a capture is still running
+        // (Status.CompareRemaining is not 0), or the variants are invalid.
+        public static bool Compare(params (string Name, PhotorealSettings Settings)[] variants)
+        {
+            if (addOn == null)
+                return false;
+            var native = new PhotorealVariant[variants.Length];
+            for (int i = 0; i < variants.Length; i++)
+            {
+                byte[] name = new byte[32];
+                byte[] utf8 = Encoding.UTF8.GetBytes(variants[i].Name ?? "");
+                Array.Copy(utf8, name, Math.Min(utf8.Length, name.Length));
+                PhotorealSettings settings = variants[i].Settings;
+                settings.Size = (uint)Marshal.SizeOf<PhotorealSettings>();
+                native[i] = new PhotorealVariant { Name = name, Settings = settings };
+            }
+            return addOn.Compare(native, (uint)native.Length) != 0;
         }
 
         public static PhotorealStatus Status
@@ -213,13 +247,14 @@ namespace CameraToolsPhotoreal
             if (!TryExport<ApplyCall>(module, "PhotorealApply", out var apply)
                 || !TryExport<SetCameraCall>(module, "PhotorealSetCamera", out var setCamera)
                 || !TryExport<GetStatusCall>(module, "PhotorealGetStatus", out var getStatus)
-                || !TryExport<DescribeCall>(module, "PhotorealDescribe", out var describe))
+                || !TryExport<DescribeCall>(module, "PhotorealDescribe", out var describe)
+                || !TryExport<CompareCall>(module, "PhotorealCompare", out var compare))
             {
                 MelonLogger.Warning($"Photoreal: {ModuleName} version {found} is missing an export.");
                 return;
             }
             rejected = IntPtr.Zero;
-            addOn = new AddOn(module, apply, setCamera, getStatus, describe);
+            addOn = new AddOn(module, apply, setCamera, getStatus, describe, compare);
             MelonLogger.Msg($"Photoreal: connected to {ModuleName} version {found}.");
         }
 

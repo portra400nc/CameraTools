@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define PHOTOREAL_VERSION 2
+#define PHOTOREAL_VERSION 3
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -169,6 +169,7 @@ typedef struct PhotorealStatus
     uint32_t camera_age;        // frames since the last PhotorealSetCamera, UINT32_MAX when never
     uint32_t restarts;          // G-buffer binds that restarted the last frame (another camera drew first)
     uint32_t error;             // PHOTOREAL_ERROR_*
+    uint32_t compare_remaining; // variants of the comparison capture not yet saved, 0 when none runs
 } PhotorealStatus;
 
 PHOTOREAL_EXPORT uint32_t PhotorealVersion(void);
@@ -179,6 +180,14 @@ PHOTOREAL_EXPORT uint32_t PhotorealVersion(void);
 PHOTOREAL_EXPORT uint64_t PhotorealApply(const PhotorealSettings *settings);
 
 PHOTOREAL_EXPORT void PhotorealSetCamera(const PhotorealCamera *camera);
+
+// Starts a comparison capture: from the next present, the render thread runs each variant's settings in turn, lets 4
+// presents settle, copies the back buffer of the next 2 before ReShade's effects, saves the second as a PNG with the
+// flicker between the two, and then restores the settings from before the capture. Files go to
+// <ReShade base path>\Photoreal\compare-<YYYYMMDD-HHMMSS>\. Returns 1 when accepted, 0 when a capture is still running or
+// saving, or the variants are invalid: null, none, more than PHOTOREAL_COMPARE_MAX, an empty name, or settings too short
+// to hold enabled.
+PHOTOREAL_EXPORT uint32_t PhotorealCompare(const PhotorealVariant *variants, uint32_t count);
 
 PHOTOREAL_EXPORT void PhotorealGetStatus(PhotorealStatus *status);
 

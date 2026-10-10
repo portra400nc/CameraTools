@@ -12,6 +12,8 @@ namespace photoreal
     {
         static_assert(PHOTOREAL_COMPARE_MAX == kCompareMax && sizeof(PhotorealVariant) == 32 + sizeof(PhotorealSettings));
         static_assert(sizeof(PhotorealSettings) == 56, "settings_tsv writes every field: give a new one a column");
+        // compare_remaining took the padding at the end, so a caller built before it still sends 72 bytes.
+        static_assert(offsetof(PhotorealStatus, compare_remaining) == 68 && sizeof(PhotorealStatus) == 72);
 
         constexpr uint32_t kPeriod = kSettlePresents + 2;
 

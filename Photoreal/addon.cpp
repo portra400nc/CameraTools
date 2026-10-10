@@ -1,7 +1,9 @@
 // The shell: ReShade events in, FrameEvents to the tracker, plans to the GPU, reports to the status mailbox.
 // Everything that decides lives in core/; everything that draws lives in gpu.cpp.
 #include "photoreal.h"
+#include "core/compare.h"
 #include "core/plan.h"
+#include "core/png.h"
 #include "gpu.h"
 
 #include <reshade.hpp>
@@ -9,11 +11,20 @@
 #include <algorithm>
 #include <atomic>
 #include <cstddef>
+#include <cstdio>
 #include <cstring>
+#include <deque>
+#include <filesystem>
+#include <fstream>
+#include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
+#include <vector>
 
 using namespace reshade::api;
+namespace fs = std::filesystem;
 
 namespace photoreal
 {
@@ -56,6 +67,12 @@ namespace photoreal
         Mailbox<Settings> settings_box;
         Mailbox<Camera> camera_box;
         Mailbox<Published> status_box;
+        Mailbox<std::vector<Variant>> compare_box;
+
+        // Variants of the comparison capture not yet saved. PhotorealCompare raises it from 0, and the worker lowers it
+        // as it saves each variant's files, or to 0 when a stopped capture's note is written, so while it is not 0 no
+        // second capture is accepted.
+        std::atomic<uint32_t> compare_remaining { 0 };
 
         // The hot path's only check. Written by the render thread at present, so tracking never starts mid-frame.
         std::atomic<bool> armed { false };
@@ -66,12 +83,13 @@ namespace photoreal
         FrameTracker tracker;
         FrameReport report;
         Settings settings;                  // this frame's, taken at present
-        uint64_t settings_seen = 0, camera_seen = 0;
+        uint64_t settings_seen = 0, camera_seen = 0, compare_seen = 0;
         Camera camera {};
         uint32_t camera_age = UINT32_MAX;
         uint64_t frames = 0;
         uint32_t sticky_error = PHOTOREAL_ERROR_NONE;   // NOT_D3D11, SHADER or STATE: the add-on stays disarmed
         uint32_t frame_error = PHOTOREAL_ERROR_NONE;    // TEXTURE: this frame only
+        HMODULE addon_module = nullptr;
 
         void log(reshade::log::level level, const std::string &message)
         {
@@ -86,6 +104,114 @@ namespace photoreal
             armed.store(false, std::memory_order_relaxed);
             log(reshade::log::level::error, std::string("the game's ") + moved + " differed after restoring state. Photoreal is off until the game restarts.");
         }
+
+        // Runs jobs on its own thread in the order they came. The thread ends when it runs out of work.
+        class Worker
+        {
+        public:
+            void push(std::function<void()> job)
+            {
+                std::lock_guard lock(mutex_);
+                jobs_.push_back(std::move(job));
+                if (!running_)
+                {
+                    running_ = true;
+                    std::thread([this] { run(); }).detach();
+                }
+            }
+
+        private:
+            void run()
+            {
+                for (;;)
+                {
+                    std::function<void()> job;
+                    {
+                        std::lock_guard lock(mutex_);
+                        if (jobs_.empty())
+                        {
+                            running_ = false;
+                            return;
+                        }
+                        job = std::move(jobs_.front());
+                        jobs_.pop_front();
+                    }
+                    job();
+                }
+            }
+
+            std::mutex mutex_;
+            std::deque<std::function<void()>> jobs_;
+            bool running_ = false;
+        };
+
+        Worker worker;
+
+        void write_file(const fs::path &path, const std::string &bytes)
+        {
+            std::error_code error;
+            fs::create_directories(path.parent_path(), error);
+            std::ofstream out(path, std::ios::binary | std::ios::trunc);
+            out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+            if (!out)
+                log(reshade::log::level::warning, "could not write " + path.u8string() + ".");
+        }
+
+        // ReShade's base path, which RESHADE_BASE_PATH_OVERRIDE sets to C:\ReShade on the Deck, as FrameCensus finds it.
+        fs::path output_root()
+        {
+            fs::path base;
+            using GetBasePath = bool (*)(char *, size_t *);
+            const auto get_base_path = reinterpret_cast<GetBasePath>(GetProcAddress(reshade::internal::get_reshade_module_handle(), "ReShadeGetBasePath"));
+            if (get_base_path != nullptr)
+            {
+                size_t size = 0;
+                get_base_path(nullptr, &size);
+                std::string path(size, '\0');
+                get_base_path(path.data(), &size);
+                path.resize(std::strlen(path.c_str()));
+                base = fs::u8path(path);
+            }
+            if (base.empty())
+            {
+                wchar_t module_path[MAX_PATH] = {};
+                GetModuleFileNameW(addon_module, module_path, MAX_PATH);
+                base = fs::path(module_path).parent_path().parent_path();
+            }
+            return base / "Photoreal";
+        }
+
+        std::string timestamp()
+        {
+            SYSTEMTIME time;
+            GetLocalTime(&time);
+            char text[32];
+            std::snprintf(text, sizeof text, "%04u%02u%02u-%02u%02u%02u", time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond);
+            return text;
+        }
+
+        // What the worker writes into: touched only by worker jobs once the capture starts.
+        struct CompareFiles
+        {
+            fs::path folder;
+            std::vector<CompareRow> rows;
+        };
+
+        // A comparison capture in progress, on the render thread. compare_tick() says what each present does.
+        struct Capture
+        {
+            std::vector<Variant> variants;
+            Settings before;
+            uint32_t present = 0;
+            std::optional<Size> render;         // the first armed frame's, which every later armed frame must match
+            StepSet found;
+            std::vector<std::string> lines;     // describe() at each variant's second copy
+            uint32_t read = 0;                  // variants read back and handed to the worker
+            std::shared_ptr<CompareFiles> files;
+        };
+
+        std::optional<Capture> capture;
+        uint32_t compare_count = 0;  // the last capture's variants, for describe's progress until all are saved
 
         Texture resolve(device *dev, resource_view view)
         {
@@ -241,6 +367,92 @@ namespace photoreal
         bool on_draw(command_list *cmd_list, uint32_t, uint32_t, uint32_t, uint32_t) { return on_draw_any(cmd_list); }
         bool on_draw_indexed(command_list *cmd_list, uint32_t, uint32_t, uint32_t, int32_t, uint32_t) { return on_draw_any(cmd_list); }
 
+        void start_capture(std::vector<Variant> variants)
+        {
+            auto files = std::make_shared<CompareFiles>();
+            files->folder = output_root() / ("compare-" + timestamp());
+            for (int i = 2; fs::exists(files->folder); i++)
+                files->folder = output_root() / ("compare-" + timestamp() + "-" + std::to_string(i));
+            log(reshade::log::level::info, "comparing " + std::to_string(variants.size()) + " settings variants into " + files->folder.u8string() + ".");
+            worker.push([files, text = settings_tsv(variants)] { write_file(files->folder / "settings.tsv", text); });
+            compare_count = static_cast<uint32_t>(variants.size());
+            capture = Capture { std::move(variants), settings, 0, std::nullopt, {}, {}, 0, files };
+        }
+
+        // Reads the next variant's two copies and hands them to the worker, which saves the PNG and rewrites
+        // compare.tsv. false when a map failed or the two frames differ in size.
+        bool read_variant()
+        {
+            Capture &c = *capture;
+            std::optional<RawFrame> first = gpu.read_back_buffer(0), second = gpu.read_back_buffer(1);
+            if (!first || !second || first->size != second->size)
+                return false;
+            const uint32_t index = c.read++;
+            worker.push([files = c.files, index, name = c.variants[index].name, line = c.lines[index], first = std::move(*first), second = std::move(*second)] {
+                const std::vector<uint8_t> a = to_rgb(first), b = to_rgb(second);
+                files->rows.push_back({ index, name, line, flicker(a, b), second.size });
+                write_file(files->folder / png_name(index, name), encode_png(b.data(), second.size.width, second.size.height));
+                write_file(files->folder / "compare.tsv", compare_tsv(files->rows));
+                compare_remaining--;
+            });
+            return true;
+        }
+
+        // Saves what was captured, a variant copied but not yet read too while the device allows, and puts the settings
+        // from before the capture back.
+        void stop_capture(const std::string &why)
+        {
+            Capture &c = *capture;
+            if (gpu.ready() && c.read < c.lines.size())
+                read_variant();
+            const std::string note = "stopped after " + std::to_string(c.read) + " of " + std::to_string(c.variants.size()) + " variants: " + why + ".";
+            log(reshade::log::level::warning, "the comparison capture " + note);
+            worker.push([files = c.files, note] {
+                write_file(files->folder / "stopped.txt", note + "\n");
+                compare_remaining = 0;
+            });
+            settings = c.before;
+            capture.reset();
+        }
+
+        // One present of the capture, after the frame's report is finished. Returns why it must stop, or empty.
+        std::string tick_capture(swapchain *chain)
+        {
+            Capture &c = *capture;
+            if (sticky_error != PHOTOREAL_ERROR_NONE)
+                return "the add-on is off after an error";
+            if (!gpu.ready())
+                return "there is no D3D11 device";
+            if (c.present > 0 && report.armed)
+            {
+                if (!c.render)
+                {
+                    c.render = report.render;
+                    c.found = report.found;
+                }
+                else if (report.render != *c.render || report.found.bits != c.found.bits)
+                    return "the frame map changed";
+            }
+            const CompareTick tick = compare_tick(c.present++, static_cast<uint32_t>(c.variants.size()));
+            if (tick.copy)
+            {
+                const resource back_buffer = chain->get_current_back_buffer();
+                if (!gpu.copy_back_buffer(reinterpret_cast<ID3D11Resource *>(back_buffer.handle), tick.copy->frame))
+                    return "the back buffer is not 8-bit RGBA or BGRA, or its copy failed";
+                if (tick.copy->frame == 1)
+                    c.lines.push_back(describe(report));
+            }
+            if (tick.read && !read_variant())
+                return "the back buffer copies could not be read, or changed size";
+            if (tick.apply)
+                settings = c.variants[*tick.apply].settings;
+            if (tick.restore)
+                settings = c.before;
+            if (tick.done)
+                capture.reset();
+            return {};
+        }
+
         void init(command_queue *queue)
         {
             device *const dev = queue->get_device();
@@ -260,7 +472,7 @@ namespace photoreal
             log(reshade::log::level::info, "ready.");
         }
 
-        void publish()
+        void publish(uint32_t remaining)
         {
             Published published;
             PhotorealStatus &s = published.status;
@@ -279,12 +491,13 @@ namespace photoreal
             s.camera_age = camera_age;
             s.restarts = report.restarts;
             s.error = report.error;
+            s.compare_remaining = remaining;
             published.line = describe(report);
             status_box.put(published);
         }
 
         // The frame boundary. Runs before ReShade's effects, so the frame it closes is the game's whole frame.
-        void on_present(command_queue *queue, swapchain *, const rect *, const rect *, uint32_t, const rect *)
+        void on_present(command_queue *queue, swapchain *chain, const rect *, const rect *, uint32_t, const rect *)
         {
             if (!gpu.ready() && sticky_error == PHOTOREAL_ERROR_NONE)
                 init(queue);
@@ -293,9 +506,23 @@ namespace photoreal
             if (report.armed)
                 report.finish(tracker, settings, camera_known());
             report.error = sticky_error != PHOTOREAL_ERROR_NONE ? sticky_error : frame_error;
-            publish();
 
-            settings_box.take(settings, settings_seen);
+            std::vector<Variant> variants;
+            if (!capture && compare_box.take(variants, compare_seen))
+                start_capture(std::move(variants));
+            if (capture)
+                if (const std::string why = tick_capture(chain); !why.empty())
+                    stop_capture(why);
+            const uint32_t remaining = compare_remaining.load();
+            if (remaining == 0 && !capture)
+                compare_count = 0;
+            report.compare_count = compare_count;
+            report.compare_saved = compare_count - std::min(remaining, compare_count);
+            publish(remaining);
+
+            // A capture owns the settings until it ends; settings applied meanwhile take over after it.
+            if (!capture)
+                settings_box.take(settings, settings_seen);
             if (camera_box.take(camera, camera_seen))
                 camera_age = 0;
             else if (camera_age != UINT32_MAX)
@@ -310,10 +537,10 @@ namespace photoreal
             armed.store(arm, std::memory_order_relaxed);
         }
 
-        // After ReShade's effects: the debug view goes on top of everything.
+        // After ReShade's effects: the debug view goes on top of everything, except during a comparison capture.
         void on_reshade_present(effect_runtime *runtime)
         {
-            if (!armed.load(std::memory_order_relaxed))
+            if (!armed.load(std::memory_order_relaxed) || capture)
                 return;
             const resource back_buffer = runtime->get_current_back_buffer();
             if (const char *moved = gpu.composite(reinterpret_cast<ID3D11Resource *>(back_buffer.handle), settings.flip))
@@ -327,6 +554,8 @@ namespace photoreal
             armed.store(false, std::memory_order_relaxed);
             gpu = Gpu {};
             immediate = nullptr;
+            if (capture)
+                stop_capture("the D3D11 device went away");
         }
     }
 }
@@ -334,7 +563,7 @@ namespace photoreal
 using namespace photoreal;
 
 extern "C" __declspec(dllexport) const char *NAME = "CameraTools Photoreal";
-extern "C" __declspec(dllexport) const char *DESCRIPTION = "Finds Genshin's G-buffer and lighting buffers each frame, shows them as debug views, relights the world's ambient light, and adds contact shadows to the sun's. Driven by CameraTools.";
+extern "C" __declspec(dllexport) const char *DESCRIPTION = "Finds Genshin's G-buffer and lighting buffers each frame, shows them as debug views, relights the world's ambient light, adds contact shadows to the sun's, and saves comparison captures of settings variants. Driven by CameraTools.";
 
 extern "C" uint32_t PhotorealVersion(void)
 {
@@ -349,6 +578,16 @@ extern "C" uint64_t PhotorealApply(const PhotorealSettings *raw)
     PhotorealSettings copy {};
     std::memcpy(&copy, raw, std::min<size_t>(raw->size, sizeof copy));
     return settings_box.put(parse_settings(copy));
+}
+
+extern "C" uint32_t PhotorealCompare(const PhotorealVariant *variants, uint32_t count)
+{
+    std::optional<std::vector<Variant>> parsed = parse_variants(variants, count);
+    uint32_t idle = 0;
+    if (!parsed || !compare_remaining.compare_exchange_strong(idle, count))
+        return 0;
+    compare_box.put(*parsed);
+    return 1;
 }
 
 extern "C" void PhotorealSetCamera(const PhotorealCamera *raw)
@@ -389,6 +628,7 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
     switch (reason)
     {
     case DLL_PROCESS_ATTACH:
+        addon_module = module;
         if (!reshade::register_addon(module))
             return FALSE;
         reshade::register_event<reshade::addon_event::present>(on_present);

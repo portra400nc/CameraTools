@@ -5,6 +5,7 @@
 // through CopyResource between the game's resource and a Mirror with the same description.
 #pragma once
 
+#include "core/compare.h"
 #include "core/plan.h"
 
 #include <d3d11_1.h>
@@ -128,6 +129,22 @@ namespace photoreal
         ComPtr<ID3D11RenderTargetView> rtv_;
     };
 
+    // A back buffer copy for the comparison capture in a CPU-readable texture, read presents later so the copy is done
+    // and mapping it does not wait on the GPU.
+    class Staging
+    {
+    public:
+        // false when the back buffer is not 8-bit RGBA or BGRA, is multisampled, or the texture failed.
+        bool copy_from(ID3D11Device *device, ID3D11DeviceContext *context, ID3D11Resource *back_buffer);
+        // Empty when the map failed.
+        std::optional<RawFrame> read(ID3D11DeviceContext *context) const;
+
+    private:
+        D3D11_TEXTURE2D_DESC desc_ {};
+        PixelOrder order_ = PixelOrder::rgba;
+        ComPtr<ID3D11Texture2D> texture_;
+    };
+
     // A debug snapshot, decoded by its own view so a view change at a frame boundary cannot misread it.
     // Two exist: pending is filled during a frame, shown is what reshade_present draws. present swaps them, because
     // ReShade's present event (where the frame rolls) fires before reshade_present (where the composite runs).
@@ -171,6 +188,10 @@ namespace photoreal
         // Returns the tripwire's finding, null when state came back intact.
         const char *composite(ID3D11Resource *back_buffer, bool flip);
 
+        // The comparison capture's two copies, one per frame of a variant. slot is 0 or 1.
+        bool copy_back_buffer(ID3D11Resource *back_buffer, uint32_t slot) { return copies_[slot].copy_from(device_.Get(), context_.Get(), back_buffer); }
+        std::optional<RawFrame> read_back_buffer(uint32_t slot) const { return copies_[slot].read(context_.Get()); }
+
     private:
         void draw_fullscreen(ID3D11PixelShader *shader, ID3D11ShaderResourceView *const *srvs, UINT srv_count, ID3D11RenderTargetView *target, Size size);
         void upload(const struct Constants &constants);
@@ -191,5 +212,6 @@ namespace photoreal
         Scratch ao_;                // R8_UNORM raw occlusion, 1 = open
         Scratch contact_;           // R8_UNORM raw sun visibility, 1 = lit
         Snapshot pending_, shown_;
+        Staging copies_[2];
     };
 }

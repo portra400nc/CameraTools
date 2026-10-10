@@ -103,6 +103,18 @@ namespace photoreal
             }
         }
 
+        std::optional<PixelOrder> pixel_order(DXGI_FORMAT format)
+        {
+            switch (typeless(format))
+            {
+            case DXGI_FORMAT_R8G8B8A8_TYPELESS: return PixelOrder::rgba;
+            case DXGI_FORMAT_B8G8R8A8_TYPELESS: case DXGI_FORMAT_B8G8R8X8_TYPELESS: case DXGI_FORMAT_B8G8R8X8_UNORM:
+            case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB:
+                return PixelOrder::bgra;
+            default: return std::nullopt;
+            }
+        }
+
         ID3D11Resource *native(const Texture &texture) { return reinterpret_cast<ID3D11Resource *>(static_cast<uint64_t>(texture.id)); }
 
         // The constants every pass shares: the camera, the render size and flip. false when the projection does not invert.
@@ -302,6 +314,47 @@ namespace photoreal
         size_ = size;
         format_ = format;
         return true;
+    }
+
+    bool Staging::copy_from(ID3D11Device *device, ID3D11DeviceContext *context, ID3D11Resource *back_buffer)
+    {
+        ComPtr<ID3D11Texture2D> game;
+        if (FAILED(back_buffer->QueryInterface(IID_PPV_ARGS(game.GetAddressOf()))))
+            return false;
+        D3D11_TEXTURE2D_DESC desc;
+        game->GetDesc(&desc);
+        const std::optional<PixelOrder> order = pixel_order(desc.Format);
+        if (!order || desc.SampleDesc.Count != 1)
+            return false;
+        desc.MipLevels = 1;
+        desc.ArraySize = 1;
+        desc.Usage = D3D11_USAGE_STAGING;
+        desc.BindFlags = 0;
+        desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        desc.MiscFlags = 0;
+        if (!texture_ || std::memcmp(&desc, &desc_, sizeof desc) != 0)
+        {
+            *this = Staging {};
+            if (FAILED(device->CreateTexture2D(&desc, nullptr, &texture_)))
+                return false;
+            desc_ = desc;
+            order_ = *order;
+        }
+        context->CopySubresourceRegion(texture_.Get(), 0, 0, 0, 0, back_buffer, 0, nullptr);
+        return true;
+    }
+
+    std::optional<RawFrame> Staging::read(ID3D11DeviceContext *context) const
+    {
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        if (!texture_ || FAILED(context->Map(texture_.Get(), 0, D3D11_MAP_READ, 0, &mapped)))
+            return std::nullopt;
+        RawFrame frame { { desc_.Width, desc_.Height }, order_, std::vector<uint8_t>(size_t(desc_.Width) * desc_.Height * 4) };
+        const size_t row = size_t(desc_.Width) * 4;
+        for (UINT y = 0; y < desc_.Height; y++)
+            std::memcpy(&frame.bytes[y * row], static_cast<const uint8_t *>(mapped.pData) + size_t(y) * mapped.RowPitch, row);
+        context->Unmap(texture_.Get(), 0);
+        return frame;
     }
 
     bool Gpu::init(ID3D11Device *device, ID3D11DeviceContext *context)
