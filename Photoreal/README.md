@@ -125,6 +125,7 @@ A view is copied at its step and drawn over the back buffer at `reshade_present`
 | `depth` | Reversed depth: near is bright, the sky is black. |
 | `stencil` | Sky black, world gray, grass green, characters magenta, vegetation dark green, foliage light green, any other value red. |
 | `ambient-diffuse`, `ambient-specular`, `hdr-scene`, `bloom-final` | HDR values, tone mapped. |
+| `sun-atlas` | The sun's shadow atlas, which the game's shadow-mask draw samples at t2, as gray, stretched over the screen: one square tile per cascade, nearest first, in rows from the top left. Stored depth grows toward the sun, and 0, where nothing was drawn, is black. It is copied at that draw. |
 
 The G-buffer and lighting views show what the game's combine pass reads, after the contact-shadow and ambient passes ran, so `shadow-mask` includes the contact shadows. `hdr-scene` shows the image just before the game's tone map, after the atmosphere pass, and `bloom-final` the quarter-size bloom the tone map adds to it. When the view's entry was not found, the screen shows dark magenta diagonal stripes, and the label ends in `MISSING`.
 

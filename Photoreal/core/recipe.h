@@ -99,7 +99,7 @@ namespace photoreal
     enum class Entry : uint8_t
     {
         normals, albedo, specular, material_id, smoothness, character, depth,
-        quarter_shadow, shadow_mask, ambient_specular, ambient_diffuse, hdr_scene, bloom, tonemap_out, bloom_final,
+        quarter_shadow, shadow_mask, ambient_specular, ambient_diffuse, hdr_scene, bloom, tonemap_out, bloom_final, sun_atlas,
         count,
     };
 

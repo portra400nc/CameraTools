@@ -25,6 +25,12 @@ namespace photoreal
             return false;
         }
 
+        // The sun's shadow atlas, D16: 6144x4096 at low settings, 4096x2048 at the user's normal ones.
+        bool is_sun_atlas(const Texture &t)
+        {
+            return (t.format == Format::r16_typeless || t.format == Format::d16_unorm || t.format == Format::r16_unorm) && t.size.width >= 4096;
+        }
+
         bool is_gbuffer(const Targets &t)
         {
             static constexpr Format layout[] = { Format::r10g10b10a2_unorm, Format::r8g8b8a8_unorm_srgb, Format::r8g8b8a8_unorm_srgb,
@@ -59,15 +65,15 @@ namespace photoreal
             const Texture *rt = single_target(seen.targets);
             if (!draw || !rt || rt->format != Format::r8_unorm || !rt->size.is_quarter_of(map.render))
                 return false;
-            // The sun's shadow atlas, D16: 6144x4096 at low settings, 4096x2048 at the user's normal ones.
-            const bool atlas = samples(*draw, [](const Texture &t) {
-                return (t.format == Format::r16_typeless || t.format == Format::d16_unorm || t.format == Format::r16_unorm) && t.size.width >= 4096;
-            });
-            if (!atlas)
+            if (!samples(*draw, is_sun_atlas))
                 return false;
             map[Entry::quarter_shadow] = *rt;
             return true;
         }
+
+        // Every census capture's shadow-mask draw samples the sun's atlas at t2. When the slot holds anything else, the
+        // step still matches and sun-atlas stays empty.
+        constexpr uint32_t kShadowMaskAtlasSlot = 2;
 
         // The game clears the shadow mask to (1,1,1,0) earlier in the frame; the clear tells it apart from any other
         // render-size R8G8 target drawn with the main depth. In the 1152x720 captures the clear follows the bind with
@@ -80,6 +86,10 @@ namespace photoreal
             if (!seen.cleared(rt->id, Color { 1, 1, 1, 0 }))
                 return false;
             map[Entry::shadow_mask] = *rt;
+            uint32_t count = 0;
+            const Texture *inputs = std::get<Draw>(event).queries.ps_inputs(&count);
+            if (count > kShadowMaskAtlasSlot && is_sun_atlas(inputs[kShadowMaskAtlasSlot]))
+                map[Entry::sun_atlas] = inputs[kShadowMaskAtlasSlot];
             return true;
         }
 
@@ -156,19 +166,20 @@ namespace photoreal
             && PHOTOREAL_ENTRY_SHADOW_MASK == bit(Entry::shadow_mask) && PHOTOREAL_ENTRY_AMBIENT_SPECULAR == bit(Entry::ambient_specular)
             && PHOTOREAL_ENTRY_AMBIENT_DIFFUSE == bit(Entry::ambient_diffuse) && PHOTOREAL_ENTRY_HDR_SCENE == bit(Entry::hdr_scene)
             && PHOTOREAL_ENTRY_BLOOM == bit(Entry::bloom) && PHOTOREAL_ENTRY_TONEMAP_OUT == bit(Entry::tonemap_out)
-            && PHOTOREAL_ENTRY_BLOOM_FINAL == bit(Entry::bloom_final) && static_cast<int>(Entry::count) == 15);
+            && PHOTOREAL_ENTRY_BLOOM_FINAL == bit(Entry::bloom_final) && PHOTOREAL_ENTRY_SUN_ATLAS == bit(Entry::sun_atlas)
+            && static_cast<int>(Entry::count) == 16);
     }
 
     const std::array<const char *, static_cast<size_t>(Entry::count)> kEntryNames = {
         "normals", "albedo", "specular", "material-id", "smoothness", "character", "depth",
-        "quarter-shadow", "shadow-mask", "ambient-specular", "ambient-diffuse", "hdr-scene", "bloom", "tonemap-out", "bloom-final",
+        "quarter-shadow", "shadow-mask", "ambient-specular", "ambient-diffuse", "hdr-scene", "bloom", "tonemap-out", "bloom-final", "sun-atlas",
     };
 
     const std::array<StepSpec, static_cast<size_t>(Step::count)> kRecipe = { {
         { Step::gbuffer, "gbuffer", {},
           { Entry::normals, Entry::albedo, Entry::specular, Entry::material_id, Entry::smoothness, Entry::character, Entry::depth }, match_gbuffer },
         { Step::quarter_shadow, "quarter-shadow", { Step::gbuffer }, { Entry::quarter_shadow }, match_quarter_shadow },
-        { Step::shadow_mask, "shadow-mask", { Step::gbuffer }, { Entry::shadow_mask }, match_shadow_mask },
+        { Step::shadow_mask, "shadow-mask", { Step::gbuffer }, { Entry::shadow_mask, Entry::sun_atlas }, match_shadow_mask },
         { Step::ambient_pair, "ambient-pair", { Step::gbuffer }, { Entry::ambient_specular, Entry::ambient_diffuse }, match_ambient_pair },
         { Step::combine, "combine", { Step::gbuffer }, { Entry::hdr_scene }, match_combine },
         { Step::bloom, "bloom", { Step::combine }, { Entry::bloom }, match_bloom },

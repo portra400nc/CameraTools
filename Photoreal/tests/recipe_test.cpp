@@ -61,6 +61,8 @@ int main()
         check("214859: final bloom 473 at 288x180, the tonemap draw's t1",
             id(map, Entry::bloom_final) == 473 && map[Entry::bloom_final]->size == Size { 288, 180 });
         check("214859: no restart", tracker.restarts() == 0);
+        check("214859: sun atlas 373 at 6144x4096, the shadow-mask draw's t2",
+            id(map, Entry::sun_atlas) == 373 && map[Entry::sun_atlas]->size == Size { 6144, 4096 });
     }
     {
         auto rows = fixture::load("fixtures/capture-20261009-201640.tsv");  // FrameCensus 1: inputs without slots
@@ -73,6 +75,7 @@ int main()
             && id(map, Entry::depth) == 34);
         check("201640 (v1): quarter shadow is 237, not a later lone R8", id(map, Entry::quarter_shadow) == 237);
         check("201640 (v1): final bloom 284, second in bound order", id(map, Entry::bloom_final) == 284);
+        check("201640 (v1): sun atlas 219, third in bound order", id(map, Entry::sun_atlas) == 219);
     }
     {
         auto rows = fixture::load("fixtures/capture-20261009-214907.tsv");
@@ -99,6 +102,20 @@ int main()
         check("111824: HDR scene 17, bloom 357, tonemap output 362",
             id(map, Entry::hdr_scene) == 17 && id(map, Entry::bloom) == 357 && id(map, Entry::tonemap_out) == 362);
         check("111824: final bloom 361 at 480x300", id(map, Entry::bloom_final) == 361 && map[Entry::bloom_final]->size == Size { 480, 300 });
+        check("111824: sun atlas 249 at 4096x2048", id(map, Entry::sun_atlas) == 249 && map[Entry::sun_atlas]->size == Size { 4096, 2048 });
+    }
+    {
+        auto rows = normal;
+        std::vector<Texture> &inputs = fixture::find(rows, 775).draw.inputs;
+        std::swap(inputs[2], inputs[3]);
+        FrameTracker tracker;
+        fixture::replay(rows, tracker);
+        check("111824 with the 1536x1536 far map at t2: the shadow mask is found without a sun atlas",
+            id(tracker.map(), Entry::shadow_mask) == 239 && !tracker.map()[Entry::sun_atlas]);
+        fixture::find(rows, 775).draw.inputs.resize(2);
+        fixture::replay(rows, tracker);
+        check("111824 with only t0 and t1 bound at the shadow-mask draw: no sun atlas",
+            tracker.matched().has(Step::shadow_mask) && !tracker.map()[Entry::sun_atlas]);
     }
     {
         auto rows = normal;

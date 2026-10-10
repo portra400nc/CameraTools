@@ -279,6 +279,17 @@ int main()
             == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap; view bloom-final");
     }
     {
+        auto rows = fixture::load("fixtures/capture-20261010-111824.tsv");
+        std::vector<Step> snapshots;
+        const FrameReport report = run_frame(rows, view_only(PHOTOREAL_VIEW_SUN_ATLAS), true, &snapshots);
+        check("the sun-atlas view snapshots at the shadow-mask draw and is shown",
+            snapshots == std::vector<Step> { Step::shadow_mask } && report.view_shown() == View::sun_atlas);
+        check("the sun-atlas view wants the gbuffer and shadow-mask steps",
+            report.wanted.bits == (PHOTOREAL_STEP_GBUFFER | PHOTOREAL_STEP_SHADOW_MASK));
+        check("describe names the sun-atlas view", describe(report)
+            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap; view sun-atlas");
+    }
+    {
         auto rows = walk;
         fixture::find(rows, 1118).draw.inputs.resize(1);
         const FrameReport report = run_frame(rows, view_only(PHOTOREAL_VIEW_BLOOM_FINAL), true);

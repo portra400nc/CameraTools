@@ -15,7 +15,7 @@ namespace photoreal
     enum class View : uint8_t
     {
         off, normals, albedo, specular, material_id, smoothness, character, depth, stencil,
-        shadow_mask, quarter_shadow, ambient_diffuse, ambient_specular, hdr_scene, bloom_final, count,
+        shadow_mask, quarter_shadow, ambient_diffuse, ambient_specular, hdr_scene, bloom_final, sun_atlas, count,
     };
 
     // How the view shader turns an entry into a picture. One value per branch of shaders/view_ps.hlsl.

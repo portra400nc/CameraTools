@@ -27,7 +27,8 @@ namespace photoreal
             && static_cast<int>(PassId::count) == 4);
         static_assert(PHOTOREAL_CURVE_AGX == static_cast<int>(Curve::agx) && PHOTOREAL_CURVE_COUNT == static_cast<int>(Curve::count));
         static_assert(PHOTOREAL_VIEW_COUNT == static_cast<int>(View::count) && PHOTOREAL_VIEW_STENCIL == static_cast<int>(View::stencil)
-            && PHOTOREAL_VIEW_HDR_SCENE == static_cast<int>(View::hdr_scene) && PHOTOREAL_VIEW_BLOOM_FINAL == static_cast<int>(View::bloom_final));
+            && PHOTOREAL_VIEW_HDR_SCENE == static_cast<int>(View::hdr_scene) && PHOTOREAL_VIEW_BLOOM_FINAL == static_cast<int>(View::bloom_final)
+            && PHOTOREAL_VIEW_SUN_ATLAS == static_cast<int>(View::sun_atlas));
 
         const char *const kErrorNames[] = { "none", "not-d3d11", "shader", "texture", "state" };
         static_assert(PHOTOREAL_ERROR_STATE == 4);
@@ -66,6 +67,8 @@ namespace photoreal
         { View::ambient_specular, "ambient-specular", Entry::ambient_specular, Step::combine, Decode::hdr },
         { View::hdr_scene, "hdr-scene", Entry::hdr_scene, Step::tonemap, Decode::hdr },
         { View::bloom_final, "bloom-final", Entry::bloom_final, Step::tonemap, Decode::hdr },
+        // At the draw that samples it: the atlas then holds this frame's cascades.
+        { View::sun_atlas, "sun-atlas", Entry::sun_atlas, Step::shadow_mask, Decode::gray },
     } };
 
     Label encode_label(std::string_view text)
