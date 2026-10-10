@@ -40,6 +40,9 @@ cbuffer Constants : register(b0)
     float sun_min_penumbra;     // meters
     float sun_strength;
     float2 padding3;
+    float2 lens_sample;         // this frame's aperture point, x right and y up
+    float cat_eye;              // PhotorealAccumulate.cat_eye
+    float cat_eye_falloff;
 };
 
 SamplerState point_clamp : register(s0);

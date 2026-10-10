@@ -68,6 +68,24 @@ namespace photoreal
         Mailbox<Camera> camera_box;
         Mailbox<Published> status_box;
         Mailbox<std::vector<Variant>> compare_box;
+        Mailbox<AccumulateSettings> accumulate_box;
+
+        // The point PhotorealDepthAt asks about and its answer, shared by the C# thread and the render thread.
+        struct DepthAsk
+        {
+            bool active = false;
+            float u = 0, v = 0;
+            uint64_t asked = 0;         // presents when this point was first asked for
+            uint64_t last = 0;          // presents at the newest call
+            float meters = -1;          // the newest answer for this point, -1 while none
+            uint64_t answered = 0;      // presents when the answer's depth was copied
+        };
+        // Presents without a call after which the point is forgotten and the add-on stops reading it.
+        constexpr uint64_t kDepthForget = 60;
+        std::mutex depth_mutex;
+        DepthAsk depth_ask;
+        // presents since the add-on loaded, for the C# thread's calls.
+        std::atomic<uint64_t> presents { 0 };
 
         // Variants of the comparison capture not yet saved. PhotorealCompare raises it from 0, and the worker lowers it
         // as it saves each variant's files, or to 0 when a stopped capture's note is written, so while it is not 0 no
@@ -83,7 +101,17 @@ namespace photoreal
         FrameTracker tracker;
         FrameReport report;
         Settings settings;                  // this frame's, taken at present
-        uint64_t settings_seen = 0, camera_seen = 0, compare_seen = 0;
+        uint64_t settings_seen = 0, camera_seen = 0, compare_seen = 0, accumulate_seen = 0;
+        AccumulateSettings accumulate;      // this frame's, taken at present
+        Accumulator accumulator;
+        // The depth texel in flight: the point it answers, and the frame and camera it was copied with.
+        struct DepthCopy
+        {
+            float u, v;
+            uint64_t frame;
+            Camera camera;
+        };
+        std::optional<DepthCopy> depth_copy;
         Camera camera {};
         uint32_t camera_age = UINT32_MAX;
         SunParse sun_parse;                 // the newest constants read back, from one or two frames before
@@ -291,6 +319,69 @@ namespace photoreal
             sun_frame = sun_check(sun_parse, gpu.gather_sun(*map[Entry::sun_atlas], frames), map[Entry::sun_atlas]->size);
         }
 
+        // At the bloom step, after our passes: the accumulator, so each sample's scene includes their effects.
+        void accumulate_at_bloom(const FrameMap &map)
+        {
+            if (accumulate.mode == AccumulateMode::off || !map[Entry::hdr_scene])
+                return;
+            const AccumulateTick tick = accumulate_tick(accumulator, accumulate, camera.lens, camera_age == 0, map.render);
+            if (!tick.clear && !tick.add && !tick.present)
+                return;
+            const char *moved = nullptr;
+            std::optional<GameCall> call;
+            {
+                StateGuard guard(gpu.context(), moved);
+                call = gpu.run_accumulate(map, tick, accumulate, camera.lens, settings.flip);
+            }
+            if (moved)
+                trip(moved);
+            else if (!call)
+            {
+                frame_error = PHOTOREAL_ERROR_TEXTURE;
+                accumulator = {};
+            }
+            else
+                accumulator = tick.next;
+        }
+
+        // At the bloom step: copies the asked point's depth while no copy is in flight. Needs a camera to turn it into
+        // meters when it is read.
+        void copy_depth_at_bloom(const FrameMap &map)
+        {
+            if (depth_copy || !camera_known() || !map[Entry::depth])
+                return;
+            float u, v;
+            {
+                std::lock_guard lock(depth_mutex);
+                if (!depth_ask.active)
+                    return;
+                u = depth_ask.u;
+                v = depth_ask.v;
+            }
+            const std::optional<Pixel> at = depth_pixel(map.render, u, v, settings.flip);
+            if (at && gpu.copy_depth_texel(map, *at))
+                depth_copy = DepthCopy { u, v, frames, camera };
+        }
+
+        // At present: reads the texel in flight once the GPU is done with it, and answers the point it was copied for.
+        void read_depth()
+        {
+            if (!depth_copy)
+                return;
+            const std::optional<float> raw = gpu.read_depth_texel();
+            if (!raw)
+                return;
+            const DepthCopy copy = *depth_copy;
+            depth_copy.reset();
+            const std::optional<float> meters = view_depth(copy.camera, copy.u, copy.v, *raw);
+            std::lock_guard lock(depth_mutex);
+            if (meters && depth_ask.active && depth_ask.u == copy.u && depth_ask.v == copy.v)
+            {
+                depth_ask.meters = *meters;
+                depth_ask.answered = copy.frame;
+            }
+        }
+
         // The work at one moment. Returns the event's return value: true skips the game's call.
         bool on_step(Step step)
         {
@@ -345,6 +436,11 @@ namespace photoreal
             {
                 trip(moved);
                 return false;
+            }
+            if (step == Step::bloom)
+            {
+                accumulate_at_bloom(map);
+                copy_depth_at_bloom(map);
             }
             if (report.note_view(step, map) && !gpu.snapshot(*map[kViews[static_cast<size_t>(report.view)].entry]))
             {
@@ -523,6 +619,10 @@ namespace photoreal
             s.restarts = report.restarts;
             s.error = report.error;
             s.compare_remaining = remaining;
+            s.accum_mode = static_cast<uint32_t>(report.accumulate);
+            s.accum_samples = accumulator.samples;
+            s.accum_generation = accumulator.generation;
+            report.accumulated = accumulator.samples;
             published.line = describe(report);
             status_box.put(published);
         }
@@ -534,6 +634,9 @@ namespace photoreal
                 init(queue);
 
             frames++;
+            presents.store(frames, std::memory_order_relaxed);
+            if (gpu.ready())
+                read_depth();
             if (report.armed)
                 report.finish(tracker, settings, inputs());
             report.error = sticky_error != PHOTOREAL_ERROR_NONE ? sticky_error : frame_error;
@@ -558,16 +661,26 @@ namespace photoreal
                 camera_age = 0;
             else if (camera_age != UINT32_MAX)
                 camera_age++;
+            accumulate_box.take(accumulate, accumulate_seen);
             frame_error = PHOTOREAL_ERROR_NONE;
             sun_frame = SunCheck::unread;
             if (!settings.enabled || !settings.sun_shadows.enabled)
                 sun_parse = {};
+            bool reading_depth;
+            {
+                std::lock_guard lock(depth_mutex);
+                if (depth_ask.active && frames - depth_ask.last > kDepthForget)
+                    depth_ask = {};
+                reading_depth = depth_ask.active;
+            }
 
-            const bool arm = settings.enabled && sticky_error == PHOTOREAL_ERROR_NONE && gpu.ready();
-            gpu.end_frame(arm ? settings.view : View::off);
+            const bool arm = (settings.enabled || accumulate.mode != AccumulateMode::off || reading_depth) && sticky_error == PHOTOREAL_ERROR_NONE
+                && gpu.ready();
+            gpu.end_frame(arm && settings.enabled ? settings.view : View::off);
             tracker.begin_frame();
             report = FrameReport::start(settings);
             report.armed = arm;
+            report.accumulate = arm ? accumulate.mode : AccumulateMode::off;
             armed.store(arm, std::memory_order_relaxed);
         }
 
@@ -588,6 +701,8 @@ namespace photoreal
             armed.store(false, std::memory_order_relaxed);
             gpu = Gpu {};
             immediate = nullptr;
+            accumulator = {};
+            depth_copy.reset();
             if (capture)
                 stop_capture("the D3D11 device went away");
         }
@@ -597,7 +712,7 @@ namespace photoreal
 using namespace photoreal;
 
 extern "C" __declspec(dllexport) const char *NAME = "CameraTools Photoreal";
-extern "C" __declspec(dllexport) const char *DESCRIPTION = "Finds Genshin's G-buffer and lighting buffers each frame, shows them as debug views, relights the world's ambient light, softens the sun's shadows and adds contact shadows to them, adds aerial perspective to the scene, replaces the game's tone map, and saves comparison captures of settings variants. Driven by CameraTools.";
+extern "C" __declspec(dllexport) const char *DESCRIPTION = "Finds Genshin's G-buffer and lighting buffers each frame, shows them as debug views, relights the world's ambient light, softens the sun's shadows and adds contact shadows to them, adds aerial perspective to the scene, replaces the game's tone map, averages lens samples into depth of field, and saves comparison captures of settings variants. Driven by CameraTools.";
 
 extern "C" uint32_t PhotorealVersion(void)
 {
@@ -629,6 +744,27 @@ extern "C" void PhotorealSetCamera(const PhotorealCamera *raw)
     if (raw == nullptr)
         return;
     camera_box.put(parse_camera(*raw));
+}
+
+extern "C" void PhotorealSetAccumulate(const PhotorealAccumulate *raw)
+{
+    if (raw == nullptr || raw->size < offsetof(PhotorealAccumulate, mode) + sizeof raw->mode)
+        return;
+    PhotorealAccumulate copy {};
+    std::memcpy(&copy, raw, std::min<size_t>(raw->size, sizeof copy));
+    accumulate_box.put(parse_accumulate(copy));
+}
+
+extern "C" float PhotorealDepthAt(float u, float v)
+{
+    if (!(u >= 0 && u <= 1 && v >= 0 && v <= 1))
+        return -1;
+    const uint64_t now = presents.load(std::memory_order_relaxed);
+    std::lock_guard lock(depth_mutex);
+    if (!depth_ask.active || depth_ask.u != u || depth_ask.v != v)
+        depth_ask = { true, u, v, now, now, -1, 0 };
+    depth_ask.last = now;
+    return depth_ask.answered > depth_ask.asked ? depth_ask.meters : -1;
 }
 
 extern "C" void PhotorealGetStatus(PhotorealStatus *status)

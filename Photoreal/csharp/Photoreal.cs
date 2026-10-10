@@ -110,6 +110,24 @@ namespace CameraToolsPhotoreal
         };
     }
 
+    // PHOTOREAL_ACCUMULATE_* in photoreal.h, in order.
+    internal enum PhotorealAccumulateMode : uint { Off, Add, Present }
+
+    // PhotorealAccumulate in photoreal.h, field for field.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct PhotorealAccumulate
+    {
+        public uint Size;
+        public PhotorealAccumulateMode Mode;
+        public uint Generation;
+        public float CatEye;
+        public float CatEyeFalloff;
+    }
+
+    // PhotorealCamera.lens_sample in photoreal.h: the aperture point the camera was moved to, x right and y up in the unit
+    // disk, the sample's index, and whether the accumulator adds this frame.
+    internal readonly record struct LensSample(float X, float Y, uint Index, bool Mark);
+
     // PhotorealVariant in photoreal.h: a 32-byte UTF-8 name, then the settings.
     [StructLayout(LayoutKind.Sequential)]
     internal struct PhotorealVariant
@@ -139,13 +157,16 @@ namespace CameraToolsPhotoreal
         public uint Restarts;
         public PhotorealError Error;
         public uint CompareRemaining;
+        public PhotorealAccumulateMode AccumMode;
+        public uint AccumSamples;
+        public uint AccumGeneration;
     }
 
     // The only class that knows CameraToolsPhotoreal.addon64.
     internal static class Photoreal
     {
         private const string ModuleName = "CameraToolsPhotoreal.addon64";
-        private const uint Version = 4;
+        private const uint Version = 5;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -154,7 +175,7 @@ namespace CameraToolsPhotoreal
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate ulong ApplyCall(ref PhotorealSettings settings);
 
-        // PhotorealCamera is two float[16] and three float[4] in a row, so one float[44] passes it without a struct.
+        // PhotorealCamera is two float[16] and four float[4] in a row, so one float[48] passes it without a struct.
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void SetCameraCall([In] float[] camera);
 
@@ -167,9 +188,16 @@ namespace CameraToolsPhotoreal
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate uint DescribeCall([Out] byte[] text, uint size);
 
-        private sealed record AddOn(IntPtr Module, ApplyCall Apply, SetCameraCall SetCamera, GetStatusCall GetStatus, DescribeCall Describe, CompareCall Compare);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate void SetAccumulateCall(ref PhotorealAccumulate accumulate);
 
-        private static readonly float[] camera = new float[44];
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate float DepthAtCall(float u, float v);
+
+        private sealed record AddOn(IntPtr Module, ApplyCall Apply, SetCameraCall SetCamera, GetStatusCall GetStatus, DescribeCall Describe, CompareCall Compare,
+            SetAccumulateCall SetAccumulate, DepthAtCall DepthAt);
+
+        private static readonly float[] camera = new float[48];
         private static readonly byte[] line = new byte[512];
         private static AddOn addOn;
         // A loaded module that is not an add-on of this version, so it is reported once and not tried again.
@@ -193,8 +221,9 @@ namespace CameraToolsPhotoreal
         // towardSun is the world direction toward the sun, such as -sunLight.transform.forward, of any length;
         // Vector3.zero means no sun, and contact shadows then add nothing. sunColor is the sun light's color in linear RGB
         // times its intensity, and skyColor the sky's ambient light in linear RGB; the atmosphere pass scatters both, and
-        // their alpha is ignored.
-        public static void SetCamera(Matrix4x4 worldToView, Matrix4x4 viewToClip, Vector3 towardSun, Color sunColor, Color skyColor)
+        // their alpha is ignored. lens is the aperture point this frame renders from, default while no depth of field is
+        // being sampled.
+        public static void SetCamera(Matrix4x4 worldToView, Matrix4x4 viewToClip, Vector3 towardSun, Color sunColor, Color skyColor, LensSample lens)
         {
             if (addOn == null)
                 return;
@@ -212,8 +241,29 @@ namespace CameraToolsPhotoreal
             camera[41] = skyColor.g;
             camera[42] = skyColor.b;
             camera[43] = 0;
+            camera[44] = lens.X;
+            camera[45] = lens.Y;
+            camera[46] = lens.Index;
+            camera[47] = lens.Mark ? 1 : 0;
             addOn.SetCamera(camera);
         }
+
+        // Starts, presents or stops lens-sampled depth of field; it takes effect at the add-on's next frame boundary. While
+        // Mode is Add, each frame whose camera came with a marked lens sample is added into the sum, which a new Generation
+        // empties first; Status.AccumGeneration and AccumSamples follow. While Mode is Present, the sum's average replaces
+        // the HDR scene before the game's bloom and tone map.
+        public static void SetAccumulate(PhotorealAccumulate accumulate)
+        {
+            if (addOn == null)
+                return;
+            accumulate.Size = (uint)Marshal.SizeOf<PhotorealAccumulate>();
+            addOn.SetAccumulate(ref accumulate);
+        }
+
+        // The view-space depth in meters at a screen point, u and v from 0 at the top left to 1, or a negative number
+        // until the add-on has read it from a frame after the first call for this point: call it once a frame until it is
+        // not negative. Negative while the add-on is not loaded.
+        public static float DepthAt(float u, float v) => addOn?.DepthAt(u, v) ?? -1f;
 
         // Starts a comparison capture of up to 16 variants: the add-on renders each one's settings on the following frames
         // and saves a PNG of each to <ReShade base path>\Photoreal\compare-<time>\, then restores the settings it had.
@@ -303,13 +353,15 @@ namespace CameraToolsPhotoreal
                 || !TryExport<SetCameraCall>(module, "PhotorealSetCamera", out var setCamera)
                 || !TryExport<GetStatusCall>(module, "PhotorealGetStatus", out var getStatus)
                 || !TryExport<DescribeCall>(module, "PhotorealDescribe", out var describe)
-                || !TryExport<CompareCall>(module, "PhotorealCompare", out var compare))
+                || !TryExport<CompareCall>(module, "PhotorealCompare", out var compare)
+                || !TryExport<SetAccumulateCall>(module, "PhotorealSetAccumulate", out var setAccumulate)
+                || !TryExport<DepthAtCall>(module, "PhotorealDepthAt", out var depthAt))
             {
                 MelonLogger.Warning($"Photoreal: {ModuleName} version {found} is missing an export.");
                 return;
             }
             rejected = IntPtr.Zero;
-            addOn = new AddOn(module, apply, setCamera, getStatus, describe, compare);
+            addOn = new AddOn(module, apply, setCamera, getStatus, describe, compare, setAccumulate, depthAt);
             MelonLogger.Msg($"Photoreal: connected to {ModuleName} version {found}.");
         }
 

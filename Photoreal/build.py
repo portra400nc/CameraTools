@@ -26,13 +26,16 @@ RESHADE_HEADERS = [
     "reshade.hpp", "reshade_api.hpp", "reshade_api_device.hpp", "reshade_api_format.hpp", "reshade_api_pipeline.hpp",
     "reshade_api_resource.hpp", "reshade_events.hpp", "reshade_overlay.hpp",
 ]
-SOURCES = ["addon.cpp", "gpu.cpp", "core/recipe.cpp", "core/plan.cpp", "core/sun.cpp", "core/png.cpp", "core/compare.cpp"]
+SOURCES = [
+    "addon.cpp", "gpu.cpp", "core/recipe.cpp", "core/plan.cpp", "core/sun.cpp", "core/png.cpp", "core/compare.cpp", "core/accumulate.cpp",
+]
 # (symbol in photoreal_shaders.h, source in shaders/, profile)
 SHADERS = [
     ("kFullscreenVs", "fullscreen_vs.hlsl", "vs_5_0"), ("kAoPs", "ao_ps.hlsl", "ps_5_0"), ("kAmbientPs", "ambient_ps.hlsl", "ps_5_0"),
     ("kContactPs", "contact_ps.hlsl", "ps_5_0"), ("kContactShadowsPs", "contact_shadows_ps.hlsl", "ps_5_0"),
     ("kSunPs", "sun_ps.hlsl", "ps_5_0"), ("kSunShadowsPs", "sun_shadows_ps.hlsl", "ps_5_0"),
     ("kAtmospherePs", "atmosphere_ps.hlsl", "ps_5_0"), ("kTonemapPs", "tonemap_ps.hlsl", "ps_5_0"), ("kViewPs", "view_ps.hlsl", "ps_5_0"),
+    ("kAccumulatePs", "accumulate_ps.hlsl", "ps_5_0"), ("kPresentPs", "present_ps.hlsl", "ps_5_0"),
 ]
 WORKSPACE_VKD3D = Path(".work/build/reshade/vkd3d/vkd3d-compiler")
 DEPS = HERE / ".deps"

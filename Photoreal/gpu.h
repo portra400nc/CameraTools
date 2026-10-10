@@ -5,6 +5,7 @@
 // through CopyResource between the game's resource and a Mirror with the same description.
 #pragma once
 
+#include "core/accumulate.h"
 #include "core/compare.h"
 #include "core/plan.h"
 
@@ -97,6 +98,13 @@ namespace photoreal
         bool sync(ID3D11Device *device, ID3D11Resource *like, DXGI_FORMAT view_format, bool render_target);
         void copy_from(ID3D11DeviceContext *context, ID3D11Resource *game) const { context->CopyResource(texture_.Get(), game); }
         void copy_to(ID3D11DeviceContext *context, ID3D11Resource *game) const { context->CopyResource(game, texture_.Get()); }
+        // One texel into a texture of the same format family. The mirror is never a depth-stencil resource, so unlike the
+        // game's depth it may be copied from in part.
+        void copy_texel_to(ID3D11DeviceContext *context, ID3D11Resource *destination, Pixel at) const
+        {
+            const D3D11_BOX box = { at.x, at.y, 0, at.x + 1, at.y + 1, 1 };
+            context->CopySubresourceRegion(destination, 0, 0, 0, 0, texture_.Get(), 0, &box);
+        }
 
         ID3D11ShaderResourceView *srv() const { return srv_.Get(); }                 // depth: R32_FLOAT_X8X24_TYPELESS
         ID3D11ShaderResourceView *stencil_srv() const { return stencil_srv_.Get(); } // depth only: X32_TYPELESS_G8X24_UINT
@@ -204,6 +212,21 @@ namespace photoreal
         // output, and skip the game's draw. Empty when a texture of ours failed, and the game's draw then runs.
         std::optional<GameCall> run_tonemap(const FrameMap &map, const TonemapSettings &settings);
 
+        // The accumulator at the bloom step, in tick's order: clear empties sum_; add mirrors in the HDR scene and draws it
+        // times the cat's-eye weight of lens, with the weight in alpha, additively into sum_; present draws sum.rgb / sum.a
+        // where sum.a > 0, and the scene elsewhere, and copies it over the game's HDR scene. Empty when a texture of ours
+        // failed; then the sum is not to be trusted.
+        std::optional<GameCall> run_accumulate(const FrameMap &map, const AccumulateTick &tick, const AccumulateSettings &settings,
+            const LensSample &lens, bool flip);
+
+        // At the bloom step: copies the main depth's texel at into a CPU-readable texture for read_depth_texel. false when
+        // a copy is still unread or a texture of ours failed.
+        bool copy_depth_texel(const FrameMap &map, Pixel at);
+
+        // The reversed depth copy_depth_texel copied, once the GPU has finished the copy, read without waiting. Empty while
+        // it has not, or when nothing was copied.
+        std::optional<float> read_depth_texel();
+
         // At present: shown = pending, and pending starts empty for next_view (found = false until its step copies it).
         void end_frame(View next_view);
 
@@ -220,7 +243,8 @@ namespace photoreal
         std::optional<RawFrame> read_back_buffer(uint32_t slot) const { return copies_[slot].read(context_.Get()); }
 
     private:
-        void draw_fullscreen(ID3D11PixelShader *shader, ID3D11ShaderResourceView *const *srvs, UINT srv_count, ID3D11RenderTargetView *target, Size size);
+        void draw_fullscreen(ID3D11PixelShader *shader, ID3D11ShaderResourceView *const *srvs, UINT srv_count, ID3D11RenderTargetView *target, Size size,
+            ID3D11BlendState *blend = nullptr);
         void upload(const struct Constants &constants);
         // Copies the normals and depth into their mirrors and syncs scratch, the pass's raw result, to the render size.
         // false when a texture of ours failed.
@@ -233,7 +257,7 @@ namespace photoreal
         ComPtr<ID3D11DeviceContext1> context_;
         ComPtr<ID3D11VertexShader> fullscreen_vs_;
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_, tonemap_ps_,
-            view_ps_;
+            view_ps_, accumulate_ps_, present_ps_;
         ComPtr<ID3D11SamplerState> point_, linear_, lit_compare_;
         ComPtr<ID3D11Buffer> constants_;
         ComPtr<ID3D11Buffer> game_tonemap_;    // the game's tone map constants, copied in at each tonemap pass
@@ -247,7 +271,7 @@ namespace photoreal
         };
         std::array<SunStage, 3> sun_stages_;
         bool sun_ready_ = false;                // gather_sun copied the constants and the atlas this frame
-        ComPtr<ID3D11BlendState> opaque_;
+        ComPtr<ID3D11BlendState> opaque_, additive_;
         ComPtr<ID3D11DepthStencilState> no_depth_;
         ComPtr<ID3D11RasterizerState> no_cull_;
         Mirror irradiance_in_, irradiance_out_, shadow_mask_in_, shadow_mask_out_, scene_in_, scene_out_, bloom_in_, tonemap_out_, normals_, depth_,
@@ -255,6 +279,9 @@ namespace photoreal
         Scratch ao_;                // R8_UNORM raw occlusion, 1 = open
         Scratch contact_;           // R8_UNORM raw sun visibility, 1 = lit
         Scratch sun_;               // R8_UNORM raw soft sun visibility, 1 = lit
+        Scratch sum_;               // R32G32B32A32_FLOAT: rgb the weighted HDR sum, a the weight sum
+        ComPtr<ID3D11Texture2D> depth_texel_;   // 1x1 R32G8X24_TYPELESS, CPU-readable
+        bool depth_texel_pending_ = false;      // copied and not yet read
         Snapshot pending_, shown_;
         Staging copies_[2];
     };
