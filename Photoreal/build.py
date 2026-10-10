@@ -69,10 +69,11 @@ def main():
 
 
 def vkd3d_compiler(given):
-    if given:
-        return given
-    if os.environ.get("PHOTOREAL_VKD3D_COMPILER"):
-        return Path(os.environ["PHOTOREAL_VKD3D_COMPILER"])
+    named = given or os.environ.get("PHOTOREAL_VKD3D_COMPILER")
+    if named:
+        if not Path(named).is_file():
+            sys.exit(f"vkd3d-compiler not found at {named}.")
+        return Path(named)
     for parent in HERE.parents:
         if (parent / WORKSPACE_VKD3D).exists():
             return parent / WORKSPACE_VKD3D
