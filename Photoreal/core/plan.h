@@ -156,6 +156,7 @@ namespace photoreal
         bool view_found = false;
         uint32_t restarts = 0;
         uint32_t error = 0;     // PHOTOREAL_ERROR_*
+        uint32_t compare_saved = 0, compare_count = 0;  // a comparison capture's progress; count 0 when none runs
 
         // A frame's report as it starts: armed and the view follow the settings, until the shell says otherwise.
         static FrameReport start(const Settings &settings);
@@ -172,7 +173,7 @@ namespace photoreal
     };
 
     // "1152x720 found gbuffer ... tonemap; ran ambient@combine; view normals", or
-    // "found nothing; skipped ambient: missing normals depth ambient-diffuse". Names come from kRecipe, kEntryNames,
-    // kPasses and kViews.
+    // "found nothing; skipped ambient: missing normals depth ambient-diffuse", or "off; comparing 2/5". Names come from
+    // kRecipe, kEntryNames, kPasses and kViews.
     std::string describe(const FrameReport &report);
 }

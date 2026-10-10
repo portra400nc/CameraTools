@@ -26,7 +26,7 @@ RESHADE_HEADERS = [
     "reshade.hpp", "reshade_api.hpp", "reshade_api_device.hpp", "reshade_api_format.hpp", "reshade_api_pipeline.hpp",
     "reshade_api_resource.hpp", "reshade_events.hpp", "reshade_overlay.hpp",
 ]
-SOURCES = ["addon.cpp", "gpu.cpp", "core/recipe.cpp", "core/plan.cpp", "core/png.cpp"]
+SOURCES = ["addon.cpp", "gpu.cpp", "core/recipe.cpp", "core/plan.cpp", "core/png.cpp", "core/compare.cpp"]
 # (symbol in photoreal_shaders.h, source in shaders/, profile)
 SHADERS = [
     ("kFullscreenVs", "fullscreen_vs.hlsl", "vs_5_0"), ("kAoPs", "ao_ps.hlsl", "ps_5_0"), ("kAmbientPs", "ambient_ps.hlsl", "ps_5_0"),

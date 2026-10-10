@@ -322,6 +322,8 @@ namespace photoreal
             if (report.restarts != 0)
                 line += "; restarts " + std::to_string(report.restarts);
         }
+        if (report.compare_count != 0)
+            line += "; comparing " + std::to_string(report.compare_saved) + "/" + std::to_string(report.compare_count);
         if (report.error != PHOTOREAL_ERROR_NONE && report.error < std::size(kErrorNames))
             line += std::string("; error ") + kErrorNames[report.error];
         return line;

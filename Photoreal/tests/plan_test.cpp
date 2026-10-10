@@ -210,6 +210,15 @@ int main()
         check("disabled: describe says off", describe(report) == "off");
         report.error = PHOTOREAL_ERROR_SHADER;
         check("disabled by an error: describe says which", describe(report) == "off; error shader");
+        report.compare_saved = 1;
+        report.compare_count = 3;
+        check("a comparison capture's progress comes before the error", describe(report) == "off; comparing 1/3; error shader");
+    }
+    {
+        auto rows = walk;
+        FrameReport report = run_frame(rows, ambient_on(), true);
+        report.compare_count = 16;
+        check("a capture's progress ends an armed line", describe(report) == std::string(kAllSteps) + "; ran ambient@combine; comparing 0/16");
     }
     {
         auto rows = walk;

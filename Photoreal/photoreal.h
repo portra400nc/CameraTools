@@ -130,6 +130,16 @@ typedef struct PhotorealSettings
     PhotorealContactShadows contact_shadows;
 } PhotorealSettings;
 
+#define PHOTOREAL_COMPARE_MAX 16
+
+// One settings variant of a comparison capture.
+typedef struct PhotorealVariant
+{
+    char name[32];                  // UTF-8, ended by a NUL or by the array; names the variant's PNG. Bytes other than
+                                    // A-Z, a-z, 0-9, '.', '_' and '-' become '-'.
+    PhotorealSettings settings;     // size as for PhotorealApply
+} PhotorealVariant;
+
 // Unity's main camera for the frame being drawn, as Unity lays out Matrix4x4 in memory (column-major).
 // view_to_clip is GL.GetGPUProjectionMatrix(projectionMatrix, false): D3D clip space with reversed Z, not flipped,
 // because PhotorealSettings.flip owns the vertical orientation.
