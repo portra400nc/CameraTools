@@ -267,6 +267,34 @@ int main()
         const Plan at_forward = plan(Step::forward, tracker.map(), leaves_on(false, false), kCamera);
         check("the forward plan runs leaves alone", at_forward.count == 1 && at_forward.items[0].pass == PassId::leaves
             && at_forward.items[0].kind == Decision::Kind::run);
+        check("with this frame's sun constants, leaves use them", at_forward.items[0].uses_sun);
+        const Plan unread = plan(Step::forward, tracker.map(), leaves_on(false, false), Inputs { true, SunCheck::unread });
+        check("before any sun constants were read back, leaves run without them", unread.items[0].kind == Decision::Kind::run
+            && !unread.items[0].uses_sun);
+        const Plan failed = plan(Step::forward, tracker.map(), leaves_on(false, false), Inputs { true, SunCheck::radii_order });
+        check("with sun constants that failed a check, leaves run without them", failed.items[0].kind == Decision::Kind::run
+            && !failed.items[0].uses_sun);
+        const Plan ambient = plan(Step::combine, tracker.map(), ambient_on(), kCamera);
+        check("ambient never uses the sun constants", ambient.items[2].pass == PassId::ambient && ambient.items[2].kind == Decision::Kind::run
+            && !ambient.items[2].uses_sun);
+    }
+    {
+        auto rows = walk;
+        const FrameReport report = run_frame(rows, leaves_on(false, false), Inputs { true, SunCheck::signature });
+        check("leaves without usable sun constants still run and say nothing of them", report.ran.bits == PHOTOREAL_PASS_LEAVES
+            && describe(report) == std::string(kAllSteps) + "; ran leaves@forward");
+        std::vector<fixture::Row> menu;
+        check("no G-buffer and no sun constants: leaves name only the entries they need", describe(run_frame(menu, leaves_on(false, false),
+            Inputs { true, SunCheck::unread })) == "found nothing; skipped leaves: missing normals albedo material-id depth shadow-mask hdr-scene");
+    }
+    {
+        check("leaves want the sun constants", wants_sun(leaves_on(false, false)));
+        check("sun shadows want the sun constants", wants_sun(sun_shadows_on(false)));
+        check("ambient, contact shadows, atmosphere, tonemap and wetness do not", !wants_sun(ambient_on()) && !wants_sun(contact_shadows_on(true))
+            && !wants_sun(atmosphere_on()) && !wants_sun(tonemap_on(true)) && !wants_sun(wetness_on(true)));
+        Settings off = leaves_on(false, false);
+        off.enabled = false;
+        check("disabled settings want no sun constants", !wants_sun(off));
     }
     {
         auto rows = walk;

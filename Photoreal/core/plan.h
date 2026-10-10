@@ -167,6 +167,14 @@ namespace photoreal
     enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, leaves, wetness, count };
     using PassSet = Set<PassId>;
 
+    // How a pass reads the game's sun shadow constants and atlas, which the shell copies at the shadow-mask draw.
+    enum class SunUse : uint8_t
+    {
+        none,
+        optional,   // when this frame's passed their checks; the pass does without them otherwise
+        required,   // the pass skips without this frame's
+    };
+
     struct PassSpec
     {
         PassId id;
@@ -174,7 +182,7 @@ namespace photoreal
         Step at;                // runs when this step completes, before the game's call
         EntrySet needs;         // runs only when every one was found by then
         bool needs_camera;
-        bool needs_sun;         // the game's sun shadow constants, checked this frame
+        SunUse sun;
         bool (*wanted)(const Settings &);
     };
 
@@ -213,7 +221,8 @@ namespace photoreal
         PassId pass;
         EntrySet missing;       // skip only
         bool camera_missing;    // skip only
-        SunCheck sun;           // skip only: not ok when the pass needs the sun constants and this frame's are unusable
+        SunCheck sun;           // skip only: not ok when the pass requires the sun constants and this frame's are unusable
+        bool uses_sun;          // run only: the pass reads the sun constants, and this frame's passed their checks
     };
 
     // The passes subscribed to a step, in table order, each with what to do now.
@@ -231,6 +240,9 @@ namespace photoreal
     };
 
     Plan plan(Step step, const FrameMap &map, const Settings &settings, const Inputs &inputs);
+
+    // Whether a wanted pass reads the game's sun shadow constants, so the shell copies them and the atlas this frame.
+    bool wants_sun(const Settings &settings);
 
     // The steps a frame must reach for these settings: the steps of wanted passes, the view's snapshot step, and
     // their prerequisites.

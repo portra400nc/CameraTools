@@ -307,12 +307,12 @@ namespace photoreal
         Inputs inputs() { return { camera_known(), sun_frame }; }
 
         // At the shadow-mask draw, before it runs: parse the newest finished readback of an earlier frame's constants,
-        // then copy this draw's. The pass draws with this frame's copies on the GPU, so it stays exact while the camera
-        // moves. The readback only decides whether it runs and gives the cascade layout, which changes only with the
-        // graphics settings, and with it the atlas's size, which sun_check compares.
+        // then copy this draw's. The passes draw with this frame's copies on the GPU, so they stay exact while the camera
+        // moves. The readback only decides whether they use them and gives the cascade layout, which changes only with
+        // the graphics settings, and with it the atlas's size, which sun_check compares.
         void gather_sun(const FrameMap &map)
         {
-            if (!settings.enabled || !settings.sun_shadows.enabled || !map[Entry::sun_atlas])
+            if (!wants_sun(settings) || !map[Entry::sun_atlas])
                 return;
             if (const std::optional<SunCbuffers> bytes = gpu.sun_constants(frames))
                 sun_parse = parse_sun_shadows(*bytes);
@@ -670,7 +670,7 @@ namespace photoreal
             accumulate_box.take(accumulate, accumulate_seen);
             frame_error = PHOTOREAL_ERROR_NONE;
             sun_frame = SunCheck::unread;
-            if (!settings.enabled || !settings.sun_shadows.enabled)
+            if (!wants_sun(settings))
                 sun_parse = {};
             bool reading_depth;
             {

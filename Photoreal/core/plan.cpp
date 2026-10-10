@@ -68,19 +68,22 @@ namespace photoreal
     const std::array<PassSpec, static_cast<size_t>(PassId::count)> kPasses = { {
         // The camera only for the puddles, which lie still in the world.
         { PassId::wetness, "wetness", Step::gbuffer_done,
-          { Entry::normals, Entry::albedo, Entry::specular, Entry::material_id, Entry::smoothness, Entry::depth }, true, false, wetness_wanted },
+          { Entry::normals, Entry::albedo, Entry::specular, Entry::material_id, Entry::smoothness, Entry::depth }, true, SunUse::none, wetness_wanted },
         // Before contact shadows, which lower what it writes, and the camera only for its blur: it finds positions from
         // the game's own camera constants.
-        { PassId::sun_shadows, "sun-shadows", Step::combine, { Entry::normals, Entry::depth, Entry::shadow_mask, Entry::sun_atlas }, true, true,
+        { PassId::sun_shadows, "sun-shadows", Step::combine, { Entry::normals, Entry::depth, Entry::shadow_mask, Entry::sun_atlas }, true, SunUse::required,
           sun_shadows_wanted },
-        { PassId::contact_shadows, "contact-shadows", Step::combine, { Entry::normals, Entry::depth, Entry::shadow_mask }, true, false,
+        { PassId::contact_shadows, "contact-shadows", Step::combine, { Entry::normals, Entry::depth, Entry::shadow_mask }, true, SunUse::none,
           contact_shadows_wanted },
-        { PassId::ambient, "ambient", Step::combine, { Entry::normals, Entry::depth, Entry::ambient_diffuse }, true, false, ambient_wanted },
+        { PassId::ambient, "ambient", Step::combine, { Entry::normals, Entry::depth, Entry::ambient_diffuse }, true, SunUse::none, ambient_wanted },
+        // The sun constants and atlas measure the leaves between each leaf and the sun; without them a leaf takes the
+        // sun's visibility in the shadow mask.
         { PassId::leaves, "leaves", Step::forward,
-          { Entry::normals, Entry::albedo, Entry::material_id, Entry::depth, Entry::shadow_mask, Entry::hdr_scene }, true, false, leaves_wanted },
-        { PassId::atmosphere, "atmosphere", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, false, atmosphere_wanted },
+          { Entry::normals, Entry::albedo, Entry::material_id, Entry::depth, Entry::shadow_mask, Entry::hdr_scene }, true, SunUse::optional,
+          leaves_wanted },
+        { PassId::atmosphere, "atmosphere", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::none, atmosphere_wanted },
         // bloom-final is optional: a tone map draw without one still gets ours, without bloom.
-        { PassId::tonemap, "tonemap", Step::tonemap, { Entry::hdr_scene, Entry::tonemap_out }, false, false, tonemap_wanted },
+        { PassId::tonemap, "tonemap", Step::tonemap, { Entry::hdr_scene, Entry::tonemap_out }, false, SunUse::none, tonemap_wanted },
     } };
 
     const std::array<const char *, static_cast<size_t>(Curve::count)> kCurveNames = { "game", "agx", "neutral" };
@@ -302,17 +305,28 @@ namespace photoreal
         {
             if (spec.at != step)
                 continue;
-            Decision d { Decision::Kind::off, spec.id, {}, false, SunCheck::ok };
+            Decision d { Decision::Kind::off, spec.id, {}, false, SunCheck::ok, false };
             if (settings.enabled && spec.wanted(settings))
             {
                 d.missing = spec.needs.minus(found);
                 d.camera_missing = spec.needs_camera && !inputs.camera;
-                d.sun = spec.needs_sun ? inputs.sun : SunCheck::ok;
+                d.sun = spec.sun == SunUse::required ? inputs.sun : SunCheck::ok;
                 d.kind = d.missing.empty() && !d.camera_missing && d.sun == SunCheck::ok ? Decision::Kind::run : Decision::Kind::skip;
+                d.uses_sun = d.kind == Decision::Kind::run && spec.sun != SunUse::none && inputs.sun == SunCheck::ok;
             }
             p.items[p.count++] = d;
         }
         return p;
+    }
+
+    bool wants_sun(const Settings &settings)
+    {
+        if (!settings.enabled)
+            return false;
+        for (const PassSpec &spec : kPasses)
+            if (spec.sun != SunUse::none && spec.wanted(settings))
+                return true;
+        return false;
     }
 
     StepSet wanted_steps(const Settings &settings)
@@ -393,7 +407,7 @@ namespace photoreal
             const EntrySet absent = spec.needs.minus(entries);
             skipped.add(spec.id);
             why[static_cast<size_t>(spec.id)] = { absent, absent.empty(), spec.needs_camera && !inputs.camera, false,
-                spec.needs_sun ? inputs.sun : SunCheck::ok };
+                spec.sun == SunUse::required ? inputs.sun : SunCheck::ok };
             missing |= absent;
         }
         if (view != View::off && !entries.has(kViews[static_cast<size_t>(view)].entry))
