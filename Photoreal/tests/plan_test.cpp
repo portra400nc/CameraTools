@@ -321,7 +321,7 @@ int main()
         check("a label stops at 32 glyphs", encode_label(std::string(40, 'z')).length == 32);
     }
     {
-        FrameReport report = FrameReport::start(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, 0, 1, {}, {}, {}, {} }));
+        FrameReport report = FrameReport::start(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, 0, 1, {}, {}, {}, {}, {} }));
         check("disabled: describe says off", describe(report) == "off");
         report.error = PHOTOREAL_ERROR_SHADER;
         check("disabled by an error: describe says which", describe(report) == "off; error shader");
@@ -481,6 +481,34 @@ int main()
             && high.tonemap.bloom_strength == 4.0f && high.tonemap.saturation == 2.0f && high.tonemap.contrast == 2.0f);
     }
     {
+        PhotorealSettings raw = raw_settings();
+        raw.sun_shadows = { 1, 0.05f, 0.1f, 0.8f };
+        const Settings whole = parse_settings(raw);
+        check("a whole struct reads sun shadows: on, light size 0.05, min penumbra 0.1, strength 0.8", whole.sun_shadows.enabled
+            && whole.sun_shadows.light_size == 0.05f && whole.sun_shadows.min_penumbra == 0.1f && whole.sun_shadows.strength == 0.8f);
+        raw.size = 100;  // a caller built before sun shadows existed
+        const Settings v4 = parse_settings(raw);
+        check("a 100-byte struct keeps sun shadows off at light size 0.03, min penumbra 0.02, strength 1", !v4.sun_shadows.enabled
+            && v4.sun_shadows.light_size == 0.03f && v4.sun_shadows.min_penumbra == 0.02f && v4.sun_shadows.strength == 1.0f
+            && v4.tonemap.curve == Curve::game);
+        raw.size = 115;
+        check("a struct one byte short of the sun-shadow block keeps its defaults", !parse_settings(raw).sun_shadows.enabled
+            && parse_settings(raw).sun_shadows.light_size == 0.03f);
+        raw.size = sizeof raw;
+        raw.sun_shadows = { 1, NAN, INFINITY, -INFINITY };
+        const Settings bad = parse_settings(raw);
+        check("sun shadows: NaN and infinities fall back to light size 0.03, min penumbra 0.02, strength 1",
+            bad.sun_shadows.light_size == 0.03f && bad.sun_shadows.min_penumbra == 0.02f && bad.sun_shadows.strength == 1.0f);
+        raw.sun_shadows = { 1, -1, -1, -1 };
+        const Settings low = parse_settings(raw);
+        check("sun shadows clamp: light size, min penumbra and strength -1 to 0", low.sun_shadows.light_size == 0.0f
+            && low.sun_shadows.min_penumbra == 0.0f && low.sun_shadows.strength == 0.0f);
+        raw.sun_shadows = { 1, 1, 2, 3 };
+        const Settings high = parse_settings(raw);
+        check("sun shadows clamp: light size 1 to 0.2, min penumbra 2 to 0.5, strength 3 to 1", high.sun_shadows.light_size == 0.2f
+            && high.sun_shadows.min_penumbra == 0.5f && high.sun_shadows.strength == 1.0f);
+    }
+    {
         PhotorealCamera raw {};
         raw.world_to_view[5] = 2;
         raw.view_to_clip[14] = 0.1f;
@@ -520,7 +548,7 @@ int main()
     }
     {
         check("disabled settings want no step", wanted_steps(view_only(PHOTOREAL_VIEW_HDR_SCENE)).bits != 0
-            && wanted_steps(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, PHOTOREAL_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 } })).empty());
+            && wanted_steps(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, PHOTOREAL_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 } })).empty());
     }
     {
         // Unity's GL.GetGPUProjectionMatrix for a 60 degree, 16:10 camera with near 0.1 and far 1000, reversed Z.

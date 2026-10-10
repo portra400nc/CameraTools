@@ -11,7 +11,7 @@ namespace photoreal
     namespace
     {
         static_assert(PHOTOREAL_COMPARE_MAX == kCompareMax && sizeof(PhotorealVariant) == 32 + sizeof(PhotorealSettings));
-        static_assert(sizeof(PhotorealSettings) == 100, "settings_tsv writes every field: give a new one a column");
+        static_assert(sizeof(PhotorealSettings) == 116, "settings_tsv writes every field: give a new one a column");
         // compare_remaining took the padding at the end, so a caller built before it still sends 72 bytes.
         static_assert(offsetof(PhotorealStatus, compare_remaining) == 68 && sizeof(PhotorealStatus) == 72);
 
@@ -124,7 +124,8 @@ namespace photoreal
                           "\tambient.foliage_ao_strength\tcontact_shadows.enabled\tcontact_shadows.length\tcontact_shadows.strength"
                           "\tcontact_shadows.thickness\tcontact_shadows.foliage_strength\tatmosphere.enabled\tatmosphere.density"
                           "\tatmosphere.height_falloff\tatmosphere.sun_scatter\tatmosphere.anisotropy\ttonemap.enabled\ttonemap.exposure_ev"
-                          "\ttonemap.curve\ttonemap.bloom_strength\ttonemap.saturation\ttonemap.contrast\n";
+                          "\ttonemap.curve\ttonemap.bloom_strength\ttonemap.saturation\ttonemap.contrast\tsun_shadows.enabled"
+                          "\tsun_shadows.light_size\tsun_shadows.min_penumbra\tsun_shadows.strength\n";
         for (size_t i = 0; i < variants.size(); i++)
         {
             const Settings &s = variants[i].settings;
@@ -132,13 +133,15 @@ namespace photoreal
             const ContactShadowSettings &c = s.contact_shadows;
             const AtmosphereSettings &h = s.atmosphere;
             const TonemapSettings &t = s.tonemap;
+            const SunShadowSettings &u = s.sun_shadows;
             out += std::to_string(i) + '\t' + variants[i].name + '\t' + (s.enabled ? "1" : "0") + '\t' + kViews[static_cast<size_t>(s.view)].name
                 + '\t' + (s.flip ? "1" : "0") + '\t' + (a.enabled ? "1" : "0") + '\t' + number(a.level) + '\t' + number(a.ao_strength) + '\t'
                 + number(a.ao_radius) + '\t' + number(a.foliage_ao_strength) + '\t' + (c.enabled ? "1" : "0") + '\t' + number(c.length) + '\t'
                 + number(c.strength) + '\t' + number(c.thickness) + '\t' + number(c.foliage_strength) + '\t' + (h.enabled ? "1" : "0") + '\t'
                 + number(h.density) + '\t' + number(h.height_falloff) + '\t' + number(h.sun_scatter) + '\t' + number(h.anisotropy) + '\t'
                 + (t.enabled ? "1" : "0") + '\t' + number(t.exposure_ev) + '\t' + kCurveNames[static_cast<size_t>(t.curve)] + '\t'
-                + number(t.bloom_strength) + '\t' + number(t.saturation) + '\t' + number(t.contrast) + '\n';
+                + number(t.bloom_strength) + '\t' + number(t.saturation) + '\t' + number(t.contrast) + '\t' + (u.enabled ? "1" : "0") + '\t'
+                + number(u.light_size) + '\t' + number(u.min_penumbra) + '\t' + number(u.strength) + '\n';
         }
         return out;
     }

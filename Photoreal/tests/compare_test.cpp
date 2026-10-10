@@ -30,6 +30,7 @@ namespace
         v.settings.contact_shadows = { 0, 0.6f, 1, 0.25f, 0 };
         v.settings.atmosphere = { 0, 0.000325f, 0.02f, 1, 0.7f };
         v.settings.tonemap = { 0, 0, PHOTOREAL_CURVE_GAME, 1, 1, 1 };
+        v.settings.sun_shadows = { 0, 0.03f, 0.02f, 1 };
         return v;
     }
 
@@ -115,14 +116,18 @@ int main()
         raw[1].settings.contact_shadows = { 1, 1.2f, 0.7f, 0.3f, 0.4f };
         raw[1].settings.atmosphere = { 1, 0.001f, 0.05f, 2, 0.5f };
         raw[1].settings.tonemap = { 1, 0.5f, PHOTOREAL_CURVE_AGX, 1.5f, 0.9f, 1.2f };
+        raw[1].settings.sun_shadows = { 1, 0.05f, 0.1f, 0.8f };
         check("settings.tsv writes every parsed field, one row per variant", settings_tsv(*parse_variants(raw, 2))
             == "index\tname\tenabled\tview\tflip\tambient.enabled\tambient.level\tambient.ao_strength\tambient.ao_radius"
                "\tambient.foliage_ao_strength\tcontact_shadows.enabled\tcontact_shadows.length\tcontact_shadows.strength"
                "\tcontact_shadows.thickness\tcontact_shadows.foliage_strength\tatmosphere.enabled\tatmosphere.density"
                "\tatmosphere.height_falloff\tatmosphere.sun_scatter\tatmosphere.anisotropy\ttonemap.enabled\ttonemap.exposure_ev"
-               "\ttonemap.curve\ttonemap.bloom_strength\ttonemap.saturation\ttonemap.contrast\n"
-               "0\toff\t0\toff\t1\t1\t0.6\t0.5\t1\t0.5\t0\t0.6\t1\t0.25\t0\t0\t0.000325\t0.02\t1\t0.7\t0\t0\tgame\t1\t1\t1\n"
-               "1\tshadows\t1\tshadow-mask\t1\t1\t0.6\t0.5\t1\t0.5\t1\t1.2\t0.7\t0.3\t0.4\t1\t0.001\t0.05\t2\t0.5\t1\t0.5\tagx\t1.5\t0.9\t1.2\n");
+               "\ttonemap.curve\ttonemap.bloom_strength\ttonemap.saturation\ttonemap.contrast\tsun_shadows.enabled"
+               "\tsun_shadows.light_size\tsun_shadows.min_penumbra\tsun_shadows.strength\n"
+               "0\toff\t0\toff\t1\t1\t0.6\t0.5\t1\t0.5\t0\t0.6\t1\t0.25\t0\t0\t0.000325\t0.02\t1\t0.7\t0\t0\tgame\t1\t1\t1"
+               "\t0\t0.03\t0.02\t1\n"
+               "1\tshadows\t1\tshadow-mask\t1\t1\t0.6\t0.5\t1\t0.5\t1\t1.2\t0.7\t0.3\t0.4\t1\t0.001\t0.05\t2\t0.5\t1\t0.5\tagx\t1.5\t0.9\t1.2"
+               "\t1\t0.05\t0.1\t0.8\n");
     }
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;

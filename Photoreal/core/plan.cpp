@@ -33,11 +33,13 @@ namespace photoreal
         const char *const kErrorNames[] = { "none", "not-d3d11", "shader", "texture", "state" };
         static_assert(PHOTOREAL_ERROR_STATE == 4);
         // Callers built before foliage_ao_strength send 32 bytes, those before contact shadows 36, those before their
-        // foliage_strength 52, those before atmosphere 56, those before tonemap 76; csharp/Photoreal.cs marshals 100.
+        // foliage_strength 52, those before atmosphere 56, those before tonemap 76, those before sun shadows 100;
+        // csharp/Photoreal.cs marshals 116.
         static_assert(offsetof(PhotorealSettings, ambient) + offsetof(PhotorealAmbient, foliage_ao_strength) == 32
             && offsetof(PhotorealSettings, contact_shadows) == 36
             && offsetof(PhotorealSettings, contact_shadows) + offsetof(PhotorealContactShadows, foliage_strength) == 52
-            && offsetof(PhotorealSettings, atmosphere) == 56 && offsetof(PhotorealSettings, tonemap) == 76 && sizeof(PhotorealSettings) == 100);
+            && offsetof(PhotorealSettings, atmosphere) == 56 && offsetof(PhotorealSettings, tonemap) == 76
+            && offsetof(PhotorealSettings, sun_shadows) == 100 && sizeof(PhotorealSettings) == 116);
         static_assert(sizeof(PhotorealCamera) == 44 * sizeof(float));
     }
 
@@ -151,6 +153,15 @@ namespace photoreal
             s.tonemap.bloom_strength = finite_or(t.bloom_strength, tonemap_defaults.bloom_strength, 0.0f, 4.0f);
             s.tonemap.saturation = finite_or(t.saturation, tonemap_defaults.saturation, 0.0f, 2.0f);
             s.tonemap.contrast = finite_or(t.contrast, tonemap_defaults.contrast, 0.5f, 2.0f);
+        }
+        const SunShadowSettings sun_defaults;
+        const PhotorealSunShadows &u = raw.sun_shadows;
+        if (knows(offsetof(PhotorealSettings, sun_shadows), sizeof u))
+        {
+            s.sun_shadows.enabled = u.enabled != 0;
+            s.sun_shadows.light_size = finite_or(u.light_size, sun_defaults.light_size, 0.0f, 0.2f);
+            s.sun_shadows.min_penumbra = finite_or(u.min_penumbra, sun_defaults.min_penumbra, 0.0f, 0.5f);
+            s.sun_shadows.strength = finite_or(u.strength, sun_defaults.strength, 0.0f, 1.0f);
         }
         return s;
     }

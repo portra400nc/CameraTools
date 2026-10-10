@@ -62,6 +62,14 @@ namespace photoreal
         float contrast = 1.0f;
     };
 
+    struct SunShadowSettings
+    {
+        bool enabled = false;
+        float light_size = 0.03f;
+        float min_penumbra = 0.02f;
+        float strength = 1.0f;
+    };
+
     // The domain form of PhotorealSettings. Built only by parse_settings, so every value in it is in range.
     struct Settings
     {
@@ -72,6 +80,7 @@ namespace photoreal
         ContactShadowSettings contact_shadows;
         AtmosphereSettings atmosphere;
         TonemapSettings tonemap;
+        SunShadowSettings sun_shadows;
     };
 
     // Honors size (fields past it keep their defaults), maps an unknown view to off and an unknown curve to the game's,

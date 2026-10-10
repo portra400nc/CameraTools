@@ -68,6 +68,16 @@ namespace CameraToolsPhotoreal
         public float Contrast;
     }
 
+    // PhotorealSunShadows in photoreal.h, field for field.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct PhotorealSunShadows
+    {
+        public uint Enabled;
+        public float LightSize;
+        public float MinPenumbra;
+        public float Strength;
+    }
+
     // PhotorealSettings in photoreal.h, field for field.
     [StructLayout(LayoutKind.Sequential)]
     internal struct PhotorealSettings
@@ -80,12 +90,14 @@ namespace CameraToolsPhotoreal
         public PhotorealContactShadows ContactShadows;
         public PhotorealAtmosphere Atmosphere;
         public PhotorealTonemap Tonemap;
+        public PhotorealSunShadows SunShadows;
 
         // The add-on's defaults: everything off, game targets upside down, and when switched on ambient level 0.6, AO
         // strength 0.5 at a 1 m radius, half that strength on grass, vegetation and foliage, full-strength contact
         // shadows 0.6 m long that take surfaces to be 0.25 m thick and leave grass, vegetation and foliage unshadowed, and
-        // haze that dims a pixel 500 m away by 15%, thins by e every 50 m up, and glows around the sun, and a tone map
-        // that reproduces the game's.
+        // haze that dims a pixel 500 m away by 15%, thins by e every 50 m up, and glows around the sun, a tone map that
+        // reproduces the game's, and full-strength sun shadows whose soft edge is 0.03 m wide per meter from the caster
+        // and at least 0.02 m.
         public static PhotorealSettings Defaults => new()
         {
             Size = (uint)Marshal.SizeOf<PhotorealSettings>(),
@@ -94,6 +106,7 @@ namespace CameraToolsPhotoreal
             ContactShadows = new PhotorealContactShadows { Length = 0.6f, Strength = 1, Thickness = 0.25f, FoliageStrength = 0 },
             Atmosphere = new PhotorealAtmosphere { Density = 0.000325f, HeightFalloff = 0.02f, SunScatter = 1, Anisotropy = 0.7f },
             Tonemap = new PhotorealTonemap { Curve = PhotorealCurve.Game, BloomStrength = 1, Saturation = 1, Contrast = 1 },
+            SunShadows = new PhotorealSunShadows { LightSize = 0.03f, MinPenumbra = 0.02f, Strength = 1 },
         };
     }
 

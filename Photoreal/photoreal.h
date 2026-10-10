@@ -151,7 +151,7 @@ typedef struct PhotorealAtmosphere
 // Our tone map in place of the game's: the add-on skips the game's tone map draw and draws into its output instead,
 // from the HDR scene, the game's final bloom, and the game's exposure, bloom intensity, color matrix and display gamma,
 // read each frame from the skipped draw's constants. With the defaults it reproduces the game's image.
-// The last block of PhotorealSettings, so a field added here goes at the end and size keeps older callers working.
+// sun_shadows follows it in PhotorealSettings, so this block keeps its size.
 typedef struct PhotorealTonemap
 {
     uint32_t enabled;           // default 0
@@ -161,6 +161,20 @@ typedef struct PhotorealTonemap
     float saturation;           // 0 gray, 1 unchanged; default 1, clamped to 0..2
     float contrast;             // a power around middle gray (0.18) before the curve; default 1, clamped to 0.5..2
 } PhotorealTonemap;
+
+// Soft sun shadows from the game's own shadow atlas and cascades: on world pixels, the sun's visibility in the shadow
+// mask is drawn again with a penumbra that widens with the distance between the shadow and what casts it, and replaces
+// the game's, before the combine pass reads it. Characters, the sky, and pixels past the game's cascades or shadow
+// distance keep the game's value.
+// The last block of PhotorealSettings, so a field added here goes at the end and size keeps older callers working.
+typedef struct PhotorealSunShadows
+{
+    uint32_t enabled;           // default 0
+    float light_size;           // the penumbra's width per meter between caster and shadow: 0.0093 is the real sun's; default
+                                // 0.03, so a branch 10 m up casts a shadow with a 0.3 m soft edge; clamped to 0..0.2
+    float min_penumbra;         // the soft edge's least width in meters, at the caster; default 0.02, clamped to 0..0.5
+    float strength;             // 0 no sun shadow, 1 full; default 1, clamped to 0..1
+} PhotorealSunShadows;
 
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller
 // knows, and fields past it keep their defaults.
@@ -175,6 +189,7 @@ typedef struct PhotorealSettings
     PhotorealContactShadows contact_shadows;
     PhotorealAtmosphere atmosphere;
     PhotorealTonemap tonemap;
+    PhotorealSunShadows sun_shadows;
 } PhotorealSettings;
 
 #define PHOTOREAL_COMPARE_MAX 16
