@@ -39,7 +39,8 @@ cbuffer Constants : register(b0)
     float sun_light_size;       // penumbra width per meter between caster and receiver
     float sun_min_penumbra;     // meters
     float sun_strength;
-    float2 padding3;
+    float leaves_strength;      // PhotorealLeaves.strength
+    float leaves_scatter_sharpness;  // the power of the glow's falloff away from the sun
     float2 lens_sample;         // this frame's aperture point, x right and y up
     float cat_eye;              // PhotorealAccumulate.cat_eye
     float cat_eye_falloff;

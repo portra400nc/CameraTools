@@ -33,7 +33,7 @@ SOURCES = [
 SHADERS = [
     ("kFullscreenVs", "fullscreen_vs.hlsl", "vs_5_0"), ("kAoPs", "ao_ps.hlsl", "ps_5_0"), ("kAmbientPs", "ambient_ps.hlsl", "ps_5_0"),
     ("kContactPs", "contact_ps.hlsl", "ps_5_0"), ("kContactShadowsPs", "contact_shadows_ps.hlsl", "ps_5_0"),
-    ("kSunPs", "sun_ps.hlsl", "ps_5_0"), ("kSunShadowsPs", "sun_shadows_ps.hlsl", "ps_5_0"),
+    ("kSunPs", "sun_ps.hlsl", "ps_5_0"), ("kSunShadowsPs", "sun_shadows_ps.hlsl", "ps_5_0"), ("kLeavesPs", "leaves_ps.hlsl", "ps_5_0"),
     ("kAtmospherePs", "atmosphere_ps.hlsl", "ps_5_0"), ("kTonemapPs", "tonemap_ps.hlsl", "ps_5_0"), ("kViewPs", "view_ps.hlsl", "ps_5_0"),
     ("kAccumulatePs", "accumulate_ps.hlsl", "ps_5_0"), ("kPresentPs", "present_ps.hlsl", "ps_5_0"),
 ]

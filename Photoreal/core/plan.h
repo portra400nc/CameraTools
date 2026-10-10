@@ -144,7 +144,7 @@ namespace photoreal
     enum class GameCall : bool { keep, skip };
 
     // The PHOTOREAL_PASS_* bit order, not the run order.
-    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, count };
+    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, leaves, count };
     using PassSet = Set<PassId>;
 
     struct PassSpec
@@ -158,8 +158,8 @@ namespace photoreal
         bool (*wanted)(const Settings &);
     };
 
-    // Table order is run order within a step: sun shadows, contact shadows, then ambient at combine; atmosphere at bloom;
-    // tonemap at tonemap.
+    // Table order is run order within a step: sun shadows, contact shadows, then ambient at combine; leaves at forward;
+    // atmosphere at bloom; tonemap at tonemap.
     extern const std::array<PassSpec, static_cast<size_t>(PassId::count)> kPasses;
 
     struct ViewSpec

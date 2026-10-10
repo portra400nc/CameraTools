@@ -64,6 +64,15 @@ namespace
         return parse_settings(raw);
     }
 
+    Settings leaves_on(bool ambient, bool atmosphere)
+    {
+        PhotorealSettings raw = raw_settings();
+        raw.ambient.enabled = ambient;
+        raw.atmosphere = { atmosphere, 0.000325f, 0.02f, 1, 0.7f };
+        raw.leaves = { 1, 0.6f, 4 };
+        return parse_settings(raw);
+    }
+
     Settings view_only(uint32_t view)
     {
         PhotorealSettings raw = raw_settings();
@@ -238,6 +247,50 @@ int main()
         const FrameReport report = run_frame(menu, tonemap_on(true), kCamera);
         check("no G-buffer: atmosphere and tonemap name the entries they need", describe(report)
             == "found nothing; skipped atmosphere: missing depth hdr-scene; skipped tonemap: missing hdr-scene tonemap-out");
+    }
+    {
+        auto rows = walk;
+        const FrameReport report = run_frame(rows, leaves_on(false, false), kCamera);
+        check("leaves run at forward", report.ran.bits == PHOTOREAL_PASS_LEAVES && describe(report) == std::string(kAllSteps) + "; ran leaves@forward");
+        check("steps wanted by leaves: gbuffer, combine and forward",
+            report.wanted.bits == (PHOTOREAL_STEP_GBUFFER | PHOTOREAL_STEP_COMBINE | PHOTOREAL_STEP_FORWARD));
+        FrameTracker tracker;
+        fixture::replay(rows, tracker);
+        const Plan at_forward = plan(Step::forward, tracker.map(), leaves_on(false, false), kCamera);
+        check("the forward plan runs leaves alone", at_forward.count == 1 && at_forward.items[0].pass == PassId::leaves
+            && at_forward.items[0].kind == Decision::Kind::run);
+    }
+    {
+        auto rows = walk;
+        const FrameReport report = run_frame(rows, leaves_on(true, true), kCamera);
+        check("ambient at combine, then leaves at forward, then atmosphere at bloom", describe(report)
+            == std::string(kAllSteps) + "; ran ambient@combine leaves@forward atmosphere@bloom");
+    }
+    {
+        auto rows = fixture::load("fixtures/capture-20261010-111824.tsv");
+        const FrameReport report = run_frame(rows, leaves_on(false, false), kCamera);
+        check("111824, the user's normal settings: leaves run at forward", describe(report)
+            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward; ran leaves@forward");
+    }
+    {
+        auto rows = walk;
+        fixture::drop(rows, 892, 892);  // the shadow mask's clear, so no shadow mask is found
+        const FrameReport report = run_frame(rows, leaves_on(false, false), kCamera);
+        check("without the shadow mask, leaves skip and say so", report.skipped.bits == PHOTOREAL_PASS_LEAVES
+            && report.missing.bits == PHOTOREAL_ENTRY_SHADOW_MASK && describe(report)
+            == "1152x720 found gbuffer quarter-shadow ambient-pair combine bloom tonemap forward; skipped leaves: missing shadow-mask");
+    }
+    {
+        auto rows = walk;
+        const FrameReport report = run_frame(rows, leaves_on(false, false), kNoCamera);
+        check("without a camera, leaves skip and say so", report.skipped.bits == PHOTOREAL_PASS_LEAVES && report.ran.empty()
+            && describe(report) == std::string(kAllSteps) + "; skipped leaves: no camera");
+    }
+    {
+        std::vector<fixture::Row> menu;
+        const FrameReport report = run_frame(menu, leaves_on(false, false), kCamera);
+        check("no G-buffer: leaves name the entries they need", describe(report)
+            == "found nothing; skipped leaves: missing normals albedo material-id depth shadow-mask hdr-scene");
     }
     {
         auto rows = fixture::load("fixtures/capture-20261010-111824.tsv");

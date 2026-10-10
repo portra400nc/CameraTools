@@ -15,6 +15,7 @@ namespace photoreal
         bool atmosphere_wanted(const Settings &s) { return s.atmosphere.enabled; }
         bool tonemap_wanted(const Settings &s) { return s.tonemap.enabled; }
         bool sun_shadows_wanted(const Settings &s) { return s.sun_shadows.enabled; }
+        bool leaves_wanted(const Settings &s) { return s.leaves.enabled; }
 
         float finite_or(float value, float fallback, float low, float high)
         {
@@ -25,7 +26,8 @@ namespace photoreal
 
         static_assert(PHOTOREAL_PASS_AMBIENT == bit(PassId::ambient) && PHOTOREAL_PASS_CONTACT_SHADOWS == bit(PassId::contact_shadows)
             && PHOTOREAL_PASS_ATMOSPHERE == bit(PassId::atmosphere) && PHOTOREAL_PASS_TONEMAP == bit(PassId::tonemap)
-            && PHOTOREAL_PASS_SUN_SHADOWS == bit(PassId::sun_shadows) && static_cast<int>(PassId::count) == 5);
+            && PHOTOREAL_PASS_SUN_SHADOWS == bit(PassId::sun_shadows) && PHOTOREAL_PASS_LEAVES == bit(PassId::leaves)
+            && static_cast<int>(PassId::count) == 6);
         static_assert(PHOTOREAL_CURVE_AGX == static_cast<int>(Curve::agx) && PHOTOREAL_CURVE_COUNT == static_cast<int>(Curve::count));
         static_assert(PHOTOREAL_VIEW_COUNT == static_cast<int>(View::count) && PHOTOREAL_VIEW_STENCIL == static_cast<int>(View::stencil)
             && PHOTOREAL_VIEW_HDR_SCENE == static_cast<int>(View::hdr_scene) && PHOTOREAL_VIEW_BLOOM_FINAL == static_cast<int>(View::bloom_final)
@@ -55,6 +57,8 @@ namespace photoreal
         { PassId::contact_shadows, "contact-shadows", Step::combine, { Entry::normals, Entry::depth, Entry::shadow_mask }, true, false,
           contact_shadows_wanted },
         { PassId::ambient, "ambient", Step::combine, { Entry::normals, Entry::depth, Entry::ambient_diffuse }, true, false, ambient_wanted },
+        { PassId::leaves, "leaves", Step::forward,
+          { Entry::normals, Entry::albedo, Entry::material_id, Entry::depth, Entry::shadow_mask, Entry::hdr_scene }, true, false, leaves_wanted },
         { PassId::atmosphere, "atmosphere", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, false, atmosphere_wanted },
         // bloom-final is optional: a tone map draw without one still gets ours, without bloom.
         { PassId::tonemap, "tonemap", Step::tonemap, { Entry::hdr_scene, Entry::tonemap_out }, false, false, tonemap_wanted },

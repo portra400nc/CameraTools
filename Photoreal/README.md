@@ -1,6 +1,6 @@
 # CameraTools Photoreal
 
-`CameraToolsPhotoreal.addon64` is a ReShade add-on that works inside Genshin Impact's own D3D11 frame. Each frame it finds the game's G-buffer and lighting buffers by format, size and order, never by shader hash. It can show any of them full screen as a debug view. Before the game's combine pass reads them, it can draw the sun's shadows again with soft edges from the game's own shadow atlas, add contact shadows to them, and replace the world's ambient light. Before the game's bloom reads the HDR scene, it can add aerial perspective, accumulate the HDR scene of paused frames into an average, and it can draw its own tone map in place of the game's. It can also render one frame with several settings variants and save each as a PNG, so effects can be judged from images. A MelonLoader mod drives it through C exports.
+`CameraToolsPhotoreal.addon64` is a ReShade add-on that works inside Genshin Impact's own D3D11 frame. Each frame it finds the game's G-buffer and lighting buffers by format, size and order, never by shader hash. It can show any of them full screen as a debug view. Before the game's combine pass reads them, it can draw the sun's shadows again with soft edges from the game's own shadow atlas, add contact shadows to them, and replace the world's ambient light. After the game's deferred lighting, it can add the sun light that leaves and grass let through. Before the game's bloom reads the HDR scene, it can add aerial perspective, accumulate the HDR scene of paused frames into an average, and it can draw its own tone map in place of the game's. It can also render one frame with several settings variants and save each as a PNG, so effects can be judged from images. A MelonLoader mod drives it through C exports.
 
 ## Layout
 
@@ -14,7 +14,7 @@
 | `core/compare.*` | The comparison capture's variants, its schedule of presents (`compare_tick`), back buffer pixels, flicker and TSV rows. Pure C++17. |
 | `core/png.*` | A minimal PNG encoder: 8-bit RGB with stored deflate blocks, so the add-on needs no compression library. Pure C++17. |
 | `addon.cpp` | The ReShade shell: events, exports, mailboxes between the C# thread and the render thread, and the capture's file writer thread. |
-| `gpu.*` | The D3D11 side: `StateGuard`, `Mirror`, `Scratch`, `Staging`, the sun constants' copies and readback, the sun-shadow, contact-shadow, ambient, atmosphere and tonemap passes, snapshots and the debug composite. |
+| `gpu.*` | The D3D11 side: `StateGuard`, `Mirror`, `Scratch`, `Staging`, the sun constants' copies and readback, the sun-shadow, contact-shadow, ambient, leaves, atmosphere and tonemap passes, snapshots and the debug composite. |
 | `shaders/` | HLSL, compiled to DXBC by `build.py` and embedded in the add-on. `cat_eye.hlsli` also compiles as C++ in `core/accumulate.cpp`, so the tests check the shader's own arithmetic. |
 | `csharp/Photoreal.cs` | The C# binding a MelonLoader mod adds as is. |
 | `tests/` | Native tests that replay recorded FrameCensus frames through `core/`. |
@@ -87,6 +87,9 @@ Settings:
 | `sun_shadows.light_size` | 0.03 | The penumbra's width per meter between the shadow and its caster. The real sun's is 0.0093. The default gives a branch 10 m up a 0.3 m soft edge. Clamped to 0 to 0.2. |
 | `sun_shadows.min_penumbra` | 0.02 | The penumbra's least width in meters, where the shadow meets its caster. Clamped to 0 to 0.5. |
 | `sun_shadows.strength` | 1 | How much the sun's shadows darken: 0 leaves the sun everywhere, 1 is full. Clamped to 0 to 1. |
+| `leaves.enabled` | 0 | The leaves pass. It runs at the `forward` step, after the game's deferred lighting and before its sky, transparent and fog draws. On leaf and grass pixels it adds to the HDR scene the sun light the leaf lets through toward the camera. Those pixels have stencil 129, 136 or 137 and material ID 2 or 15 (leaves) or 3 (grass), where the ID is the G-buffer's rt3 times 255 without bits 6 and 7. The light is linear albedo times the sun color times the sun's visibility in the shadow mask times `strength` times saturate(dot(v, l))^`scatter_sharpness` times saturate(0.5 - 0.5 dot(n, l)), where v points from the camera to the pixel, l toward the sun, and n is the G-buffer normal. So a leaf glows where the camera looks toward the sun through its back, and a leaf lit from the front gets nothing more, because the game's wrapped diffuse already lights the backs of leaves dimly and uncolored. The pass copies the HDR scene into a mirror, draws into it additively and copies it back. The sun comes from `PhotorealSetCamera`, so without a camera the pass skips. A caller built without the block sends a 116-byte struct and gets the defaults. |
+| `leaves.strength` | 0.6 | Multiplies the light let through. Clamped to 0 to 4. |
+| `leaves.scatter_sharpness` | 4 | The power of the glow's falloff away from the sun: 1 is broad, and higher gathers it closer around the sun. Clamped to 1 to 32. |
 
 ## Frame accumulator
 
@@ -140,7 +143,7 @@ The game's values come from the skipped draw's own constant buffer at b0, which 
 `PhotorealDescribe` reports the frame in one line with no frame counter, so a mod can log it when it changes. For example:
 
 ```
-1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward; ran sun-shadows@combine contact-shadows@combine ambient@combine atmosphere@bloom tonemap@tonemap; view normals
+1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward; ran sun-shadows@combine contact-shadows@combine ambient@combine leaves@forward atmosphere@bloom tonemap@tonemap; view normals
 1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward; ran ambient@combine; skipped sun-shadows: sun constants unread
 1152x720 found gbuffer quarter-shadow ambient-pair combine bloom tonemap forward; ran ambient@combine; skipped contact-shadows: missing shadow-mask
 found nothing; skipped contact-shadows: missing normals depth shadow-mask; skipped ambient: missing normals depth ambient-diffuse
@@ -169,7 +172,7 @@ A view is copied at its step and drawn over the back buffer at `reshade_present`
 | `ambient-diffuse`, `ambient-specular`, `hdr-scene`, `bloom-final` | HDR values, tone mapped. |
 | `sun-atlas` | The sun's shadow atlas, which the game's shadow-mask draw samples at t2, as gray, stretched over the screen: one square tile per cascade, nearest first, in rows from the top left. Stored depth grows toward the sun, and 0, where nothing was drawn, is black. It is copied at that draw. |
 
-The G-buffer and lighting views show what the game's combine pass reads, after the sun-shadow, contact-shadow and ambient passes ran, so `shadow-mask` includes the soft sun shadows and the contact shadows. `hdr-scene` shows the image just before the game's tone map, after the atmosphere pass, and `bloom-final` the quarter-size bloom the tone map adds to it. When the view's entry was not found, the screen shows dark magenta diagonal stripes, and the label ends in `MISSING`.
+The G-buffer and lighting views show what the game's combine pass reads, after the sun-shadow, contact-shadow and ambient passes ran, so `shadow-mask` includes the soft sun shadows and the contact shadows. `hdr-scene` shows the image just before the game's tone map, after the leaves and atmosphere passes, and `bloom-final` the quarter-size bloom the tone map adds to it. When the view's entry was not found, the screen shows dark magenta diagonal stripes, and the label ends in `MISSING`.
 
 ## Comparison capture
 
