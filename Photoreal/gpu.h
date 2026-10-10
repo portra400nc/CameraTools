@@ -110,6 +110,24 @@ namespace photoreal
         ComPtr<ID3D11RenderTargetView> rtv_;
     };
 
+    // Our render-size texture with no game counterpart, for results passed between our own draws. sync() recreates it
+    // when the size changed.
+    class Scratch
+    {
+    public:
+        // false when creation failed; the caller skips its pass and reports PHOTOREAL_ERROR_TEXTURE.
+        bool sync(ID3D11Device *device, Size size, DXGI_FORMAT format);
+        ID3D11ShaderResourceView *srv() const { return srv_.Get(); }
+        ID3D11RenderTargetView *rtv() const { return rtv_.Get(); }
+
+    private:
+        Size size_;
+        DXGI_FORMAT format_ = DXGI_FORMAT_UNKNOWN;
+        ComPtr<ID3D11Texture2D> texture_;
+        ComPtr<ID3D11ShaderResourceView> srv_;
+        ComPtr<ID3D11RenderTargetView> rtv_;
+    };
+
     // A debug snapshot, decoded by its own view so a view change at a frame boundary cannot misread it.
     // Two exist: pending is filled during a frame, shown is what reshade_present draws. present swaps them, because
     // ReShade's present event (where the frame rolls) fires before reshade_present (where the composite runs).
@@ -130,8 +148,10 @@ namespace photoreal
         ID3D11Device *device() const { return device_.Get(); }
         ID3D11DeviceContext1 *context() const { return context_.Get(); }
 
-        // The ambient pass: mirror in the irradiance, normals and depth; draw out = in * level * lerp(1, ao, strength)
-        // on world pixels and in elsewhere; copy out over the game's irradiance. Empty when a texture of ours failed.
+        // The ambient pass: mirror in the irradiance, normals and depth; draw raw occlusion into ao_; draw
+        // out = in * level * lerp(1, blurred ao, strength) on world pixels and in elsewhere, where strength is
+        // ao_strength, times foliage_ao_strength on grass, vegetation and foliage; copy out over the game's irradiance.
+        // Empty when a texture of ours failed.
         std::optional<GameCall> run_ambient(const FrameMap &map, const AmbientSettings &settings, const Camera &camera, bool flip);
 
         // At present: shown = pending, and pending starts empty for next_view (found = false until its step copies it).
@@ -151,13 +171,14 @@ namespace photoreal
         ComPtr<ID3D11Device> device_;
         ComPtr<ID3D11DeviceContext1> context_;
         ComPtr<ID3D11VertexShader> fullscreen_vs_;
-        ComPtr<ID3D11PixelShader> ambient_ps_, view_ps_;
+        ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, view_ps_;
         ComPtr<ID3D11SamplerState> point_, linear_;
         ComPtr<ID3D11Buffer> constants_;
         ComPtr<ID3D11BlendState> opaque_;
         ComPtr<ID3D11DepthStencilState> no_depth_;
         ComPtr<ID3D11RasterizerState> no_cull_;
         Mirror irradiance_in_, irradiance_out_, normals_, depth_, back_buffer_;
+        Scratch ao_;                // R8_UNORM raw occlusion, 1 = open
         Snapshot pending_, shown_;
     };
 }

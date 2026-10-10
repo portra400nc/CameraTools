@@ -28,7 +28,10 @@ RESHADE_HEADERS = [
 ]
 SOURCES = ["addon.cpp", "gpu.cpp", "core/recipe.cpp", "core/plan.cpp"]
 # (symbol in photoreal_shaders.h, source in shaders/, profile)
-SHADERS = [("kFullscreenVs", "fullscreen_vs.hlsl", "vs_5_0"), ("kAmbientPs", "ambient_ps.hlsl", "ps_5_0"), ("kViewPs", "view_ps.hlsl", "ps_5_0")]
+SHADERS = [
+    ("kFullscreenVs", "fullscreen_vs.hlsl", "vs_5_0"), ("kAoPs", "ao_ps.hlsl", "ps_5_0"), ("kAmbientPs", "ambient_ps.hlsl", "ps_5_0"),
+    ("kViewPs", "view_ps.hlsl", "ps_5_0"),
+]
 WORKSPACE_VKD3D = Path(".work/build/reshade/vkd3d/vkd3d-compiler")
 DEPS = HERE / ".deps"
 # Where Homebrew's llvm and lld formulas put the tools, for a PATH that does not have them.

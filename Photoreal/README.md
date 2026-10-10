@@ -10,7 +10,7 @@
 | `core/recipe.*` | The game's frame as a table of steps (`kRecipe`) and the `FrameTracker` that matches events against it. Pure C++17. |
 | `core/plan.*` | Settings parsing, our passes (`kPasses`) and views (`kViews`), the per-step plan, the frame report and its status line. Pure C++17. |
 | `addon.cpp` | The ReShade shell: events, exports, mailboxes between the C# thread and the render thread. |
-| `gpu.*` | The D3D11 side: `StateGuard`, `Mirror`, the ambient pass, snapshots and the debug composite. |
+| `gpu.*` | The D3D11 side: `StateGuard`, `Mirror`, `Scratch`, the ambient pass, snapshots and the debug composite. |
 | `shaders/` | HLSL, compiled to DXBC by `build.py` and embedded in the add-on. |
 | `csharp/Photoreal.cs` | The C# binding a MelonLoader mod adds as is. |
 | `tests/` | Native tests that replay recorded FrameCensus frames through `core/`. |
@@ -57,7 +57,7 @@ Settings:
 | `flip` | 1 | Game targets are stored upside down. The debug views and the ambient pass both read it, so an upright debug view means the ambient pass reconstructs positions upright too. |
 | `ambient.enabled` | 0 | The ambient pass. |
 | `ambient.level` | 0.6 | Multiplies the game's diffuse irradiance on world pixels. Clamped to 0 to 4. |
-| `ambient.ao_strength` | 0.5 | Ambient occlusion from the G-buffer normals and depth. Clamped to 0 to 1. |
+| `ambient.ao_strength` | 0.5 | Ambient occlusion from the G-buffer normals and depth. One draw writes it raw to a render-size texture of ours, and a second blurs it over 4x4 pixels, never across sky, characters or depth jumps, and applies it. Clamped to 0 to 1. |
 | `ambient.ao_radius` | 1 | The occlusion radius in meters. Clamped to 0.05 to 10. |
 | `ambient.foliage_ao_strength` | 0.5 | Multiplies `ao_strength` on grass, vegetation and foliage (stencil 129, 136 and 137). Clamped to 0 to 1. A caller built without this field sends a 32-byte struct and gets the default. |
 

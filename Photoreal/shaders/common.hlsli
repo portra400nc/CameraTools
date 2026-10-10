@@ -11,7 +11,8 @@ cbuffer Constants : register(b0)
     float flip;                 // 1: game targets are stored upside down, so their row 0 is the bottom of the image
     float projection_scale;     // pixels per world unit at distance 1: 0.5 * h * view_to_clip[1][1]
     uint decode;                // Decode in core/plan.h
-    float2 padding;
+    float foliage_ao_strength;  // multiplies ao_strength on stencil 129, 136 and 137
+    float padding;
 };
 
 SamplerState point_clamp : register(s0);
