@@ -18,6 +18,7 @@ namespace photoreal
         bool sun_shadows_wanted(const Settings &s) { return s.sun_shadows.enabled; }
         bool wetness_wanted(const Settings &s) { return s.wetness.enabled; }
         bool light_shafts_wanted(const Settings &s) { return s.light_shafts.enabled; }
+        bool trace_wanted(const Settings &s) { return s.trace.enabled; }
 
         float finite_or(float value, float fallback, float low, float high)
         {
@@ -29,11 +30,14 @@ namespace photoreal
         static_assert(PHOTOREAL_PASS_AMBIENT == bit(PassId::ambient) && PHOTOREAL_PASS_CONTACT_SHADOWS == bit(PassId::contact_shadows)
             && PHOTOREAL_PASS_ATMOSPHERE == bit(PassId::atmosphere) && PHOTOREAL_PASS_TONEMAP == bit(PassId::tonemap)
             && PHOTOREAL_PASS_SUN_SHADOWS == bit(PassId::sun_shadows) && PHOTOREAL_PASS_WETNESS == bit(PassId::wetness)
-            && PHOTOREAL_PASS_LIGHT_SHAFTS == bit(PassId::light_shafts) && static_cast<int>(PassId::count) == 7);
+            && PHOTOREAL_PASS_LIGHT_SHAFTS == bit(PassId::light_shafts) && PHOTOREAL_PASS_TRACE == bit(PassId::trace)
+            && static_cast<int>(PassId::count) == 8);
+        static_assert(PHOTOREAL_TRACE_STATE_FAILED == static_cast<int>(TraceState::failed) && static_cast<int>(TraceState::count) == 6);
         static_assert(PHOTOREAL_CURVE_AGX == static_cast<int>(Curve::agx) && PHOTOREAL_CURVE_COUNT == static_cast<int>(Curve::count));
         static_assert(PHOTOREAL_VIEW_COUNT == static_cast<int>(View::count) && PHOTOREAL_VIEW_STENCIL == static_cast<int>(View::stencil)
             && PHOTOREAL_VIEW_HDR_SCENE == static_cast<int>(View::hdr_scene) && PHOTOREAL_VIEW_BLOOM_FINAL == static_cast<int>(View::bloom_final)
-            && PHOTOREAL_VIEW_SUN_ATLAS == static_cast<int>(View::sun_atlas) && PHOTOREAL_VIEW_LIGHT_SHAFTS == static_cast<int>(View::light_shafts));
+            && PHOTOREAL_VIEW_SUN_ATLAS == static_cast<int>(View::sun_atlas) && PHOTOREAL_VIEW_LIGHT_SHAFTS == static_cast<int>(View::light_shafts)
+            && PHOTOREAL_VIEW_TRACE == static_cast<int>(View::trace));
 
         const char *const kErrorNames[] = { "none", "not-d3d11", "shader", "texture", "state" };
         static_assert(PHOTOREAL_ERROR_STATE == 4);
@@ -78,6 +82,10 @@ namespace photoreal
         // The camera only for the puddles, which lie still in the world.
         { PassId::wetness, "wetness", Step::gbuffer_done,
           { Entry::normals, Entry::albedo, Entry::specular, Entry::material_id, Entry::smoothness, Entry::depth }, true, SunUse::none, wetness_wanted },
+        // First, so that once it writes the frame the passes it replaces never run; its own sun constants and scene come
+        // from the shell.
+        { PassId::trace, "trace", Step::combine, { Entry::normals, Entry::depth, Entry::shadow_mask, Entry::ambient_diffuse }, true, SunUse::none,
+          trace_wanted },
         // Before contact shadows, which lower what it writes, and the camera only for its blur: it finds positions from
         // the game's own camera constants.
         { PassId::sun_shadows, "sun-shadows", Step::combine, { Entry::normals, Entry::depth, Entry::shadow_mask, Entry::sun_atlas }, true, SunUse::required,
@@ -117,7 +125,22 @@ namespace photoreal
         // The light the mist scatters alone, which the light-shaft pass draws for this view as it lays the mist over the HDR
         // scene.
         { View::light_shafts, "light-shafts", Entry::hdr_scene, Step::bloom, Decode::hdr, PassId::light_shafts },
+        // The trace pass's history as averages, which the pass draws for this view at the combine step.
+        { View::trace, "trace", Entry::depth, Step::combine, Decode::rgb, PassId::trace },
     } };
+
+    const std::array<const char *, static_cast<size_t>(TraceState::count)> kTraceStateNames = { "none", "building", "uploading", "ready", "stale",
+        "failed" };
+
+    bool replaced_by_trace(PassId pass, const TraceSettings &trace)
+    {
+        switch (pass)
+        {
+        case PassId::sun_shadows: case PassId::contact_shadows: return trace.sun;
+        case PassId::ambient: return trace.ao;
+        default: return false;
+        }
+    }
 
     namespace
     {
@@ -382,13 +405,17 @@ namespace photoreal
         {
             if (spec.at != step)
                 continue;
-            Decision d { Decision::Kind::off, spec.id, {}, false, SunCheck::ok, false };
-            if (settings.enabled && spec.wanted(settings))
+            Decision d { Decision::Kind::off, spec.id, {}, false, SunCheck::ok, false, TraceState::ready };
+            if (settings.enabled && spec.wanted(settings) && inputs.traced && replaced_by_trace(spec.id, settings.trace))
+                d.kind = Decision::Kind::replaced;
+            else if (settings.enabled && spec.wanted(settings))
             {
                 d.missing = spec.needs.minus(found);
                 d.camera_missing = spec.needs_camera && !inputs.camera;
                 d.sun = spec.sun == SunUse::required ? inputs.sun : SunCheck::ok;
-                d.kind = d.missing.empty() && !d.camera_missing && d.sun == SunCheck::ok ? Decision::Kind::run : Decision::Kind::skip;
+                d.scene = spec.id == PassId::trace ? inputs.scene : TraceState::ready;
+                d.kind = d.missing.empty() && !d.camera_missing && d.sun == SunCheck::ok && d.scene == TraceState::ready ? Decision::Kind::run
+                                                                                                                          : Decision::Kind::skip;
                 d.uses_sun = d.kind == Decision::Kind::run && spec.sun != SunUse::none && inputs.sun == SunCheck::ok;
             }
             p.items[p.count++] = d;
@@ -441,10 +468,12 @@ namespace photoreal
             const Decision &d = plan.items[i];
             if (d.kind == Decision::Kind::run)
                 ran.add(d.pass);
+            else if (d.kind == Decision::Kind::replaced)
+                replaced.add(d.pass);
             else if (d.kind == Decision::Kind::skip)
             {
                 skipped.add(d.pass);
-                why[static_cast<size_t>(d.pass)] = { d.missing, false, d.camera_missing, false, d.sun };
+                why[static_cast<size_t>(d.pass)] = { d.missing, false, d.camera_missing, false, d.sun, d.scene };
                 missing |= d.missing;
             }
         }
@@ -469,7 +498,7 @@ namespace photoreal
     {
         ran.remove(pass);
         skipped.add(pass);
-        why[static_cast<size_t>(pass)] = { {}, false, false, true };
+        why[static_cast<size_t>(pass)] = { {}, false, false, true, SunCheck::ok, TraceState::ready };
     }
 
     void FrameReport::finish(const FrameTracker &tracker, const Settings &settings, const Inputs &inputs)
@@ -487,7 +516,7 @@ namespace photoreal
             const EntrySet absent = spec.needs.minus(entries);
             skipped.add(spec.id);
             why[static_cast<size_t>(spec.id)] = { absent, absent.empty(), spec.needs_camera && !inputs.camera, false,
-                spec.sun == SunUse::required ? inputs.sun : SunCheck::ok };
+                spec.sun == SunUse::required ? inputs.sun : SunCheck::ok, TraceState::ready };
             missing |= absent;
         }
         const ViewSpec &shown = kViews[static_cast<size_t>(view)];
@@ -520,7 +549,16 @@ namespace photoreal
                         continue;
                     const Step at = report.fell_back.has(spec.at) ? kRecipe[static_cast<size_t>(spec.at)].fallback : spec.at;
                     line += std::string(" ") + spec.name + "@" + kRecipe[static_cast<size_t>(at)].name;
+                    if (spec.id == PassId::trace)
+                        line += " (" + std::to_string(report.trace_ao) + " ao, " + std::to_string(report.trace_sun) + " sun)";
                 }
+            }
+            if (!report.replaced.empty())
+            {
+                line += "; replaced";
+                for (const PassSpec &spec : kPasses)
+                    if (report.replaced.has(spec.id))
+                        line += std::string(" ") + spec.name;
             }
             for (const PassSpec &spec : kPasses)
             {
@@ -542,6 +580,8 @@ namespace photoreal
                     reasons += std::string(reasons.empty() ? "" : ",") + " no camera";
                 if (why.sun != SunCheck::ok)
                     reasons += std::string(reasons.empty() ? "" : ",") + " sun constants " + kSunCheckNames[static_cast<size_t>(why.sun)];
+                if (why.scene != TraceState::ready)
+                    reasons += std::string(reasons.empty() ? "" : ",") + " scene " + kTraceStateNames[static_cast<size_t>(why.scene)];
                 if (why.failed)
                     reasons += std::string(reasons.empty() ? "" : ",") + " no texture";
                 line += reasons;

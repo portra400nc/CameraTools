@@ -83,6 +83,17 @@ namespace
         return parse_settings(raw);
     }
 
+    // The trace with the three passes it replaces, all on.
+    Settings trace_on(uint32_t outputs, uint32_t view = PHOTOREAL_VIEW_OFF)
+    {
+        PhotorealSettings raw = raw_settings();
+        raw.view = view;
+        raw.contact_shadows = { 1, 0.6f, 1, 0.25f, 0 };
+        raw.sun_shadows = { 1, 0.03f, 0.02f, 1 };
+        raw.trace = { 1, outputs, PHOTOREAL_TRACE_CAST_CHARACTERS | PHOTOREAL_TRACE_CAST_ALPHA_CARDS, 2, 1, 0.0093f, 1, 64, 32, 20 };
+        return parse_settings(raw);
+    }
+
     Settings view_only(uint32_t view)
     {
         PhotorealSettings raw = raw_settings();
@@ -159,10 +170,11 @@ int main()
         FrameTracker tracker;
         fixture::replay(rows, tracker);
         const Plan p = plan(Step::combine, tracker.map(), contact_shadows_on(true), kCamera);
-        check("the combine plan holds sun shadows, off, then runs contact shadows, then ambient", p.count == 3
-            && p.items[0].pass == PassId::sun_shadows && p.items[0].kind == Decision::Kind::off
-            && p.items[1].pass == PassId::contact_shadows && p.items[1].kind == Decision::Kind::run
-            && p.items[2].pass == PassId::ambient && p.items[2].kind == Decision::Kind::run);
+        check("the combine plan holds the trace and sun shadows, off, then runs contact shadows, then ambient", p.count == 4
+            && p.items[0].pass == PassId::trace && p.items[0].kind == Decision::Kind::off
+            && p.items[1].pass == PassId::sun_shadows && p.items[1].kind == Decision::Kind::off
+            && p.items[2].pass == PassId::contact_shadows && p.items[2].kind == Decision::Kind::run
+            && p.items[3].pass == PassId::ambient && p.items[3].kind == Decision::Kind::run);
         const Plan at_tonemap = plan(Step::tonemap, tracker.map(), contact_shadows_on(true), kCamera);
         check("the shadow-mask step has no pass, and the tonemap step only tonemap, off", plan(Step::shadow_mask, tracker.map(), contact_shadows_on(true), kCamera).count == 0
             && at_tonemap.count == 1 && at_tonemap.items[0].pass == PassId::tonemap && at_tonemap.items[0].kind == Decision::Kind::off);
@@ -177,8 +189,8 @@ int main()
         FrameTracker tracker;
         fixture::replay(rows, tracker);
         const Plan p = plan(Step::combine, tracker.map(), sun_shadows_on(true), kCamera);
-        check("the combine plan runs sun shadows first", p.count == 3 && p.items[0].pass == PassId::sun_shadows
-            && p.items[0].kind == Decision::Kind::run && p.items[1].pass == PassId::contact_shadows);
+        check("the combine plan runs sun shadows first after the trace", p.count == 4 && p.items[0].pass == PassId::trace
+            && p.items[1].pass == PassId::sun_shadows && p.items[1].kind == Decision::Kind::run && p.items[2].pass == PassId::contact_shadows);
     }
     {
         auto rows = walk;
@@ -218,7 +230,8 @@ int main()
         check("the bloom plan runs atmosphere and holds light shafts, off", at_bloom.count == 2 && at_bloom.items[0].pass == PassId::atmosphere
             && at_bloom.items[0].kind == Decision::Kind::run && at_bloom.items[1].pass == PassId::light_shafts
             && at_bloom.items[1].kind == Decision::Kind::off);
-        check("the combine plan holds sun shadows, contact shadows and ambient, all off", plan(Step::combine, tracker.map(), atmosphere_on(), kCamera).count == 3
+        check("the combine plan holds the trace, sun shadows, contact shadows and ambient, all off",
+            plan(Step::combine, tracker.map(), atmosphere_on(), kCamera).count == 4
             && plan(Step::combine, tracker.map(), atmosphere_on(), kCamera).items[0].kind == Decision::Kind::off);
     }
     {
@@ -394,10 +407,10 @@ int main()
         FrameTracker tracker;
         fixture::replay(rows, tracker);
         const Plan at_combine = plan(Step::combine, tracker.map(), sun_shadows_on(false), kCamera);
-        check("with this frame's sun constants, sun shadows use them", at_combine.items[0].pass == PassId::sun_shadows
-            && at_combine.items[0].kind == Decision::Kind::run && at_combine.items[0].uses_sun);
-        check("ambient never uses the sun constants", at_combine.items[2].pass == PassId::ambient && at_combine.items[2].kind == Decision::Kind::run
-            && !at_combine.items[2].uses_sun);
+        check("with this frame's sun constants, sun shadows use them", at_combine.items[1].pass == PassId::sun_shadows
+            && at_combine.items[1].kind == Decision::Kind::run && at_combine.items[1].uses_sun);
+        check("ambient never uses the sun constants", at_combine.items[3].pass == PassId::ambient && at_combine.items[3].kind == Decision::Kind::run
+            && !at_combine.items[3].uses_sun);
     }
     {
         check("sun shadows and light shafts want the sun constants", wants_sun(sun_shadows_on(false)) && wants_sun(light_shafts_on(false)));
@@ -965,6 +978,55 @@ int main()
             && high.density == 0.2f && high.height == 500.0f && high.anisotropy == 0.95f && high.distance == 900.0f && high.patchiness == 1.0f
             && high.patch_size == 100.0f && high.ambient == 4.0f && high.steps == 128);
         check("the default settings keep light shafts off at 48 steps", !Settings {}.light_shafts.enabled && Settings {}.light_shafts.steps == 48);
+    }
+    {
+        const std::string raster = "; ran sun-shadows@combine contact-shadows@combine ambient@combine";
+        auto rows = walk;
+        const FrameReport none = run_frame(rows, trace_on(0), Inputs { true, SunCheck::ok, TraceState::none, false });
+        check("without a traced scene the trace skips and the raster passes run as set", none.skipped.bits == PHOTOREAL_PASS_TRACE
+            && none.replaced.empty() && describe(none) == std::string(kAllSteps) + raster + "; skipped trace: scene none");
+        rows = walk;
+        check("a stale scene says so", describe(run_frame(rows, trace_on(0), Inputs { true, SunCheck::ok, TraceState::stale, false }))
+            == std::string(kAllSteps) + raster + "; skipped trace: scene stale");
+        rows = walk;
+        FrameReport ready = run_frame(rows, trace_on(0), Inputs { true, SunCheck::ok, TraceState::ready, false });
+        check("a ready scene before its first full pass: the trace runs first and so does every raster pass",
+            ready.ran.bits == (PHOTOREAL_PASS_TRACE | PHOTOREAL_PASS_SUN_SHADOWS | PHOTOREAL_PASS_CONTACT_SHADOWS | PHOTOREAL_PASS_AMBIENT)
+            && describe(ready) == std::string(kAllSteps) + "; ran trace@combine (0 ao, 0 sun) sun-shadows@combine contact-shadows@combine ambient@combine");
+        rows = walk;
+        FrameReport traced = run_frame(rows, trace_on(0), Inputs { true, SunCheck::unread, TraceState::ready, true });
+        traced.trace_ao = 64;
+        traced.trace_sun = 32;
+        check("once it writes the frame the three passes are replaced, not skipped, whatever their sun constants",
+            traced.ran.bits == PHOTOREAL_PASS_TRACE && traced.skipped.empty() && traced.missing.empty()
+            && traced.replaced.bits == (PHOTOREAL_PASS_SUN_SHADOWS | PHOTOREAL_PASS_CONTACT_SHADOWS | PHOTOREAL_PASS_AMBIENT)
+            && describe(traced) == std::string(kAllSteps) + "; ran trace@combine (64 ao, 32 sun); replaced sun-shadows contact-shadows ambient");
+        rows = walk;
+        FrameReport ao = run_frame(rows, trace_on(PHOTOREAL_TRACE_AO), Inputs { true, SunCheck::ok, TraceState::ready, true });
+        check("traced occlusion alone replaces ambient alone", ao.replaced.bits == PHOTOREAL_PASS_AMBIENT
+            && describe(ao) == std::string(kAllSteps) + "; ran trace@combine (0 ao, 0 sun) sun-shadows@combine contact-shadows@combine; replaced ambient");
+        rows = walk;
+        FrameReport sun = run_frame(rows, trace_on(PHOTOREAL_TRACE_SUN), Inputs { true, SunCheck::ok, TraceState::ready, true });
+        check("traced sun alone replaces sun shadows and contact shadows", sun.replaced.bits == (PHOTOREAL_PASS_SUN_SHADOWS | PHOTOREAL_PASS_CONTACT_SHADOWS)
+            && sun.ran.bits == (PHOTOREAL_PASS_TRACE | PHOTOREAL_PASS_AMBIENT));
+        rows = walk;
+        check("without a camera the trace skips like the others", describe(run_frame(rows, trace_on(0), Inputs { false, SunCheck::ok, TraceState::ready, false }))
+            == std::string(kAllSteps) + "; skipped trace: no camera; skipped sun-shadows: no camera; skipped contact-shadows: no camera; skipped ambient: no camera");
+        Settings alone = view_only(PHOTOREAL_VIEW_OFF);
+        alone.trace.enabled = true;
+        check("the trace wants the combine step and its prerequisites, and no sun constants", wanted_steps(alone).has(Step::combine) && !wants_sun(alone));
+        rows = walk;
+        std::vector<Step> snapshots;
+        const FrameReport view = run_frame(rows, trace_on(0, PHOTOREAL_VIEW_TRACE), Inputs { true, SunCheck::ok, TraceState::ready, false }, &snapshots);
+        check("the trace view is copied at the combine step from the pass's own result", snapshots == std::vector<Step> { Step::combine }
+            && view.view_shown() == View::trace && view_label(View::trace, true).length == 5);
+        rows = walk;
+        check("and without a scene the view says the trace did not run",
+            describe(run_frame(rows, trace_on(0, PHOTOREAL_VIEW_TRACE), Inputs { true, SunCheck::ok, TraceState::building, false }))
+            == std::string(kAllSteps) + raster + "; skipped trace: scene building; view trace: trace did not run");
+        check("only sun shadows, contact shadows and ambient are replaced, each by its output", replaced_by_trace(PassId::sun_shadows, alone.trace)
+            && replaced_by_trace(PassId::ambient, alone.trace) && !replaced_by_trace(PassId::atmosphere, alone.trace)
+            && !replaced_by_trace(PassId::ambient, trace_on(PHOTOREAL_TRACE_SUN).trace));
     }
     {
         PhotorealSettings raw = raw_settings();

@@ -9,8 +9,6 @@ namespace photoreal
 {
     namespace
     {
-        static_assert(PHOTOREAL_TRACE_STATE_FAILED == static_cast<int>(TraceState::failed) && static_cast<int>(TraceState::count) == 6);
-
         // Unity's column-major memory order into ours.
         Mat4d from_unity(const float m[16])
         {
@@ -69,9 +67,6 @@ namespace photoreal
         // The buffers' first rows in SunCbuffers, in rows of 16 bytes, as core/sun.cpp has them.
         constexpr uint32_t kB1 = 768 / 16, kB3 = (768 + 192 + 352) / 16;
     }
-
-    const std::array<const char *, static_cast<size_t>(TraceState::count)> kTraceStateNames = { "none", "building", "uploading", "ready", "stale",
-        "failed" };
 
     uint32_t caster_classes(const TraceSettings &settings)
     {

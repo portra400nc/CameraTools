@@ -40,6 +40,8 @@ enum
     PHOTOREAL_VIEW_BLOOM_FINAL,
     PHOTOREAL_VIEW_SUN_ATLAS,
     PHOTOREAL_VIEW_LIGHT_SHAFTS,    // not an entry: the light the light-shaft pass's mist scatters, drawn by the pass for it
+    PHOTOREAL_VIEW_TRACE,           // not an entry: the trace pass's averages, occlusion red and sun green, blue where a pixel
+                                    // has no sample yet; drawn by the pass for it
     PHOTOREAL_VIEW_COUNT,
 };
 
@@ -88,6 +90,7 @@ enum
     PHOTOREAL_PASS_SUN_SHADOWS = 1u << 4,
     PHOTOREAL_PASS_WETNESS = 1u << 5,
     PHOTOREAL_PASS_LIGHT_SHAFTS = 1u << 6,
+    PHOTOREAL_PASS_TRACE = 1u << 7,
 };
 
 // The tonemap pass's curves, values of PhotorealTonemap.curve.

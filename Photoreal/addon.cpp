@@ -483,6 +483,7 @@ namespace photoreal
                     case PassId::tonemap:
                         call = gpu.run_tonemap(map, settings.tonemap);
                         break;
+                    case PassId::trace:     // runs only with a ready traced scene, which nothing builds yet
                     case PassId::count:
                         break;
                     }

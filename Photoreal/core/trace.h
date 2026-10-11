@@ -15,10 +15,6 @@
 
 namespace photoreal
 {
-    // PHOTOREAL_TRACE_STATE_*. The names follow in kTraceStateNames.
-    enum class TraceState : uint8_t { none, building, uploading, ready, stale, failed, count };
-    extern const std::array<const char *, static_cast<size_t>(TraceState::count)> kTraceStateNames;
-
     // The classes a ray sees with these settings, as bits 1 << TraceClass: the world and other classes always,
     // vegetation and foliage with alpha cards, characters with characters.
     uint32_t caster_classes(const TraceSettings &settings);

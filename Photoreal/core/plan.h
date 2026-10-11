@@ -18,7 +18,7 @@ namespace photoreal
     enum class View : uint8_t
     {
         off, normals, albedo, specular, material_id, smoothness, character, depth, stencil,
-        shadow_mask, quarter_shadow, ambient_diffuse, ambient_specular, hdr_scene, bloom_final, sun_atlas, light_shafts, count,
+        shadow_mask, quarter_shadow, ambient_diffuse, ambient_specular, hdr_scene, bloom_final, sun_atlas, light_shafts, trace, count,
     };
 
     // How the view shader turns an entry into a picture. One value per branch of shaders/view_ps.hlsl.
@@ -215,7 +215,11 @@ namespace photoreal
     enum class GameCall : bool { keep, skip };
 
     // The PHOTOREAL_PASS_* bit order, not the run order.
-    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, wetness, light_shafts, count };
+    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, wetness, light_shafts, trace, count };
+
+    // PHOTOREAL_TRACE_STATE_*: where the traced scene the trace pass needs is. The names follow in kTraceStateNames.
+    enum class TraceState : uint8_t { none, building, uploading, ready, stale, failed, count };
+    extern const std::array<const char *, static_cast<size_t>(TraceState::count)> kTraceStateNames;
     using PassSet = Set<PassId>;
 
     // How a pass reads the game's sun shadow constants and atlas, which the shell copies at the shadow-mask draw.
@@ -237,8 +241,8 @@ namespace photoreal
         bool (*wanted)(const Settings &);
     };
 
-    // Table order is run order within a step: wetness at gbuffer-done; sun shadows, contact shadows, then ambient at
-    // combine; atmosphere, then light shafts at bloom; tonemap at tonemap.
+    // Table order is run order within a step: wetness at gbuffer-done; the trace, sun shadows, contact shadows, then ambient
+    // at combine; atmosphere, then light shafts at bloom; tonemap at tonemap.
     extern const std::array<PassSpec, static_cast<size_t>(PassId::count)> kPasses;
 
     struct ViewSpec
@@ -270,12 +274,14 @@ namespace photoreal
 
     struct Decision
     {
-        enum class Kind : uint8_t { run, off, skip } kind;
+        // replaced: wanted, but the trace pass writes its output this frame, so it does not run.
+        enum class Kind : uint8_t { run, off, skip, replaced } kind;
         PassId pass;
         EntrySet missing;       // skip only
         bool camera_missing;    // skip only
         SunCheck sun;           // skip only: not ok when the pass requires the sun constants and this frame's are unusable
         bool uses_sun;          // run only: the pass reads the sun constants, and this frame's passed their checks
+        TraceState scene = TraceState::ready;   // skip only: the trace pass's scene, when it is not ready
     };
 
     // The passes subscribed to a step, in table order, each with what to do now.
@@ -285,12 +291,20 @@ namespace photoreal
         uint8_t count = 0;
     };
 
-    // What the frame has besides its map: a camera from PhotorealSetCamera, and the verdict on the sun constants.
+    // What the frame has besides its map: a camera from PhotorealSetCamera, the verdict on the sun constants, the traced
+    // scene's state, and whether the trace pass writes the frame this frame: every traced pixel has a sample, and the
+    // samples did not just start again.
     struct Inputs
     {
         bool camera = false;
         SunCheck sun = SunCheck::unread;
+        TraceState scene = TraceState::none;
+        bool traced = false;
     };
+
+    // Whether the trace pass writes this pass's output when it writes the frame: sun shadows and contact shadows with its
+    // sun visibility, ambient with its occlusion.
+    bool replaced_by_trace(PassId pass, const TraceSettings &trace);
 
     Plan plan(Step step, const FrameMap &map, const Settings &settings, const Inputs &inputs);
 
@@ -309,6 +323,7 @@ namespace photoreal
         bool camera_missing = false;
         bool failed = false;        // its inputs were there, but a texture of ours could not be made
         SunCheck sun = SunCheck::ok;
+        TraceState scene = TraceState::ready;   // the trace pass's scene was not ready
     };
 
     // One frame's outcome, built by the shell as steps complete, published at present.
@@ -321,6 +336,8 @@ namespace photoreal
         StepSet wanted;
         PassSet ran;
         PassSet skipped;
+        PassSet replaced;       // wanted, but the trace pass wrote their output
+        uint32_t trace_ao = 0, trace_sun = 0;   // the samples each traced pixel has, once the trace pass ran
         std::array<SkipReason, static_cast<size_t>(PassId::count)> why {};
         EntrySet missing;
         View view = View::off;  // the view this frame wanted
@@ -349,9 +366,11 @@ namespace photoreal
         StepSet moments() const { StepSet s = found; s |= fell_back; return s; }
     };
 
-    // "1152x720 found gbuffer ... tonemap; ran ambient@combine; view normals", where a pass whose step fell back names
+    // "1152x720 found gbuffer ... tonemap; ran ambient@combine; view normals", or "...; ran trace@combine (64 ao, 32 sun);
+    // replaced sun-shadows contact-shadows ambient" once the trace pass writes the frame, where a pass whose step fell back names
     // the fallback ("found ... combine tonemap ...; ran light-shafts@tonemap"), or
-    // "found nothing; skipped ambient: missing normals depth ambient-diffuse", or "off; comparing 2/5", or
+    // "found nothing; skipped ambient: missing normals depth ambient-diffuse", or "...; skipped trace: scene building", or
+    // "off; comparing 2/5", or
     // "1152x720 found ...; presenting 96 samples", or "...; scene 3/7" while a scene capture runs and
     // "...; scene stopped: <reason>" after one stopped. Accumulating names no count, so the line does not change every frame.
     // Names come from kRecipe, kEntryNames, kPasses and kViews.
