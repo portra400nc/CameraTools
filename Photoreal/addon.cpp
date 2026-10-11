@@ -823,6 +823,21 @@ namespace photoreal
                 return;
             if (!run.reference)
                 run.reference = camera->position;
+            // Stream output under DXVK writing what D3D11 promises is this capture's first unknown, so each face says how
+            // many draws wrote another count than their call implies.
+            uint32_t replayed = 0, mismatched = 0;
+            uint64_t triangles = 0;
+            for (const SceneDrawRecord &r : got.records)
+            {
+                replayed += r.skip == DrawSkip::none;
+                triangles += r.written;
+                const std::optional<uint64_t> expected = expected_triangles(r);
+                mismatched += r.skip == DrawSkip::none && expected && *expected != r.written && r.needed == r.written;
+            }
+            log(reshade::log::level::info, std::string("the scene capture's ") + kFaces[face].label + " face: " + std::to_string(replayed) + " of "
+                + std::to_string(got.records.size()) + " G-buffer draws replayed, " + std::to_string(triangles) + " triangles, "
+                + std::to_string(mismatched) + " draws whose triangle count differs from their call's, camera "
+                + kCameraSourceNames[static_cast<size_t>(camera->source)] + (got.overflowed ? ", saved partial at the largest buffer." : "."));
             SceneFaceData data;
             data.face = face;
             data.frame = run.frame;
