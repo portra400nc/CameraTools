@@ -30,6 +30,11 @@ namespace photoreal
     // The class a draw's triangles get, or empty for grass (stencil 129), which never casts, as for contact shadows.
     std::optional<TraceClass> trace_class(const SceneDrawRecord &record);
 
+    // Whether a draw leaves surfaces in the depth buffer: it writes depth, or it draws the prepass's surfaces again at
+    // EQUAL depth. A draw that does neither casts nothing: in build 199's capture, a 12-triangle stencil volume around the
+    // character (stencil 38, depth test ALWAYS) and 5,556 triangles of the character's overlays.
+    bool leaves_depth(const SceneDrawRecord &record);
+
     // A triangle's info word: bits 0 to 23 its alpha record, all set while every caster is opaque; bits 24 to 27 its class.
     constexpr uint32_t kOpaque = 0xFFFFFFu;
     constexpr uint32_t triangle_info(TraceClass c) { return kOpaque | static_cast<uint32_t>(c) << 24; }
@@ -65,6 +70,7 @@ namespace photoreal
             uint64_t unique = 0;                // kept, one per key
             uint64_t replaced = 0;              // kept copies a later copy of a higher kind replaced
             uint64_t dropped_class = 0;         // grass
+            uint64_t dropped_no_depth = 0;      // draws that leave no surface in the depth buffer
             uint64_t dropped_degenerate = 0;    // a corner at infinity, out of range, or merged with another on the grid
             uint64_t pre_only = 0;              // kept triangles only the depth prepass drew
             uint64_t past_max = 0;              // left out by take, the farthest first

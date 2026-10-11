@@ -133,6 +133,17 @@ int main()
         const SceneBuilder::Counts c = b.counts();
         check("grass is left out and a degenerate triangle dropped; a character casts", c.in == 4 && c.dropped_class == 2 && c.dropped_degenerate == 1
             && c.unique == 1 && info_class(b.take(10)[0].info) == TraceClass::character);
+        SceneDrawRecord volume = draw("main", 38);
+        volume.depth_func = 8;
+        volume.depth_write = false;
+        SceneDrawRecord overlay = draw("main", 133);
+        overlay.depth_write = false;
+        SceneBuilder none;
+        none.add_draw(volume, { kA });
+        none.add_draw(overlay, { kB });
+        none.add_draw(draw("equal", 137), { kC });
+        check("draws that write no depth cast nothing, but an equal-depth draw does", none.counts().dropped_no_depth == 2 && none.counts().unique == 1
+            && !leaves_depth(volume) && leaves_depth(draw("equal", 136)) && leaves_depth(draw("pre", 0)));
         check("the classes map from their stencils", trace_class(draw("main", 144)) == TraceClass::world
             && trace_class(draw("main", 200)) == TraceClass::other && trace_class(draw("pre", 0)) == TraceClass::other);
     }

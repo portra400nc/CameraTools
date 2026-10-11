@@ -65,6 +65,12 @@ namespace photoreal
         return TraceClass::other;
     }
 
+    bool leaves_depth(const SceneDrawRecord &record)
+    {
+        constexpr uint32_t kComparisonEqual = 3;
+        return record.depth_write || record.depth_func == kComparisonEqual;
+    }
+
     std::optional<TriangleKey> triangle_key(const std::array<Vec3d, 3> &corners)
     {
         std::array<std::array<int32_t, 3>, 3> q;
@@ -102,6 +108,11 @@ namespace photoreal
     void SceneBuilder::add_draw(const SceneDrawRecord &draw, const std::vector<std::array<Vec3d, 3>> &triangles)
     {
         counts_.in += triangles.size();
+        if (!leaves_depth(draw))
+        {
+            counts_.dropped_no_depth += triangles.size();
+            return;
+        }
         const std::optional<TraceClass> cls = trace_class(draw);
         if (!cls)
         {
