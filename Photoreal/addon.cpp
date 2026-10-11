@@ -814,17 +814,20 @@ namespace photoreal
                 camera = scene_camera(*run.pushed, settings.flip);
             if (camera && camera->source == SceneCamera::Source::game)
                 note.clear();
-            // The buffer grows before the verdict, which captures again only when it did.
-            const bool grown = got.overflowed && scene_gpu.grow(got.needed);
+            // The buffer grows before the verdict, which captures again only when it did. A draw that overran its
+            // reservation has a larger one next time, so that frame is captured again too.
+            const bool grown = got.full && scene_gpu.grow(got.wanted);
             const uint32_t face = run.schedule.face();
-            const Judgement judgement = judge_face(face, got.records, run.gbuffer, got.overflowed, grown, camera, run.reference);
+            const Judgement judgement = judge_face(face, got.records, run.gbuffer, got.full || got.overran != 0, grown || got.overran != 0, camera,
+                run.reference);
             facts.read = judgement;
             if (judgement.verdict != FaceVerdict::ok)
                 return;
             if (!run.reference)
                 run.reference = camera->position;
             // Stream output under DXVK writing what D3D11 promises is this capture's first unknown, so each face says how
-            // many draws wrote another count than their call implies.
+            // many draws wrote another count than their call implies, and how many left corners of their reservation
+            // unwritten, which build 198's triangle replays did for two thirds of every draw.
             uint32_t replayed = 0, mismatched = 0;
             uint64_t triangles = 0;
             for (const SceneDrawRecord &r : got.records)
@@ -836,8 +839,9 @@ namespace photoreal
             }
             log(reshade::log::level::info, std::string("the scene capture's ") + kFaces[face].label + " face: " + std::to_string(replayed) + " of "
                 + std::to_string(got.records.size()) + " G-buffer draws replayed, " + std::to_string(triangles) + " triangles, "
-                + std::to_string(mismatched) + " draws whose triangle count differs from their call's, camera "
-                + kCameraSourceNames[static_cast<size_t>(camera->source)] + (got.overflowed ? ", saved partial at the largest buffer." : "."));
+                + std::to_string(mismatched) + " draws whose triangle count differs from their call's, " + std::to_string(got.unwritten)
+                + " draws with unwritten corners left out, camera " + kCameraSourceNames[static_cast<size_t>(camera->source)]
+                + (note.empty() ? "" : " (" + note + ")") + (got.full ? ", saved partial at the largest buffer." : "."));
             SceneFaceData data;
             data.face = face;
             data.frame = run.frame;
@@ -851,7 +855,7 @@ namespace photoreal
             data.records = std::move(got.records);
             data.clip = std::move(got.clip);
             data.depth = std::move(got.depth);
-            data.overflowed = got.overflowed;
+            data.overflowed = got.full;
             data.origin = *run.reference;
             scene_backlog++;
             worker.push([folder = run.folder, request = run.schedule.request, data = std::move(data), picture = std::move(got.picture)]() mutable {

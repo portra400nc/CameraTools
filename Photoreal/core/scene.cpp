@@ -69,7 +69,7 @@ namespace photoreal
     const std::array<const char *, 2> kCameraSourceNames = { "game", "pushed" };
     const std::array<const char *, static_cast<size_t>(ReplayKind::count)> kReplayKindNames = { "draw", "indexed", "indirect", "indirect-indexed" };
     const std::array<const char *, static_cast<size_t>(DrawSkip::count)> kDrawSkipNames = {
-        "-", "no-bytecode", "gs-bound", "no-position", "game-so", "query-pool", "gs-create-failed", "topology",
+        "-", "no-bytecode", "gs-bound", "no-position", "game-so", "query-pool", "gs-create-failed", "topology", "buffer-full",
     };
     const std::array<const char *, static_cast<size_t>(DrawClass::count)> kDrawClassNames = {
         "pre", "s128", "s129", "s133", "s136", "s137", "s144", "s165", "other",
@@ -294,6 +294,105 @@ namespace photoreal
         return std::nullopt;
     }
 
+    uint64_t reserve_key(const SceneDrawRecord &r)
+    {
+        uint64_t h = 0xcbf29ce484222325ull;
+        const auto mix = [&h](uint64_t v) {
+            for (int i = 0; i < 8; i++)
+                h = (h ^ ((v >> (i * 8)) & 0xFF)) * 0x100000001b3ull;
+        };
+        mix(static_cast<uint64_t>(r.kind));
+        mix(r.topology);
+        mix(r.vs);
+        mix(r.ds);
+        mix(r.count);
+        mix(r.instances);
+        mix(r.first);
+        mix(static_cast<uint32_t>(r.base_vertex));
+        mix(r.first_instance);
+        mix(r.args_offset);
+        return h;
+    }
+
+    uint64_t corners_to_reserve(const SceneDrawRecord &r, const ReserveHints &hints)
+    {
+        if (r.points && (r.kind == ReplayKind::draw || r.kind == ReplayKind::indexed))
+            return uint64_t(r.count) * r.instances;
+        const auto hint = hints.find(reserve_key(r));
+        return hint == hints.end() ? kUnknownCorners : std::max(kUnknownCorners, hint->second);
+    }
+
+    bool place_draw(StreamLayout &layout, SceneDrawRecord &r, const ReserveHints &hints)
+    {
+        const uint64_t corners = corners_to_reserve(r, hints);
+        layout.wanted += corners;
+        if (corners > layout.capacity - std::min(layout.used, layout.capacity))
+        {
+            r.skip = DrawSkip::buffer_full;
+            return false;
+        }
+        r.offset = layout.used;
+        r.reserved = corners;
+        layout.used += corners;
+        return true;
+    }
+
+    namespace
+    {
+        // The corners of each instance of a direct point replay, when they do not make whole triangles; 0 when the
+        // corners are whole triangles back to back.
+        uint64_t instance_block(const SceneDrawRecord &r)
+        {
+            const bool direct = r.kind == ReplayKind::draw || r.kind == ReplayKind::indexed;
+            return r.points && direct && r.count % 3 != 0 ? r.count : 0;
+        }
+    }
+
+    uint64_t triangles_in(const SceneDrawRecord &r, uint64_t corners)
+    {
+        const uint64_t block = instance_block(r);
+        if (block == 0)
+            return corners / 3;
+        return corners / block * (block / 3) + corners % block / 3;
+    }
+
+    StreamRead unpack_stream(std::vector<SceneDrawRecord> &records, const float *buffer, uint64_t capacity, ReserveHints &hints)
+    {
+        StreamRead out;
+        const uint32_t marker[4] = { kUnwrittenBits, kUnwrittenBits, kUnwrittenBits, kUnwrittenBits };
+        for (SceneDrawRecord &r : records)
+        {
+            r.first_triangle = out.clip.size() / 12;
+            if (r.skip != DrawSkip::none)
+                continue;
+            r.written = triangles_in(r, r.corners);
+            r.needed = triangles_in(r, r.corners_needed);
+            if (overran(r))
+            {
+                uint64_t &hint = hints[reserve_key(r)];
+                hint = std::max(hint, (r.corners_needed * 5 / 4 + 1023) / 1024 * 1024);
+                out.overran++;
+            }
+            // Only the corners inside its reservation are its own: past it, the next draw may have written over them.
+            const uint64_t begin = std::min(r.offset, capacity);
+            const uint64_t kept = std::min({ r.corners, r.reserved, capacity - begin });
+            const float *corners = buffer + begin * 4;
+            r.unwritten = 0;
+            for (uint64_t i = 0; i < kept; i++)
+                r.unwritten += std::memcmp(corners + i * 4, marker, sizeof marker) == 0;
+            out.unwritten += r.unwritten != 0;
+            if (!streamed(r))
+                continue;
+            const uint64_t block = instance_block(r) != 0 ? instance_block(r) : std::max<uint64_t>(kept, 1);
+            for (uint64_t start = 0; start < kept; start += block)
+            {
+                const uint64_t whole = std::min(block, kept - start) / 3 * 3;
+                out.clip.insert(out.clip.end(), corners + start * 4, corners + (start + whole) * 4);
+            }
+        }
+        return out;
+    }
+
     DepthCheck check_depth(const SceneCamera &camera, const std::vector<SceneDrawRecord> &records, const std::vector<float> &clip, Size size,
         const std::vector<float> &depth)
     {
@@ -315,6 +414,8 @@ namespace photoreal
             }
         for (const SceneDrawRecord &record : records)
         {
+            if (!streamed(record))
+                continue;
             DepthCounts &counts = check.classes[static_cast<size_t>(draw_class(record))];
             const size_t first = size_t(record.first_triangle) * 12, end = first + size_t(record.written) * 12;
             for (size_t at = first; at < end && at + 4 <= clip.size(); at += 4)

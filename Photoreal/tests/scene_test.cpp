@@ -336,6 +336,100 @@ int main()
     }
 
     {
+        // A frame's replays placed one after another in a buffer of 100,000 corners.
+        const auto call = [](ReplayKind kind, uint32_t count, uint32_t instances, bool points) {
+            SceneDrawRecord r;
+            r.kind = kind;
+            r.count = count;
+            r.instances = instances;
+            r.topology = points ? 4 : 35;
+            r.points = points;
+            r.ds = points ? 0 : 0x2adc971cc2058b7aull;
+            return r;
+        };
+        std::vector<SceneDrawRecord> frame = { call(ReplayKind::indexed, 6, 2, true), call(ReplayKind::indirect_indexed, 0, 0, true),
+            call(ReplayKind::indexed, 30, 1, false), call(ReplayKind::indexed, 3000, 1, true), call(ReplayKind::draw, 300, 1, true) };
+        frame[1].args_offset = 20;
+        StreamLayout layout;
+        layout.capacity = 100000;
+        ReserveHints hints;
+        std::vector<bool> placed;
+        for (SceneDrawRecord &r : frame)
+            placed.push_back(place_draw(layout, r, hints));
+        check("layout: a direct point replay reserves count x instances corners, an indirect or tessellated one 49,152",
+            frame[0].offset == 0 && frame[0].reserved == 12 && frame[1].offset == 12 && frame[1].reserved == 49152 && frame[2].offset == 49164
+                && frame[2].reserved == 49152);
+        check("layout: 3,000 corners past the buffer's end are skipped as buffer-full, and the 300 after them still fit",
+            !placed[3] && frame[3].skip == DrawSkip::buffer_full && placed[4] && frame[4].offset == 98316 && layout.used == 98616
+                && layout.wanted == 101616);
+        hints[reserve_key(frame[1])] = 75776;
+        hints[reserve_key(frame[2])] = 1024;
+        SceneDrawRecord other_slot = frame[1];
+        other_slot.args_offset = 40;
+        check("a hint above 49,152 corners raises an indirect draw's reservation, one below does not, and another argument slot has its own",
+            corners_to_reserve(frame[1], hints) == 75776 && corners_to_reserve(frame[2], hints) == 49152 && corners_to_reserve(other_slot, hints) == 49152);
+    }
+    {
+        // 32 corners of buffer, cleared to the marker, then written as five replays left them. Corner i is (i, i + 0.5,
+        // 0.25, 10).
+        std::vector<float> buffer(32 * 4);
+        for (size_t i = 0; i < buffer.size(); i++)
+            std::memcpy(&buffer[i], &kUnwrittenBits, sizeof(float));
+        const auto write = [&buffer](uint64_t corner) {
+            const float c[4] = { float(corner), corner + 0.5f, 0.25f, 10 };
+            std::memcpy(&buffer[corner * 4], c, sizeof c);
+        };
+        const auto replay = [](ReplayKind kind, uint32_t count, uint64_t offset, uint64_t reserved, uint64_t corners) {
+            SceneDrawRecord r;
+            r.kind = kind;
+            r.count = count;
+            r.instances = 2;
+            r.topology = 4;
+            r.points = true;
+            r.offset = offset;
+            r.reserved = reserved;
+            r.corners = r.corners_needed = corners;
+            return r;
+        };
+        // An indirect draw with room for 6 corners that wrote 60,000: its first 6 are in place, its 7th to 9th were
+        // overwritten by the next draw's 3, and the rest landed past them.
+        std::vector<SceneDrawRecord> records = { replay(ReplayKind::indirect_indexed, 0, 0, 6, 60000), replay(ReplayKind::indirect_indexed, 0, 6, 3, 3),
+            // A direct draw that said it wrote 6 corners but wrote 2, as the Deck's DXVK did for triangles: 4 unwritten.
+            replay(ReplayKind::indexed, 3, 9, 6, 6),
+            // 2 instances of 4 points: one triangle each, the 4th corner of each left out.
+            replay(ReplayKind::indexed, 4, 15, 8, 8),
+            // A corner a vertex shader culled by writing zeros is written.
+            replay(ReplayKind::indexed, 3, 23, 6, 6) };
+        records[0].args_offset = 0;
+        records[1].args_offset = 20;
+        SceneDrawRecord skipped;
+        skipped.skip = DrawSkip::buffer_full;
+        records.push_back(skipped);
+        for (uint64_t corner : { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28 })
+            write(corner);
+        std::memset(&buffer[25 * 4], 0, 16);
+        ReserveHints hints;
+        const StreamRead read = unpack_stream(records, buffer.data(), 32, hints);
+        std::vector<float> want;
+        for (uint64_t corner : { 6, 7, 8, 15, 16, 17, 19, 20, 21, 23, 24, 25, 26, 27, 28 })
+        {
+            const float c[4] = { float(corner), corner + 0.5f, 0.25f, 10 };
+            want.insert(want.end(), c, c + 4);
+        }
+        std::memset(&want[11 * 4], 0, 16);
+        check("unpack: the overrun draw is left out and its hint becomes 1.25 x 60,000 corners rounded up to 1,024; the next draw's own 3 corners stay",
+            !streamed(records[0]) && read.overran == 1 && hints[reserve_key(records[0])] == 75776 && corners_to_reserve(records[0], hints) == 75776
+                && streamed(records[1]) && records[1].written == 1);
+        check("unpack: 4 of a draw's 6 corners never written are counted and leave it out", records[2].unwritten == 4 && !streamed(records[2])
+            && read.unwritten == 1 && records[2].written == 2);
+        check("unpack: 2 instances of 4 points give 2 triangles without the 4th corner of each, and a zero corner counts as written",
+            records[3].written == 2 && records[4].unwritten == 0 && records[4].written == 2 && read.clip == want);
+        check("unpack: first triangles count only streamed draws, a skipped draw included",
+            records[0].first_triangle == 0 && records[1].first_triangle == 0 && records[2].first_triangle == 1 && records[3].first_triangle == 1
+                && records[4].first_triangle == 3 && records[5].first_triangle == 5 && records[0].written == 20000);
+    }
+
+    {
         SceneDrawRecord r = record(true, 137, false, 0, 0);
         r.depth_func = 3;
         SceneDrawRecord pre = record(false, 0, true, 0, 0);

@@ -13,7 +13,8 @@ namespace photoreal
         constexpr uint64_t kBufferStart = 128ull << 20;
         constexpr uint64_t kBufferStep = 16ull << 20;
         constexpr uint64_t kBufferMax = 512ull << 20;
-        constexpr uint64_t kTriangleBytes = 48;     // three float4 clip positions
+        // The buffer begin_frame copies kUnwrittenBits from, again and again until the stream-output buffer is covered.
+        constexpr uint32_t kMarkerBytes = 4u << 20;
 
         template <class T>
         void release(T *&item)
@@ -32,19 +33,16 @@ namespace photoreal
             return text;
         }
 
-        // Triangle lists and strips, with or without adjacency, and patch lists, which only a domain shader turns into
-        // triangles. Points and lines would not fill the files' triangles.
-        bool triangles(D3D11_PRIMITIVE_TOPOLOGY topology, bool domain)
+        // How a draw replays: a triangle list as a point list, whose corners in index order are its triangles; a patch list
+        // through its domain shader, which streams the tessellator's triangles; anything else not at all. A strip's points
+        // would need its restarts and winding rebuilt, and the census has none.
+        enum class Replay { points, triangles, none };
+        Replay replay_of(D3D11_PRIMITIVE_TOPOLOGY topology, bool domain)
         {
-            switch (topology)
-            {
-            case D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST: case D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP:
-            case D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST_ADJ: case D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP_ADJ:
-                return !domain;
-            default:
-                return domain && topology >= D3D11_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST
-                    && topology <= D3D11_PRIMITIVE_TOPOLOGY_32_CONTROL_POINT_PATCHLIST;
-            }
+            if (domain)
+                return topology >= D3D11_PRIMITIVE_TOPOLOGY_1_CONTROL_POINT_PATCHLIST && topology <= D3D11_PRIMITIVE_TOPOLOGY_32_CONTROL_POINT_PATCHLIST
+                    ? Replay::triangles : Replay::none;
+            return topology == D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST ? Replay::points : Replay::none;
         }
 
         // The pixel shader's inputs t0 to t7, as NativeDraw reads them.
@@ -82,6 +80,7 @@ namespace photoreal
         context_->GSGetShader(&gs_, gs_instances_, &gs_count_);
         context_->OMGetBlendState(&blend_, blend_factor_, &sample_mask_);
         context_->OMGetDepthStencilState(&depth_stencil_, &stencil_ref_);
+        context_->IAGetPrimitiveTopology(&topology_);
         context_->SOGetTargets(kSoSlots, so_);
     }
 
@@ -90,6 +89,7 @@ namespace photoreal
         context_->GSSetShader(gs_, gs_instances_, gs_count_);
         context_->OMSetBlendState(blend_, blend_factor_, sample_mask_);
         context_->OMSetDepthStencilState(depth_stencil_, stencil_ref_);
+        context_->IASetPrimitiveTopology(topology_);
         if (!game_so())
         {
             ID3D11Buffer *const none[kSoSlots] = {};
@@ -105,6 +105,8 @@ namespace photoreal
         UINT mask = 0, ref = 0;
         ID3D11DepthStencilState *depth_stencil = nullptr;
         ID3D11Buffer *so = nullptr;
+        D3D11_PRIMITIVE_TOPOLOGY topology = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED;
+        context_->IAGetPrimitiveTopology(&topology);
         context_->OMGetRenderTargets(1, &rtv, &dsv);
         context_->PSGetShader(&ps, nullptr, nullptr);
         context_->GSGetShader(&gs, nullptr, nullptr);
@@ -123,6 +125,8 @@ namespace photoreal
             moved_ = "blend state";
         else if (depth_stencil != depth_stencil_ || ref != stencil_ref_)
             moved_ = "depth-stencil state";
+        else if (topology != topology_)
+            moved_ = "primitive topology";
         else if (so != so_[0])
             moved_ = "stream-output target";
         for (IUnknown *item : std::initializer_list<IUnknown *> { rtv, dsv, ps, gs, blend, depth_stencil, so, rtv_, dsv_, ps_, gs_, blend_, depth_stencil_ })
@@ -167,6 +171,17 @@ namespace photoreal
         end();
         if (!make_buffers(kBufferStart))
             return "the 128 MB stream-output buffer could not be made";
+        D3D11_BUFFER_DESC desc = {};
+        desc.ByteWidth = kMarkerBytes;
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = 0;
+        std::vector<uint32_t> marker(kMarkerBytes / sizeof(uint32_t), kUnwrittenBits);
+        const D3D11_SUBRESOURCE_DATA data = { marker.data(), 0, 0 };
+        if (FAILED(device_->CreateBuffer(&desc, &data, marker_.GetAddressOf())))
+        {
+            end();
+            return "the stream-output buffer's clear source could not be made";
+        }
         return std::nullopt;
     }
 
@@ -174,10 +189,13 @@ namespace photoreal
     {
         so_buffer_.Reset();
         so_staging_.Reset();
+        marker_.Reset();
         buffer_bytes_ = 0;
+        hints_.clear();
         queries_.clear();
         records_.clear();
         replays_ = 0;
+        layout_ = {};
         copied_.clear();
         copied_replays_ = 0;
         copied_frame_ = false;
@@ -192,6 +210,15 @@ namespace photoreal
     {
         records_.clear();
         replays_ = 0;
+        layout_ = {};
+        layout_.capacity = buffer_bytes_ / kCornerBytes;
+        if (!so_buffer_ || !marker_)
+            return;
+        for (uint64_t at = 0; at < buffer_bytes_; at += kMarkerBytes)
+        {
+            const D3D11_BOX box = { 0, 0, 0, static_cast<UINT>(std::min<uint64_t>(kMarkerBytes, buffer_bytes_ - at)), 1, 1 };
+            context_->CopySubresourceRegion(so_buffer_.Get(), 0, static_cast<UINT>(at), 0, 0, marker_.Get(), 0, &box);
+        }
     }
 
     const SceneGpu::CachedGs &SceneGpu::geometry_shader(const ShaderCode &code)
@@ -272,11 +299,13 @@ namespace photoreal
         r.ps = ps_code ? ps_code->hash : 0;
         // The stage before the rasterizer writes the position: the domain shader when the draw is tessellated.
         const std::optional<ShaderCode> &source = ds ? ds_code : vs_code;
+        const Replay mode = replay_of(topology, ds != nullptr);
+        r.points = mode == Replay::points;
         if (gs)
             r.skip = DrawSkip::gs_bound;
         else if (!source || !source->code)
             r.skip = DrawSkip::no_bytecode;
-        else if (!triangles(topology, ds != nullptr))
+        else if (mode == Replay::none)
             r.skip = DrawSkip::topology;
         else if (replays_ >= kSceneQueries)
             r.skip = DrawSkip::query_pool;
@@ -308,6 +337,8 @@ namespace photoreal
             }
             queries_.push_back(query);
         }
+        if (!place_draw(layout_, r, hints_))
+            return std::nullopt;
 
         std::optional<std::string> stop;
         {
@@ -317,10 +348,13 @@ namespace photoreal
             else
             {
                 ID3D11Buffer *const target = so_buffer_.Get();
-                // The frame's first replay writes from the buffer's start, and each later one appends after it.
-                const UINT offset = replays_ == 0 ? 0 : ~0u;
+                // Its own place, never an append: what a draw wrote is then read from where it wrote it, whatever the one
+                // before it did.
+                const UINT offset = static_cast<UINT>(r.offset * kCornerBytes);
                 c->GSSetShader(so_gs.shader.Get(), nullptr, 0);
                 c->SOSetTargets(1, &target, &offset);
+                if (r.points)
+                    c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_POINTLIST);
                 c->OMSetBlendState(no_write_.Get(), nullptr, 0xFFFFFFFF);
                 c->OMSetDepthStencilState(no_depth_.Get(), 0);
                 // The set calls return nothing, so the bindings are read back before anything draws through them.
@@ -369,8 +403,10 @@ namespace photoreal
         ID3D11DeviceContext1 *c = context_.Get();
         copied_ = std::move(records_);
         copied_replays_ = replays_;
+        copied_wanted_ = layout_.wanted;
         records_.clear();
         replays_ = 0;
+        layout_ = {};
         c->CopyResource(so_staging_.Get(), so_buffer_.Get());
 
         depth_size_ = {};
@@ -460,25 +496,18 @@ namespace photoreal
         }
 
         out.records = copied_;
-        uint64_t at = 0;
         for (SceneDrawRecord &r : out.records)
         {
+            out.full |= r.skip == DrawSkip::buffer_full;
             if (r.skip != DrawSkip::none)
                 continue;
+            // A point replay counts corners; a tessellated one counts triangles.
             const D3D11_QUERY_DATA_SO_STATISTICS &s = stats[r.query];
-            r.written = s.NumPrimitivesWritten;
-            r.needed = s.PrimitivesStorageNeeded;
-            r.first_triangle = at;
-            at += r.written;
-            out.needed += r.needed;
-            out.overflowed |= r.needed > r.written;
+            const uint64_t per = r.points ? 1 : 3;
+            r.corners = s.NumPrimitivesWritten * per;
+            r.corners_needed = std::max(s.PrimitivesStorageNeeded, s.NumPrimitivesWritten) * per;
         }
-        // Written triangles never pass the buffer's end; a statistic that says so is not trusted past it.
-        if (at * kTriangleBytes > buffer_bytes_)
-        {
-            at = buffer_bytes_ / kTriangleBytes;
-            out.overflowed = true;
-        }
+        out.wanted = copied_wanted_;
         const HRESULT hr = c->Map(so_staging_.Get(), 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &mapped);
         if (hr == DXGI_ERROR_WAS_STILL_DRAWING)
             return SceneRead {};
@@ -489,18 +518,20 @@ namespace photoreal
             out.why = "the stream-output copy could not be read (" + hresult("Map", hr) + ")";
             return out;
         }
-        out.clip.resize(size_t(at) * (kTriangleBytes / sizeof(float)));
-        std::memcpy(out.clip.data(), mapped.pData, out.clip.size() * sizeof(float));
+        StreamRead stream = unpack_stream(out.records, static_cast<const float *>(mapped.pData), buffer_bytes_ / kCornerBytes, hints_);
         c->Unmap(so_staging_.Get(), 0);
-        if (at > 0)
+        out.clip = std::move(stream.clip);
+        out.overran = stream.overran;
+        out.unwritten = stream.unwritten;
+        if (!out.clip.empty())
             support_ = 1;
         out.state = SceneRead::State::ok;
         return out;
     }
 
-    bool SceneGpu::grow(uint64_t needed_triangles)
+    bool SceneGpu::grow(uint64_t wanted_corners)
     {
-        const uint64_t wanted = std::min(kBufferMax, (needed_triangles * kTriangleBytes * 5 / 4 + kBufferStep - 1) / kBufferStep * kBufferStep);
+        const uint64_t wanted = std::min(kBufferMax, (wanted_corners * kCornerBytes * 5 / 4 + kBufferStep - 1) / kBufferStep * kBufferStep);
         if (wanted <= buffer_bytes_)
             return false;
         // make_buffers keeps the old buffers when the new ones fail.

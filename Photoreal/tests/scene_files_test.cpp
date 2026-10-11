@@ -286,6 +286,9 @@ int main(int argc, char **argv)
     r.depth_func = 4;
     r.ps_inputs[0] = { ResourceId { 0x1f00 }, Format::r8g8b8a8_unorm, { 1920, 1200 } };
     r.written = r.needed = 2;
+    r.points = true;
+    r.offset = 30;
+    r.reserved = r.corners = r.corners_needed = 6;
     SceneDrawRecord skipped;
     skipped.index = 4;
     skipped.kind = ReplayKind::indirect_indexed;
@@ -329,10 +332,10 @@ int main(int argc, char **argv)
         check("a corner at infinity drops its triangle and keeps the other", at_infinity.triangles == 1 && at_infinity.dropped == 1);
     }
     {
-        check("draws.tsv: a direct draw with its arguments, expected and written triangles and its first input, and a skipped indirect draw",
+        check("draws.tsv: a direct draw with its arguments, expected and written triangles, its point replay at corner 30 with 6 reserved, written and none unwritten, and its first input, and a skipped indirect draw",
             draw_rows(0, records) == "0\t3\tmain\ts128\tindexed\t6\t1\t12\t-4\t0\t-\t4\t00000000000000ab\t-\t00000000000000cd\t1\t128\tless-equal\t0\t2\t2\t2\t0\t-"
-                                     "\t1f00:28:1920x1200\t-\t-\t-\t-\t-\t-\t-\n"
-                                     "0\t4\tequal\ts137\tindirect-indexed\t-\t-\t-\t-\t-\t20\t4\t-\t-\t-\t1\t137\tequal\t0\t-\t0\t0\t0\tno-bytecode\t-\t-\t-\t-\t-\t-\t-\t-\n");
+                                     "\t1\t30\t6\t6\t0\t1f00:28:1920x1200\t-\t-\t-\t-\t-\t-\t-\n"
+                                     "0\t4\tequal\ts137\tindirect-indexed\t-\t-\t-\t-\t-\t20\t4\t-\t-\t-\t1\t137\tequal\t0\t-\t0\t0\t0\tno-bytecode\t0\t0\t0\t0\t0\t-\t-\t-\t-\t-\t-\t-\t-\n");
         SceneFaceData data;
         data.face = kFaceView;
         data.frame = 1234;
@@ -350,7 +353,7 @@ int main(int argc, char **argv)
         const MeshStats stats = write_obj(out, camera, origin, records, clip, 4000000);
         const std::string row = scene_row(data, stats, check_depth(camera, records, clip, data.render, data.depth));
         check("scene.tsv: the face, its frame and camera, 1 replayed and 1 skipped for no-bytecode, triangles, 6 corners matched at 10 m, and the camera",
-            row == "6\tview\t1234\t2\tpushed\tsun constants unread\t320x200 found gbuffer\t4\t4\t2\t1\t1\t0\t0\t0\t0\t0\t0\t2\t2\t0\t2\t4\t0\t0"
+            row == "6\tview\t1234\t2\tpushed\tsun constants unread\t320x200 found gbuffer\t4\t4\t2\t1\t1\t0\t0\t0\t0\t0\t0\t0\t2\t2\t0\t2\t4\t0\t0\t0\t0\t0"
                    "\t0\t0\t0\t0\t6\t6\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0"
                    "\t0\t0.5,0,0\t0,0,0\t0,0,-1\t0,1,0\n");
         check("camera.tsv: no shadow-mask constants, then clip_to_world and the pushed matrices row by row",

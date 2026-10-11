@@ -70,7 +70,7 @@ namespace photoreal
             std::unordered_map<Bits, int64_t, BitsHash> merged;
             for (const SceneDrawRecord &record : records)
             {
-                if (record.skip != DrawSkip::none || record.written == 0)
+                if (!streamed(record) || record.written == 0)
                     continue;
                 if (full || stats.triangles + stats.dropped + record.written > max_triangles)
                 {
@@ -224,7 +224,7 @@ namespace photoreal
 
     const char *const kSceneHeader = "face\tname\tframe\tattempts\tcamera\tcamera_note\tstatus\twidth\theight\tdraws\treplayed"
         "\tskip_no-bytecode\tskip_gs-bound\tskip_no-position\tskip_game-so\tskip_query-pool\tskip_gs-create-failed\tskip_topology"
-        "\twritten\tneeded\toverflowed\tfile_triangles\tfile_vertices\tdropped\tpast_max"
+        "\tskip_buffer-full\twritten\tneeded\toverflowed\tfile_triangles\tfile_vertices\tdropped\tpast_max\tunwritten_draws\tunwritten_corners\toverran_draws"
         "\tpre_tested\tpre_matched\tpre_in_front\tpre_behind\ts128_tested\ts128_matched\ts128_in_front\ts128_behind"
         "\ts129_tested\ts129_matched\ts129_in_front\ts129_behind\ts133_tested\ts133_matched\ts133_in_front\ts133_behind"
         "\ts136_tested\ts136_matched\ts136_in_front\ts136_behind\ts137_tested\ts137_matched\ts137_in_front\ts137_behind"
@@ -232,7 +232,7 @@ namespace photoreal
         "\tother_tested\tother_matched\tother_in_front\tother_behind\toff_screen\torigin\tposition\tforward\tup\n";
 
     const char *const kDrawsHeader = "face\tdraw\tkind\tclass\tcall\tcount\tinstances\tfirst\tbase_vertex\tfirst_instance\targs_offset\ttopology"
-        "\tvs\tds\tps\tstencil\tstencil_ref\tdepth_func\tdepth_write\texpected\twritten\tneeded\tfirst_triangle\tskip"
+        "\tvs\tds\tps\tstencil\tstencil_ref\tdepth_func\tdepth_write\texpected\twritten\tneeded\tfirst_triangle\tskip\tpoints\toffset\treserved\tcorners\tunwritten"
         "\tt0\tt1\tt2\tt3\tt4\tt5\tt6\tt7\n";
 
     const char *const kCameraHeader = "face\tsource\tb1_5\tb1_10\tb2_6\tb2_7\tb2_8\tb2_9\tb2_10\tb2_11\tb2_12\tb2_13\tb2_18\tb2_19\tb2_20"
@@ -241,12 +241,16 @@ namespace photoreal
     std::string scene_row(const SceneFaceData &d, const MeshStats &mesh, const DepthCheck &depth)
     {
         std::array<uint32_t, static_cast<size_t>(DrawSkip::count)> skips {};
-        uint64_t written = 0, needed = 0;
+        uint64_t written = 0, needed = 0, unwritten = 0;
+        uint32_t unwritten_draws = 0, overran_draws = 0;
         for (const SceneDrawRecord &r : d.records)
         {
             skips[static_cast<size_t>(r.skip)]++;
             written += r.written;
             needed += r.needed;
+            unwritten += r.unwritten;
+            unwritten_draws += r.unwritten != 0;
+            overran_draws += r.skip == DrawSkip::none && overran(r);
         }
         std::string row = std::to_string(d.face) + '\t' + kFaces[d.face].name + '\t' + std::to_string(d.frame) + '\t' + std::to_string(d.attempts) + '\t'
             + kCameraSourceNames[static_cast<size_t>(d.camera.source)] + '\t' + (d.camera_note.empty() ? "-" : d.camera_note) + '\t' + d.status + '\t'
@@ -255,7 +259,8 @@ namespace photoreal
         for (size_t i = 1; i < skips.size(); i++)
             row += '\t' + std::to_string(skips[i]);
         row += '\t' + std::to_string(written) + '\t' + std::to_string(needed) + '\t' + (d.overflowed ? "1" : "0") + '\t' + std::to_string(mesh.triangles)
-            + '\t' + std::to_string(mesh.vertices) + '\t' + std::to_string(mesh.dropped) + '\t' + std::to_string(mesh.past_max);
+            + '\t' + std::to_string(mesh.vertices) + '\t' + std::to_string(mesh.dropped) + '\t' + std::to_string(mesh.past_max) + '\t'
+            + std::to_string(unwritten_draws) + '\t' + std::to_string(unwritten) + '\t' + std::to_string(overran_draws);
         for (const DepthCounts &c : depth.classes)
             row += '\t' + std::to_string(c.tested) + '\t' + std::to_string(c.matched) + '\t' + std::to_string(c.in_front) + '\t' + std::to_string(c.behind);
         row += '\t' + std::to_string(depth.off_screen) + '\t' + vec(d.origin) + '\t' + vec(d.camera.position) + '\t' + vec(d.camera.basis[2]) + '\t'
@@ -278,7 +283,8 @@ namespace photoreal
                 + '\t' + hex(r.ps) + '\t' + (r.stencil ? "1" : "0") + '\t' + std::to_string(r.stencil_ref) + '\t'
                 + (r.depth_func < std::size(kDepthFuncNames) ? kDepthFuncNames[r.depth_func] : "?") + '\t' + (r.depth_write ? "1" : "0") + '\t'
                 + (expected ? std::to_string(*expected) : "-") + '\t' + std::to_string(r.written) + '\t' + std::to_string(r.needed) + '\t'
-                + std::to_string(r.first_triangle) + '\t' + kDrawSkipNames[static_cast<size_t>(r.skip)];
+                + std::to_string(r.first_triangle) + '\t' + kDrawSkipNames[static_cast<size_t>(r.skip)] + '\t' + (r.points ? "1" : "0") + '\t'
+                + std::to_string(r.offset) + '\t' + std::to_string(r.reserved) + '\t' + std::to_string(r.corners) + '\t' + std::to_string(r.unwritten);
             for (const Texture &t : r.ps_inputs)
             {
                 if (t.id == ResourceId {})
