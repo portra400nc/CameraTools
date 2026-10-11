@@ -146,18 +146,15 @@ BvhHit trace_bvh(float3 origin, float3 direction, float t_max, bool any_hit, uin
             : box_entry(float3(asfloat(r0.x), asfloat(r0.y), asfloat(r0.z)), float3(asfloat(r0.w), asfloat(r1.x), asfloat(r1.y)), origin, inverse, hit.t);
         float t1 = link1 == kNoLink ? kMiss
             : box_entry(float3(asfloat(r1.z), asfloat(r1.w), asfloat(r2.x)), float3(asfloat(r2.y), asfloat(r2.z), asfloat(r2.w)), origin, inverse, hit.t);
-        if (t0 != kMiss && (link0 & kLeafLink) != 0u)
+        // Both children's leaves in one loop, so the shader holds one copy of visit_leaf.
+        LOOP for (uint c = 0u; c < 2u; c++)
         {
-            hit = visit_leaf(hit, link0, origin, direction, any_hit, mask);
-            if (any_hit && hit.prim != kNoHit)
-                break;
+            uint link = c == 0u ? link0 : link1;
+            if ((c == 0u ? t0 : t1) != kMiss && (link & kLeafLink) != 0u && !(any_hit && hit.prim != kNoHit))
+                hit = visit_leaf(hit, link, origin, direction, any_hit, mask);
         }
-        if (t1 != kMiss && (link1 & kLeafLink) != 0u)
-        {
-            hit = visit_leaf(hit, link1, origin, direction, any_hit, mask);
-            if (any_hit && hit.prim != kNoHit)
-                break;
-        }
+        if (any_hit && hit.prim != kNoHit)
+            break;
         bool in0 = t0 != kMiss && (link0 & kLeafLink) == 0u && t0 <= hit.t;
         bool in1 = t1 != kMiss && (link1 & kLeafLink) == 0u && t1 <= hit.t;
         if (in0 && in1)

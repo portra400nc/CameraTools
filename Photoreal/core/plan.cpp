@@ -39,14 +39,14 @@ namespace photoreal
         static_assert(PHOTOREAL_ERROR_STATE == 4);
         // Callers built before foliage_ao_strength send 32 bytes, those before contact shadows 36, those before their
         // foliage_strength 52, those before atmosphere 56, those before tonemap 76, those before sun shadows 100, those
-        // before light shafts 132. Version 6 dropped the leaves blocks, which moved wetness from 128 to 116, so a binding of
+        // before light shafts 132, those before the trace 172. Version 6 dropped the leaves blocks, which moved wetness from 128 to 116, so a binding of
         // version 5 must not call PhotorealApply; csharp/Photoreal.cs checks the version and marshals 172.
         static_assert(offsetof(PhotorealSettings, ambient) + offsetof(PhotorealAmbient, foliage_ao_strength) == 32
             && offsetof(PhotorealSettings, contact_shadows) == 36
             && offsetof(PhotorealSettings, contact_shadows) + offsetof(PhotorealContactShadows, foliage_strength) == 52
             && offsetof(PhotorealSettings, atmosphere) == 56 && offsetof(PhotorealSettings, tonemap) == 76
             && offsetof(PhotorealSettings, sun_shadows) == 100 && offsetof(PhotorealSettings, wetness) == 116
-            && offsetof(PhotorealSettings, light_shafts) == 132 && sizeof(PhotorealSettings) == 172);
+            && offsetof(PhotorealSettings, light_shafts) == 132 && offsetof(PhotorealSettings, trace) == 172 && sizeof(PhotorealSettings) == 212);
         static_assert(sizeof(PhotorealCamera) == 48 * sizeof(float));
         static_assert(PHOTOREAL_ACCUMULATE_PRESENT == static_cast<int>(AccumulateMode::present)
             && PHOTOREAL_ACCUMULATE_COUNT == static_cast<int>(AccumulateMode::count));
@@ -244,6 +244,24 @@ namespace photoreal
             s.light_shafts.patch_size = finite_or(f.patch_size, shaft_defaults.patch_size, 0.5f, 100.0f);
             s.light_shafts.ambient = finite_or(f.ambient, shaft_defaults.ambient, 0.0f, 4.0f);
             s.light_shafts.steps = std::clamp<uint32_t>(f.steps, 8, 128);
+        }
+        const TraceSettings trace_defaults;
+        const PhotorealTrace &r = raw.trace;
+        if (knows(offsetof(PhotorealSettings, trace), sizeof r))
+        {
+            s.trace.enabled = r.enabled != 0;
+            const uint32_t outputs = r.outputs & (PHOTOREAL_TRACE_AO | PHOTOREAL_TRACE_SUN);
+            s.trace.ao = outputs == 0 || (outputs & PHOTOREAL_TRACE_AO) != 0;
+            s.trace.sun = outputs == 0 || (outputs & PHOTOREAL_TRACE_SUN) != 0;
+            s.trace.characters = (r.casters & PHOTOREAL_TRACE_CAST_CHARACTERS) != 0;
+            s.trace.alpha_cards = (r.casters & PHOTOREAL_TRACE_CAST_ALPHA_CARDS) != 0;
+            s.trace.ao_distance = finite_or(r.ao_distance, trace_defaults.ao_distance, 0.1f, 20.0f);
+            s.trace.ao_strength = finite_or(r.ao_strength, trace_defaults.ao_strength, 0.0f, 1.0f);
+            s.trace.sun_size = finite_or(r.sun_size, trace_defaults.sun_size, 0.0f, 0.2f);
+            s.trace.sun_strength = finite_or(r.sun_strength, trace_defaults.sun_strength, 0.0f, 1.0f);
+            s.trace.ao_samples = std::clamp<uint32_t>(r.ao_samples, 1, 4096);
+            s.trace.sun_samples = std::clamp<uint32_t>(r.sun_samples, 1, 4096);
+            s.trace.budget_ms = finite_or(r.budget_ms, trace_defaults.budget_ms, 2.0f, 200.0f);
         }
         return s;
     }

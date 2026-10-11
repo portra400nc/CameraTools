@@ -706,7 +706,7 @@ int main()
         check("a label stops at 32 glyphs", encode_label(std::string(40, 'z')).length == 32);
     }
     {
-        FrameReport report = FrameReport::start(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, 0, 1, {}, {}, {}, {}, {}, {}, {} }));
+        FrameReport report = FrameReport::start(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, 0, 1, {}, {}, {}, {}, {}, {}, {}, {} }));
         check("disabled: describe says off", describe(report) == "off");
         report.error = PHOTOREAL_ERROR_SHADER;
         check("disabled by an error: describe says which", describe(report) == "off; error shader");
@@ -967,6 +967,42 @@ int main()
         check("the default settings keep light shafts off at 48 steps", !Settings {}.light_shafts.enabled && Settings {}.light_shafts.steps == 48);
     }
     {
+        PhotorealSettings raw = raw_settings();
+        raw.trace = { 1, PHOTOREAL_TRACE_SUN, PHOTOREAL_TRACE_CAST_ALPHA_CARDS, 5, 0.5f, 0.03f, 0.75f, 16, 8, 30 };
+        const TraceSettings whole = parse_settings(raw).trace;
+        check("a whole struct reads the trace: on, sun only, alpha cards but no characters, 5 m, strength 0.5, sun 0.03 at 0.75, "
+              "16 and 8 samples, 30 ms", whole.enabled && !whole.ao && whole.sun && !whole.characters && whole.alpha_cards
+            && whole.ao_distance == 5.0f && whole.ao_strength == 0.5f && whole.sun_size == 0.03f && whole.sun_strength == 0.75f
+            && whole.ao_samples == 16 && whole.sun_samples == 8 && whole.budget_ms == 30.0f);
+        raw.trace.outputs = 0;
+        raw.trace.casters = 0xFFFFFFFFu;
+        const TraceSettings all = parse_settings(raw).trace;
+        check("outputs 0 reads as both, and casters keep their known bits", all.ao && all.sun && all.characters && all.alpha_cards);
+        raw.size = 172;     // a caller of version 7
+        const TraceSettings before = parse_settings(raw).trace;
+        check("a 172-byte struct keeps the trace off at 2 m, 0.0093, 64 and 32 samples and 20 ms, with characters and cards casting",
+            !before.enabled && before.ao && before.sun && before.characters && before.alpha_cards && before.ao_distance == 2.0f
+            && before.ao_strength == 1.0f && before.sun_size == 0.0093f && before.sun_strength == 1.0f && before.ao_samples == 64
+            && before.sun_samples == 32 && before.budget_ms == 20.0f);
+        raw.size = 211;
+        check("a struct one byte short of the trace block keeps its defaults", !parse_settings(raw).trace.enabled);
+        raw.size = sizeof raw;
+        raw.trace = { 1, 0, 0, NAN, INFINITY, -INFINITY, NAN, 64, 32, NAN };
+        const TraceSettings bad = parse_settings(raw).trace;
+        check("the trace: NaN and infinities fall back to 2 m, strength 1, 0.0093, 1 and 20 ms", bad.ao_distance == 2.0f && bad.ao_strength == 1.0f
+            && bad.sun_size == 0.0093f && bad.sun_strength == 1.0f && bad.budget_ms == 20.0f);
+        raw.trace = { 1, 0, 0, 0, -1, -1, -1, 0, 0, 0 };
+        const TraceSettings low = parse_settings(raw).trace;
+        check("the trace clamps: distance 0 to 0.1, strengths and sun size -1 to 0, 0 samples to 1, 0 ms to 2", low.ao_distance == 0.1f
+            && low.ao_strength == 0.0f && low.sun_size == 0.0f && low.sun_strength == 0.0f && low.ao_samples == 1 && low.sun_samples == 1
+            && low.budget_ms == 2.0f);
+        raw.trace = { 1, 0, 0, 100, 2, 1, 2, 10000, 10000, 1000 };
+        const TraceSettings high = parse_settings(raw).trace;
+        check("the trace clamps: distance 100 to 20, strengths 2 to 1, sun size 1 to 0.2, 10000 samples to 4096, 1000 ms to 200",
+            high.ao_distance == 20.0f && high.ao_strength == 1.0f && high.sun_size == 0.2f && high.sun_strength == 1.0f && high.ao_samples == 4096
+            && high.sun_samples == 4096 && high.budget_ms == 200.0f);
+    }
+    {
         PhotorealCamera raw {};
         raw.world_to_view[5] = 2;
         raw.view_to_clip[14] = 0.1f;
@@ -1015,7 +1051,7 @@ int main()
     }
     {
         check("disabled settings want no step", wanted_steps(view_only(PHOTOREAL_VIEW_HDR_SCENE)).bits != 0
-            && wanted_steps(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, PHOTOREAL_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 8 } })).empty());
+            && wanted_steps(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, PHOTOREAL_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 8 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 2 } })).empty());
     }
     {
         // Unity's GL.GetGPUProjectionMatrix for a 60 degree, 16:10 camera with near 0.1 and far 1000, reversed Z.

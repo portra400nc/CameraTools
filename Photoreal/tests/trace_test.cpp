@@ -1,0 +1,269 @@
+// The trace pass's decisions and its kernel compiled as C++: the ray generator's seeds, sequence and directions, the
+// samplers' means, the tiles' Morton order, the schedule of tiles and the time budget, what starts the samples again,
+// the sun's direction and floating origin from build 199's view-face constants (fixtures/scene-194351-face-6-sun.bin),
+// the constants, and one dispatch's work on the pixels of a camera looking down at a floor half under a roof.
+#include "../core/trace.h"
+#include "../photoreal.h"
+
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <fstream>
+#include <iterator>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+using namespace photoreal;
+
+namespace
+{
+    int failures = 0;
+
+    void check(const char *name, bool ok)
+    {
+        std::printf("%s %s\n", ok ? "PASS" : "FAIL", name);
+        failures += ok ? 0 : 1;
+    }
+
+    bool near(float a, float b, float tolerance) { return std::fabs(a - b) <= tolerance; }
+    bool near(const Vec3 &a, const Vec3 &b, float tolerance) { return near(a[0], b[0], tolerance) && near(a[1], b[1], tolerance) && near(a[2], b[2], tolerance); }
+    float dot(const Vec3 &a, const Vec3 &b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+
+    void set_unity(float out[16], const double rows[16])
+    {
+        for (int r = 0; r < 4; r++)
+            for (int c = 0; c < 4; c++)
+                out[c * 4 + r] = float(rows[r * 4 + c]);
+    }
+
+    // A camera 2 m above the world origin looking straight down, its up toward +z, with a 90-degree reversed infinite
+    // projection: clip z is 0.25 and w the distance, so the floor at y = 0 has depth 0.125 at every pixel.
+    Camera looking_down()
+    {
+        Camera c {};
+        const double view[16] = { 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, -2, 0, 0, 0, 1 };
+        const double projection[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0.25, 0, 0, -1, 0 };
+        set_unity(c.world_to_view, view);
+        set_unity(c.view_to_clip, projection);
+        return c;
+    }
+
+    TraceTriangle triangle(Vec3f a, Vec3f b, Vec3f c)
+    {
+        TraceTriangle t;
+        t.corner = { a, b, c };
+        return t;
+    }
+
+    // R10G10B10A2_UNORM as the G-buffer stores a world normal.
+    uint32_t encode_normal(const Vec3 &n)
+    {
+        uint32_t v = 0;
+        for (int k = 0; k < 3; k++)
+            v |= static_cast<uint32_t>(std::lround((n[k] * 0.5f + 0.5f) * 1023)) << (k * 10);
+        return v;
+    }
+
+    SunCbuffers load_sun(const std::string &path)
+    {
+        std::ifstream file(path, std::ios::binary);
+        const std::string bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        SunCbuffers out {};
+        if (bytes.size() != out.size())
+            throw std::runtime_error("missing " + path);
+        std::memcpy(out.data(), bytes.data(), out.size());
+        return out;
+    }
+}
+
+int main()
+{
+    {
+        std::printf("INFO seeds %08x %08x %08x %08x\n", pixel_seed(0, 0, 1), pixel_seed(1, 0, 1), pixel_seed(0, 1, 1), pixel_seed(5, 7, 2));
+        const uint32_t seed = pixel_seed(5, 7, 2);
+        for (uint32_t i = 0; i < 4; i++)
+        {
+            const std::array<float, 2> a = sequence_point(seed, 0, i), s = sequence_point(seed, 1, i);
+            const Vec3 d = cosine_direction({ 0, 1, 0 }, a);
+            std::printf("INFO index %u: occlusion point (%.9g, %.9g) direction (%.6f, %.6f, %.6f), sun point (%.9g, %.9g)\n", i, a[0], a[1], d[0], d[1], d[2], s[0], s[1]);
+        }
+        check("the seeds of four pixels are their literal hashes", pixel_seed(0, 0, 1) == 0x24009c6du && pixel_seed(1, 0, 1) == 0x6a25388au
+            && pixel_seed(0, 1, 1) == 0x2fb3bc6fu && pixel_seed(5, 7, 2) == 0x81daa9f2u);
+        check("pixel (5, 7)'s points and directions around +Y for indexes 0 and 3 are literal", sequence_point(seed, 0, 0) == std::array<float, 2> { 0.965142787f, 0.828011632f }
+            && sequence_point(seed, 1, 3) == std::array<float, 2> { 0.587356865f, 0.264259636f }
+            && near(cosine_direction({ 0, 1, 0 }, sequence_point(seed, 0, 0)), { 0.462491f, 0.186701f, 0.866744f }, 1e-6f)
+            && near(cosine_direction({ 0, 1, 0 }, sequence_point(seed, 0, 3)), { -0.466082f, 0.877624f, 0.111997f }, 1e-6f));
+        const std::array<float, 2> p0 = sequence_point(seed, 0, 0), p1 = sequence_point(seed, 0, 1);
+        check("successive points step by the plastic number's R2 lattice, 0.7548777 and 0.5698403 a step, wrapping",
+            near(std::fmod(p1[0] - p0[0] + 1.0f, 1.0f), 0.7548777f, 1e-6f) && near(std::fmod(p1[1] - p0[1] + 1.0f, 1.0f), 0.5698403f, 1e-6f));
+        check("the occlusion and sun sequences of a pixel differ", sequence_point(seed, 0, 0) != sequence_point(seed, 1, 0));
+    }
+    {
+        // The means over 1e5 points: cosine-weighted directions have a mean cosine of 2/3, and their sideways parts
+        // cancel; a cone's mean cosine is (1 + cos_max) / 2 and every direction lies inside it.
+        const float s = 1 / std::sqrt(14.0f);
+        const Vec3 normal = { 1 * s, 2 * s, 3 * s }, side = { 2 / std::sqrt(5.0f), -1 / std::sqrt(5.0f), 0 };
+        const float cos_max = std::cos(0.2f);
+        double cosine = 0, sideways = 0, cone = 0, unit = 0;
+        bool inside = true;
+        const uint32_t seed = pixel_seed(3, 4, 5);
+        for (uint32_t i = 0; i < 100000; i++)
+        {
+            const Vec3 d = cosine_direction(normal, sequence_point(seed, 0, i));
+            cosine += dot(d, normal);
+            sideways += dot(d, side);
+            unit = std::max<double>(unit, std::fabs(dot(d, d) - 1));
+            const Vec3 c = cone_direction(normal, cos_max, sequence_point(seed, 1, i));
+            cone += dot(c, normal);
+            inside &= dot(c, normal) >= cos_max - 1e-6f;
+        }
+        check("cosine-weighted directions: mean cosine 2/3 and no mean sideways, all unit length", near(float(cosine / 1e5), 2.0f / 3, 2e-3f)
+            && near(float(sideways / 1e5), 0, 2e-3f) && unit < 1e-5);
+        check("cone directions: mean cosine (1 + cos 0.2) / 2, all inside", near(float(cone / 1e5), (1 + cos_max) / 2, 1e-4f) && inside);
+        check("a cone of size 0 is its axis", near(cone_direction(normal, 1, sequence_point(seed, 1, 7)), normal, 1e-6f));
+    }
+    {
+        const std::vector<uint32_t> order = tile_order({ 200, 130 });
+        const std::vector<uint32_t> want = { 0, 1, 1u << 16, 1 | 1u << 16, 2, 3, 2 | 1u << 16, 3 | 1u << 16, 2u << 16, 1 | 2u << 16, 2 | 2u << 16, 3 | 2u << 16 };
+        check("200x130 has 4x3 tiles of 64, in Morton order", order == want);
+        check("1920x1200 has 30x19 tiles", tile_order({ 1920, 1200 }).size() == 570);
+    }
+    {
+        TraceSchedule s;
+        s.tiles = 5;
+        s.batch = 2;
+        std::string seen;
+        while (const std::optional<TraceDispatch> d = trace_next(s, 2))
+            seen += std::to_string(d->first) + "+" + std::to_string(d->count) + "/" + std::to_string(trace_passes(s)) + " ";
+        check("5 tiles, 2 a frame, 2 samples: the cursor wraps, never traces a tile twice in a frame, and stops after 2 passes",
+            seen == "0+2/0 2+2/0 4+2/1 1+2/1 3+2/2 " && !trace_next(s, 2) && trace_next(s, 3));
+        TraceSchedule big;
+        big.tiles = 3;
+        big.batch = 50;
+        check("a batch past every tile traces each once", trace_next(big, 4)->count == 3);
+        check("the budget: 4 tiles in 10 ms of 20 doubles, 8 in 40 of 20 halves, at most twice the batch and at most every tile, "
+              "at least 1, and twice with no measure", next_batch(4, 10, 20, 100) == 8 && next_batch(8, 40, 20, 100) == 4 && next_batch(4, 1, 20, 100) == 8
+            && next_batch(60, 10, 20, 100) == 100 && next_batch(1, 100, 20, 50) == 1 && next_batch(4, 0, 20, 100) == 8 && next_batch(6, 15, 20, 100) == 8);
+    }
+    {
+        const Camera camera = looking_down();
+        TraceSettings settings;
+        const TraceKey a = trace_key(1, { 64, 64 }, camera, { 0, 1, 0 }, settings);
+        Camera nudged = camera;
+        nudged.world_to_view[13] += 1e-7f;
+        Camera moved = camera;
+        moved.world_to_view[13] += 1e-4f;
+        TraceSettings other = settings;
+        other.characters = false;
+        TraceSettings more = settings;
+        more.ao_samples = 128;
+        check("the samples start again for a moved camera, sun, scene, render size or casters, not for noise or more samples",
+            !trace_reset(a, trace_key(1, { 64, 64 }, nudged, { 0, 1, 0 }, settings)) && trace_reset(a, trace_key(1, { 64, 64 }, moved, { 0, 1, 0 }, settings))
+            && trace_reset(a, trace_key(1, { 64, 64 }, camera, { 0, 1, 2e-5f }, settings)) && trace_reset(a, trace_key(2, { 64, 64 }, camera, { 0, 1, 0 }, settings))
+            && trace_reset(a, trace_key(1, { 64, 32 }, camera, { 0, 1, 0 }, settings)) && trace_reset(a, trace_key(1, { 64, 64 }, camera, { 0, 1, 0 }, other))
+            && !trace_reset(a, trace_key(1, { 64, 64 }, camera, { 0, 1, 0 }, more)));
+        check("the classes a ray sees", caster_classes(settings) == 0x1F && caster_classes(other) == 0x0F);
+        other.alpha_cards = false;
+        check("without cards and characters only the world and other", caster_classes(other) == 0x09);
+    }
+    {
+        const SunFacts facts = sun_facts(load_sun("fixtures/scene-194351-face-6-sun.bin"));
+        check("build 199's view face: the sun from cascade 0's depth gradient and the floating origin from b1 row 10",
+            facts.toward_sun && near(*facts.toward_sun, { 0.246589f, 0.573576f, 0.781155f }, 1e-6f) && facts.floating_origin
+            && near(*facts.floating_origin, { 1648.686f, 0, 9468.529f }, 1e-3f));
+        SunCbuffers broken {};
+        const float nan = NAN;
+        std::memcpy(broken.data() + (48 + 10) * 16, &nan, 4);
+        check("zero cascades give no sun, and a NaN origin no origin", !sun_facts(broken).toward_sun && !sun_facts(broken).floating_origin);
+        check("the origin moves past 1 cm", !origin_moved({ 1, 2, 3 }, { 1.005f, 2, 3 }) && origin_moved({ 1, 2, 3 }, { 1.02f, 2, 3 }));
+        check("the scene is stale past 5% of at least 32 rays off", !consistency_stale(31, 31) && !consistency_stale(100, 5) && consistency_stale(100, 6));
+    }
+    {
+        const Camera camera = looking_down();
+        TraceSettings settings;
+        const std::optional<TraceConstants> c = trace_constants(settings, 0.6f, camera, false, { 8, 8 }, { 0, 0.5, 0 }, { 0, 2, 0 }, 9);
+        check("the constants: the eye relative to the reference, the sun's cone for 0.0093, the parameters and counts", c
+            && near(c->eye_position[0], 0, 1e-6f) && near(c->eye_position[1], 1.5f, 1e-6f) && near(c->eye_position[2], 0, 1e-6f)
+            && c->sun_cone[1] == 1.0f && near(c->sun_cone[3], 0.99998919f, 1e-7f) && c->trace_params[0] == 2.0f && c->trace_params[3] == 0.6f
+            && c->trace_counts[0] == 64 && c->trace_counts[1] == 32 && c->trace_counts[2] == 0x1F && c->trace_counts[3] == 3 && c->trace_tiles[3] == 9
+            && c->trace_render[0] == 8 && c->trace_render[2] == 0 && c->trace_render[3] == 16);
+        // Clip (0.5, -0.5, 0.125, 1) is 2 m below the eye, half a distance right and half back: (1, 0, -1) in the world.
+        const float clip[4] = { 0.5f, -0.5f, 0.125f, 1 };
+        float h[4] = {};
+        for (int r = 0; r < 4; r++)
+            for (int k = 0; k < 4; k++)
+                h[r] += c->clip_rows[r][k] * clip[k];
+        check("clip_rows take clip space to the scene's frame", near(h[0] / h[3], 1, 1e-5f) && near(h[1] / h[3], -0.5f, 1e-5f) && near(h[2] / h[3], -1, 1e-5f));
+        check("a projection that does not invert gives no constants", !trace_constants(settings, 1, Camera {}, false, { 8, 8 }, { 0, 0, 0 }, { 0, 1, 0 }, 0));
+        const Vec3d at = camera_position(camera);
+        check("the camera's position from its view", at[0] == 0 && at[1] == 2 && at[2] == 0);
+    }
+    {
+        // An 8x8 frame of the floor below the camera, world stencil and up normals, and a scene of the floor and a roof 1 m
+        // above it over x > 0. The sun is straight up and the reference the world origin.
+        TraceImage image;
+        image.size = { 8, 8 };
+        image.depth.assign(64, 0.125f);
+        image.normals.assign(64, encode_normal({ 0, 1, 0 }));
+        image.stencil.assign(64, 128);
+        image.stencil[1 * 8 + 1] = 133;
+        image.depth[2 * 8 + 2] = 0;
+        const std::vector<TraceTriangle> triangles = {
+            triangle({ -10, 0, -10 }, { 10, 0, -10 }, { 10, 0, 10 }), triangle({ -10, 0, -10 }, { 10, 0, 10 }, { -10, 0, 10 }),
+            triangle({ 0, 1, -10 }, { 10, 1, -10 }, { 10, 1, 10 }), triangle({ 0, 1, -10 }, { 10, 1, 10 }, { 0, 1, 10 }),
+        };
+        const Bvh bvh = build_bvh(triangles);
+        TraceSettings settings;
+        settings.sun_size = 0;
+        TraceConstants c = *trace_constants(settings, 1, looking_down(), false, { 8, 8 }, { 0, 0, 0 }, { 0, 1, 0 }, 7);
+
+        // The occlusion a pixel's index-th ray should find: the ray of the C++ generator from the pixel's floor point, offset
+        // 0.02 m + 1e-4 of its distance up, against the roof's plane, 1 m up over 0 <= x <= 10.
+        Vec3 n = { 0, 0, 0 };
+        for (int k = 0; k < 3; k++)
+            n[k] = (((encode_normal({ 0, 1, 0 }) >> (k * 10)) & 1023u) / 1023.0f) * 2 - 1;
+        const float length = std::sqrt(dot(n, n));
+        n = { n[0] / length, n[1] / length, n[2] / length };
+        const auto expected = [&](uint32_t px, uint32_t py, uint32_t index) {
+            const float x = ((px + 0.5f) / 8 * 2 - 1) * 2, z = (1 - (py + 0.5f) / 8 * 2) * 2;
+            const float lift = 0.02f + 1e-4f * std::sqrt(x * x + 4 + z * z);
+            const Vec3 d = cosine_direction(n, sequence_point(pixel_seed(px, py, 7), 0, index));
+            const float t = (1 - lift) / d[1], hit_x = x + t * d[0], hit_z = z + t * d[2];
+            return t < 2 && hit_x >= 0 && hit_x <= 10 && std::fabs(hit_z) <= 10 ? (t / 2) * (t / 2) : 1.0f;
+        };
+        // Pixel (6, 3) lies at (1.25, 0, 0.25), under the roof: eight dispatches.
+        PixelTrace under;
+        float under_want = 0;
+        for (uint32_t i = 0; i < 8; i++)
+        {
+            under = trace_pixel(bvh, image, c, 6, 3, under.history);
+            under_want += expected(6, 3, i);
+        }
+        std::printf("INFO pixel (6, 3) after 8 dispatches: occlusion sum %.6f, expected %.6f; sun %.0f\n", under.history[0], under_want, under.history[1]);
+        check("under the roof: (t / 2)^2 for each occlusion ray's hit within 2 m, 1 for a miss, and the sun blocked", under.world
+            && near(under.history[0], under_want, 1e-3f) && under_want < 7 && under.history[2] == 8 && under.history[1] == 0 && under.history[3] == 8
+            && under.counters[0] == 2);
+        const PixelTrace open = trace_pixel(bvh, image, c, 1, 3, { 0, 0, 0, 0 });
+        check("beside the roof: the occlusion its ray should find, and the sun", near(open.history[0], expected(1, 3, 0), 2e-4f) && open.history[1] == 1
+            && open.history[2] == 1 && open.history[3] == 1);
+        const PixelTrace again = trace_pixel(bvh, image, c, 1, 3, open.history);
+        check("a second dispatch adds the next sample of the sequence", near(again.history[0], open.history[0] + expected(1, 3, 1), 2e-4f)
+            && again.history[1] == 2 && again.history[2] == 2 && again.history[3] == 2);
+        const PixelTrace grid = trace_pixel(bvh, image, c, 0, 0, { 0, 0, 0, 0 });
+        check("the grid's pixel shoots a ray from the camera that meets the floor where the depth says", grid.counters[3] == 1 && grid.counters[4] == 0
+            && grid.counters[0] == 3);
+        const Bvh roof_only = build_bvh({ triangles[2], triangles[3] });
+        const PixelTrace missing = trace_pixel(roof_only, image, c, 0, 0, { 0, 0, 0, 0 });
+        check("without the floor that ray finds nothing, and counts as off", missing.counters[3] == 1 && missing.counters[4] == 1);
+        check("a character's pixel and a pixel without depth are not traced", !trace_pixel(bvh, image, c, 1, 1, {}).world
+            && !trace_pixel(bvh, image, c, 2, 2, {}).world);
+        const PixelTrace done = trace_pixel(bvh, image, c, 1, 3, { 64, 32, 64, 32 });
+        check("a pixel with all its samples traces nothing", done.history == std::array<float, 4> { 64, 32, 64, 32 } && done.counters[0] == 0);
+        c.sun_cone[0] = c.sun_cone[1] = c.sun_cone[2] = c.sun_cone[3] = 0;
+        const PixelTrace sunless = trace_pixel(bvh, image, c, 6, 3, { 0, 0, 0, 0 });
+        check("without a sun its samples count as lit, untraced", sunless.history[1] == 1 && sunless.history[3] == 1 && sunless.counters[0] == 1);
+    }
+    std::printf("%s: %d failed\n", __FILE__, failures);
+    return failures == 0 ? 0 : 1;
+}

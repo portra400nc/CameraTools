@@ -95,6 +95,22 @@ namespace photoreal
         uint32_t steps = 48;
     };
 
+    // PhotorealTrace's. The traced occlusion is applied with ambient.level, so the traced and the raster ambient share one
+    // level.
+    struct TraceSettings
+    {
+        bool enabled = false;
+        bool ao = true, sun = true;                 // PhotorealTrace.outputs
+        bool characters = true, alpha_cards = true; // PhotorealTrace.casters
+        float ao_distance = 2.0f;
+        float ao_strength = 1.0f;
+        float sun_size = 0.0093f;
+        float sun_strength = 1.0f;
+        uint32_t ao_samples = 64;
+        uint32_t sun_samples = 32;
+        float budget_ms = 20.0f;
+    };
+
     // The domain form of PhotorealSettings. Built only by parse_settings, so every value in it is in range.
     struct Settings
     {
@@ -108,6 +124,7 @@ namespace photoreal
         SunShadowSettings sun_shadows;
         WetnessSettings wetness;
         LightShaftSettings light_shafts;
+        TraceSettings trace;
     };
 
     // Honors size (fields past it keep their defaults), maps an unknown view to off and an unknown curve to the game's,

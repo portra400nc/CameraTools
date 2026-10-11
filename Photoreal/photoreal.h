@@ -211,7 +211,7 @@ typedef struct PhotorealWetness
 // the pixel or distance, and the HDR scene dims behind the mist and takes its light, before the game's bloom and tone map
 // read it. The mist thins with height above the camera and thickens below it, and its patches stay put in the world. Light
 // comes from PhotorealCamera's sun and sky colors and sun direction; the atlas is copied whenever this pass is on.
-// The last block of PhotorealSettings, so a field added here goes at the end and size keeps older callers working.
+// trace follows it in PhotorealSettings, so this block keeps its size.
 typedef struct PhotorealLightShafts
 {
     uint32_t enabled;           // default 0
@@ -231,6 +231,57 @@ typedef struct PhotorealLightShafts
     uint32_t steps;             // samples along each ray; default 48, clamped to 8..128
 } PhotorealLightShafts;
 
+// What the trace pass writes into the frame, as bits of PhotorealTrace.outputs.
+enum
+{
+    PHOTOREAL_TRACE_AO = 1u << 0,   // traced ambient occlusion into the diffuse irradiance
+    PHOTOREAL_TRACE_SUN = 1u << 1,  // traced sun visibility into the shadow mask
+};
+
+// What casts in the traced scene besides the world, as bits of PhotorealTrace.casters. Bit 1 is kept for grass, which
+// the traced scene leaves out.
+enum
+{
+    PHOTOREAL_TRACE_CAST_CHARACTERS = 1u << 0,  // characters (stencil 133 and 165), whose own pixels keep the game's values
+    PHOTOREAL_TRACE_CAST_ALPHA_CARDS = 1u << 2, // vegetation and foliage (136 and 137), as whole cards until alpha tests come
+};
+
+// The traced scene's state, values of PhotorealStatus.trace_state.
+enum
+{
+    PHOTOREAL_TRACE_STATE_NONE = 0,     // no traced scene
+    PHOTOREAL_TRACE_STATE_BUILDING,     // a PHOTOREAL_SCENE_TRACE capture runs, or its BVH is being built
+    PHOTOREAL_TRACE_STATE_UPLOADING,    // its buffers are being filled, a part each present
+    PHOTOREAL_TRACE_STATE_READY,        // the trace pass can trace it
+    PHOTOREAL_TRACE_STATE_STALE,        // the world moved under it: a world shift, or rays from the camera no longer meet the
+                                        // depth buffer; the raster passes run, until another capture or a release
+    PHOTOREAL_TRACE_STATE_FAILED,       // it could not be built, uploaded or traced; ReShade.log says why
+};
+
+// The trace pass: ambient occlusion and sun shadows traced against the scene a PHOTOREAL_SCENE_TRACE capture built, at the
+// combine step before the game's combine pass reads them. Once every world pixel has a sample, it writes the traced sun
+// visibility into the shadow mask and multiplies the diffuse irradiance by ambient.level and the traced occlusion, on world
+// pixels, and sun_shadows, contact_shadows and ambient do not run (only those whose output it writes). Each frame it adds
+// one sample per pixel to as many 64x64 tiles as budget_ms allows, until every pixel has its samples; a moved camera, a new
+// render size, sun or scene, or a change to ao_distance, sun_size or casters starts the samples again.
+// The last block of PhotorealSettings, so a field added here goes at the end and size keeps older callers working.
+typedef struct PhotorealTrace
+{
+    uint32_t enabled;           // default 0
+    uint32_t outputs;           // PHOTOREAL_TRACE_AO | PHOTOREAL_TRACE_SUN; 0 reads as both
+    uint32_t casters;           // PHOTOREAL_TRACE_CAST_*; unknown bits are dropped. A caller without this block gets
+                                // CHARACTERS | ALPHA_CARDS
+    float ao_distance;          // meters an occlusion ray looks; a hit at distance t occludes 1 - (t / ao_distance)^2;
+                                // default 2, clamped to 0.1..20
+    float ao_strength;          // 0 no traced occlusion, 1 full; default 1, clamped to 0..1
+    float sun_size;             // the sun's angular diameter in radians, which is the penumbra's width per meter between
+                                // caster and shadow: 0.0093, the real sun's, by default; clamped to 0..0.2
+    float sun_strength;         // 0 no traced sun shadow, 1 full; default 1, clamped to 0..1
+    uint32_t ao_samples;        // occlusion rays per pixel, then it stops; default 64, clamped to 1..4096
+    uint32_t sun_samples;       // sun rays per pixel; default 32, clamped to 1..4096
+    float budget_ms;            // GPU time per frame for tracing, measured with timestamp queries; default 20, clamped to 2..200
+} PhotorealTrace;
+
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller
 // knows, and fields past it keep their defaults.
 typedef struct PhotorealSettings
@@ -247,6 +298,7 @@ typedef struct PhotorealSettings
     PhotorealSunShadows sun_shadows;
     PhotorealWetness wetness;
     PhotorealLightShafts light_shafts;
+    PhotorealTrace trace;
 } PhotorealSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and
