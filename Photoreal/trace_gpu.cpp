@@ -444,7 +444,9 @@ namespace photoreal
         failed = false;
         if (!save_)
             return std::nullopt;
-        PendingSave &p = *save_;
+        // Dropped once it is read or fails, whatever happens, so a failed allocation does not try again every present.
+        std::unique_ptr<PendingSave> pending = std::move(save_);
+        PendingSave &p = *pending;
         ID3D11DeviceContext1 *c = context_.Get();
         std::vector<uint8_t> normals, depth, mask, irradiance;
         for (const auto &[readback, bytes] : { std::pair { &p.normals, &normals }, std::pair { &p.depth, &depth }, std::pair { &p.mask, &mask },
@@ -452,27 +454,32 @@ namespace photoreal
         {
             const Readback::Read r = readback->read(c, *bytes);
             if (r == Readback::Read::not_ready)
+            {
+                save_ = std::move(pending);
                 return std::nullopt;
+            }
             if (r == Readback::Read::failed)
             {
                 failed = true;
-                save_.reset();
                 return std::nullopt;
             }
-        }
-        D3D11_MAPPED_SUBRESOURCE mapped;
-        const HRESULT hr = c->Map(p.history.Get(), 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &mapped);
-        if (hr == DXGI_ERROR_WAS_STILL_DRAWING)
-            return std::nullopt;
-        if (FAILED(hr))
-        {
-            failed = true;
-            save_.reset();
-            return std::nullopt;
         }
         TraceSave save = std::move(p.save);
         const size_t pixels = size_t(save.size.width) * save.size.height;
         save.history.resize(pixels * 4);
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        const HRESULT hr = c->Map(p.history.Get(), 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &mapped);
+        if (hr == DXGI_ERROR_WAS_STILL_DRAWING)
+        {
+            p.save = std::move(save);
+            save_ = std::move(pending);
+            return std::nullopt;
+        }
+        if (FAILED(hr))
+        {
+            failed = true;
+            return std::nullopt;
+        }
         std::memcpy(save.history.data(), mapped.pData, pixels * 16);
         c->Unmap(p.history.Get(), 0);
         // The depth copy holds 8 bytes a texel: the float depth, then the stencil and padding.
@@ -488,7 +495,6 @@ namespace photoreal
         std::memcpy(save.normals.data(), normals.data(), save.normals.size() * 4);
         save.mask = std::move(mask);
         save.irradiance = std::move(irradiance);
-        save_.reset();
         return save;
     }
 }

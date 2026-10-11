@@ -95,7 +95,7 @@ namespace photoreal
         bool copy_for_save(const TraceSave &save, ID3D11Texture2D *normals, ID3D11Texture2D *depth, ID3D11Texture2D *mask, ID3D11Texture2D *irradiance);
         bool saving() const { return save_ != nullptr; }
         // At present: the save once the GPU has finished its copies, else empty; failed when a map failed, and the save is
-        // dropped.
+        // dropped. Throws std::bad_alloc when its images cannot be held, and the save is dropped too.
         std::optional<TraceSave> read_save(bool &failed);
 
     private:

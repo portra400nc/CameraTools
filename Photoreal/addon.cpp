@@ -1279,7 +1279,16 @@ namespace photoreal
             for (const std::string &line : trace_gpu.poll(settings.trace).log)
                 log(reshade::log::level::info, line);
             bool failed = false;
-            if (std::optional<TraceSave> save = trace_gpu.read_save(failed))
+            std::optional<TraceSave> save;
+            try
+            {
+                save = trace_gpu.read_save(failed);
+            }
+            catch (const std::exception &e)
+            {
+                log(reshade::log::level::warning, std::string("the trace's frame could not be kept for its save: ") + e.what());
+            }
+            if (save)
             {
                 fs::path folder = output_root() / ("trace-" + timestamp());
                 for (int i = 2; fs::exists(folder); i++)
