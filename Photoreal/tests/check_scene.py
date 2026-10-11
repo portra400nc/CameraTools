@@ -2,7 +2,8 @@
 """Checks a Photoreal scene capture folder on the Mac: python3 check_scene.py <scene folder>. Needs only numpy.
 
 1. Replay fidelity: scene.tsv's depth check for stencil 128 has matched / (tested - behind) >= 0.98 on every face, every
-   direct draw in draws.tsv wrote the triangles it should, and no draw was skipped for a reason the add-on does not name.
+   direct draw in draws.tsv wrote the triangles it should, no replayed draw left a corner of its reservation unwritten,
+   and no draw was skipped for a reason the add-on does not name.
 2. World placement: each face's depth, rendered at quarter size from all faces' meshes through that face's camera, agrees
    with the face's own depth buffer within 2% of the distance on at least 95% of the pixels with depth. The face opposite
    the view is placed by its own buffer too, so this proves the geometry behind the camera is in the right place.
@@ -14,7 +15,9 @@
 5. Winding: the share of the view's main-pass triangles that face the camera. Reported.
 6. World frame: b1 row 5 against the pushed camera's position for each face. Reported.
 
-Prints one PASS, FAIL or INFO line per finding and exits 1 when a check fails.
+Prints one PASS, FAIL or INFO line per finding as it goes and exits 1 when a check fails. The meshes are drawn with
+vertices projected once per camera and triangles outside its frustum dropped, so seven faces of a few million triangles
+each take minutes, not tens of minutes.
 """
 
 import csv
@@ -26,14 +29,14 @@ import zlib
 
 import numpy as np
 
-KNOWN_SKIPS = {"-", "no-bytecode", "gs-bound", "no-position", "game-so", "query-pool", "gs-create-failed", "topology"}
+KNOWN_SKIPS = {"-", "no-bytecode", "gs-bound", "no-position", "game-so", "query-pool", "gs-create-failed", "topology", "buffer-full"}
 failed = False
 
 
 def report(kind, text):
     global failed
     failed |= kind == "FAIL"
-    print(f"{kind} {text}")
+    print(f"{kind} {text}", flush=True)
 
 
 def rows(path):
@@ -120,6 +123,11 @@ class Face:
         meters[self.depth <= 0] = np.nan
         return meters
 
+    def forward_scale(self):
+        """Meters along the forward axis per unit of this camera's clip w."""
+        ahead = np.r_[self.position + self.forward, 1] @ self.world_to_clip.T
+        return 1 / ahead[3]
+
     def project(self, points):
         """Pixel column, row (floats) and view depth of world points as this face's camera sees them, and whether in view."""
         h = np.c_[points, np.ones(len(points))] @ self.world_to_clip.T
@@ -131,40 +139,90 @@ class Face:
         return column, row, (points - self.position) @ self.forward, inside
 
 
-def splat(points_of, size, faces):
-    """A z-buffer of view depth: each mesh's triangles sampled on a barycentric grid dense enough for its size on screen,
-    so triangles that cross the camera plane keep their samples in front of it. points_of(face) gives the samples' pixel
-    column, row, depth and inside mask for a set of world points."""
+def splat(world_to_clip, forward_scale, size, faces):
+    """A z-buffer of view depth at size, of each mesh's triangles sampled on a grid finer than a pixel. Vertices are
+    projected once, and triangles wholly outside one side of the frustum are dropped. A triangle in front of the camera
+    whose corners lie within a screen's width of the picture is sampled in screen space, in rows along its longest edge
+    0.36 pixels apart, with its depth interpolated perspective-correct; so a long thin triangle costs about its area, not
+    its length squared. Any other, one that crosses the camera plane or reaches far off the picture, is sampled in clip
+    space, which is exact for points on it, on a square grid as fine as its size at its nearest corner. Depth is clip w
+    times forward_scale."""
     width, height = size
     zbuffer = np.full(height * width, np.inf)
+    # Pixels per meter at 1 m of depth: the projection's vertical scale over the half height.
+    per_meter = np.linalg.norm(world_to_clip[1, :3]) / np.linalg.norm(world_to_clip[3, :3]) * height / 2
+    density = 2.8
+    to_bucket = lambda n: np.left_shift(1, np.ceil(np.log2(np.clip(n, 1, 256))).astype(np.int64))
+
+    def draw(points, inverse_w):
+        """points: (n, 2) pixel columns and rows; inverse_w: 1 / clip w of each."""
+        ok = (inverse_w > 0) & (points[:, 0] >= 0) & (points[:, 0] < width) & (points[:, 1] >= 0) & (points[:, 1] < height)
+        index = points[ok, 1].astype(np.int64) * width + points[ok, 0].astype(np.int64)
+        np.minimum.at(zbuffer, index, forward_scale / inverse_w[ok])
+
+    def grids(keys):
+        for key in np.unique(keys):
+            b_along, b_across = key // 512, key % 512
+            i, j = np.meshgrid(np.arange(b_along + 1), np.arange(b_across + 1))
+            keep = i * b_across + j * b_along <= b_along * b_across
+            # Each row's end on the third edge too, so all three edges are sampled as finely as the rows are spaced.
+            rows = np.arange(b_across + 1) / b_across
+            u, k = np.r_[i[keep] / b_along, 1 - rows], np.r_[j[keep] / b_across, rows]
+            yield keys == key, u, k, max(1, 4_000_000 // len(u))
+
     for face in faces:
         v, t = face.vertices, face.triangles
         if len(t) == 0:
             continue
-        column, row, depth, inside = points_of(v)
-        corners = v[t]
-        # Screen pixels per meter at the nearest corner, from the frustum's height at that depth.
-        near = np.maximum(np.min(np.where(depth[t] > 0, depth[t], np.inf), axis=1), 0.05)
+        h = np.c_[v, np.ones(len(v))] @ world_to_clip.T
+        x, y, w = h[t, 0], h[t, 1], h[t, 3]
+        outside = (np.all(x > w, axis=1) | np.all(x < -w, axis=1) | np.all(y > w, axis=1) | np.all(y < -w, axis=1)
+                   | np.all(w <= 1e-3, axis=1))
+        t = t[~outside]
+        if len(t) == 0:
+            continue
+        ht = h[t]
+        safe_w = np.where(ht[..., 3] > 1e-3, ht[..., 3], 1)
+        screen = np.stack([(ht[..., 0] / safe_w * 0.5 + 0.5) * width, (0.5 - 0.5 * ht[..., 1] / safe_w) * height], axis=-1)
+        near_picture = np.all((screen[..., 0] > -width) & (screen[..., 0] < 2 * width) & (screen[..., 1] > -height) & (screen[..., 1] < 2 * height), axis=1)
+        flat = np.all(ht[..., 3] > 1e-3, axis=1) & near_picture
+
+        # In screen space: corner a and b end the longest edge, c is opposite.
+        p, inverse_w = screen[flat], 1 / ht[flat][..., 3]
+        edges = np.linalg.norm(np.roll(p, -1, axis=1) - p, axis=2)
+        order = (np.argmax(edges, axis=1)[:, None] + np.arange(3)[None, :]) % 3
+        p = np.take_along_axis(p, order[..., None], axis=1)
+        inverse_w = np.take_along_axis(inverse_w, order, axis=1)
+        base = np.max(edges, axis=1)
+        area2 = np.abs((p[:, 1, 0] - p[:, 0, 0]) * (p[:, 2, 1] - p[:, 0, 1]) - (p[:, 2, 0] - p[:, 0, 0]) * (p[:, 1, 1] - p[:, 0, 1]))
+        across = area2 / np.maximum(base, 1e-9)
+        keys = to_bucket(np.ceil(base * density)) * 512 + to_bucket(np.ceil(across * density))
+        for chosen, u, k, step in grids(keys):
+            pc, wc = p[chosen], inverse_w[chosen]
+            for start in range(0, len(pc), step):
+                a, iw = pc[start:start + step], wc[start:start + step]
+                points = a[:, 0:1] + u[None, :, None] * (a[:, 1:2] - a[:, 0:1]) + k[None, :, None] * (a[:, 2:3] - a[:, 0:1])
+                inverse = iw[:, 0:1] + u[None, :] * (iw[:, 1:2] - iw[:, 0:1]) + k[None, :] * (iw[:, 2:3] - iw[:, 0:1])
+                draw(points.reshape(-1, 2), inverse.reshape(-1))
+
+        # In clip space: as fine as the triangle's size at its nearest corner in front.
+        rest, ht = t[~flat], ht[~flat]
+        if len(rest) == 0:
+            continue
+        depth = ht[..., 3] * forward_scale
+        near = np.maximum(np.min(np.where(depth > 0, depth, np.inf), axis=1), 0.05)
+        corners = v[rest]
         edge = np.max(np.linalg.norm(corners - np.roll(corners, 1, axis=1), axis=2), axis=1)
-        n = np.ceil(edge / (2 * near / height) * 1.5).astype(np.int64)
-        visible = np.isfinite(near) & np.any(depth[t] > 0, axis=1)
-        n = np.clip(n, 2, 256)
-        bucket = np.left_shift(1, np.ceil(np.log2(n)).astype(np.int64))
-        for b in np.unique(bucket[visible]):
-            chosen = t[visible & (bucket == b)]
-            i, j = np.meshgrid(np.arange(b + 1), np.arange(b + 1))
-            keep = i + j <= b
-            u, w = i[keep] / b, j[keep] / b
-            # Chunks keep the samples of the densest buckets in memory bounds.
-            step = max(1, 4_000_000 // len(u))
-            for start in range(0, len(chosen), step):
-                tri = v[chosen[start:start + step]]
-                samples = tri[:, 0:1] + u[None, :, None] * (tri[:, 1:2] - tri[:, 0:1]) + w[None, :, None] * (tri[:, 2:3] - tri[:, 0:1])
-                samples = samples.reshape(-1, 3)
-                c, r, d, ok = points_of(samples)
-                ok &= d > 0
-                index = r[ok].astype(np.int64) * width + c[ok].astype(np.int64)
-                np.minimum.at(zbuffer, index, d[ok])
+        n = to_bucket(np.ceil(edge * per_meter / near * density))
+        for chosen, u, k, step in grids(n * 512 + n):
+            hc = ht[chosen]
+            for start in range(0, len(hc), step):
+                tri = hc[start:start + step]
+                samples = (tri[:, 0:1] + u[None, :, None] * (tri[:, 1:2] - tri[:, 0:1]) + k[None, :, None] * (tri[:, 2:3] - tri[:, 0:1])).reshape(-1, 4)
+                sw = samples[:, 3]
+                ok = sw > 1e-3
+                points = np.c_[(samples[ok, 0] / sw[ok] * 0.5 + 0.5) * width, (0.5 - 0.5 * samples[ok, 1] / sw[ok]) * height]
+                draw(points, 1 / sw[ok])
     return zbuffer.reshape(height, width)
 
 
@@ -198,6 +256,13 @@ def check_replay(faces, draws):
     wrong = [d for d in draws if d["expected"] != "-" and d["skip"] == "-" and d["expected"] != d["written"]]
     report("PASS" if not wrong else "FAIL", f"1 every direct draw wrote its expected triangles ({len(wrong)} did not"
            + (f", first face {wrong[0]['face']} draw {wrong[0]['draw']}: {wrong[0]['written']} of {wrong[0]['expected']})" if wrong else ")"))
+    # Folders from before build 199 have no unwritten column; their draws streamed one corner a triangle.
+    if draws and "unwritten" in draws[0]:
+        short = [d for d in draws if d["skip"] == "-" and int(d["unwritten"]) > 0]
+        report("PASS" if not short else "FAIL", f"1 every replayed draw wrote every corner of its reservation ({len(short)} did not"
+               + (f", first face {short[0]['face']} draw {short[0]['draw']}: {short[0]['unwritten']} of {short[0]['corners']} unwritten)" if short else ")"))
+    else:
+        report("INFO", "1 draws.tsv has no unwritten column: a capture from before the stream-output fix")
     unknown = {d["skip"] for d in draws} - KNOWN_SKIPS
     report("PASS" if not unknown else "FAIL", f"1 no draw skipped for an unknown reason{': ' + ', '.join(sorted(unknown)) if unknown else ''}")
     skips = {}
@@ -214,13 +279,7 @@ def check_placement(folder, faces):
             report("FAIL", f"2 {face.name}: no depth buffer of {face.size[0]}x{face.size[1]}")
             continue
         width, height = face.size[0] // 4, face.size[1] // 4
-        quarter = (width, height)
-
-        def points_of(points, face=face):
-            column, row, depth, inside = face.project(points)
-            return column / 4, row / 4, depth, inside & (column / 4 < width) & (row / 4 < height)
-
-        mesh = splat(points_of, quarter, faces)
+        mesh = splat(face.world_to_clip, face.forward_scale(), (width, height), faces)
         # The game's depth at quarter size: the nearest of each 4x4 block, like the z-buffer's nearest sample.
         blocks = face.meters[:height * 4, :width * 4].reshape(height, 4, width, 4)
         with np.errstate(all="ignore"):
@@ -252,6 +311,7 @@ def cube_cameras(position):
 
 
 def check_coverage(faces, view, size=96, rays=20000, reach=5000.0):
+    print("3 drawing the meshes into six cube faces, all faces and then the view alone", flush=True)
     position = faces[0].position
     golden = math.pi * (3 - math.sqrt(5))
     k = np.arange(rays)
@@ -261,17 +321,13 @@ def check_coverage(faces, view, size=96, rays=20000, reach=5000.0):
     def hits(meshes):
         hit = np.zeros(rays, dtype=bool)
         for world_to_clip, forward in cube_cameras(position):
-            def points_of(points, m=world_to_clip, f=forward):
-                h = np.c_[points, np.ones(len(points))] @ m.T
-                w = h[:, 3]
-                with np.errstate(divide="ignore", invalid="ignore"):
-                    column = (h[:, 0] / w * 0.5 + 0.5) * size
-                    row = (0.5 - 0.5 * h[:, 1] / w) * size
-                return column, row, (points - position) @ f, (w > 1e-3) & (column >= 0) & (column < size) & (row >= 0) & (row < size)
-
-            zbuffer = splat(points_of, (size, size), meshes)
-            column, row, _, inside = points_of(position + directions)
-            ok = inside.copy()
+            zbuffer = splat(world_to_clip, 1.0, (size, size), meshes)
+            h = np.c_[position + directions, np.ones(rays)] @ world_to_clip.T
+            w = h[:, 3]
+            with np.errstate(divide="ignore", invalid="ignore"):
+                column = (h[:, 0] / w * 0.5 + 0.5) * size
+                row = (0.5 - 0.5 * h[:, 1] / w) * size
+            ok = (w > 1e-3) & (column >= 0) & (column < size) & (row >= 0) & (row < size)
             index = (row[ok].astype(np.int64), column[ok].astype(np.int64))
             hit[np.flatnonzero(ok)] |= zbuffer[index] < reach
         return hit.mean()
@@ -308,6 +364,7 @@ def check_consistency(faces, sample=5000):
     rng = np.random.default_rng(1)
     distances = []
     for a in faces:
+        print(f"4 {a.name}: its stencil 128 corners against the other faces", flush=True)
         corners_a = np.unique(a.triangles[a.classes == "s128"].ravel())
         if len(corners_a) == 0:
             continue
@@ -365,7 +422,10 @@ def main(folder):
     scene = rows(os.path.join(folder, "scene.tsv"))
     cameras = {row["face"]: row for row in rows(os.path.join(folder, "camera.tsv"))}
     draws = rows(os.path.join(folder, "draws.tsv"))
-    faces = [Face(folder, row, cameras[row["face"]]) for row in scene]
+    faces = []
+    for row in scene:
+        print(f"reading face {row['face']} ({row['name']})", flush=True)
+        faces.append(Face(folder, row, cameras[row["face"]]))
     view = next((f for f in faces if f.name == "view"), None)
     report("INFO", f"{folder}: {len(faces)} faces, {sum(len(f.triangles) for f in faces)} triangles")
     if os.path.exists(os.path.join(folder, "stopped.txt")):
