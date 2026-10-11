@@ -11,7 +11,7 @@ namespace photoreal
     namespace
     {
         static_assert(PHOTOREAL_COMPARE_MAX == kCompareMax && sizeof(PhotorealVariant) == 32 + sizeof(PhotorealSettings));
-        static_assert(sizeof(PhotorealSettings) == 132, "settings_tsv writes every field: give a new one a column");
+        static_assert(sizeof(PhotorealSettings) == 172, "settings_tsv writes every field: give a new one a column");
         // compare_remaining took the padding at the end, so a caller built before it still sends 72 bytes. The accumulator's
         // three fields follow, with 4 bytes of padding after them, which the C# binding's layout has too.
         static_assert(offsetof(PhotorealStatus, compare_remaining) == 68 && offsetof(PhotorealStatus, accum_generation) == 80
@@ -128,7 +128,9 @@ namespace photoreal
                           "\tatmosphere.height_falloff\tatmosphere.sun_scatter\tatmosphere.anisotropy\ttonemap.enabled\ttonemap.exposure_ev"
                           "\ttonemap.curve\ttonemap.bloom_strength\ttonemap.saturation\ttonemap.contrast\tsun_shadows.enabled"
                           "\tsun_shadows.light_size\tsun_shadows.min_penumbra\tsun_shadows.strength\twetness.enabled\twetness.wetness"
-                          "\twetness.darkening\twetness.puddles\n";
+                          "\twetness.darkening\twetness.puddles\tlight_shafts.enabled\tlight_shafts.strength\tlight_shafts.density"
+                          "\tlight_shafts.height\tlight_shafts.anisotropy\tlight_shafts.distance\tlight_shafts.patchiness"
+                          "\tlight_shafts.patch_size\tlight_shafts.ambient\tlight_shafts.steps\n";
         for (size_t i = 0; i < variants.size(); i++)
         {
             const Settings &s = variants[i].settings;
@@ -138,6 +140,7 @@ namespace photoreal
             const TonemapSettings &t = s.tonemap;
             const SunShadowSettings &u = s.sun_shadows;
             const WetnessSettings &w = s.wetness;
+            const LightShaftSettings &f = s.light_shafts;
             out += std::to_string(i) + '\t' + variants[i].name + '\t' + (s.enabled ? "1" : "0") + '\t' + kViews[static_cast<size_t>(s.view)].name
                 + '\t' + (s.flip ? "1" : "0") + '\t' + (a.enabled ? "1" : "0") + '\t' + number(a.level) + '\t' + number(a.ao_strength) + '\t'
                 + number(a.ao_radius) + '\t' + number(a.foliage_ao_strength) + '\t' + (c.enabled ? "1" : "0") + '\t' + number(c.length) + '\t'
@@ -146,7 +149,10 @@ namespace photoreal
                 + (t.enabled ? "1" : "0") + '\t' + number(t.exposure_ev) + '\t' + kCurveNames[static_cast<size_t>(t.curve)] + '\t'
                 + number(t.bloom_strength) + '\t' + number(t.saturation) + '\t' + number(t.contrast) + '\t' + (u.enabled ? "1" : "0") + '\t'
                 + number(u.light_size) + '\t' + number(u.min_penumbra) + '\t' + number(u.strength) + '\t' + (w.enabled ? "1" : "0") + '\t'
-                + number(w.wetness) + '\t' + number(w.darkening) + '\t' + number(w.puddles) + '\n';
+                + number(w.wetness) + '\t' + number(w.darkening) + '\t' + number(w.puddles) + '\t' + (f.enabled ? "1" : "0") + '\t'
+                + number(f.strength) + '\t' + number(f.density) + '\t' + number(f.height) + '\t' + number(f.anisotropy) + '\t'
+                + number(f.distance) + '\t' + number(f.patchiness) + '\t' + number(f.patch_size) + '\t' + number(f.ambient) + '\t'
+                + std::to_string(f.steps) + '\n';
         }
         return out;
     }

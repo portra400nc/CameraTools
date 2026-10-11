@@ -88,6 +88,22 @@ namespace CameraToolsPhotoreal
         public float Puddles;
     }
 
+    // PhotorealLightShafts in photoreal.h, field for field.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct PhotorealLightShafts
+    {
+        public uint Enabled;
+        public float Strength;
+        public float Density;
+        public float Height;
+        public float Anisotropy;
+        public float Distance;
+        public float Patchiness;
+        public float PatchSize;
+        public float Ambient;
+        public uint Steps;
+    }
+
     // PhotorealSettings in photoreal.h, field for field.
     [StructLayout(LayoutKind.Sequential)]
     internal struct PhotorealSettings
@@ -102,14 +118,17 @@ namespace CameraToolsPhotoreal
         public PhotorealTonemap Tonemap;
         public PhotorealSunShadows SunShadows;
         public PhotorealWetness Wetness;
+        public PhotorealLightShafts LightShafts;
 
         // The add-on's defaults: everything off, game targets upside down, and when switched on ambient level 0.6, AO
         // strength 0.5 at a 1 m radius, half that strength on grass, vegetation and foliage, full-strength contact
         // shadows 0.6 m long that take surfaces to be 0.25 m thick and leave grass, vegetation and foliage unshadowed, and
         // haze that dims a pixel 500 m away by 15%, thins by e every 50 m up, and glows around the sun, a tone map that
         // reproduces the game's, full-strength sun shadows whose soft edge is 0.03 m wide per meter from the caster and at
-        // least 0.02 m, and wet surfaces that follow the weather, darken by 0.35 when soaked and grow puddles on flat ground
-        // at 0.3.
+        // least 0.02 m, wet surfaces that follow the weather, darken by 0.35 when soaked and grow puddles on flat ground at
+        // 0.3, and light shafts at strength 1 through a mist that hides 39% of a pixel 50 m away, thins by e every 10 m up,
+        // scatters sun light forward with anisotropy 0.6, is marched 150 m in 48 steps, lies in patches 6 m across at
+        // patchiness 0.5, and takes the sky's light at 1.
         public static PhotorealSettings Defaults => new()
         {
             Size = (uint)Marshal.SizeOf<PhotorealSettings>(),
@@ -120,6 +139,10 @@ namespace CameraToolsPhotoreal
             Tonemap = new PhotorealTonemap { Curve = PhotorealCurve.Game, BloomStrength = 1, Saturation = 1, Contrast = 1 },
             SunShadows = new PhotorealSunShadows { LightSize = 0.03f, MinPenumbra = 0.02f, Strength = 1 },
             Wetness = new PhotorealWetness { Wetness = 0, Darkening = 0.35f, Puddles = 0.3f },
+            LightShafts = new PhotorealLightShafts
+            {
+                Strength = 1, Density = 0.01f, Height = 10, Anisotropy = 0.6f, Distance = 150, Patchiness = 0.5f, PatchSize = 6, Ambient = 1, Steps = 48,
+            },
         };
     }
 

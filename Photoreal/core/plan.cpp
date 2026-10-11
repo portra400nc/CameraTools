@@ -1,6 +1,7 @@
 #include "plan.h"
 #include "../photoreal.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstring>
@@ -36,14 +37,15 @@ namespace photoreal
         const char *const kErrorNames[] = { "none", "not-d3d11", "shader", "texture", "state" };
         static_assert(PHOTOREAL_ERROR_STATE == 4);
         // Callers built before foliage_ao_strength send 32 bytes, those before contact shadows 36, those before their
-        // foliage_strength 52, those before atmosphere 56, those before tonemap 76, those before sun shadows 100. Version 6
-        // dropped the leaves blocks, which moved wetness from 128 to 116, so a binding of version 5 must not call
-        // PhotorealApply; csharp/Photoreal.cs checks the version and marshals 132.
+        // foliage_strength 52, those before atmosphere 56, those before tonemap 76, those before sun shadows 100, those
+        // before light shafts 132. Version 6 dropped the leaves blocks, which moved wetness from 128 to 116, so a binding of
+        // version 5 must not call PhotorealApply; csharp/Photoreal.cs checks the version and marshals 172.
         static_assert(offsetof(PhotorealSettings, ambient) + offsetof(PhotorealAmbient, foliage_ao_strength) == 32
             && offsetof(PhotorealSettings, contact_shadows) == 36
             && offsetof(PhotorealSettings, contact_shadows) + offsetof(PhotorealContactShadows, foliage_strength) == 52
             && offsetof(PhotorealSettings, atmosphere) == 56 && offsetof(PhotorealSettings, tonemap) == 76
-            && offsetof(PhotorealSettings, sun_shadows) == 100 && offsetof(PhotorealSettings, wetness) == 116 && sizeof(PhotorealSettings) == 132);
+            && offsetof(PhotorealSettings, sun_shadows) == 100 && offsetof(PhotorealSettings, wetness) == 116
+            && offsetof(PhotorealSettings, light_shafts) == 132 && sizeof(PhotorealSettings) == 172);
         static_assert(sizeof(PhotorealCamera) == 48 * sizeof(float));
         static_assert(PHOTOREAL_ACCUMULATE_PRESENT == static_cast<int>(AccumulateMode::present)
             && PHOTOREAL_ACCUMULATE_COUNT == static_cast<int>(AccumulateMode::count));
@@ -199,6 +201,21 @@ namespace photoreal
             s.wetness.wetness = finite_or(w.wetness, wetness_defaults.wetness, 0.0f, 1.0f);
             s.wetness.darkening = finite_or(w.darkening, wetness_defaults.darkening, 0.0f, 1.0f);
             s.wetness.puddles = finite_or(w.puddles, wetness_defaults.puddles, 0.0f, 1.0f);
+        }
+        const LightShaftSettings shaft_defaults;
+        const PhotorealLightShafts &f = raw.light_shafts;
+        if (knows(offsetof(PhotorealSettings, light_shafts), sizeof f))
+        {
+            s.light_shafts.enabled = f.enabled != 0;
+            s.light_shafts.strength = finite_or(f.strength, shaft_defaults.strength, 0.0f, 10.0f);
+            s.light_shafts.density = finite_or(f.density, shaft_defaults.density, 0.0f, 0.2f);
+            s.light_shafts.height = finite_or(f.height, shaft_defaults.height, 0.5f, 500.0f);
+            s.light_shafts.anisotropy = finite_or(f.anisotropy, shaft_defaults.anisotropy, -0.95f, 0.95f);
+            s.light_shafts.distance = finite_or(f.distance, shaft_defaults.distance, 5.0f, 900.0f);
+            s.light_shafts.patchiness = finite_or(f.patchiness, shaft_defaults.patchiness, 0.0f, 1.0f);
+            s.light_shafts.patch_size = finite_or(f.patch_size, shaft_defaults.patch_size, 0.5f, 100.0f);
+            s.light_shafts.ambient = finite_or(f.ambient, shaft_defaults.ambient, 0.0f, 4.0f);
+            s.light_shafts.steps = std::clamp<uint32_t>(f.steps, 8, 128);
         }
         return s;
     }

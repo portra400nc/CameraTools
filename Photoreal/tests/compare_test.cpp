@@ -32,6 +32,7 @@ namespace
         v.settings.tonemap = { 0, 0, PHOTOREAL_CURVE_GAME, 1, 1, 1 };
         v.settings.sun_shadows = { 0, 0.03f, 0.02f, 1 };
         v.settings.wetness = { 0, 0, 0.35f, 0.3f };
+        v.settings.light_shafts = { 0, 1, 0.01f, 10, 0.6f, 150, 0.5f, 6, 1, 48 };
         return v;
     }
 
@@ -119,6 +120,7 @@ int main()
         raw[1].settings.tonemap = { 1, 0.5f, PHOTOREAL_CURVE_AGX, 1.5f, 0.9f, 1.2f };
         raw[1].settings.sun_shadows = { 1, 0.05f, 0.1f, 0.8f };
         raw[1].settings.wetness = { 1, 0.75f, 0.5f, 0.6f };
+        raw[1].settings.light_shafts = { 1, 2, 0.02f, 25, 0.8f, 300, 0.25f, 12, 0.5f, 96 };
         check("settings.tsv writes every parsed field, one row per variant", settings_tsv(*parse_variants(raw, 2))
             == "index\tname\tenabled\tview\tflip\tambient.enabled\tambient.level\tambient.ao_strength\tambient.ao_radius"
                "\tambient.foliage_ao_strength\tcontact_shadows.enabled\tcontact_shadows.length\tcontact_shadows.strength"
@@ -126,11 +128,13 @@ int main()
                "\tatmosphere.height_falloff\tatmosphere.sun_scatter\tatmosphere.anisotropy\ttonemap.enabled\ttonemap.exposure_ev"
                "\ttonemap.curve\ttonemap.bloom_strength\ttonemap.saturation\ttonemap.contrast\tsun_shadows.enabled"
                "\tsun_shadows.light_size\tsun_shadows.min_penumbra\tsun_shadows.strength\twetness.enabled\twetness.wetness"
-               "\twetness.darkening\twetness.puddles\n"
+               "\twetness.darkening\twetness.puddles\tlight_shafts.enabled\tlight_shafts.strength\tlight_shafts.density"
+               "\tlight_shafts.height\tlight_shafts.anisotropy\tlight_shafts.distance\tlight_shafts.patchiness"
+               "\tlight_shafts.patch_size\tlight_shafts.ambient\tlight_shafts.steps\n"
                "0\toff\t0\toff\t1\t1\t0.6\t0.5\t1\t0.5\t0\t0.6\t1\t0.25\t0\t0\t0.000325\t0.02\t1\t0.7\t0\t0\tgame\t1\t1\t1"
-               "\t0\t0.03\t0.02\t1\t0\t0\t0.35\t0.3\n"
+               "\t0\t0.03\t0.02\t1\t0\t0\t0.35\t0.3\t0\t1\t0.01\t10\t0.6\t150\t0.5\t6\t1\t48\n"
                "1\tshadows\t1\tshadow-mask\t1\t1\t0.6\t0.5\t1\t0.5\t1\t1.2\t0.7\t0.3\t0.4\t1\t0.001\t0.05\t2\t0.5\t1\t0.5\tagx\t1.5\t0.9\t1.2"
-               "\t1\t0.05\t0.1\t0.8\t1\t0.75\t0.5\t0.6\n");
+               "\t1\t0.05\t0.1\t0.8\t1\t0.75\t0.5\t0.6\t1\t2\t0.02\t25\t0.8\t300\t0.25\t12\t0.5\t96\n");
     }
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;

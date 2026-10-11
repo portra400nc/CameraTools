@@ -464,7 +464,7 @@ int main()
         check("a label stops at 32 glyphs", encode_label(std::string(40, 'z')).length == 32);
     }
     {
-        FrameReport report = FrameReport::start(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, 0, 1, {}, {}, {}, {}, {}, {} }));
+        FrameReport report = FrameReport::start(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, 0, 1, {}, {}, {}, {}, {}, {}, {} }));
         check("disabled: describe says off", describe(report) == "off");
         report.error = PHOTOREAL_ERROR_SHADER;
         check("disabled by an error: describe says which", describe(report) == "off; error shader");
@@ -679,6 +679,45 @@ int main()
         check("wetness clamps: 2, 1.5 and 3 to 1", high.wetness.wetness == 1.0f && high.wetness.darkening == 1.0f && high.wetness.puddles == 1.0f);
     }
     {
+        PhotorealSettings raw = raw_settings();
+        raw.wetness = { 1, 0.75f, 0.5f, 0.6f };
+        raw.light_shafts = { 1, 2, 0.02f, 25, 0.8f, 300, 0.25f, 12, 0.5f, 96 };
+        const LightShaftSettings whole = parse_settings(raw).light_shafts;
+        check("a whole struct reads light shafts: on, strength 2, density 0.02, height 25, anisotropy 0.8, distance 300, "
+              "patchiness 0.25, patch size 12, ambient 0.5, 96 steps", whole.enabled && whole.strength == 2.0f && whole.density == 0.02f
+            && whole.height == 25.0f && whole.anisotropy == 0.8f && whole.distance == 300.0f && whole.patchiness == 0.25f
+            && whole.patch_size == 12.0f && whole.ambient == 0.5f && whole.steps == 96);
+        raw.size = 132;  // a caller built before light shafts existed
+        const Settings before = parse_settings(raw);
+        const LightShaftSettings &b = before.light_shafts;
+        check("a 132-byte struct reads its wetness block and keeps light shafts off at strength 1, density 0.01, height 10, "
+              "anisotropy 0.6, distance 150, patchiness 0.5, patch size 6, ambient 1, 48 steps", !b.enabled && b.strength == 1.0f
+            && b.density == 0.01f && b.height == 10.0f && b.anisotropy == 0.6f && b.distance == 150.0f && b.patchiness == 0.5f
+            && b.patch_size == 6.0f && b.ambient == 1.0f && b.steps == 48 && before.wetness.enabled && before.wetness.puddles == 0.6f);
+        raw.size = 171;
+        check("a struct one byte short of the light-shaft block keeps its defaults", !parse_settings(raw).light_shafts.enabled
+            && parse_settings(raw).light_shafts.steps == 48);
+        raw.size = sizeof raw;
+        raw.light_shafts = { 1, NAN, INFINITY, -INFINITY, NAN, NAN, INFINITY, -INFINITY, NAN, 48 };
+        const LightShaftSettings bad = parse_settings(raw).light_shafts;
+        check("light shafts: NaN and infinities fall back to strength 1, density 0.01, height 10, anisotropy 0.6, distance 150, "
+              "patchiness 0.5, patch size 6, ambient 1", bad.strength == 1.0f && bad.density == 0.01f && bad.height == 10.0f
+            && bad.anisotropy == 0.6f && bad.distance == 150.0f && bad.patchiness == 0.5f && bad.patch_size == 6.0f && bad.ambient == 1.0f);
+        raw.light_shafts = { 1, -1, -1, 0, -1, 0, -1, 0, -1, 0 };
+        const LightShaftSettings low = parse_settings(raw).light_shafts;
+        check("light shafts clamp: strength, density, patchiness and ambient -1 to 0, height 0 to 0.5, anisotropy -1 to -0.95, "
+              "distance 0 to 5, patch size 0 to 0.5, 0 steps to 8", low.strength == 0.0f && low.density == 0.0f && low.height == 0.5f
+            && low.anisotropy == -0.95f && low.distance == 5.0f && low.patchiness == 0.0f && low.patch_size == 0.5f && low.ambient == 0.0f
+            && low.steps == 8);
+        raw.light_shafts = { 1, 20, 1, 1000, 1, 2000, 2, 500, 9, 1000 };
+        const LightShaftSettings high = parse_settings(raw).light_shafts;
+        check("light shafts clamp: strength 20 to 10, density 1 to 0.2, height 1000 to 500, anisotropy 1 to 0.95, distance 2000 to "
+              "900, patchiness 2 to 1, patch size 500 to 100, ambient 9 to 4, 1000 steps to 128", high.strength == 10.0f
+            && high.density == 0.2f && high.height == 500.0f && high.anisotropy == 0.95f && high.distance == 900.0f && high.patchiness == 1.0f
+            && high.patch_size == 100.0f && high.ambient == 4.0f && high.steps == 128);
+        check("the default settings keep light shafts off at 48 steps", !Settings {}.light_shafts.enabled && Settings {}.light_shafts.steps == 48);
+    }
+    {
         PhotorealCamera raw {};
         raw.world_to_view[5] = 2;
         raw.view_to_clip[14] = 0.1f;
@@ -727,7 +766,7 @@ int main()
     }
     {
         check("disabled settings want no step", wanted_steps(view_only(PHOTOREAL_VIEW_HDR_SCENE)).bits != 0
-            && wanted_steps(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, PHOTOREAL_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1 } })).empty());
+            && wanted_steps(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, PHOTOREAL_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 8 } })).empty());
     }
     {
         // Unity's GL.GetGPUProjectionMatrix for a 60 degree, 16:10 camera with near 0.1 and far 1000, reversed Z.

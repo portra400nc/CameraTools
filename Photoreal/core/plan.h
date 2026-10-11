@@ -80,6 +80,20 @@ namespace photoreal
         float puddles = 0.3f;
     };
 
+    struct LightShaftSettings
+    {
+        bool enabled = false;
+        float strength = 1.0f;
+        float density = 0.01f;
+        float height = 10.0f;
+        float anisotropy = 0.6f;
+        float distance = 150.0f;
+        float patchiness = 0.5f;
+        float patch_size = 6.0f;
+        float ambient = 1.0f;
+        uint32_t steps = 48;
+    };
+
     // The domain form of PhotorealSettings. Built only by parse_settings, so every value in it is in range.
     struct Settings
     {
@@ -92,6 +106,7 @@ namespace photoreal
         TonemapSettings tonemap;
         SunShadowSettings sun_shadows;
         WetnessSettings wetness;
+        LightShaftSettings light_shafts;
     };
 
     // Honors size (fields past it keep their defaults), maps an unknown view to off and an unknown curve to the game's,

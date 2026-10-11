@@ -192,7 +192,7 @@ typedef struct PhotorealSunShadows
 // Wet surfaces: on world pixels, after the game's last G-buffer write and before anything reads it, the G-buffer's albedo
 // darkens, its smoothness rises and its specular color moves toward water's, more on surfaces that face up, and puddles
 // form on flat ground. The game's reflections, sun light and ambient light then all see the wet surface.
-// The last block of PhotorealSettings, so a field added here goes at the end and size keeps older callers working.
+// light_shafts follows it in PhotorealSettings, so this block keeps its size.
 typedef struct PhotorealWetness
 {
     uint32_t enabled;           // default 0
@@ -202,6 +202,32 @@ typedef struct PhotorealWetness
     float puddles;              // how much of the flat ground puddles cover when soaked, from none at 0 to all of it at 1;
                                 // default 0.3, clamped to 0..1
 } PhotorealWetness;
+
+// Light shafts: sun light scattered toward the camera by a ground mist, bright where the game's sun shadow atlas says the
+// sun reaches the mist and dark where trunks, crowns or anything else that casts the game's sun shadows blocks it, on
+// screen or off. At the bloom step, after the atmosphere pass, each pixel's view ray is marched through the mist up to
+// the pixel or distance, and the HDR scene dims behind the mist and takes its light, before the game's bloom and tone map
+// read it. The mist thins with height above the camera and thickens below it, and its patches stay put in the world. Light
+// comes from PhotorealCamera's sun and sky colors and sun direction; the atlas is copied whenever this pass is on.
+// The last block of PhotorealSettings, so a field added here goes at the end and size keeps older callers working.
+typedef struct PhotorealLightShafts
+{
+    uint32_t enabled;           // default 0
+    float strength;             // multiplies the sun light the mist scatters; default 1, clamped to 0..10
+    float density;              // the mist's extinction per meter at the camera's height; default 0.01, which hides 39% of a
+                                // pixel 50 m away level with the camera; clamped to 0..0.2
+    float height;               // meters: the mist thins by e every height meters above the camera and thickens as fast
+                                // below it, to at most 20 times; default 10, clamped to 0.5..500
+    float anisotropy;           // Henyey-Greenstein g: 0 scatters sun light evenly, toward 1 into shafts that shine when
+                                // the camera looks toward the sun; default 0.6, clamped to -0.95..0.95
+    float distance;             // meters of mist along each pixel's ray, up to the pixel, and all of it for the sky;
+                                // default 150, clamped to 5..900
+    float patchiness;           // 0 an even mist, 1 banks and clear holes; default 0.5, clamped to 0..1
+    float patch_size;           // meters across a patch; default 6, clamped to 0.5..100
+    float ambient;              // multiplies the sky light the mist scatters, which keeps mist in shadow from going black;
+                                // default 1, clamped to 0..4
+    uint32_t steps;             // samples along each ray; default 48, clamped to 8..128
+} PhotorealLightShafts;
 
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller
 // knows, and fields past it keep their defaults.
@@ -218,6 +244,7 @@ typedef struct PhotorealSettings
     PhotorealTonemap tonemap;
     PhotorealSunShadows sun_shadows;
     PhotorealWetness wetness;
+    PhotorealLightShafts light_shafts;
 } PhotorealSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and
