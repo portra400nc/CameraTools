@@ -767,7 +767,8 @@ namespace photoreal
                 scene_stopped = *why;
             }
             else
-                log(reshade::log::level::info, "the scene capture's " + std::to_string(run.schedule.saved) + " faces go to " + run.folder->path.u8string() + ".");
+                log(reshade::log::level::info, "the scene capture's " + std::to_string(run.schedule.saved) + " faces go to " + run.folder->path.u8string()
+                    + ".");
             scene_gpu.end();
             scene.reset();
             scene_frame = false;
@@ -1097,6 +1098,19 @@ extern "C" uint32_t PhotorealCompare(const PhotorealVariant *variants, uint32_t 
     if (!parsed || !compare_remaining.compare_exchange_strong(idle, count))
         return 0;
     compare_box.put(*parsed);
+    return 1;
+}
+
+extern "C" uint32_t PhotorealCaptureScene(const PhotorealSceneRequest *raw)
+{
+    const std::optional<SceneRequest> request = parse_scene_request(raw);
+    if (!request)
+        return 0;
+    // Raised before the render thread takes the request, so a second call is refused until every face is written.
+    uint32_t idle = 0;
+    if (!scene_remaining.compare_exchange_strong(idle, static_cast<uint32_t>(start_scene(*request).order.size())))
+        return 0;
+    scene_box.put(*request);
     return 1;
 }
 

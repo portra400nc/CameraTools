@@ -173,6 +173,46 @@ namespace CameraToolsPhotoreal
         public PhotorealSettings Settings;
     }
 
+    // PHOTOREAL_FACE_* in photoreal.h, in order, and PHOTOREAL_FACE_NONE.
+    internal enum PhotorealFace : uint { PosX, NegX, PosY, NegY, PosZ, NegZ, View, None = 0xFFFFFFFF }
+
+    // PHOTOREAL_SCENE_* in photoreal.h.
+    [Flags]
+    internal enum PhotorealSceneFlags : uint { None = 0, Raw = 1 << 0, Ply = 1 << 1 }
+
+    // PhotorealSceneRequest in photoreal.h, field for field. Zero fields read as the add-on's defaults: all seven faces,
+    // 45 presents of settle and 4000000 triangles a face.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct PhotorealSceneRequest
+    {
+        public uint Size;
+        public uint Faces;          // bits PhotorealFaces.Bit(face)
+        public uint Settle;
+        public PhotorealSceneFlags Flags;
+        public uint MaxTriangles;
+    }
+
+    // Where each cube face of a scene capture looks, in Unity world space: D3D cube-map order and up vectors, as
+    // photoreal.h lists them, at a 90-degree vertical field of view.
+    internal static class PhotorealFaces
+    {
+        public const float FieldOfView = 90;
+
+        public static uint Bit(PhotorealFace face) => 1u << (int)face;
+
+        // Null for the view and None, which keep the camera as it is.
+        public static (Vector3 Forward, Vector3 Up)? Direction(PhotorealFace face) => face switch
+        {
+            PhotorealFace.PosX => (new Vector3(1, 0, 0), new Vector3(0, 1, 0)),
+            PhotorealFace.NegX => (new Vector3(-1, 0, 0), new Vector3(0, 1, 0)),
+            PhotorealFace.PosY => (new Vector3(0, 1, 0), new Vector3(0, 0, -1)),
+            PhotorealFace.NegY => (new Vector3(0, -1, 0), new Vector3(0, 0, 1)),
+            PhotorealFace.PosZ => (new Vector3(0, 0, 1), new Vector3(0, 1, 0)),
+            PhotorealFace.NegZ => (new Vector3(0, 0, -1), new Vector3(0, 1, 0)),
+            _ => null,
+        };
+    }
+
     // PhotorealStatus in photoreal.h, field for field. Bit fields use PHOTOREAL_STEP_*, PHOTOREAL_PASS_* and PHOTOREAL_ENTRY_*.
     [StructLayout(LayoutKind.Sequential)]
     internal struct PhotorealStatus
@@ -196,13 +236,16 @@ namespace CameraToolsPhotoreal
         public PhotorealAccumulateMode AccumMode;
         public uint AccumSamples;
         public uint AccumGeneration;
+        public PhotorealFace SceneFace;
+        public uint SceneRemaining;
+        public uint SceneSupport;   // 0 untried, 1 stream output wrote triangles, 2 the Deck's DXVK refused stream output
     }
 
     // The only class that knows CameraToolsPhotoreal.addon64.
     internal static class Photoreal
     {
         private const string ModuleName = "CameraToolsPhotoreal.addon64";
-        private const uint Version = 6;
+        private const uint Version = 7;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -230,8 +273,11 @@ namespace CameraToolsPhotoreal
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate float DepthAtCall(float u, float v);
 
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate uint CaptureSceneCall(ref PhotorealSceneRequest request);
+
         private sealed record AddOn(IntPtr Module, ApplyCall Apply, SetCameraCall SetCamera, GetStatusCall GetStatus, DescribeCall Describe, CompareCall Compare,
-            SetAccumulateCall SetAccumulate, DepthAtCall DepthAt);
+            SetAccumulateCall SetAccumulate, DepthAtCall DepthAt, CaptureSceneCall CaptureScene);
 
         private static readonly float[] camera = new float[48];
         private static readonly byte[] line = new byte[512];
@@ -324,11 +370,26 @@ namespace CameraToolsPhotoreal
             return addOn.Compare(native, (uint)native.Length) != 0;
         }
 
+        // Starts a scene capture: the add-on asks for each requested face in turn through Status.SceneFace, the view
+        // first, captures the geometry of a frame whose camera shows it, and writes it to
+        // <ReShade base path>\Photoreal\scene-<time>\. The caller turns the camera to the face's PhotorealFaces.Direction
+        // at PhotorealFaces.FieldOfView while SceneFace names a cube face. Status.SceneRemaining counts the faces not yet
+        // written. False while the add-on is not loaded, a scene capture is still running or saving, or Faces holds no
+        // known face.
+        public static bool CaptureScene(PhotorealSceneRequest request)
+        {
+            if (addOn == null)
+                return false;
+            request.Size = (uint)Marshal.SizeOf<PhotorealSceneRequest>();
+            return addOn.CaptureScene(ref request) != 0;
+        }
+
+        // SceneFace reads None while the add-on is not loaded, so no caller turns the camera for a capture that is not there.
         public static PhotorealStatus Status
         {
             get
             {
-                var status = new PhotorealStatus { Size = (uint)Marshal.SizeOf<PhotorealStatus>() };
+                var status = new PhotorealStatus { Size = (uint)Marshal.SizeOf<PhotorealStatus>(), SceneFace = PhotorealFace.None };
                 addOn?.GetStatus(ref status);
                 return status;
             }
@@ -393,13 +454,14 @@ namespace CameraToolsPhotoreal
                 || !TryExport<DescribeCall>(module, "PhotorealDescribe", out var describe)
                 || !TryExport<CompareCall>(module, "PhotorealCompare", out var compare)
                 || !TryExport<SetAccumulateCall>(module, "PhotorealSetAccumulate", out var setAccumulate)
-                || !TryExport<DepthAtCall>(module, "PhotorealDepthAt", out var depthAt))
+                || !TryExport<DepthAtCall>(module, "PhotorealDepthAt", out var depthAt)
+                || !TryExport<CaptureSceneCall>(module, "PhotorealCaptureScene", out var captureScene))
             {
                 MelonLogger.Warning($"Photoreal: {ModuleName} version {found} is missing an export.");
                 return;
             }
             rejected = IntPtr.Zero;
-            addOn = new AddOn(module, apply, setCamera, getStatus, describe, compare, setAccumulate, depthAt);
+            addOn = new AddOn(module, apply, setCamera, getStatus, describe, compare, setAccumulate, depthAt, captureScene);
             MelonLogger.Msg($"Photoreal: connected to {ModuleName} version {found}.");
         }
 

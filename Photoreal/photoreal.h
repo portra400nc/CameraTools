@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define PHOTOREAL_VERSION 6
+#define PHOTOREAL_VERSION 7
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -374,6 +374,14 @@ PHOTOREAL_EXPORT void PhotorealSetCamera(const PhotorealCamera *camera);
 // saving, or the variants are invalid: null, none, more than PHOTOREAL_COMPARE_MAX, an empty name, or settings too short
 // to hold enabled.
 PHOTOREAL_EXPORT uint32_t PhotorealCompare(const PhotorealVariant *variants, uint32_t count);
+
+// Starts a scene capture from the next present: for each requested face, the view first, PhotorealStatus.scene_face asks
+// the caller to turn the camera there, and once a frame whose own camera shows the face has rendered, every draw of its
+// G-buffer is replayed with stream output, and its triangles are written in world space with the frame's picture and
+// depth to <ReShade base path>\Photoreal\scene-<YYYYMMDD-HHMMSS>\. Returns 1 when accepted, and 0 while a scene capture
+// is still running or saving, or when request is null, too short to hold faces, or names no known face. It works whether
+// settings.enabled is on or not.
+PHOTOREAL_EXPORT uint32_t PhotorealCaptureScene(const PhotorealSceneRequest *request);
 
 PHOTOREAL_EXPORT void PhotorealGetStatus(PhotorealStatus *status);
 
