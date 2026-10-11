@@ -35,6 +35,11 @@ namespace photoreal
     // size, and any that falls outside it, a bad magic, or a missing chunk gives empty.
     std::optional<OutputSignature> parse_output_signature(const uint8_t *code, size_t size);
 
+    // The tessellator domain a hull or domain shader declares (dcl_tessellator_domain in its SHEX or SHDR chunk). Empty
+    // when the container is broken or declares none, as for every other stage.
+    enum class TessellatorDomain : uint8_t { isoline = 1, tri = 2, quad = 3 };
+    std::optional<TessellatorDomain> tessellator_domain(const uint8_t *code, size_t size);
+
     // One D3D11_SO_DECLARATION_ENTRY, without the stream, which is always 0.
     struct SoEntry
     {

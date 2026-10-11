@@ -110,7 +110,7 @@ namespace photoreal
         game_so,            // the game had a stream-output target bound, which a replay would clobber
         query_pool,         // more replays this frame than queries
         gs_create_failed,   // CreateGeometryShaderWithStreamOutput refused this shader
-        topology,           // not a triangle list nor a tessellated patch list: strips, adjacency, points or lines
+        topology,           // not a triangle list nor a tessellated patch list: strips, adjacency, points, lines, or isolines
         buffer_full,        // its reservation did not fit in the stream-output buffer, which grows for the next capture
         count,
     };
@@ -142,7 +142,7 @@ namespace photoreal
         DrawSkip skip = DrawSkip::none;
         uint32_t query = 0;                 // its stream-output statistics query, for the shell
         // Replayed as a point list, one corner per stream-output primitive, so every corner of every triangle is written;
-        // false for a tessellated draw, which streams the domain shader's triangles.
+        // false for a tessellated draw, whose triangles shaders/stream_triangles_gs.hlsl streams as three points each.
         bool points = false;
         uint64_t offset = 0, reserved = 0;  // where in the stream-output buffer its replay wrote and the room it had, in corners
         uint64_t corners = 0, corners_needed = 0;   // corners its query says it wrote and would have needed

@@ -3,7 +3,8 @@
 //
 // Each G-buffer draw of a captured frame is replayed just before the game's own, with every binding the game made for it
 // untouched: its input assembler, vertex, hull and domain shaders, constant buffers and resources. Only a geometry shader
-// built with stream output from the draw's own vertex or domain shader bytecode, our stream-output target at the draw's
+// with stream output (built from the draw's own vertex shader bytecode, or for a tessellated draw our
+// shaders/stream_triangles_gs.hlsl), our stream-output target at the draw's
 // own offset, a blend state that writes nothing and a depth-stencil state with both off are swapped in, and a triangle
 // list's topology becomes a point list; ReplayGuard puts the game's back.
 //
@@ -11,7 +12,9 @@
 // processXfbPassthrough). Fed triangles, the Deck's driver ran it once per triangle and streamed only its first corner,
 // 16 bytes where D3D11 writes 48, while the query still counted one primitive per triangle (build 198). Fed the same
 // indices as points, the vertex shader runs per index as before and every corner is streamed in index order, which is the
-// triangle list's corners three by three, under DXVK and under D3D11 alike.
+// triangle list's corners three by three, under DXVK and under D3D11 alike. A patch list cannot become points, so a
+// tessellated draw streams through a geometry shader that takes triangles and emits their corners as points: the
+// domain shader's own bytecode streamed a third of every tessellated draw's corners in build 202, and left them out.
 #pragma once
 
 #include "core/scene.h"
@@ -146,7 +149,8 @@ namespace photoreal
             HRESULT result = S_OK;
         };
 
-        const CachedGs &geometry_shader(const ShaderCode &code);
+        // The stream-output geometry shader of a shader's bytecode, by key, made the first time.
+        const CachedGs &geometry_shader(uint64_t key, const std::string &bytes);
         bool make_buffers(uint64_t bytes);
 
         ComPtr<ID3D11Device> device_;

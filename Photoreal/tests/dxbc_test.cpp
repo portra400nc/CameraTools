@@ -130,6 +130,24 @@ int main()
         check("a signature chunk 9 bytes long gives nothing", !parse(broken));
         check("a null pointer gives nothing", !parse_output_signature(nullptr, 100));
     }
+    {
+        // The scene capture streams a tessellated draw's triangles through a geometry shader of its own, which takes
+        // triangles: a domain of tri or quad.
+        const auto domain_of = [](const std::vector<uint8_t> &code) { return tessellator_domain(code.data(), code.size()); };
+        check("2adc971cc2058b7a, the terrain's domain shader, declares the tri domain", domain_of(domain) == TessellatorDomain::tri);
+        check("the vertex and pixel shaders declare no tessellator domain",
+            !domain_of(packed) && !domain_of(hull_feed) && !domain_of(position_only) && !domain_of(pixel));
+        bool none = true;
+        for (size_t size = 32; size < domain.size(); size += 4)
+        {
+            std::vector<uint8_t> cut(domain.begin(), domain.begin() + size);
+            put32(cut, 24, static_cast<uint32_t>(size));
+            const auto d = tessellator_domain(cut.data(), cut.size());
+            none &= !d || *d == TessellatorDomain::tri;
+        }
+        check("the domain shader cut at every 4-byte boundary gives tri or nothing, never another domain", none);
+        check("a null pointer declares no domain", !tessellator_domain(nullptr, 100));
+    }
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;
 }
