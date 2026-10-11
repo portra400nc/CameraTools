@@ -217,7 +217,7 @@ namespace photoreal
         { Step::combine, "combine", { Step::gbuffer }, { Entry::hdr_scene }, match_combine },
         // The tonemap draw samples the HDR scene too, so when the game's bloom takes another shape (build 196 on the Deck
         // lost it for up to a quarter second every 3 to 13 s while walking), the bloom step's passes still run before the
-        // scene is read, only after the game's bloom of that frame.
+        // tone map reads the scene. Only the game's bloom of that frame misses them.
         { Step::bloom, "bloom", { Step::combine }, { Entry::bloom }, match_bloom, Step::tonemap },
         { Step::tonemap, "tonemap", { Step::combine }, { Entry::tonemap_out, Entry::bloom_final }, match_tonemap },
         { Step::forward, "forward", { Step::combine }, {}, match_forward },
