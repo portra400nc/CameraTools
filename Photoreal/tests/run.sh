@@ -1,6 +1,7 @@
 #!/bin/sh
 # Builds and runs the Photoreal core's tests, which replay recorded census frames through the frame recipe, with any
-# C++17 compiler, then decodes the PNG encoder's output with Python's zlib. No game, no ReShade, no D3D11.
+# C++17 compiler, then decodes the PNG encoder's output with Python's zlib and checks the synthetic scene folder
+# scene_files_test writes with check_scene.py, which needs numpy. No game, no ReShade, no D3D11.
 set -e
 cd "$(dirname "$0")"
 out=$(mktemp -d)
@@ -9,3 +10,4 @@ for test in *_test.cpp; do
     "$out/${test%.cpp}" "$out"
 done
 python3 check_png.py "$out/roundtrip.png"
+python3 check_scene.py "$out/scene-synthetic"
