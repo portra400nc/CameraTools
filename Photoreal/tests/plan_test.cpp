@@ -3,6 +3,8 @@
 #include "../core/plan.h"
 #include "../photoreal.h"
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 
@@ -69,6 +71,15 @@ namespace
         PhotorealSettings raw = raw_settings();
         raw.ambient.enabled = ambient;
         raw.wetness = { 1, 0, 0.35f, 0.3f };
+        return parse_settings(raw);
+    }
+
+    Settings light_shafts_on(bool atmosphere)
+    {
+        PhotorealSettings raw = raw_settings();
+        raw.ambient.enabled = 0;
+        raw.atmosphere = { atmosphere, 0.000325f, 0.02f, 1, 0.7f };
+        raw.light_shafts = { 1, 1, 0.01f, 10, 0.6f, 150, 0.5f, 6, 1, 48 };
         return parse_settings(raw);
     }
 
@@ -186,8 +197,9 @@ int main()
         FrameTracker tracker;
         fixture::replay(rows, tracker);
         const Plan at_bloom = plan(Step::bloom, tracker.map(), atmosphere_on(), kCamera);
-        check("the bloom plan runs atmosphere alone", at_bloom.count == 1 && at_bloom.items[0].pass == PassId::atmosphere
-            && at_bloom.items[0].kind == Decision::Kind::run);
+        check("the bloom plan runs atmosphere and holds light shafts, off", at_bloom.count == 2 && at_bloom.items[0].pass == PassId::atmosphere
+            && at_bloom.items[0].kind == Decision::Kind::run && at_bloom.items[1].pass == PassId::light_shafts
+            && at_bloom.items[1].kind == Decision::Kind::off);
         check("the combine plan holds sun shadows, contact shadows and ambient, all off", plan(Step::combine, tracker.map(), atmosphere_on(), kCamera).count == 3
             && plan(Step::combine, tracker.map(), atmosphere_on(), kCamera).items[0].kind == Decision::Kind::off);
     }
@@ -249,6 +261,72 @@ int main()
     }
     {
         auto rows = walk;
+        const FrameReport report = run_frame(rows, light_shafts_on(true), kCamera);
+        check("atmosphere, then light shafts run at bloom", report.ran.bits == (PHOTOREAL_PASS_ATMOSPHERE | PHOTOREAL_PASS_LIGHT_SHAFTS)
+            && describe(report) == std::string(kAllSteps) + "; ran atmosphere@bloom light-shafts@bloom");
+        check("steps wanted by light shafts: gbuffer, combine and bloom",
+            report.wanted.bits == (PHOTOREAL_STEP_GBUFFER | PHOTOREAL_STEP_COMBINE | PHOTOREAL_STEP_BLOOM));
+        FrameTracker tracker;
+        fixture::replay(rows, tracker);
+        const Plan at_bloom = plan(Step::bloom, tracker.map(), light_shafts_on(true), kCamera);
+        check("the bloom plan runs atmosphere first, then light shafts with this frame's sun constants", at_bloom.count == 2
+            && at_bloom.items[0].pass == PassId::atmosphere && at_bloom.items[0].kind == Decision::Kind::run
+            && at_bloom.items[1].pass == PassId::light_shafts && at_bloom.items[1].kind == Decision::Kind::run && at_bloom.items[1].uses_sun);
+    }
+    {
+        auto rows = walk;
+        const FrameReport report = run_frame(rows, light_shafts_on(true), Inputs { true, SunCheck::unread });
+        check("before any sun constants were read back, light shafts skip and say so, and atmosphere runs", report.ran.bits == PHOTOREAL_PASS_ATMOSPHERE
+            && report.skipped.bits == PHOTOREAL_PASS_LIGHT_SHAFTS && report.missing.empty()
+            && describe(report) == std::string(kAllSteps) + "; ran atmosphere@bloom; skipped light-shafts: sun constants unread");
+    }
+    {
+        auto rows = walk;
+        check("without a camera, light shafts skip and say so", describe(run_frame(rows, light_shafts_on(false), kNoCamera))
+            == std::string(kAllSteps) + "; skipped light-shafts: no camera");
+    }
+    {
+        auto rows = walk;
+        fixture::find(rows, 893).draw.inputs.resize(2);
+        const FrameReport report = run_frame(rows, light_shafts_on(false), Inputs { true, SunCheck::unread });
+        check("a shadow-mask draw without the atlas at t2: light shafts miss sun-atlas", report.missing.bits == PHOTOREAL_ENTRY_SUN_ATLAS
+            && describe(report) == std::string(kAllSteps) + "; skipped light-shafts: missing sun-atlas, sun constants unread");
+    }
+    {
+        auto rows = walk;
+        fixture::drop(rows, 1088, 1088);  // the first bloom draw, the one that samples the HDR scene
+        check("no bloom moment: light shafts skip and name the step", describe(run_frame(rows, light_shafts_on(false), kCamera))
+            == "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine tonemap forward gbuffer-done; skipped light-shafts: no bloom");
+    }
+    {
+        std::vector<fixture::Row> menu;
+        check("no G-buffer: light shafts name the entries they need", describe(run_frame(menu, light_shafts_on(false), Inputs { true, SunCheck::unread }))
+            == "found nothing; skipped light-shafts: missing depth hdr-scene sun-atlas, sun constants unread");
+    }
+    {
+        auto rows = fixture::load("fixtures/capture-20261010-111824.tsv");
+        check("111824, the user's normal settings: atmosphere, then light shafts at bloom", describe(run_frame(rows, light_shafts_on(true), kCamera))
+            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward gbuffer-done; ran atmosphere@bloom light-shafts@bloom");
+    }
+    {
+        const std::vector<uint8_t> lattice = noise_lattice();
+        std::array<uint32_t, 256> counts {};
+        double sum = 0;
+        for (const uint8_t value : lattice)
+        {
+            counts[value]++;
+            sum += value;
+        }
+        check("the noise lattice holds 64^3 bytes, the same ones every time", lattice.size() == 262144 && noise_lattice() == lattice);
+        check("its bytes take every value from 0 to 255 and average 127.5 within 1", std::fabs(sum / lattice.size() - 127.5) < 1
+            && std::find(counts.begin(), counts.end(), 0u) == counts.end());
+        uint32_t repeats = 0;
+        for (size_t i = 1; i < lattice.size(); i++)
+            repeats += lattice[i] == lattice[i - 1];
+        check("neighbors are unrelated: about 1 in 256 repeat the byte before them", repeats > 700 && repeats < 1350);
+    }
+    {
+        auto rows = walk;
         FrameTracker tracker;
         fixture::replay(rows, tracker);
         const Plan at_combine = plan(Step::combine, tracker.map(), sun_shadows_on(false), kCamera);
@@ -258,7 +336,7 @@ int main()
             && !at_combine.items[2].uses_sun);
     }
     {
-        check("sun shadows want the sun constants", wants_sun(sun_shadows_on(false)));
+        check("sun shadows and light shafts want the sun constants", wants_sun(sun_shadows_on(false)) && wants_sun(light_shafts_on(false)));
         check("ambient, contact shadows, atmosphere, tonemap and wetness do not", !wants_sun(ambient_on()) && !wants_sun(contact_shadows_on(true))
             && !wants_sun(atmosphere_on()) && !wants_sun(tonemap_on(true)) && !wants_sun(wetness_on(true)));
         Settings off = sun_shadows_on(false);

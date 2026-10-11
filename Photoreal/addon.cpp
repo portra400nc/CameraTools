@@ -421,6 +421,9 @@ namespace photoreal
                     case PassId::atmosphere:
                         call = gpu.run_atmosphere(map, settings.atmosphere, camera, settings.flip);
                         break;
+                    case PassId::light_shafts:
+                        call = gpu.run_light_shafts(map, settings.light_shafts, camera, sun_parse.constants, settings.flip);
+                        break;
                     case PassId::tonemap:
                         call = gpu.run_tonemap(map, settings.tonemap);
                         break;
@@ -715,7 +718,7 @@ namespace photoreal
 using namespace photoreal;
 
 extern "C" __declspec(dllexport) const char *NAME = "CameraTools Photoreal";
-extern "C" __declspec(dllexport) const char *DESCRIPTION = "Finds Genshin's G-buffer and lighting buffers each frame, shows them as debug views, relights the world's ambient light, softens the sun's shadows and adds contact shadows to them, adds aerial perspective to the scene, replaces the game's tone map, averages lens samples into depth of field, and saves comparison captures of settings variants. Driven by CameraTools.";
+extern "C" __declspec(dllexport) const char *DESCRIPTION = "Finds Genshin's G-buffer and lighting buffers each frame, shows them as debug views, relights the world's ambient light, softens the sun's shadows and adds contact shadows to them, adds aerial perspective and sun shafts through a ground mist to the scene, replaces the game's tone map, averages lens samples into depth of field, and saves comparison captures of settings variants. Driven by CameraTools.";
 
 extern "C" uint32_t PhotorealVersion(void)
 {

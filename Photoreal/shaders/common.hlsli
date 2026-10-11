@@ -1,4 +1,4 @@
-// Shared by every shader. Registers stay inside gpu.h's ranges: t0-t7, s0-s2, b0-b4.
+// Shared by every shader. Registers stay inside gpu.h's ranges: t0-t7, s0-s3, b0-b4.
 
 cbuffer Constants : register(b0)
 {
@@ -45,7 +45,16 @@ cbuffer Constants : register(b0)
     float wetness;              // the wetness pass's amount: PhotorealWetness.wetness, or the weather's while that is 0
     float wet_darkening;        // PhotorealWetness.darkening
     float puddles;              // PhotorealWetness.puddles
-    float3 padding3;
+    float shafts_strength;      // PhotorealLightShafts.strength
+    float shafts_density;       // the mist's extinction per meter at the camera's height
+    float shafts_height;        // meters per e of thinning above the camera
+    float shafts_anisotropy;    // Henyey-Greenstein g
+    float shafts_distance;      // meters marched at most
+    float shafts_patchiness;
+    float shafts_patch_size;    // meters
+    float shafts_ambient;       // multiplies the sky light in the mist
+    uint shafts_steps;          // samples per ray
+    float2 padding3;
 };
 
 SamplerState point_clamp : register(s0);

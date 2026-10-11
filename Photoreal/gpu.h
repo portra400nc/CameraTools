@@ -18,7 +18,7 @@ namespace photoreal
 
     // Our shaders declare registers only inside these ranges, and StateGuard saves and restores exactly these.
     constexpr UINT kSrvSlots = 8;       // t0..t7
-    constexpr UINT kSamplerSlots = 3;   // s0..s2
+    constexpr UINT kSamplerSlots = 4;   // s0..s3
     constexpr UINT kCbSlots = 5;        // b0..b4
     constexpr UINT kUavSlots = 2;       // u0..u1, compute only (no v1 pass uses compute; the path tracer will)
     constexpr UINT kSoSlots = D3D11_SO_BUFFER_SLOT_COUNT;
@@ -119,8 +119,8 @@ namespace photoreal
         ComPtr<ID3D11RenderTargetView> rtv_;
     };
 
-    // Our render-size texture with no game counterpart, for results passed between our own draws. sync() recreates it
-    // when the size changed.
+    // Our texture with no game counterpart, at the render size or a fraction of it, for results passed between our own
+    // draws. sync() recreates it when the size changed.
     class Scratch
     {
     public:
@@ -208,6 +208,14 @@ namespace photoreal
         // texture of ours failed.
         std::optional<GameCall> run_wetness(const FrameMap &map, const WetnessSettings &settings, float amount, const Camera &camera, bool flip);
 
+        // The light-shaft pass: mirror in the HDR scene and depth; march each half-size ray through the mist into shafts_
+        // and shafts_meters_, with the sun's visibility at each step from the atlas and the constants gather_sun copied this
+        // frame; draw out = in * T + in-scatter at full size from a 4x4 window of the march; copy out over the game's HDR
+        // scene. sun gives the cascades in use and the atlas's grid. Empty when gather_sun copied nothing this frame or a
+        // texture of ours failed.
+        std::optional<GameCall> run_light_shafts(const FrameMap &map, const LightShaftSettings &settings, const Camera &camera,
+            const SunShadowConstants &sun, bool flip);
+
         // The atmosphere pass: mirror in the HDR scene and depth; draw out = in * T + (sky + sun * sun_scatter * phase) *
         // (1 - T) on pixels with depth, where T is the transmittance of the height-fading haze along the view ray, and in
         // on the sky; copy out over the game's HDR scene. Empty when a texture of ours failed.
@@ -265,8 +273,10 @@ namespace photoreal
         ComPtr<ID3D11DeviceContext1> context_;
         ComPtr<ID3D11VertexShader> fullscreen_vs_;
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_,
-            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_;
-        ComPtr<ID3D11SamplerState> point_, linear_, lit_compare_;
+            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_;
+        ComPtr<ID3D11SamplerState> point_, linear_, lit_compare_, wrap_;
+        ComPtr<ID3D11Texture3D> lattice_;                   // noise_lattice(), R8_UNORM
+        ComPtr<ID3D11ShaderResourceView> lattice_srv_;
         ComPtr<ID3D11Buffer> constants_;
         ComPtr<ID3D11Buffer> game_tonemap_;    // the game's tone map constants, copied in at each tonemap pass
         ComPtr<ID3D11Buffer> game_sun_[4];     // the game's b0 to b3 at its shadow-mask draw, bound at b1 to b4
@@ -288,6 +298,8 @@ namespace photoreal
         Scratch contact_;           // R8_UNORM raw sun visibility, 1 = lit
         Scratch sun_;               // R8_UNORM raw soft sun visibility, 1 = lit
         Scratch sum_;               // R32G32B32A32_FLOAT: rgb the weighted HDR sum, a the weight sum
+        Scratch shafts_;            // half size, R16G16B16A16_FLOAT: rgb the mist's raw in-scatter, a its transmittance
+        Scratch shafts_meters_;     // half size, R16_FLOAT: the meters each ray marched
         ComPtr<ID3D11Texture2D> depth_texel_;   // 1x1 R32G8X24_TYPELESS, CPU-readable
         bool depth_texel_pending_ = false;      // copied and not yet read
         Snapshot pending_, shown_;

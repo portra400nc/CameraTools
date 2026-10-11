@@ -17,6 +17,7 @@ namespace photoreal
         bool tonemap_wanted(const Settings &s) { return s.tonemap.enabled; }
         bool sun_shadows_wanted(const Settings &s) { return s.sun_shadows.enabled; }
         bool wetness_wanted(const Settings &s) { return s.wetness.enabled; }
+        bool light_shafts_wanted(const Settings &s) { return s.light_shafts.enabled; }
 
         float finite_or(float value, float fallback, float low, float high)
         {
@@ -28,7 +29,7 @@ namespace photoreal
         static_assert(PHOTOREAL_PASS_AMBIENT == bit(PassId::ambient) && PHOTOREAL_PASS_CONTACT_SHADOWS == bit(PassId::contact_shadows)
             && PHOTOREAL_PASS_ATMOSPHERE == bit(PassId::atmosphere) && PHOTOREAL_PASS_TONEMAP == bit(PassId::tonemap)
             && PHOTOREAL_PASS_SUN_SHADOWS == bit(PassId::sun_shadows) && PHOTOREAL_PASS_WETNESS == bit(PassId::wetness)
-            && static_cast<int>(PassId::count) == 6);
+            && PHOTOREAL_PASS_LIGHT_SHAFTS == bit(PassId::light_shafts) && static_cast<int>(PassId::count) == 7);
         static_assert(PHOTOREAL_CURVE_AGX == static_cast<int>(Curve::agx) && PHOTOREAL_CURVE_COUNT == static_cast<int>(Curve::count));
         static_assert(PHOTOREAL_VIEW_COUNT == static_cast<int>(View::count) && PHOTOREAL_VIEW_STENCIL == static_cast<int>(View::stencil)
             && PHOTOREAL_VIEW_HDR_SCENE == static_cast<int>(View::hdr_scene) && PHOTOREAL_VIEW_BLOOM_FINAL == static_cast<int>(View::bloom_final)
@@ -85,6 +86,10 @@ namespace photoreal
           contact_shadows_wanted },
         { PassId::ambient, "ambient", Step::combine, { Entry::normals, Entry::depth, Entry::ambient_diffuse }, true, SunUse::none, ambient_wanted },
         { PassId::atmosphere, "atmosphere", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::none, atmosphere_wanted },
+        // After atmosphere, so the haze lies behind the mist. The atlas and the game's camera constants place every step of
+        // the march, and the camera brings the sun's direction and the sun and sky colors.
+        { PassId::light_shafts, "light-shafts", Step::bloom, { Entry::depth, Entry::hdr_scene, Entry::sun_atlas }, true, SunUse::required,
+          light_shafts_wanted },
         // bloom-final is optional: a tone map draw without one still gets ours, without bloom.
         { PassId::tonemap, "tonemap", Step::tonemap, { Entry::hdr_scene, Entry::tonemap_out }, false, SunUse::none, tonemap_wanted },
     } };
@@ -294,6 +299,19 @@ namespace photoreal
     {
         const hlsl::Mist rescaled = hlsl::mist_rescale({ m.inscatter, m.transmittance }, ratio);
         return { rescaled.inscatter, rescaled.transmittance };
+    }
+
+    std::vector<uint8_t> noise_lattice()
+    {
+        std::vector<uint8_t> lattice(size_t(kNoiseSize) * kNoiseSize * kNoiseSize);
+        for (uint32_t i = 0; i < lattice.size(); i++)
+        {
+            uint32_t h = i * 2654435761u;
+            h = (h ^ (h >> 15)) * 2246822519u;
+            h = (h ^ (h >> 13)) * 3266489917u;
+            lattice[i] = static_cast<uint8_t>((h ^ (h >> 16)) >> 24);
+        }
+        return lattice;
     }
 
     bool invert(const float m[16], float out[16])

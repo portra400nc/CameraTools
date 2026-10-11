@@ -7,6 +7,7 @@
 
 #include <string>
 #include <string_view>
+#include <vector>
 
 struct PhotorealSettings;  // photoreal.h, read only by parse_settings
 struct PhotorealCamera;    // photoreal.h, read only by parse_camera
@@ -182,6 +183,14 @@ namespace photoreal
     float mist_over(float scene, Mist m);
     Mist mist_rescale(Mist m, float ratio);
 
+    // The light shafts' patch noise repeats every kNoiseSize lattice cells along each axis; shaders/shafts_ps.hlsl says the
+    // same.
+    constexpr uint32_t kNoiseSize = 64;
+
+    // The noise's lattice: kNoiseSize^3 random bytes, x fastest, then y, then z, which the add-on uploads once as a 3D
+    // texture that the march samples with wrapping. The same bytes every time.
+    std::vector<uint8_t> noise_lattice();
+
     // Inverts a 4x4 matrix in either memory order. false when it is singular.
     bool invert(const float m[16], float out[16]);
 
@@ -189,7 +198,7 @@ namespace photoreal
     enum class GameCall : bool { keep, skip };
 
     // The PHOTOREAL_PASS_* bit order, not the run order.
-    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, wetness, count };
+    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, wetness, light_shafts, count };
     using PassSet = Set<PassId>;
 
     // How a pass reads the game's sun shadow constants and atlas, which the shell copies at the shadow-mask draw.
@@ -212,7 +221,7 @@ namespace photoreal
     };
 
     // Table order is run order within a step: wetness at gbuffer-done; sun shadows, contact shadows, then ambient at
-    // combine; atmosphere at bloom; tonemap at tonemap.
+    // combine; atmosphere, then light shafts at bloom; tonemap at tonemap.
     extern const std::array<PassSpec, static_cast<size_t>(PassId::count)> kPasses;
 
     struct ViewSpec
