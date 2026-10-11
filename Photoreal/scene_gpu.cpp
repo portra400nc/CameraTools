@@ -334,9 +334,10 @@ namespace photoreal
         // The key of our own shader: a census hash is FNV-1a of bytecode, never 0.
         static const std::string triangles_gs(reinterpret_cast<const char *>(kStreamTrianglesGs), sizeof kStreamTrianglesGs);
         const CachedGs &so_gs = ds ? geometry_shader(0, triangles_gs) : geometry_shader(source->hash, *source->code);
-        if (so_gs.result == DXGI_ERROR_INVALID_CALL)
+        if (so_gs.result == DXGI_ERROR_INVALID_CALL && !ds)
         {
-            // DXVK refuses every stream-output shader this way when the Vulkan driver lacks transform feedback.
+            // DXVK refuses every stream-output shader this way when the Vulkan driver lacks transform feedback. Our own
+            // shader for tessellated draws failing only leaves those draws out, as gs-create-failed.
             support_ = 2;
             r.skip = DrawSkip::gs_create_failed;
             return "stream output unsupported (" + hresult("CreateGeometryShaderWithStreamOutput", so_gs.result) + ")";
