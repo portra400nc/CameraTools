@@ -88,6 +88,9 @@ namespace photoreal
         bool full = false;                      // a draw did not fit in the buffer: buffer-full
         uint32_t overran = 0;                   // draws that wrote past their reservation; their next one is larger
         uint32_t unwritten = 0;                 // draws whose reservation kept corners stream output never wrote
+        // copy_gbuffer's, when it copied that frame, at render, top row first: the stencil, and the normals, shadow mask
+        // and diffuse irradiance as stored; each empty when it was not copied.
+        std::vector<uint8_t> stencil, normals, mask, irradiance;
     };
 
     class SceneGpu
@@ -111,9 +114,15 @@ namespace photoreal
         // the capture must stop, such as stream output being unsupported, or empty.
         std::optional<std::string> replay(const ReplayCall &call, const ShaderRegistry &shaders, const char *&moved);
 
+        // At the combine step of a captured frame whose request keeps the G-buffer, before any pass of ours: copies the
+        // normals, the shadow mask and the diffuse irradiance the frame map found into mirrors, which copy_at_present
+        // passes on. A mirror that cannot be made leaves its copy out.
+        void copy_gbuffer(const FrameMap &map);
+
         // At the present that ends a captured frame: copies the stream-output buffer, the main depth and the back buffer
-        // into CPU-readable resources, and keeps the frame's records for read(). false when a copy of ours could not be
-        // made; the picture is optional and its failure is not one.
+        // into CPU-readable resources, and copy_gbuffer's mirrors when it copied this frame, and keeps the frame's
+        // records for read(). false when a copy of ours could not be made; the picture and the G-buffer copies are
+        // optional and their failure is not one.
         bool copy_at_present(const std::optional<Texture> &depth, ID3D11Resource *back_buffer);
 
         // Reads the queries and maps the copies without waiting. not_ready while any is unfinished.
@@ -164,6 +173,11 @@ namespace photoreal
         Size depth_size_;                               // of the copy, {} when none was made
         Staging picture_;
         bool picture_copied_ = false;
+        // copy_gbuffer's mirrors of the frame being replayed, and their copies at present.
+        Mirror normals_, mask_, irradiance_;
+        bool gbuffer_copied_ = false;
+        Readback normals_back_, mask_back_, irradiance_back_;
+        bool gbuffer_back_ = false;
         uint32_t support_ = 0;
     };
 }

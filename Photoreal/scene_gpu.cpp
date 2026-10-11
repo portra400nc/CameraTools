@@ -204,10 +204,16 @@ namespace photoreal
         depth_size_ = {};
         picture_ = Staging {};
         picture_copied_ = false;
+        normals_ = mask_ = irradiance_ = Mirror {};
+        gbuffer_copied_ = gbuffer_back_ = false;
+        normals_back_.reset();
+        mask_back_.reset();
+        irradiance_back_.reset();
     }
 
     void SceneGpu::begin_frame()
     {
+        gbuffer_copied_ = false;
         records_.clear();
         replays_ = 0;
         layout_ = {};
@@ -396,6 +402,21 @@ namespace photoreal
         return stop;
     }
 
+    void SceneGpu::copy_gbuffer(const FrameMap &map)
+    {
+        const std::pair<Entry, Mirror *> copies[] = { { Entry::normals, &normals_ }, { Entry::shadow_mask, &mask_ }, { Entry::ambient_diffuse, &irradiance_ } };
+        for (const auto &[entry, mirror] : copies)
+        {
+            const std::optional<Texture> &texture = map[entry];
+            ID3D11Resource *game = texture ? reinterpret_cast<ID3D11Resource *>(static_cast<uint64_t>(texture->id)) : nullptr;
+            if (game && mirror->sync(device_.Get(), game, static_cast<DXGI_FORMAT>(texture->format), false))
+                mirror->copy_from(context_.Get(), game);
+            else
+                *mirror = Mirror {};
+        }
+        gbuffer_copied_ = true;
+    }
+
     bool SceneGpu::copy_at_present(const std::optional<Texture> &depth, ID3D11Resource *back_buffer)
     {
         if (!so_buffer_)
@@ -439,6 +460,15 @@ namespace photoreal
             depth_size_ = depth->size;
         }
         picture_copied_ = back_buffer != nullptr && picture_.copy_from(device_.Get(), c, back_buffer);
+        gbuffer_back_ = gbuffer_copied_;
+        if (gbuffer_copied_)
+        {
+            // A mirror that was not made gives no copy, and read() leaves that file out.
+            for (const auto &[mirror, back] : { std::pair { &normals_, &normals_back_ }, std::pair { &mask_, &mask_back_ }, std::pair { &irradiance_, &irradiance_back_ } })
+                if (!mirror->texture() || !back->copy_from(device_.Get(), c, mirror->texture()))
+                    back->reset();
+        }
+        gbuffer_copied_ = false;
         copied_frame_ = true;
         return true;
     }
@@ -481,13 +511,31 @@ namespace photoreal
             }
             // 8 bytes a texel: the float depth, then the stencil and padding.
             out.depth.resize(size_t(depth_size_.width) * depth_size_.height);
+            if (gbuffer_back_)
+                out.stencil.resize(out.depth.size());
             for (uint32_t y = 0; y < depth_size_.height; y++)
                 for (uint32_t x = 0; x < depth_size_.width; x++)
-                    std::memcpy(&out.depth[size_t(y) * depth_size_.width + x], static_cast<const uint8_t *>(mapped.pData) + size_t(y) * mapped.RowPitch + x * 8,
-                        sizeof(float));
+                {
+                    const uint8_t *texel = static_cast<const uint8_t *>(mapped.pData) + size_t(y) * mapped.RowPitch + x * 8;
+                    std::memcpy(&out.depth[size_t(y) * depth_size_.width + x], texel, sizeof(float));
+                    if (gbuffer_back_)
+                        out.stencil[size_t(y) * depth_size_.width + x] = texel[4];
+                }
             c->Unmap(depth_staging_.Get(), 0);
             out.render = depth_size_;
         }
+        if (gbuffer_back_)
+            for (const auto &[back, bytes] : { std::pair { &normals_back_, &out.normals }, std::pair { &mask_back_, &out.mask },
+                     std::pair { &irradiance_back_, &out.irradiance } })
+            {
+                if (!back->copied())
+                    continue;
+                const Readback::Read r = back->read(c, *bytes);
+                if (r == Readback::Read::not_ready)
+                    return SceneRead {};
+                if (r == Readback::Read::failed)
+                    bytes->clear();
+            }
         if (picture_copied_)
         {
             out.picture = picture_.read(c, D3D11_MAP_FLAG_DO_NOT_WAIT);

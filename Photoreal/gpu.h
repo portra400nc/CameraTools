@@ -12,15 +12,22 @@
 #include <d3d11_1.h>
 #include <wrl/client.h>
 
+#include <string>
+#include <vector>
+
 namespace photoreal
 {
     using Microsoft::WRL::ComPtr;
 
+    class TraceGpu;     // trace_gpu.h
+    struct TraceFrame;
+    struct TraceSave;   // core/trace_files.h
+
     // Our shaders declare registers only inside these ranges, and StateGuard saves and restores exactly these.
-    constexpr UINT kSrvSlots = 8;       // t0..t7
+    constexpr UINT kSrvSlots = 8;       // t0..t7; the trace kernel uses t0..t5
     constexpr UINT kSamplerSlots = 4;   // s0..s3
     constexpr UINT kCbSlots = 5;        // b0..b4
-    constexpr UINT kUavSlots = 2;       // u0..u1, compute only (no v1 pass uses compute; the path tracer will)
+    constexpr UINT kUavSlots = 2;       // u0..u1, compute only: the trace kernel's history and counters
     constexpr UINT kSoSlots = D3D11_SO_BUFFER_SLOT_COUNT;
     constexpr UINT kClassInstances = 256;
 
@@ -30,8 +37,8 @@ namespace photoreal
     // offsets survive; CS UAVs; stream-output targets; RTVs and DSV; all viewports and scissor rects; blend state,
     // factor, sample mask; depth-stencil state and stencil ref; rasterizer state.
     //
-    // The tripwire: render target 0, the depth view and the pixel shader are sampled before the capture and after the
-    // restore. If any differs, moved names it, and the shell disarms the add-on.
+    // The tripwire: render target 0, the depth view, the pixel shader and the compute shader are sampled before the
+    // capture and after the restore. If any differs, moved names it, and the shell disarms the add-on.
     class StateGuard
     {
     public:
@@ -61,6 +68,7 @@ namespace photoreal
         ID3D11RenderTargetView *tripwire_rtv_ = nullptr;
         ID3D11DepthStencilView *tripwire_dsv_ = nullptr;
         ID3D11PixelShader *tripwire_ps_ = nullptr;
+        ID3D11ComputeShader *tripwire_cs_ = nullptr;
 
         ID3D11InputLayout *input_layout_ = nullptr;
         D3D11_PRIMITIVE_TOPOLOGY topology_ = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED;
@@ -109,6 +117,7 @@ namespace photoreal
         ID3D11ShaderResourceView *srv() const { return srv_.Get(); }                 // depth: R32_FLOAT_X8X24_TYPELESS
         ID3D11ShaderResourceView *stencil_srv() const { return stencil_srv_.Get(); } // depth only: X32_TYPELESS_G8X24_UINT
         ID3D11RenderTargetView *rtv() const { return rtv_.Get(); }
+        ID3D11Texture2D *texture() const { return texture_.Get(); }
         Size size() const { return { desc_.Width, desc_.Height }; }
 
     private:
@@ -154,6 +163,33 @@ namespace photoreal
         PixelOrder order_ = PixelOrder::rgba;
         ComPtr<ID3D11Texture2D> texture_;
     };
+
+    // A texture of ours copied into a CPU-readable texture of its description, read presents later so the copy is done
+    // and mapping it does not wait on the GPU. Its rows come back packed, top row first.
+    class Readback
+    {
+    public:
+        enum class Read : uint8_t { ok, not_ready, failed };
+
+        // false when the format's texel size is unknown or the staging texture could not be made.
+        bool copy_from(ID3D11Device *device, ID3D11DeviceContext *context, ID3D11Texture2D *source);
+        // not_ready while the GPU has not finished the copy; failed when nothing was copied or the map failed.
+        Read read(ID3D11DeviceContext *context, std::vector<uint8_t> &out) const;
+        Size size() const { return { desc_.Width, desc_.Height }; }
+        bool copied() const { return texture_ != nullptr; }
+        void reset() { *this = Readback {}; }
+
+    private:
+        D3D11_TEXTURE2D_DESC desc_ {};
+        uint32_t texel_bytes_ = 0;
+        ComPtr<ID3D11Texture2D> texture_;
+    };
+
+    // Bytes a texel of a mirror's typeless format: 0 for a format Readback does not know.
+    uint32_t texel_bytes(DXGI_FORMAT format);
+
+    // "Call 0x887A0001", for logs.
+    std::string hresult_text(const char *call, HRESULT hr);
 
     // A debug snapshot, decoded by its own view so a view change at a frame boundary cannot misread it.
     // Two exist: pending is filled during a frame, shown is what reshade_present draws. present swaps them, because
@@ -257,10 +293,23 @@ namespace photoreal
         // At present: shown = pending, and pending starts empty for next_view (found = false until its step copies it).
         void end_frame(View next_view);
 
+        // The trace pass, first at the combine step (trace_gpu.h): mirror in the normals, depth, shadow mask and diffuse
+        // irradiance; dispatch frame's tiles of the trace kernel over trace's history; then, when frame.traced, draw
+        // apply_trace_ps.hlsl's sun visibility into a mirror of the shadow mask (with settings.sun and a sun) and its
+        // occlusion times level into a mirror of the irradiance (with settings.ao), and copy them over the game's. With
+        // view, the history's averages also go into trace_view_ for snapshot_trace. With save, once the frame is traced, its
+        // history, normals, depth and stencil, and the game's mask and irradiance as found, are copied for trace.read_save,
+        // with save's other fields, and saved says whether they were. Empty when a texture of ours failed or the trace
+        // failed, which then says why.
+        std::optional<GameCall> run_trace(const FrameMap &map, const TraceFrame &frame, const TraceSettings &settings, const Camera &camera, bool flip,
+            bool view, const TraceSave *save, bool &saved, TraceGpu &trace);
+
         // At the pending view's snapshot step: copies the entry into pending. false when the copy could not be made.
         bool snapshot(const Texture &entry);
         // The same for the light-shafts view, from what run_light_shafts drew for it this frame.
         bool snapshot_light_shafts();
+        // The same for the trace view, from what run_trace drew for it this frame.
+        bool snapshot_trace();
 
         // At reshade_present: draws shown over the back buffer through a mirror of it, with the view's name in the top-left
         // corner, then copies the mirror over it.
@@ -280,6 +329,7 @@ namespace photoreal
         // Copies the normals and depth into their mirrors and syncs scratch, the pass's raw result, to the render size.
         // false when a texture of ours failed.
         bool mirror_gbuffer(const FrameMap &map, Scratch &scratch);
+        bool mirror_gbuffer(const FrameMap &map);
         // Copies the game's bound pixel shader constants at b0 into game_tonemap_. false when none are bound or they are
         // too small for the rows the tonemap shader reads.
         bool copy_game_tonemap_constants();
@@ -288,7 +338,7 @@ namespace photoreal
         ComPtr<ID3D11DeviceContext1> context_;
         ComPtr<ID3D11VertexShader> fullscreen_vs_;
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_,
-            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_;
+            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, apply_trace_ps_;
         ComPtr<ID3D11SamplerState> point_, linear_, lit_compare_, wrap_;
         ComPtr<ID3D11Texture3D> lattice_;                   // noise_lattice(), R8_UNORM
         ComPtr<ID3D11ShaderResourceView> lattice_srv_;
@@ -316,6 +366,7 @@ namespace photoreal
         Scratch shafts_;            // half size, R16G16B16A16_FLOAT: rgb the mist's raw in-scatter, a its transmittance
         Scratch shafts_meters_;     // half size, R16_FLOAT: the meters each ray marched
         Scratch shafts_view_;       // R16G16B16A16_FLOAT: the mist's in-scatter at full size, for the light-shafts view
+        Scratch trace_view_;        // R8G8B8A8_UNORM: the trace's averages, for the trace view
         ComPtr<ID3D11Texture2D> depth_texel_;   // 1x1 R32G8X24_TYPELESS, CPU-readable
         bool depth_texel_pending_ = false;      // copied and not yet read
         Snapshot pending_, shown_;

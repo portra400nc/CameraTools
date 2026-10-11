@@ -24,6 +24,18 @@ float pattern(int2 pixel)
 // differs about 4% over two pixels at 720p and keeps most of its weight; a branch in front of a wall drops out.
 static const float kDepthTolerance = 0.1;
 
+// A tap's weight in blurred()'s window around a pixel at view depth z with view normal n, for passes that blur
+// something other than raw: 0 off the screen and on pixels that are not world, and fading out across a depth jump or a
+// sharp normal change, as blurred() weighs its taps.
+float blur_weight(int2 q, float z, float3 n)
+{
+    if (any(q < 0) || any(q >= int2(render_size.xy)) || !is_world(stencil.Load(int3(q, 0)).g))
+        return 0;
+    float depth_weight = saturate(1 - abs(view_position_at(q).z - z) / (max(-z, 0.05) * kDepthTolerance));
+    float facing = dot(n, view_normal_at(q)) * 0.5 + 0.5;
+    return depth_weight * facing * facing;
+}
+
 // A 4x4 window, one whole period of pattern(), so a flat surface averages its 16 offsets exactly. Taps that are not
 // world (sky, characters) are skipped, and taps across a depth jump or a sharp normal change fade out.
 float blurred(int2 pixel, float z, float3 n)

@@ -6,13 +6,17 @@
 #include "core/png.h"
 #include "core/scene_files.h"
 #include "core/shaders.h"
+#include "core/trace_files.h"
 #include "gpu.h"
 #include "scene_gpu.h"
+#include "trace_gpu.h"
 
 #include <reshade.hpp>
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
@@ -135,12 +139,59 @@ namespace photoreal
         Camera camera {};
         uint32_t camera_age = UINT32_MAX;
         bool scene_frame = false;           // the scene capture replays this frame's G-buffer draws
+        bool scene_gbuffer = false;         // and copies its G-buffer at the combine step: the view face of a GBUFFER request
         SunParse sun_parse;                 // the newest constants read back, from one or two frames before
         SunCheck sun_frame = SunCheck::unread;  // this frame's verdict on them
         uint64_t frames = 0;
         uint32_t sticky_error = PHOTOREAL_ERROR_NONE;   // NOT_D3D11, SHADER or STATE: the add-on stays disarmed
         uint32_t frame_error = PHOTOREAL_ERROR_NONE;    // TEXTURE: this frame only
         HMODULE addon_module = nullptr;
+
+        // The trace pass's scene on the render thread; the writer thread builds it. trace_scene describes the scene being
+        // uploaded or traced.
+        TraceGpu trace_gpu;
+        struct TraceScene
+        {
+            std::string folder;                     // the scene folder's name, which holds trace-scene.bin
+            Vec3d reference {};                     // the frame its triangles are relative to
+            std::optional<Vec3> floating_origin;    // b1 row 10 when it was captured, or when it was first traced
+            SceneBuilder::Counts counts;
+            double seconds = 0;                     // its BVH's build
+        };
+        TraceScene trace_scene;
+        TraceState trace_logged = TraceState::none; // the state the log last said
+
+        // A PHOTOREAL_SCENE_TRACE capture's triangles as the writer thread writes its faces.
+        struct TraceBuild
+        {
+            SceneBuilder builder;
+            Vec3d reference {};
+            std::optional<Vec3> floating_origin;    // b1 row 10 of the first face with shadow-mask constants
+        };
+
+        // What the writer thread built, for the render thread to upload.
+        struct TraceBuilt
+        {
+            std::shared_ptr<const Bvh> bvh;         // empty when error says why
+            std::string error;
+            TraceScene scene;
+        };
+        Mailbox<TraceBuilt> trace_box;
+        uint64_t trace_seen = 0;
+        uint64_t trace_generations = 0;
+        // A scene of more triangles than this is cut to its nearest; halved each time a scene's buffers could not be made.
+        uint64_t trace_max_triangles = 4000000;
+        std::optional<TraceFrame> trace_frame;      // this frame's, from the combine step
+        bool trace_traced = false;                  // the trace pass writes this frame
+        std::string trace_sun_source = "none";      // where the trace's sun came from at the last frame, for the log
+        std::optional<SunCbuffers> sun_bytes;       // the newest shadow-mask constants read back
+        std::optional<Vec3> logged_origin;          // b1 row 10 as the log last said it
+
+        // PhotorealSaveTrace's request: set by the C# thread, cleared by the render thread once the frame is copied.
+        std::atomic<bool> trace_save_wanted { false };
+        std::atomic<uint64_t> trace_save_asked { 0 };   // presents at the request
+        // Presents a save waits for a traced frame before it is given up.
+        constexpr uint64_t kTraceSaveWait = 300;
 
         void log(reshade::log::level level, const std::string &message)
         {
@@ -358,7 +409,10 @@ namespace photoreal
 
         bool camera_known() { return camera_age != UINT32_MAX; }
 
-        Inputs inputs() { return { camera_known(), sun_frame }; }
+        Inputs inputs() { return { camera_known(), sun_frame, trace_gpu.state(), trace_traced }; }
+
+        // The trace pass reads the game's sun direction and floating origin from the shadow-mask constants while it traces.
+        bool trace_tracing() { return settings.enabled && settings.trace.enabled && trace_gpu.state() == TraceState::ready; }
 
         // At the shadow-mask draw, before it runs: parse the newest finished readback of an earlier frame's constants,
         // then copy this draw's. The passes draw with this frame's copies on the GPU, so they stay exact while the camera
@@ -367,10 +421,13 @@ namespace photoreal
         // copies them too, so the capture can place its geometry with that frame's own camera.
         void gather_sun(const FrameMap &map)
         {
-            if (!(wants_sun(settings) || scene_frame) || !map[Entry::sun_atlas])
+            if (!(wants_sun(settings) || scene_frame || trace_tracing()) || !map[Entry::sun_atlas])
                 return;
             if (const std::optional<SunCbuffers> bytes = gpu.sun_constants(frames))
+            {
                 sun_parse = parse_sun_shadows(*bytes);
+                sun_bytes = bytes;
+            }
             sun_frame = sun_check(sun_parse, gpu.gather_sun(*map[Entry::sun_atlas], frames), map[Entry::sun_atlas]->size);
         }
 
@@ -437,12 +494,101 @@ namespace photoreal
             }
         }
 
+        std::string vec_text(const Vec3 &v)
+        {
+            char text[96];
+            std::snprintf(text, sizeof text, "(%.3f, %.3f, %.3f)", v[0], v[1], v[2]);
+            return text;
+        }
+
+        // A change of b1 row 10, the game's floating origin, is a world shift under the traced scene, which has no way to
+        // follow it yet: the scene goes stale. Every change is logged.
+        void check_world_shift(const Vec3 &now)
+        {
+            if (!logged_origin || origin_moved(*logged_origin, now))
+                log(reshade::log::level::info, "b1 row 10, the game's floating origin, is " + vec_text(now) + " in frame " + std::to_string(frames) + ".");
+            logged_origin = now;
+            if (!trace_scene.floating_origin)
+                trace_scene.floating_origin = now;
+            else if (origin_moved(*trace_scene.floating_origin, now))
+                trace_gpu.stale("the world shifted: b1 row 10 moved from " + vec_text(*trace_scene.floating_origin) + " to " + vec_text(now));
+        }
+
+        // At the combine step, before the plan: what the trace pass does this frame, which says whether it writes the
+        // frame. The sun comes from the game's cascade 0 when its constants were read back, else from the pushed camera.
+        void prepare_trace(const FrameMap &map)
+        {
+            trace_frame.reset();
+            trace_traced = false;
+            if (!trace_tracing() || !camera_known() || map.render.width == 0)
+                return;
+            Vec3 toward = { camera.toward_sun[0], camera.toward_sun[1], camera.toward_sun[2] };
+            std::string source = toward == Vec3 {} ? "none" : "pushed";
+            if (sun_bytes)
+            {
+                const SunFacts facts = sun_facts(*sun_bytes);
+                if (facts.toward_sun)
+                {
+                    toward = *facts.toward_sun;
+                    source = "game";
+                }
+                if (facts.floating_origin)
+                    check_world_shift(*facts.floating_origin);
+                if (trace_gpu.state() != TraceState::ready)
+                    return;
+            }
+            if (source != trace_sun_source)
+            {
+                log(reshade::log::level::info, "the trace's sun comes from " + (source == "game" ? "the game's cascade 0: " + vec_text(toward)
+                    : source == "pushed" ? "the pushed camera: " + vec_text(toward) : std::string("nowhere: there is no sun")) + "; the pushed camera's is "
+                    + vec_text({ camera.toward_sun[0], camera.toward_sun[1], camera.toward_sun[2] }) + ".");
+                trace_sun_source = source;
+            }
+            const std::optional<TraceConstants> constants = trace_constants(settings.trace, settings.ambient.level, camera, settings.flip, map.render,
+                trace_scene.reference, toward, static_cast<uint32_t>(trace_gpu.generation()));
+            if (!constants)
+                return;
+            trace_frame = trace_gpu.preview(trace_key(trace_gpu.generation(), map.render, camera, toward, settings.trace), settings.trace, *constants);
+            trace_traced = trace_frame->traced;
+        }
+
+        // What a save holds besides the frame's images, as the trace pass has it now.
+        TraceSave trace_save_meta()
+        {
+            TraceSave s;
+            s.constants = trace_frame->constants;
+            s.settings = settings.trace;
+            s.level = settings.ambient.level;
+            s.camera = camera;
+            s.reference = trace_scene.reference;
+            s.sun = sun_bytes;
+            s.sun_source = trace_sun_source;
+            s.floating_origin = trace_scene.floating_origin;
+            s.scene = trace_scene.folder;
+            s.generation = trace_gpu.generation();
+            s.bvh_hash = trace_gpu.hash();
+            s.triangles = trace_gpu.triangles();
+            s.nodes = trace_gpu.nodes();
+            s.passes = trace_passes(trace_frame->schedule);
+            s.counters = trace_gpu.totals();
+            s.mrays = trace_gpu.mrays();
+            s.frame = frames;
+            return s;
+        }
+
         // The work at one moment. Returns the event's return value: true skips the game's call.
         bool on_step(Step step)
         {
             const FrameMap &map = tracker.map();
             if (step == Step::shadow_mask)
                 gather_sun(map);
+            if (step == Step::combine)
+            {
+                // Before any pass of ours writes the shadow mask or the irradiance.
+                if (scene_gbuffer)
+                    scene_gpu.copy_gbuffer(map);
+                prepare_trace(map);
+            }
             const Plan p = plan(step, map, settings, inputs());
             report.note(p);
             bool skip = false;
@@ -483,7 +629,21 @@ namespace photoreal
                     case PassId::tonemap:
                         call = gpu.run_tonemap(map, settings.tonemap);
                         break;
-                    case PassId::trace:     // runs only with a ready traced scene, which nothing builds yet
+                    case PassId::trace:
+                    {
+                        // A save waits for a frame the trace writes; run_trace copies it then.
+                        const std::optional<TraceSave> save = trace_save_wanted.load() && !trace_gpu.saving() && trace_frame ? std::optional(trace_save_meta())
+                                                                                                                             : std::nullopt;
+                        bool saved = false;
+                        if (trace_frame)
+                            call = gpu.run_trace(map, *trace_frame, settings.trace, camera, settings.flip, report.view == View::trace, save ? &*save : nullptr,
+                                saved, trace_gpu);
+                        if (saved)
+                            trace_save_wanted = false;
+                        report.trace_ao = std::min(trace_gpu.passes(), settings.trace.ao_samples);
+                        report.trace_sun = std::min(trace_gpu.passes(), settings.trace.sun_samples);
+                        break;
+                    }
                     case PassId::count:
                         break;
                     }
@@ -506,7 +666,8 @@ namespace photoreal
                 copy_depth_at_bloom(map);
             }
             const ViewSpec &view = kViews[static_cast<size_t>(report.view)];
-            if (report.note_view(step, map) && !(view.from == PassId::light_shafts ? gpu.snapshot_light_shafts() : gpu.snapshot(*map[view.entry])))
+            if (report.note_view(step, map)
+                && !(view.from == PassId::light_shafts ? gpu.snapshot_light_shafts() : view.from == PassId::trace ? gpu.snapshot_trace() : gpu.snapshot(*map[view.entry])))
             {
                 report.view_found = false;
                 frame_error = PHOTOREAL_ERROR_TEXTURE;
@@ -544,7 +705,58 @@ namespace photoreal
             std::optional<Camera> pushed;           // the camera CameraTools pushed for it
             std::optional<SunCbuffers> sun;         // its shadow-mask draw's constants, once read
             std::optional<std::string> stop;        // a replay's reason to stop, taken at the next present
+            std::shared_ptr<TraceBuild> trace;      // a PHOTOREAL_SCENE_TRACE capture's triangles, touched only by worker jobs
         };
+
+        // On the writer thread, after a traced scene's last face: writes its triangles to trace-scene.bin in its folder,
+        // builds their BVH, and hands it to the render thread through trace_box. Never throws.
+        void build_trace(std::vector<TraceTriangle> triangles, TraceScene scene, const fs::path &folder)
+        {
+            TraceBuilt built;
+            try
+            {
+                write_file(folder / "trace-scene.bin", trace_scene_bytes(triangles, scene.reference));
+                const auto start = std::chrono::steady_clock::now();
+                Bvh bvh = build_bvh(triangles, BvhOptions {});
+                scene.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+                if (bvh.nodes.empty())
+                    built.error = "the scene holds no triangles to trace";
+                else
+                    built.bvh = std::make_shared<const Bvh>(std::move(bvh));
+            }
+            catch (const std::exception &e)
+            {
+                built.error = std::string("its BVH could not be built: ") + e.what();
+            }
+            built.scene = std::move(scene);
+            trace_box.put(built);
+        }
+
+        // PHOTOREAL_SCENE_TRACE with no faces: the self-test scene around the pushed camera, horizontal toward its forward,
+        // traced like a captured one, with its trace-scene.bin in a scene folder of its own.
+        void begin_self_test()
+        {
+            if (!camera_known())
+            {
+                trace_gpu.fail("the self-test scene needs a camera from PhotorealSetCamera");
+                return;
+            }
+            const fs::path folder = output_root() / ("scene-" + timestamp() + "-self-test");
+            TraceScene scene;
+            scene.folder = folder.filename().u8string();
+            scene.reference = camera_position(camera);
+            // world_to_view's third row is minus the camera's forward; Unity's matrices are column-major.
+            Vec3d forward = { -camera.world_to_view[2], 0, -camera.world_to_view[10] };
+            const double length = std::sqrt(forward[0] * forward[0] + forward[2] * forward[2]);
+            forward = length > 1e-6 ? Vec3d { forward[0] / length, 0, forward[2] / length } : Vec3d { 0, 0, 1 };
+            trace_gpu.building();
+            log(reshade::log::level::info, "tracing the self-test scene around the camera; its triangles go to " + folder.u8string() + ".");
+            worker.push([folder, scene, forward] {
+                std::error_code error;
+                fs::create_directories(folder, error);
+                build_trace(self_test_scene(forward), scene, folder);
+            });
+        }
 
         std::optional<SceneRun> scene;
         uint32_t scene_count = 0;           // the last scene capture's faces, for describe's progress until all are written
@@ -734,6 +946,16 @@ namespace photoreal
 
         void begin_scene_capture(const SceneRequest &request)
         {
+            if (request.release)
+            {
+                trace_gpu.release();
+                return;
+            }
+            if (request.self_test())
+            {
+                begin_self_test();
+                return;
+            }
             auto folder = std::make_shared<SceneFolder>();
             folder->path = output_root() / ("scene-" + timestamp());
             for (int i = 2; fs::exists(folder->path); i++)
@@ -745,6 +967,11 @@ namespace photoreal
             scene_stopped.clear();
             log(reshade::log::level::info, "capturing the scene from " + std::to_string(scene_count) + " faces into " + folder->path.u8string() + ".");
             worker.push([folder] { log_unwritten(begin_scene_folder(*folder)); });
+            if (request.trace)
+            {
+                run.trace = std::make_shared<TraceBuild>();
+                trace_gpu.building();
+            }
             scene = std::move(run);
             if (gpu.ready())
                 if (const std::optional<std::string> why = scene_gpu.begin())
@@ -770,9 +997,37 @@ namespace photoreal
             else
                 log(reshade::log::level::info, "the scene capture's " + std::to_string(run.schedule.saved) + " faces go to " + run.folder->path.u8string()
                     + ".");
+            if (run.trace && why)
+                trace_gpu.fail("the scene capture stopped: " + *why);
+            else if (run.trace)
+            {
+                // After the faces' jobs, so every face is in the builder.
+                const uint64_t cap = std::min<uint64_t>(run.schedule.request.max_triangles, trace_max_triangles);
+                worker.push([this_build = run.trace, folder = run.folder->path, cap] {
+                    TraceScene scene;
+                    scene.folder = folder.filename().u8string();
+                    scene.reference = this_build->reference;
+                    scene.floating_origin = this_build->floating_origin;
+                    std::vector<TraceTriangle> triangles;
+                    try
+                    {
+                        triangles = this_build->builder.take(cap);
+                    }
+                    catch (const std::exception &e)
+                    {
+                        TraceBuilt failed;
+                        failed.error = std::string("its triangles could not be gathered: ") + e.what();
+                        trace_box.put(failed);
+                        return;
+                    }
+                    scene.counts = this_build->builder.counts();
+                    build_trace(std::move(triangles), std::move(scene), folder);
+                });
+            }
             scene_gpu.end();
             scene.reset();
             scene_frame = false;
+            scene_gbuffer = false;
             scene_face = PHOTOREAL_FACE_NONE;
         }
 
@@ -859,13 +1114,31 @@ namespace photoreal
             data.overflowed = got.full;
             data.origin = *run.reference;
             scene_backlog++;
-            worker.push([folder = run.folder, request = run.schedule.request, data = std::move(data), picture = std::move(got.picture)]() mutable {
+            data.stencil = std::move(got.stencil);
+            data.normals = std::move(got.normals);
+            data.mask = std::move(got.mask);
+            data.irradiance = std::move(got.irradiance);
+            worker.push([folder = run.folder, request = run.schedule.request, data = std::move(data), picture = std::move(got.picture), trace = run.trace]() mutable {
                 if (picture)
                 {
                     data.rgb = to_rgb(*picture);
                     data.picture = picture->size;
                 }
                 log_unwritten(write_scene_face(*folder, data, request));
+                if (trace)
+                {
+                    try
+                    {
+                        trace->reference = data.origin;
+                        if (!trace->floating_origin && data.sun)
+                            trace->floating_origin = sun_facts(*data.sun).floating_origin;
+                        add_face(trace->builder, data.camera, data.origin, data.records, data.clip);
+                    }
+                    catch (const std::exception &e)
+                    {
+                        log(reshade::log::level::error, std::string("the traced scene could not take the face's triangles: ") + e.what());
+                    }
+                }
                 scene_backlog--;
                 scene_remaining--;
             });
@@ -888,6 +1161,7 @@ namespace photoreal
             const SceneTick tick = scene_tick(run.schedule, facts);
             scene_face = tick.publish_face;
             scene_frame = tick.capture_next_frame;
+            scene_gbuffer = scene_frame && run.schedule.request.gbuffer && tick.publish_face == kFaceView;
             if (tick.copy_at_present)
             {
                 // The frame that just ended: its report, its camera, which the mailbox has not replaced yet, and its map.
@@ -926,7 +1200,103 @@ namespace photoreal
                 return;
             }
             scene_gpu.init(gpu.device(), gpu.context(), gpu.no_write(), gpu.no_depth());
+            trace_gpu.init(gpu.device(), gpu.context());
             log(reshade::log::level::info, "ready.");
+        }
+
+        std::string megabytes(uint64_t bytes)
+        {
+            char text[32];
+            std::snprintf(text, sizeof text, "%.1f MB", bytes / 1e6);
+            return text;
+        }
+
+        // The traced scene's state into ReShade.log when it changed.
+        void log_trace_state()
+        {
+            const TraceState state = trace_gpu.state();
+            if (state == trace_logged)
+                return;
+            trace_logged = state;
+            const SceneBuilder::Counts &c = trace_scene.counts;
+            char hash[24], seconds[24];
+            std::snprintf(hash, sizeof hash, "%016llx", static_cast<unsigned long long>(trace_gpu.hash()));
+            std::snprintf(seconds, sizeof seconds, "%.2f", trace_scene.seconds);
+            switch (state)
+            {
+            case TraceState::none:
+                log(reshade::log::level::info, "the traced scene is released.");
+                break;
+            case TraceState::building:
+                log(reshade::log::level::info, "building a traced scene; the raster passes run meanwhile.");
+                break;
+            case TraceState::uploading:
+                log(reshade::log::level::info, "the traced scene: " + std::to_string(trace_gpu.triangles()) + " triangles of " + std::to_string(c.in)
+                    + " captured, or of the self-test scene when none were (" + std::to_string(c.unique) + " unique on the 1 mm grid, " + std::to_string(c.replaced) + " prepass or equal-depth copies "
+                    "replaced by a main draw's, " + std::to_string(c.pre_only) + " drawn by the prepass alone, " + std::to_string(c.dropped_class)
+                    + " of grass left out, " + std::to_string(c.dropped_degenerate) + " degenerate, " + std::to_string(c.past_max)
+                    + " farthest past the cap), a BVH of " + std::to_string(trace_gpu.nodes()) + " nodes built in " + seconds + " s, hash " + hash + "; uploading " + megabytes(uint64_t(trace_gpu.nodes()) * sizeof(BvhNode) + uint64_t(trace_gpu.triangles())
+                    * sizeof(BvhTriangle)) + " a part of " + megabytes(kTraceUploadBytes) + " each present. trace-scene.bin is in " + trace_scene.folder + ".");
+                break;
+            case TraceState::ready:
+                log(reshade::log::level::info, "the traced scene is ready after " + std::to_string(trace_gpu.upload_presents()) + " presents of upload, generation "
+                    + std::to_string(trace_gpu.generation()) + ".");
+                break;
+            case TraceState::stale:
+                log(reshade::log::level::warning, "the traced scene is stale: " + trace_gpu.why() + ". The raster passes run until another capture or a release.");
+                break;
+            case TraceState::failed:
+                log(reshade::log::level::error, "the traced scene failed: " + trace_gpu.why() + ". The raster passes run.");
+                break;
+            case TraceState::count:
+                break;
+            }
+        }
+
+        // At present: the writer thread's built scene into its upload, the upload's next part, the dispatches'
+        // measurements, a finished save to the writer thread, and the scene's state into the log when it changed.
+        void tick_trace()
+        {
+            TraceBuilt built;
+            if (trace_box.take(built, trace_seen) && trace_gpu.state() == TraceState::building)
+            {
+                if (!built.bvh)
+                    trace_gpu.fail(built.error);
+                else
+                {
+                    bool buffer = false;
+                    trace_scene = built.scene;
+                    if (!trace_gpu.begin_upload(built.bvh, ++trace_generations, buffer) && buffer)
+                    {
+                        trace_max_triangles = std::max<uint64_t>(trace_max_triangles / 2, 1);
+                        trace_gpu.fail(trace_gpu.why() + "; the next traced capture keeps its nearest " + std::to_string(trace_max_triangles) + " triangles");
+                    }
+                }
+            }
+            log_trace_state();
+            if (trace_gpu.state() == TraceState::uploading)
+                trace_gpu.upload_step();
+            for (const std::string &line : trace_gpu.poll(settings.trace).log)
+                log(reshade::log::level::info, line);
+            bool failed = false;
+            if (std::optional<TraceSave> save = trace_gpu.read_save(failed))
+            {
+                fs::path folder = output_root() / ("trace-" + timestamp());
+                for (int i = 2; fs::exists(folder); i++)
+                    folder = output_root() / ("trace-" + timestamp() + "-" + std::to_string(i));
+                log(reshade::log::level::info, "saving the trace's frame " + std::to_string(save->frame) + " after " + std::to_string(save->passes) + " passes into "
+                    + folder.u8string() + ".");
+                worker.push([folder, save = std::move(*save)] { log_unwritten(write_trace_folder(folder, save)); });
+            }
+            else if (failed)
+                log(reshade::log::level::warning, "the trace's frame could not be read back for its save.");
+            if (trace_save_wanted.load() && presents.load() - trace_save_asked.load() > kTraceSaveWait)
+            {
+                trace_save_wanted = false;
+                log(reshade::log::level::warning, "the trace save was given up: the trace pass wrote no frame within " + std::to_string(kTraceSaveWait)
+                    + " presents.");
+            }
+            log_trace_state();
         }
 
         void publish(uint32_t remaining)
@@ -993,6 +1363,8 @@ namespace photoreal
                 begin_scene_capture(request);
             if (scene)
                 tick_scene(chain);
+            if (gpu.ready())
+                tick_trace();
             const uint32_t scene_left = scene_remaining.load();
             if (scene_left == 0 && !scene)
                 scene_count = 0;
@@ -1024,6 +1396,7 @@ namespace photoreal
             const bool arm = (settings.enabled || accumulate.mode != AccumulateMode::off || reading_depth || scene) && sticky_error == PHOTOREAL_ERROR_NONE
                 && gpu.ready();
             scene_frame &= arm;
+            scene_gbuffer &= scene_frame;
             in_gbuffer = false;
             if (scene_frame)
                 scene_gpu.begin_frame();
@@ -1033,6 +1406,8 @@ namespace photoreal
             report = FrameReport::start(settings);
             report.armed = arm;
             report.accumulate = arm ? accumulate.mode : AccumulateMode::off;
+            trace_frame.reset();
+            trace_traced = false;
             armed.store(arm, std::memory_order_relaxed);
         }
 
@@ -1087,6 +1462,9 @@ namespace photoreal
             if (scene)
                 end_scene_capture(std::string("the D3D11 device went away"));
             scene_gpu = SceneGpu {};
+            trace_gpu = TraceGpu {};
+            trace_frame.reset();
+            trace_traced = false;
         }
     }
 }
@@ -1124,8 +1502,7 @@ extern "C" uint32_t PhotorealCompare(const PhotorealVariant *variants, uint32_t 
 extern "C" uint32_t PhotorealCaptureScene(const PhotorealSceneRequest *raw)
 {
     const std::optional<SceneRequest> request = parse_scene_request(raw);
-    // The traced scene's requests come with the trace pass's GPU side.
-    if (!request || request->release || request->self_test())
+    if (!request)
         return 0;
     // Raised before the render thread takes the request, so a second call is refused until every face is written.
     uint32_t idle = 0;

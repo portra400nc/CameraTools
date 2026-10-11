@@ -1,0 +1,159 @@
+// The trace pass's D3D11 side. Render thread only, on the native immediate context like gpu.h.
+//
+// It holds the traced scene's BVH in two raw buffers, filled a part each present after the writer thread built it; the
+// per-pixel history (a structured buffer of float4 at the render size: occlusion sum, sun sum and their counts); the
+// kernel's counters; the Morton list of tiles; and per dispatch a set of timestamp queries and a CPU-readable copy of the
+// counters, read presents later without waiting, which set the next frame's tiles from the time budget. Every D3D11 call
+// that returns an HRESULT is checked: a failure puts the scene in FAILED with the call and its code, which the shell logs,
+// and the raster passes run as before.
+#pragma once
+
+#include "core/trace.h"
+#include "core/trace_files.h"
+#include "gpu.h"
+
+#include <memory>
+#include <optional>
+#include <string>
+#include <vector>
+
+namespace photoreal
+{
+    // What one frame's trace does, from TraceGpu::preview at the combine step, before plan(), which reads traced, and
+    // Gpu::run_trace, which does it.
+    struct TraceFrame
+    {
+        TraceKey key;
+        TraceSchedule schedule;                 // after this frame's tiles
+        std::optional<TraceDispatch> dispatch;  // none on the frame the samples start again, and once every pixel has them
+        bool reset = false;                     // the samples start again: the history is cleared first
+        bool traced = false;                    // every traced pixel has a sample after this frame's tiles
+        TraceConstants constants {};            // tiles left 0; dispatch sets them
+    };
+
+    // Bytes of the scene uploaded at each present.
+    constexpr uint64_t kTraceUploadBytes = 32ull << 20;
+
+    class TraceGpu
+    {
+    public:
+        // The device and context, from Gpu::init. Creates nothing.
+        void init(ID3D11Device *device, ID3D11DeviceContext1 *context);
+
+        // The scene's life, as PHOTOREAL_TRACE_STATE_* reads it.
+        void building();                        // BUILDING: a scene is coming; frees the old one
+        void fail(const std::string &why);      // FAILED: frees the scene and keeps why
+        void release();                         // NONE: frees the scene, history and copies
+        void stale(const std::string &why);     // STALE: stops tracing, keeps the buffers until the next scene or a release
+
+        // Starts uploading a built scene as generation: makes the compute shader the first time, the node and triangle
+        // buffers, and moves to UPLOADING. false, in FAILED with why, when one could not be made; buffer says whether it
+        // was a buffer, which a smaller scene may fit.
+        bool begin_upload(std::shared_ptr<const Bvh> bvh, uint64_t generation, bool &buffer);
+        // At present while UPLOADING: the next kTraceUploadBytes. true when the scene became READY at this present.
+        bool upload_step();
+        uint32_t upload_presents() const { return upload_presents_; }
+
+        TraceState state() const { return state_; }
+        const std::string &why() const { return why_; }
+        uint64_t generation() const { return generation_; }
+        uint32_t triangles() const { return triangles_; }
+        uint32_t nodes() const { return node_count_; }
+        uint64_t hash() const { return hash_; }
+        uint32_t passes() const { return trace_passes(schedule_); }
+        uint32_t batch() const { return schedule_.batch; }
+        double mrays() const { return mrays_; }
+        const std::array<uint64_t, kTraceCounters> &totals() const { return totals_; }
+
+        // What this frame's trace would do with key, settings and constants: changes nothing. The samples start again when
+        // key differs from the last dispatched frame's; that frame dispatches no tiles, so a moving camera costs none.
+        TraceFrame preview(const TraceKey &key, const TraceSettings &settings, const TraceConstants &constants) const;
+
+        // When the trace pass runs, after the shell mirrored the G-buffer: makes the history, counters and tile list for
+        // the render size when needed, clears the history when frame.reset, uploads the constants (also for the apply
+        // draw, at b1), and dispatches frame's tiles with the timestamp queries around them; then frame's schedule is this
+        // one's. false, in FAILED with why, when a resource or call failed.
+        bool dispatch(const TraceFrame &frame, Size render, ID3D11ShaderResourceView *normals, ID3D11ShaderResourceView *depth,
+            ID3D11ShaderResourceView *stencil);
+
+        ID3D11ShaderResourceView *history_srv() const { return history_srv_.Get(); }
+        ID3D11Buffer *constants() const { return constants_.Get(); }
+
+        // At present: what the finished dispatches measured, read without waiting. The next frame's tiles follow
+        // settings.budget_ms; their counters add up since the samples last started; and at each completed pass the
+        // consistency grid of that pass may make the scene STALE. log holds lines for ReShade.log.
+        struct Poll
+        {
+            std::vector<std::string> log;
+            bool went_stale = false;
+        };
+        Poll poll(const TraceSettings &settings);
+
+        // A save of this frame: copies the history, the normals, the depth with its stencil, and the game's shadow mask and
+        // irradiance mirrors (as the trace pass found them) into CPU-readable copies, keeping save's other fields. false
+        // when a copy could not be made.
+        bool copy_for_save(const TraceSave &save, ID3D11Texture2D *normals, ID3D11Texture2D *depth, ID3D11Texture2D *mask, ID3D11Texture2D *irradiance);
+        bool saving() const { return save_ != nullptr; }
+        // At present: the save once the GPU has finished its copies, else empty; failed when a map failed, and the save is
+        // dropped.
+        std::optional<TraceSave> read_save(bool &failed);
+
+    private:
+        void free_scene();
+        bool make_shader();
+        bool sync(Size render);
+
+        // One dispatch's measurements in flight.
+        struct Flight
+        {
+            ComPtr<ID3D11Query> disjoint, begin, end;
+            ComPtr<ID3D11Buffer> counters;      // CPU-readable copy of counters_
+            bool pending = false;
+            uint32_t tiles = 0;                 // the dispatch's
+            uint32_t passes_before = 0, passes_after = 0;
+            uint64_t epoch = 0;                 // the samples' start it belongs to
+        };
+
+        struct PendingSave
+        {
+            TraceSave save;
+            ComPtr<ID3D11Buffer> history;       // CPU-readable
+            Readback normals, depth, mask, irradiance;
+        };
+
+        ComPtr<ID3D11Device> device_;
+        ComPtr<ID3D11DeviceContext1> context_;
+        ComPtr<ID3D11ComputeShader> cs_;
+        ComPtr<ID3D11Buffer> constants_;
+        ComPtr<ID3D11Buffer> node_buffer_, triangle_buffer_;
+        ComPtr<ID3D11ShaderResourceView> node_srv_, triangle_srv_;
+        std::shared_ptr<const Bvh> uploading_;
+        uint64_t uploaded_ = 0;
+        uint32_t upload_presents_ = 0;
+        ComPtr<ID3D11Buffer> tiles_;
+        ComPtr<ID3D11ShaderResourceView> tiles_srv_;
+        ComPtr<ID3D11Buffer> history_;
+        ComPtr<ID3D11UnorderedAccessView> history_uav_;
+        ComPtr<ID3D11ShaderResourceView> history_srv_;
+        ComPtr<ID3D11Buffer> counters_;
+        ComPtr<ID3D11UnorderedAccessView> counters_uav_;
+        Size size_;                             // of the history and tile list
+        uint32_t tile_count_ = 0;
+        std::array<Flight, 4> flights_;
+        uint32_t next_flight_ = 0;
+
+        TraceState state_ = TraceState::none;
+        std::string why_;
+        uint64_t generation_ = 0;
+        uint32_t triangles_ = 0, node_count_ = 0;
+        uint64_t hash_ = 0;
+        std::optional<TraceKey> key_;           // the last dispatched frame's
+        TraceSchedule schedule_;
+        uint64_t epoch_ = 0;
+        std::array<uint64_t, kTraceCounters> totals_ {};
+        uint64_t window_tested_ = 0, window_off_ = 0;
+        uint32_t window_pass_ = 0, logged_pass_ = 0;
+        double mrays_ = 0;
+        std::unique_ptr<PendingSave> save_;
+    };
+}

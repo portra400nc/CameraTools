@@ -27,7 +27,7 @@ RESHADE_HEADERS = [
     "reshade_api_resource.hpp", "reshade_events.hpp", "reshade_overlay.hpp",
 ]
 SOURCES = [
-    "addon.cpp", "gpu.cpp", "scene_gpu.cpp", "core/recipe.cpp", "core/plan.cpp", "core/sun.cpp", "core/png.cpp", "core/compare.cpp",
+    "addon.cpp", "gpu.cpp", "scene_gpu.cpp", "trace_gpu.cpp", "core/recipe.cpp", "core/plan.cpp", "core/sun.cpp", "core/png.cpp", "core/compare.cpp",
     "core/accumulate.cpp", "core/dxbc.cpp", "core/shaders.cpp", "core/scene.cpp", "core/scene_files.cpp", "core/trace_scene.cpp",
     "core/bvh.cpp", "core/kernel.cpp", "core/trace.cpp", "core/trace_files.cpp",
 ]
@@ -39,6 +39,7 @@ SHADERS = [
     ("kAtmospherePs", "atmosphere_ps.hlsl", "ps_5_0"), ("kTonemapPs", "tonemap_ps.hlsl", "ps_5_0"), ("kViewPs", "view_ps.hlsl", "ps_5_0"),
     ("kAccumulatePs", "accumulate_ps.hlsl", "ps_5_0"), ("kPresentPs", "present_ps.hlsl", "ps_5_0"), ("kWetnessPs", "wetness_ps.hlsl", "ps_5_0"),
     ("kShaftsPs", "shafts_ps.hlsl", "ps_5_0"), ("kLightShaftsPs", "light_shafts_ps.hlsl", "ps_5_0"),
+    ("kApplyTracePs", "apply_trace_ps.hlsl", "ps_5_0"), ("kTraceCs", "trace_cs.hlsl", "cs_5_0"),
 ]
 WORKSPACE_VKD3D = Path(".work/build/reshade/vkd3d/vkd3d-compiler")
 DEPS = HERE / ".deps"
