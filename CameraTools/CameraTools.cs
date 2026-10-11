@@ -130,6 +130,7 @@ namespace CameraTools
             PathPlayback.Update();
             ReShade.Update();
             CameraToolsPhotoreal.Photoreal.Update();
+            PhotorealScene.Update(freecamActive);
             DepthOfField.Update();
 
             // After the hotkeys, so the key that closes the settings panel does not also fire its camera action.
