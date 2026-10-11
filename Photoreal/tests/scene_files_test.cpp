@@ -147,6 +147,7 @@ namespace
                 // Even faces are placed by a game camera built as parse_sun_shadows would leave it, odd ones by the pushed
                 // camera, so both sources write the same scene.
                 std::optional<SceneCamera> camera;
+                std::optional<SunCbuffers> sun;
                 if (face % 2 == 0)
                 {
                     SunShadowConstants game;
@@ -167,7 +168,16 @@ namespace
                     for (int column = 0; column < 4; column++)
                         for (int row = 0; row < 4; row++)
                             game.inverse_projection[column][row] = float(inverse[row * 4 + column]);
-                    camera = scene_camera(game);
+                    // The shadow-mask draw's b1 row 5 and b2 rows 10 to 13 and 18 to 20, which the add-on reads.
+                    SunCbuffers bytes {};
+                    std::memcpy(bytes.data() + 768 + 5 * 16, game.camera.data(), sizeof game.camera);
+                    for (int i = 0; i < 4; i++)
+                        std::memcpy(bytes.data() + 960 + (10 + i) * 16, game.inverse_projection[i].data(), sizeof game.inverse_projection[i]);
+                    for (int i = 0; i < 3; i++)
+                        std::memcpy(bytes.data() + 960 + (18 + i) * 16, game.basis[i].data(), sizeof game.basis[i]);
+                    std::string why;
+                    camera = scene_camera(bytes, why);
+                    sun = bytes;
                 }
                 else
                     camera = scene_camera(pushed, true);
@@ -188,6 +198,7 @@ namespace
                 data.camera = *camera;
                 data.camera_note = face % 2 == 0 ? "" : "synthetic";
                 data.pushed = pushed;
+                data.sun = sun;
                 data.status = "320x200 synthetic";
                 data.render = { kWidth, kHeight };
                 data.origin = kCamera;
@@ -367,6 +378,8 @@ int main(int argc, char **argv)
             std::count(scene.begin(), scene.end(), '\n') == 8 && std::filesystem::file_size(folder / "face-6-view.obj") > 0
                 && std::filesystem::file_size(folder / "face-3-depth.r32") == synthetic::kWidth * synthetic::kHeight * 4
                 && std::filesystem::exists(folder / "face-2.png") && std::filesystem::exists(folder / "scene.mtl"));
+        check("faces placed by the game's camera keep the shadow-mask draw's b0 to b3 as face-N-sun.bin, the others have none",
+            std::filesystem::file_size(folder / "face-0-sun.bin") == kSunCbufferTotal && !std::filesystem::exists(folder / "face-1-sun.bin"));
     }
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;

@@ -88,7 +88,8 @@ namespace photoreal
     // Creates the folder and writes scene.mtl. Returns the names of the files that could not be written.
     std::vector<std::string> begin_scene_folder(const SceneFolder &folder);
 
-    // Writes the face's mesh (PLY when request.ply), half-size picture, depth, and raw stream when request.raw, then
+    // Writes the face's mesh (PLY when request.ply), half-size picture, depth, raw stream when request.raw, and the
+    // shadow-mask draw's b0 to b3 as they were read back when there were any (face-N-sun.bin, 2224 bytes), then
     // rewrites scene.tsv, draws.tsv and camera.tsv with its rows added. Returns the names of the files that could not be
     // written.
     std::vector<std::string> write_scene_face(SceneFolder &folder, const SceneFaceData &data, const SceneRequest &request);

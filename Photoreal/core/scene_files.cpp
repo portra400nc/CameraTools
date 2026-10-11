@@ -367,6 +367,8 @@ namespace photoreal
             failed.push_back(prefix + "-depth.r32");
         if (request.raw && !write_bytes(folder.path / (prefix + ".so"), d.clip.data(), d.clip.size() * sizeof(float)))
             failed.push_back(prefix + ".so");
+        if (d.sun && !write_bytes(folder.path / (prefix + "-sun.bin"), d.sun->data(), d.sun->size()))
+            failed.push_back(prefix + "-sun.bin");
 
         folder.faces.push_back(scene_row(d, mesh, check_depth(d.camera, d.records, d.clip, d.render, d.depth)));
         folder.draws += draw_rows(d.face, d.records);
