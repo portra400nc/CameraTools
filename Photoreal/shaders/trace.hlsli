@@ -16,6 +16,13 @@ static const uint kSunSalt = 0xB5297A4Du;
 static const float kSunReach = 1.0e5f;
 // The classes a ray from the camera checks the scene against: world and other, never cards nor characters.
 static const uint kSolidClasses = 9u;
+// The kernel's counters, core/trace.h's TraceCounter order: rays, guard stops, stack overflows, grid rays and those off,
+// then for each grid class (stencil 128, 144, any other world stencil) its grid rays and those off by reason: met
+// nothing, met the scene nearer than the depth buffer, or farther.
+static const uint kGridCounters = 5u;
+static const uint kGridSlots = 4u;
+static const uint kTraceCounterCount = kGridCounters + 3u * kGridSlots;
+static const uint kGridOn = 0u, kGridNoHit = 1u, kGridNearer = 2u, kGridFarther = 3u;
 
 // lowbias32, Chris Wellons' integer hash.
 uint hash32(uint x)
@@ -156,7 +163,11 @@ struct PixelTraceData
     uint overflow;      // rays whose stack overflowed
     uint tested;        // 1 when its ray from the camera checked the scene
     uint off;           // 1 when that ray met the scene off the depth buffer, or not at all
+    uint grid_class;    // the tested pixel's: 0 stencil 128, 1 stencil 144, 2 any other world stencil
+    uint grid_reason;   // kGridOn, or why it is off: kGridNoHit, kGridNearer, kGridFarther
 };
+
+uint grid_class_of(uint s) { return s == 128u ? 0u : s == 144u ? 1u : 2u; }
 
 PixelTraceData trace_pixel_of(int2 pixel, float4 history, uint lane)
 {
@@ -168,6 +179,8 @@ PixelTraceData trace_pixel_of(int2 pixel, float4 history, uint lane)
     r.overflow = 0u;
     r.tested = 0u;
     r.off = 0u;
+    r.grid_class = 0u;
+    r.grid_reason = kGridOn;
     uint s = load_stencil(pixel);
     float depth = load_depth(pixel);
     if (!is_world_stencil(s) || !(depth > 0.0f))
@@ -251,7 +264,12 @@ PixelTraceData trace_pixel_of(int2 pixel, float4 history, uint lane)
         else
         {
             r.tested = 1u;
-            r.off = h.prim == kNoHit || abs(h.t - dist) > max(0.05f, 0.01f * dist) ? 1u : 0u;
+            r.grid_class = grid_class_of(s);
+            if (h.prim == kNoHit)
+                r.grid_reason = kGridNoHit;
+            else if (abs(h.t - dist) > max(0.05f, 0.01f * dist))
+                r.grid_reason = h.t < dist ? kGridNearer : kGridFarther;
+            r.off = r.grid_reason != kGridOn ? 1u : 0u;
         }
     }
     return r;

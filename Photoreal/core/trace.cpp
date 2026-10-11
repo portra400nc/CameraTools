@@ -211,6 +211,23 @@ namespace photoreal
         return !(dx * dx + dy * dy + dz * dz <= 1e-4);
     }
 
+    std::string grid_breakdown(const TraceCounts &counts)
+    {
+        static const char *const kNames[] = { "stencil 128", "stencil 144", "other" };
+        static_assert(std::size(kNames) == static_cast<size_t>(GridClass::count));
+        std::string out;
+        for (uint32_t c = 0; c < static_cast<uint32_t>(GridClass::count); c++)
+        {
+            const auto at = [&](GridSlot s) { return counts[grid_counter(static_cast<GridClass>(c), s)]; };
+            const uint64_t off = at(GridSlot::no_hit) + at(GridSlot::nearer) + at(GridSlot::farther);
+            out += std::string(out.empty() ? "" : ", ") + kNames[c] + " " + std::to_string(off) + " of " + std::to_string(at(GridSlot::tested)) + " off";
+            if (off != 0)
+                out += " (" + std::to_string(at(GridSlot::no_hit)) + " met nothing, " + std::to_string(at(GridSlot::nearer)) + " nearer, "
+                    + std::to_string(at(GridSlot::farther)) + " farther)";
+        }
+        return out;
+    }
+
     bool consistency_stale(uint64_t tested, uint64_t off)
     {
         return tested >= 32 && off * 20 > tested;

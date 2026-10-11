@@ -35,7 +35,7 @@ namespace photoreal
         uint64_t bvh_hash = 0;
         uint32_t triangles = 0, nodes = 0;
         uint32_t passes = 0;                // full passes: samples every traced pixel had at the save
-        std::array<uint64_t, kTraceCounters> counters {};   // every dispatch's, since the samples last started again
+        TraceCounts counters {};            // every dispatch's, since the samples last started again
         double mrays = 0;                   // the last measured rays a second, in millions
         uint64_t frame = 0;                 // the add-on's frame count of the saved frame
     };

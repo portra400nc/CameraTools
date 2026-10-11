@@ -55,6 +55,9 @@ namespace photoreal::shader
 #undef LOOP
 
     static_assert(kStackSize == sizeof stack / sizeof stack[0] && kLeafLink == kLeafBit && kNoLink == kEmptyLink);
+    static_assert(kTraceCounterCount == kTraceCounters && kGridCounters == static_cast<uint32_t>(TraceCounter::grid) && kGridSlots == photoreal::kGridSlots
+        && kGridNoHit == static_cast<uint32_t>(GridSlot::no_hit) && kGridNearer == static_cast<uint32_t>(GridSlot::nearer)
+        && kGridFarther == static_cast<uint32_t>(GridSlot::farther));
 
     namespace
     {
@@ -137,6 +140,13 @@ namespace photoreal
         out.history = { r.history.x, r.history.y, r.history.z, r.history.w };
         out.world = r.world != 0;
         out.counters = { r.rays, r.guard, r.overflow, r.tested, r.off };
+        if (r.tested != 0)
+        {
+            const auto cls = static_cast<GridClass>(r.grid_class);
+            out.counters[grid_counter(cls, GridSlot::tested)] = 1;
+            if (r.off != 0)
+                out.counters[grid_counter(cls, static_cast<GridSlot>(r.grid_reason))] = 1;
+        }
         return out;
     }
 

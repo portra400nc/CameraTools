@@ -13,7 +13,7 @@ namespace photoreal
         // An 8x8 group's tile is SV_GroupID.y; its 64 groups are SV_GroupID.x.
         constexpr UINT kGroupsPerTile = (kTileSize / 8) * (kTileSize / 8);
         // The counters buffer's uints: the kernel's, padded.
-        constexpr UINT kCounterSlots = 8;
+        constexpr UINT kCounterSlots = 32;
         static_assert(kTraceCounters <= kCounterSlots);
 
         HRESULT raw_buffer(ID3D11Device *device, UINT bytes, const void *data, ComPtr<ID3D11Buffer> &buffer, ComPtr<ID3D11ShaderResourceView> &srv)
@@ -281,7 +281,7 @@ namespace photoreal
             c->ClearUnorderedAccessViewUint(history_uav_.Get(), zero);
             epoch_++;
             totals_ = {};
-            window_tested_ = window_off_ = 0;
+            window_ = {};
             window_pass_ = logged_pass_ = 0;
             mrays_ = 0;
         }
@@ -391,19 +391,20 @@ namespace photoreal
             const uint32_t rays = counts[static_cast<size_t>(TraceCounter::rays)];
             if (ms > 0 && rays != 0)
                 mrays_ = rays / ms / 1000.0;
-            window_tested_ += counts[static_cast<size_t>(TraceCounter::tested)];
-            window_off_ += counts[static_cast<size_t>(TraceCounter::off)];
-            if (f.passes_after > window_pass_ && window_tested_ >= 32)
+            for (uint32_t k = 0; k < kTraceCounters; k++)
+                window_[k] += counts[k];
+            const uint64_t tested = window_[static_cast<size_t>(TraceCounter::tested)], off = window_[static_cast<size_t>(TraceCounter::off)];
+            if (f.passes_after > window_pass_ && tested >= 32)
             {
-                if (check_consistency_ && consistency_stale(window_tested_, window_off_))
+                if (check_consistency_ && consistency_stale(tested, off))
                 {
-                    stale("rays from the camera met the scene off the depth buffer at " + std::to_string(window_off_) + " of "
-                        + std::to_string(window_tested_) + " grid pixels in pass " + std::to_string(f.passes_after)
-                        + " (more than 5%): the world moved, or the camera sees what the capture did not");
+                    stale("rays from the camera met the scene off the depth buffer at " + std::to_string(off) + " of " + std::to_string(tested)
+                        + " grid pixels in pass " + std::to_string(f.passes_after) + " (more than 5%; " + grid_breakdown(window_)
+                        + "): the world moved, or the camera sees what the capture did not");
                     out.went_stale = true;
                     return out;
                 }
-                window_tested_ = window_off_ = 0;
+                window_ = {};
                 window_pass_ = f.passes_after;
             }
             const uint32_t target = std::max(settings.ao_samples, settings.sun_samples);
@@ -415,7 +416,8 @@ namespace photoreal
                     "by the step guard, %llu stack overflows, consistency grid %llu off of %llu.", f.passes_after,
                     static_cast<unsigned long long>(totals_[0]), mrays_, schedule_.batch, ms, f.tiles, static_cast<unsigned long long>(totals_[1]),
                     static_cast<unsigned long long>(totals_[2]), static_cast<unsigned long long>(totals_[4]), static_cast<unsigned long long>(totals_[3]));
-                out.log.push_back(line);
+                out.log.push_back(totals_[static_cast<size_t>(TraceCounter::off)] == 0 ? std::string(line)
+                    : std::string(line) + " The grid by class: " + grid_breakdown(totals_) + ".");
             }
         }
         return out;

@@ -77,7 +77,9 @@ namespace photoreal
         row("triangles", std::to_string(s.triangles));
         row("nodes", std::to_string(s.nodes));
         row("passes", std::to_string(s.passes));
-        static const char *const kCounterNames[] = { "rays", "guard_stops", "stack_overflows", "grid_tested", "grid_off" };
+        static const char *const kCounterNames[] = { "rays", "guard_stops", "stack_overflows", "grid_tested", "grid_off", "grid_128_tested",
+            "grid_128_no_hit", "grid_128_nearer", "grid_128_farther", "grid_144_tested", "grid_144_no_hit", "grid_144_nearer", "grid_144_farther",
+            "grid_other_tested", "grid_other_no_hit", "grid_other_nearer", "grid_other_farther" };
         static_assert(std::size(kCounterNames) == kTraceCounters);
         for (uint32_t i = 0; i < kTraceCounters; i++)
             row(kCounterNames[i], std::to_string(s.counters[i]));

@@ -1,7 +1,7 @@
 // The trace pass's kernel: one thread per pixel in 8x8 groups, 64 groups to a 64x64 tile, each group's tile from
 // tile_list at trace_tiles.x + SV_GroupID.y, wrapping at trace_tiles.y. Each traced pixel adds one sample of each of
 // its rays to its history (trace.hlsli), and each group adds its rays, guard stops, stack overflows and consistency
-// checks into counters. Registers stay inside gpu.h's ranges: t0-t5, u0-u1, b0.
+// checks, by stencil class and reason, into counters. Registers stay inside gpu.h's ranges: t0-t5, u0-u1, b0.
 
 cbuffer Trace : register(b0)
 {
@@ -24,7 +24,6 @@ RWStructuredBuffer<float4> history : register(u0);  // per pixel, row by row: oc
 RWStructuredBuffer<uint> counters : register(u1);   // core/trace.h's TraceCounter order
 
 groupshared uint stack_lds[64 * 24];
-groupshared uint group_counts[5];
 
 uint4 node_row(uint node, uint row) { return nodes.Load4(node * 64u + row * 16u); }
 uint4 triangle_row(uint index, uint row) { return triangles.Load4(index * 48u + row * 16u); }
@@ -37,10 +36,12 @@ uint load_stencil(int2 pixel) { return stencil.Load(int3(pixel, 0)).g; }
 #define STACK_LOAD(lane, slot) stack_lds[(lane) * 24u + (slot)]
 #include "trace.hlsli"
 
+groupshared uint group_counts[kTraceCounterCount];
+
 [numthreads(8, 8, 1)]
 void main(uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID, uint lane : SV_GroupIndex)
 {
-    if (lane < 5u)
+    if (lane < kTraceCounterCount)
         group_counts[lane] = 0u;
     GroupMemoryBarrierWithGroupSync();
     uint tile = tile_list.Load(((trace_tiles.x + group.y) % trace_tiles.y) * 4u);
@@ -57,9 +58,15 @@ void main(uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID, uint lane :
             InterlockedAdd(group_counts[2], r.overflow);
             InterlockedAdd(group_counts[3], r.tested);
             InterlockedAdd(group_counts[4], r.off);
+            if (r.tested != 0u)
+            {
+                InterlockedAdd(group_counts[kGridCounters + r.grid_class * kGridSlots], 1u);
+                if (r.off != 0u)
+                    InterlockedAdd(group_counts[kGridCounters + r.grid_class * kGridSlots + r.grid_reason], 1u);
+            }
         }
     }
     GroupMemoryBarrierWithGroupSync();
-    if (lane < 5u && group_counts[lane] != 0u)
+    if (lane < kTraceCounterCount && group_counts[lane] != 0u)
         InterlockedAdd(counters[lane], group_counts[lane]);
 }

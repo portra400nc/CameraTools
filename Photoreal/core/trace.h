@@ -106,9 +106,24 @@ namespace photoreal
     // than 5% met the scene off the depth buffer by more than max(0.05 m, 1%), or not at all, out of at least 32.
     bool consistency_stale(uint64_t tested, uint64_t off);
 
-    // What the compute shader adds into its counters buffer (u1), in this order.
-    enum class TraceCounter : uint8_t { rays, guard, overflow, tested, off, count };
-    constexpr uint32_t kTraceCounters = static_cast<uint32_t>(TraceCounter::count);
+    // What the compute shader adds into its counters buffer (u1), in this order: rays, guard stops, stack overflows, grid
+    // rays and those off, then for each GridClass its grid rays and those off by GridSlot.
+    enum class TraceCounter : uint8_t { rays, guard, overflow, tested, off, grid };
+    // The consistency grid's pixels by stencil: 128, 144, and any other world stencil that is not grass, vegetation or foliage.
+    enum class GridClass : uint8_t { s128, s144, other, count };
+    // A grid class's rays, and why those off are: the ray met nothing, met the scene nearer than the depth buffer, or farther.
+    enum class GridSlot : uint8_t { tested, no_hit, nearer, farther, count };
+    constexpr uint32_t kGridSlots = static_cast<uint32_t>(GridSlot::count);
+    constexpr uint32_t kTraceCounters = static_cast<uint32_t>(TraceCounter::grid) + static_cast<uint32_t>(GridClass::count) * kGridSlots;
+    constexpr uint32_t grid_counter(GridClass c, GridSlot s)
+    {
+        return static_cast<uint32_t>(TraceCounter::grid) + static_cast<uint32_t>(c) * kGridSlots + static_cast<uint32_t>(s);
+    }
+    using TraceCounts = std::array<uint64_t, kTraceCounters>;
+
+    // The grid's rays by class and reason for the log: "stencil 128 0 of 4061 off, stencil 144 2025 of 2316 off (0 met
+    // nothing, 0 nearer, 2025 farther), other 0 of 0 off", the reasons only where some are off.
+    std::string grid_breakdown(const TraceCounts &counts);
 
     // The frame the kernel traces from: the stored main depth (reversed), the G-buffer normals as stored
     // (R10G10B10A2_UNORM, world normal * 0.5 + 0.5) and the stencil, each top row first.

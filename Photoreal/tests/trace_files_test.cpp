@@ -55,13 +55,15 @@ int main(int argc, char **argv)
     s.triangles = 2377274;
     s.nodes = 756325;
     s.passes = 12;
-    s.counters = { 1000, 1, 2, 30, 1 };
+    s.counters = { 1000, 1, 2, 30, 1, 20, 0, 0, 0, 10, 0, 0, 1, 0, 0, 0, 0 };
     s.mrays = 12.5;
     s.frame = 4321;
     const std::string tsv = trace_tsv(s);
     check("trace.tsv names the scene, the BVH's hash, the samples and counters, the frame of the scene and the settings",
         tsv.find("key\tvalue\nwidth\t3\nheight\t2\nframe\t4321\nscene\tscene-20261011-194351\ngeneration\t3\nbvh_hash\tb090ff09807266ca\n"
                  "triangles\t2377274\nnodes\t756325\npasses\t12\nrays\t1000\nguard_stops\t1\nstack_overflows\t2\ngrid_tested\t30\ngrid_off\t1\n"
+                 "grid_128_tested\t20\ngrid_128_no_hit\t0\ngrid_128_nearer\t0\ngrid_128_farther\t0\ngrid_144_tested\t10\ngrid_144_no_hit\t0\n"
+                 "grid_144_nearer\t0\ngrid_144_farther\t1\ngrid_other_tested\t0\ngrid_other_no_hit\t0\ngrid_other_nearer\t0\ngrid_other_farther\t0\n"
                  "mrays\t12.5\nreference\t1648.5,229.75,9468.25\nfloating_origin\t1648.68604,0,9468.5293\nsun_source\tgame\ntoward_sun\t0,1,0\n"
                  "eye\t0,1.5,0\nworld_to_view\t1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n") == 0
             && tsv.find("trace.ao_samples\t16\n") != std::string::npos && tsv.find("ambient.level\t0.600000024\n") != std::string::npos);

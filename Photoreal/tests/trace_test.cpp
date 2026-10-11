@@ -1,7 +1,8 @@
 // The trace pass's decisions and its kernel compiled as C++: the ray generator's seeds, sequence and directions, the
 // samplers' means, the tiles' Morton order, the schedule of tiles and the time budget, what starts the samples again,
 // the sun's direction and floating origin from build 199's view-face constants (fixtures/scene-194351-face-6-sun.bin),
-// the constants, and one dispatch's work on the pixels of a camera looking down at a floor half under a roof. With an
+// the constants, one dispatch's work on the pixels of a camera looking down at a floor half under a roof, the
+// consistency grid's classes and reasons, and the grid of build 202's view on the Deck (fixtures/scene-221045-grid.bin). With an
 // output folder it also writes the synthetic traced frame run.sh hands to trace_reference and check_trace.py.
 #include "../core/trace_files.h"
 #include "../photoreal.h"
@@ -197,6 +198,15 @@ namespace
         }
     }
 
+    std::string slurp(const std::string &path)
+    {
+        std::ifstream file(path, std::ios::binary);
+        std::string bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        if (bytes.empty())
+            throw std::runtime_error("missing " + path);
+        return bytes;
+    }
+
     SunCbuffers load_sun(const std::string &path)
     {
         std::ifstream file(path, std::ios::binary);
@@ -383,11 +393,33 @@ int main(int argc, char **argv)
         check("a second dispatch adds the next sample of the sequence", near(again.history[0], open.history[0] + expected(1, 3, 1), 2e-4f)
             && again.history[1] == 2 && again.history[2] == 2 && again.history[3] == 2);
         const PixelTrace grid = trace_pixel(bvh, image, c, 0, 0, { 0, 0, 0, 0 });
+        const auto grid_counts = [](const PixelTrace &p) {
+            return std::vector<uint32_t>(p.counters.begin() + static_cast<long>(TraceCounter::grid), p.counters.end());
+        };
         check("the grid's pixel shoots a ray from the camera that meets the floor where the depth says", grid.counters[3] == 1 && grid.counters[4] == 0
-            && grid.counters[0] == 3);
+            && grid.counters[0] == 3 && grid_counts(grid) == std::vector<uint32_t> { 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 });
         const Bvh roof_only = build_bvh({ triangles[2], triangles[3] });
         const PixelTrace missing = trace_pixel(roof_only, image, c, 0, 0, { 0, 0, 0, 0 });
-        check("without the floor that ray finds nothing, and counts as off", missing.counters[3] == 1 && missing.counters[4] == 1);
+        check("without the floor that ray finds nothing, and counts as off, of stencil 128, for meeting nothing", missing.counters[3] == 1
+            && missing.counters[4] == 1 && grid_counts(missing) == std::vector<uint32_t> { 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 });
+        // The floor 0.5 m lower and higher, under a stencil-144 pixel and another world stencil's.
+        const Bvh lower = build_bvh({ triangle({ -10, -0.5f, -10 }, { 10, -0.5f, -10 }, { 10, -0.5f, 10 }), triangle({ -10, -0.5f, -10 }, { 10, -0.5f, 10 }, { -10, -0.5f, 10 }) });
+        const Bvh higher = build_bvh({ triangle({ -10, 0.5f, -10 }, { 10, 0.5f, -10 }, { 10, 0.5f, 10 }), triangle({ -10, 0.5f, -10 }, { 10, 0.5f, 10 }, { -10, 0.5f, 10 }) });
+        TraceImage terrain = image;
+        terrain.stencil[0] = 144;
+        const PixelTrace farther = trace_pixel(lower, terrain, c, 0, 0, { 0, 0, 0, 0 });
+        terrain.stencil[0] = 160;
+        const PixelTrace nearer = trace_pixel(higher, terrain, c, 0, 0, { 0, 0, 0, 0 });
+        check("a floor 0.5 m lower is off farther, counted for stencil 144; one 0.5 m higher off nearer, for the other world stencils",
+            farther.counters[4] == 1 && grid_counts(farther) == std::vector<uint32_t> { 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0 } && nearer.counters[4] == 1
+            && grid_counts(nearer) == std::vector<uint32_t> { 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0 });
+        TraceCounts counts {};
+        for (const PixelTrace *p : { &grid, &missing, &farther, &nearer })
+            for (uint32_t k = 0; k < kTraceCounters; k++)
+                counts[k] += p->counters[k];
+        check("the grid's breakdown for the log names each class's rays off of tested, and the reasons where some are off",
+            grid_breakdown(counts) == "stencil 128 1 of 2 off (1 met nothing, 0 nearer, 0 farther), stencil 144 1 of 1 off (0 met nothing, 0 nearer, 1 farther), "
+                                      "other 1 of 1 off (0 met nothing, 1 nearer, 0 farther)");
         check("a character's pixel and a pixel without depth are not traced", !trace_pixel(bvh, image, c, 1, 1, {}).world
             && !trace_pixel(bvh, image, c, 2, 2, {}).world);
         const PixelTrace done = trace_pixel(bvh, image, c, 1, 3, { 64, 32, 64, 32 });
@@ -395,6 +427,67 @@ int main(int argc, char **argv)
         c.sun_cone[0] = c.sun_cone[1] = c.sun_cone[2] = c.sun_cone[3] = 0;
         const PixelTrace sunless = trace_pixel(bvh, image, c, 6, 3, { 0, 0, 0, 0 });
         check("without a sun its samples count as lit, untraced", sunless.history[1] == 1 && sunless.history[3] == 1 && sunless.counters[0] == 1);
+    }
+    {
+        // Build 202 on the Deck: the consistency grid of the view-only capture scene-20261011-221045 at the spot of the
+        // self-test's save trace-20261011-221018, the grid's pixels within 15 m and the world and other triangles within
+        // 25 m (fixtures/scene-221045-grid.bin, from make_grid_fixture.py). The pushed camera, the scene's reference, the
+        // stored rows' flip and the depth's decoding put every stencil-128 pixel's ray on the depth buffer, while every
+        // stencil-144 pixel met the scene farther: the terrain near the camera, drawn tessellated, was left out of the
+        // capture, and the rays met the prepass's untessellated terrain under it. That scene went stale after pass 1.
+        const std::string bytes = slurp("fixtures/scene-221045-grid.bin");
+        uint32_t pixels = 0, count = 0;
+        std::memcpy(&pixels, bytes.data() + 4, 4);
+        std::memcpy(&count, bytes.data() + 8, 4);
+        Camera camera {};
+        Vec3d reference {};
+        std::memcpy(camera.world_to_view, bytes.data() + 12, 64);
+        std::memcpy(camera.view_to_clip, bytes.data() + 76, 64);
+        std::memcpy(reference.data(), bytes.data() + 140, 24);
+        const size_t samples_at = 164, triangles_at = samples_at + size_t(pixels) * 12;
+        std::vector<TraceTriangle> triangles(count);
+        for (uint32_t i = 0; i < count; i++)
+        {
+            std::memcpy(triangles[i].corner.data(), bytes.data() + triangles_at + size_t(i) * 40, 36);
+            std::memcpy(&triangles[i].info, bytes.data() + triangles_at + size_t(i) * 40 + 36, 4);
+        }
+        const Size size = { 1920, 1200 };
+        TraceImage image;
+        image.size = size;
+        image.depth.assign(size_t(size.width) * size.height, 0.0f);
+        image.normals.assign(image.depth.size(), 0);
+        image.stencil.assign(image.depth.size(), 0);
+        std::vector<std::array<uint32_t, 2>> grid;
+        for (uint32_t i = 0; i < pixels; i++)
+        {
+            const char *at = bytes.data() + samples_at + size_t(i) * 12;
+            uint16_t x = 0, y = 0;
+            std::memcpy(&x, at, 2);
+            std::memcpy(&y, at + 2, 2);
+            const size_t texel = size_t(y) * size.width + x;
+            std::memcpy(&image.depth[texel], at + 4, 4);
+            image.stencil[texel] = static_cast<uint8_t>(at[8]);
+            grid.push_back({ x, y });
+        }
+        const Bvh bvh = build_bvh(triangles);
+        TraceSettings settings;
+        const std::optional<TraceConstants> c = trace_constants(settings, 1, camera, true, size, reference, { 0.239f, 0.574f, -0.784f }, 2);
+        TraceCounts counts {};
+        for (const auto &[x, y] : grid)
+        {
+            // Every sample taken, so only the grid's ray is shot.
+            const PixelTrace p = trace_pixel(bvh, image, *c, x, y, { 0, 0, 1e9f, 1e9f });
+            for (uint32_t k = 0; k < kTraceCounters; k++)
+                counts[k] += p.counters[k];
+        }
+        std::printf("INFO build 202's grid within 15 m: %s\n", grid_breakdown(counts).c_str());
+        check("build 202's view at the Deck's spot: all 1307 stencil-128 grid pixels within 15 m meet the scene where the depth says",
+            counts[grid_counter(GridClass::s128, GridSlot::tested)] == 1307 && counts[grid_counter(GridClass::s128, GridSlot::no_hit)] == 0
+                && counts[grid_counter(GridClass::s128, GridSlot::nearer)] == 0 && counts[grid_counter(GridClass::s128, GridSlot::farther)] == 0);
+        check("build 202's stencil-144 grid pixels within 15 m: 1920 of 2105 meet the scene farther, none nearer, none nothing, so the scene is stale",
+            counts[grid_counter(GridClass::s144, GridSlot::tested)] == 2105 && counts[grid_counter(GridClass::s144, GridSlot::farther)] == 1920
+                && counts[grid_counter(GridClass::s144, GridSlot::nearer)] == 0 && counts[grid_counter(GridClass::s144, GridSlot::no_hit)] == 0
+                && consistency_stale(counts[static_cast<size_t>(TraceCounter::tested)], counts[static_cast<size_t>(TraceCounter::off)]));
     }
     if (argc > 1)
     {

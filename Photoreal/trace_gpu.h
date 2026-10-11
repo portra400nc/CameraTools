@@ -66,7 +66,7 @@ namespace photoreal
         uint32_t passes() const { return trace_passes(schedule_); }
         uint32_t batch() const { return schedule_.batch; }
         double mrays() const { return mrays_; }
-        const std::array<uint64_t, kTraceCounters> &totals() const { return totals_; }
+        const TraceCounts &totals() const { return totals_; }
 
         // What this frame's trace would do with key, settings and constants: changes nothing. The samples start again when
         // key differs from the last dispatched frame's; that frame dispatches no tiles, so a moving camera costs none.
@@ -153,8 +153,8 @@ namespace photoreal
         std::optional<TraceKey> key_;           // the last dispatched frame's
         TraceSchedule schedule_;
         uint64_t epoch_ = 0;
-        std::array<uint64_t, kTraceCounters> totals_ {};
-        uint64_t window_tested_ = 0, window_off_ = 0;
+        TraceCounts totals_ {};
+        TraceCounts window_ {};                 // since the last pass the consistency grid judged
         bool check_consistency_ = true;
         uint32_t window_pass_ = 0, logged_pass_ = 0;
         double mrays_ = 0;
