@@ -50,6 +50,9 @@ namespace photoreal
         // buffers, and moves to UPLOADING. false, in FAILED with why, when one could not be made; buffer says whether it
         // was a buffer, which a smaller scene may fit.
         bool begin_upload(std::shared_ptr<const Bvh> bvh, uint64_t generation, bool &buffer);
+        // Whether rays from the camera must meet the scene where the depth buffer does; off for the self-test scene, which
+        // no frame shows and which would go stale after its first pass.
+        void check_consistency(bool on) { check_consistency_ = on; }
         // At present while UPLOADING: the next kTraceUploadBytes. true when the scene became READY at this present.
         bool upload_step();
         uint32_t upload_presents() const { return upload_presents_; }
@@ -152,6 +155,7 @@ namespace photoreal
         uint64_t epoch_ = 0;
         std::array<uint64_t, kTraceCounters> totals_ {};
         uint64_t window_tested_ = 0, window_off_ = 0;
+        bool check_consistency_ = true;
         uint32_t window_pass_ = 0, logged_pass_ = 0;
         double mrays_ = 0;
         std::unique_ptr<PendingSave> save_;

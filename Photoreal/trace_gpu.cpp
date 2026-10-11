@@ -395,7 +395,7 @@ namespace photoreal
             window_off_ += counts[static_cast<size_t>(TraceCounter::off)];
             if (f.passes_after > window_pass_ && window_tested_ >= 32)
             {
-                if (consistency_stale(window_tested_, window_off_))
+                if (check_consistency_ && consistency_stale(window_tested_, window_off_))
                 {
                     stale("rays from the camera met the scene off the depth buffer at " + std::to_string(window_off_) + " of "
                         + std::to_string(window_tested_) + " grid pixels in pass " + std::to_string(f.passes_after)

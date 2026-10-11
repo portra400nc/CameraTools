@@ -157,6 +157,7 @@ namespace photoreal
             std::optional<Vec3> floating_origin;    // b1 row 10 when it was captured, or when it was first traced
             SceneBuilder::Counts counts;
             double seconds = 0;                     // its BVH's build
+            bool self_test = false;                 // the self-test scene, which the depth buffer never shows
         };
         TraceScene trace_scene;
         TraceState trace_logged = TraceState::none; // the state the log last said
@@ -745,6 +746,7 @@ namespace photoreal
             TraceScene scene;
             scene.folder = folder.filename().u8string();
             scene.reference = camera_position(camera);
+            scene.self_test = true;
             // world_to_view's third row is minus the camera's forward; Unity's matrices are column-major.
             Vec3d forward = { -camera.world_to_view[2], 0, -camera.world_to_view[10] };
             const double length = std::sqrt(forward[0] * forward[0] + forward[2] * forward[2]);
@@ -1266,6 +1268,7 @@ namespace photoreal
                 {
                     bool buffer = false;
                     trace_scene = built.scene;
+                    trace_gpu.check_consistency(!trace_scene.self_test);
                     if (!trace_gpu.begin_upload(built.bvh, ++trace_generations, buffer) && buffer)
                     {
                         trace_max_triangles = std::max<uint64_t>(trace_max_triangles / 2, 1);
