@@ -355,6 +355,7 @@ namespace photoreal
         std::vector<std::string> failed;
         const std::string prefix = "face-" + std::to_string(d.face);
         MeshStats mesh;
+        if (!request.no_meshes)
         {
             const fs::path path = folder.path / mesh_name(d.face, request.ply);
             std::ofstream out(path, std::ios::binary | std::ios::trunc);
@@ -375,6 +376,11 @@ namespace photoreal
             failed.push_back(prefix + ".so");
         if (d.sun && !write_bytes(folder.path / (prefix + "-sun.bin"), d.sun->data(), d.sun->size()))
             failed.push_back(prefix + "-sun.bin");
+        const std::pair<const std::vector<uint8_t> *, const char *> gbuffer[] = { { &d.stencil, "-stencil.r8" }, { &d.normals, "-normals.r10g10b10a2" },
+            { &d.mask, "-mask.r8g8" }, { &d.irradiance, "-irradiance.r11g11b10" } };
+        for (const auto &[bytes, suffix] : gbuffer)
+            if (!bytes->empty() && !write_bytes(folder.path / (prefix + suffix), bytes->data(), bytes->size()))
+                failed.push_back(prefix + suffix);
 
         folder.faces.push_back(scene_row(d, mesh, check_depth(d.camera, d.records, d.clip, d.render, d.depth)));
         folder.draws += draw_rows(d.face, d.records);

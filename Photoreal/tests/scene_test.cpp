@@ -226,6 +226,19 @@ int main()
             && cut->max_triangles == 4000000);
         short_one.size = 7;
         check("a size too short to hold faces, and a null pointer: invalid", !parse_scene_request(&short_one) && !parse_scene_request(nullptr));
+        PhotorealSceneRequest traced { sizeof traced, 0x7F, 0, PHOTOREAL_SCENE_TRACE | PHOTOREAL_SCENE_NO_MESHES | PHOTOREAL_SCENE_GBUFFER, 0 };
+        const auto t = parse_scene_request(&traced);
+        check("the trace, no-meshes and G-buffer flags read", t && t->trace && t->no_meshes && t->gbuffer && !t->release && !t->self_test() && t->faces == 0x7F);
+        traced.faces = 0;
+        const auto self = parse_scene_request(&traced);
+        check("a trace request with no faces is the self-test scene, and without the trace flag all seven faces", self && self->self_test()
+            && self->faces == 0 && start_scene(*self).order.empty() && parse_scene_request(std::array<PhotorealSceneRequest, 1> {
+                { { sizeof(PhotorealSceneRequest), 0, 0, PHOTOREAL_SCENE_GBUFFER, 0 } } }.data())->faces == 0x7F);
+        traced.flags = PHOTOREAL_SCENE_TRACE;
+        traced.faces = 0x80;
+        check("a trace request naming only unknown faces is invalid", !parse_scene_request(&traced));
+        PhotorealSceneRequest release { sizeof release, 0x80, 0, PHOTOREAL_SCENE_RELEASE, 0 };
+        check("a release ignores the faces", parse_scene_request(&release) && parse_scene_request(&release)->release);
     }
 
     check_transform({ "capture-20261010-111824",

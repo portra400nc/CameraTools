@@ -1124,7 +1124,8 @@ extern "C" uint32_t PhotorealCompare(const PhotorealVariant *variants, uint32_t 
 extern "C" uint32_t PhotorealCaptureScene(const PhotorealSceneRequest *raw)
 {
     const std::optional<SceneRequest> request = parse_scene_request(raw);
-    if (!request)
+    // The traced scene's requests come with the trace pass's GPU side.
+    if (!request || request->release || request->self_test())
         return 0;
     // Raised before the render thread takes the request, so a second call is refused until every face is written.
     uint32_t idle = 0;

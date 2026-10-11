@@ -338,11 +338,18 @@ enum
 };
 #define PHOTOREAL_FACE_NONE 0xFFFFFFFFu
 
-// What a scene capture writes besides each face's OBJ, as bits of PhotorealSceneRequest.flags.
+// What a scene capture writes and keeps besides each face's OBJ, as bits of PhotorealSceneRequest.flags.
 enum
 {
-    PHOTOREAL_SCENE_RAW = 1u << 0,  // also face-N.so: the stream output's clip-space positions as captured
-    PHOTOREAL_SCENE_PLY = 1u << 1,  // a binary PLY per face instead of the OBJ
+    PHOTOREAL_SCENE_RAW = 1u << 0,          // also face-N.so: the stream output's clip-space positions as captured
+    PHOTOREAL_SCENE_PLY = 1u << 1,          // a binary PLY per face instead of the OBJ
+    PHOTOREAL_SCENE_TRACE = 1u << 2,        // keep the faces' triangles, deduplicate them, build their BVH and upload it for the
+                                            // trace pass, and write them as trace-scene.bin. With faces 0, capture nothing and
+                                            // trace the 3-triangle self-test scene around the camera instead
+    PHOTOREAL_SCENE_NO_MESHES = 1u << 3,    // write no OBJ or PLY; the TSVs, pictures and depth still
+    PHOTOREAL_SCENE_GBUFFER = 1u << 4,      // the view face also writes its normals and stencil, and the game's shadow mask and
+                                            // diffuse irradiance as the combine step found them, before any pass of ours
+    PHOTOREAL_SCENE_RELEASE = 1u << 5,      // capture nothing and free the traced scene; faces and the other flags are ignored
 };
 
 // A scene capture: the geometry of every G-buffer draw, replayed with stream output, in world space, from each face.

@@ -383,6 +383,32 @@ int main(int argc, char **argv)
                 && std::filesystem::exists(folder / "face-2.png") && std::filesystem::exists(folder / "scene.mtl"));
         check("faces placed by the game's camera keep the shadow-mask draw's b0 to b3 as face-N-sun.bin, the others have none",
             std::filesystem::file_size(folder / "face-0-sun.bin") == kSunCbufferTotal && !std::filesystem::exists(folder / "face-1-sun.bin"));
+
+        // A view face with PHOTOREAL_SCENE_GBUFFER's copies and PHOTOREAL_SCENE_NO_MESHES: no mesh, the four copies as they
+        // came, and scene.tsv's row with no file triangles.
+        SceneFolder bare;
+        bare.path = std::filesystem::path(argv[1]) / "scene-gbuffer";
+        begin_scene_folder(bare);
+        SceneFaceData data;
+        data.face = kFaceView;
+        data.camera = camera;
+        data.render = { 4, 4 };
+        data.records = { r };
+        data.clip = clip;
+        data.depth.assign(16, 0.025f);
+        data.stencil.assign(16, 128);
+        data.normals.assign(64, 0x7F);
+        data.mask.assign(32, 0xFF);
+        data.irradiance.assign(64, 0x3C);
+        SceneRequest request;
+        request.no_meshes = true;
+        request.gbuffer = true;
+        const std::vector<std::string> failed = write_scene_face(bare, data, request);
+        const std::string tsv = slurp(bare.path / "scene.tsv");
+        check("without meshes and with the G-buffer: no OBJ, the stencil, normals, mask and irradiance as they came, and no file triangles",
+            failed.empty() && !std::filesystem::exists(bare.path / "face-6-view.obj") && std::filesystem::file_size(bare.path / "face-6-stencil.r8") == 16
+            && std::filesystem::file_size(bare.path / "face-6-normals.r10g10b10a2") == 64 && std::filesystem::file_size(bare.path / "face-6-mask.r8g8") == 32
+            && slurp(bare.path / "face-6-irradiance.r11g11b10") == std::string(64, '\x3C') && tsv.find("\t2\t2\t0\t0\t0\t0\t0\t") != std::string::npos);
     }
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;

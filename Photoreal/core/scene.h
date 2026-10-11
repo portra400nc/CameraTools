@@ -43,12 +43,20 @@ namespace photoreal
         uint32_t settle = 45;           // presents a turned face is held before its capture
         bool raw = false;               // PHOTOREAL_SCENE_RAW
         bool ply = false;               // PHOTOREAL_SCENE_PLY
+        bool trace = false;             // PHOTOREAL_SCENE_TRACE
+        bool no_meshes = false;         // PHOTOREAL_SCENE_NO_MESHES
+        bool gbuffer = false;           // PHOTOREAL_SCENE_GBUFFER
+        bool release = false;           // PHOTOREAL_SCENE_RELEASE
         uint32_t max_triangles = 4000000;
+
+        // A trace request with no faces: the self-test scene, captured from nothing.
+        bool self_test() const { return trace && faces == 0; }
     };
 
-    // Honors size like parse_settings: fields past it keep their defaults. faces 0 reads as all seven and unknown bits are
-    // dropped; settle 0 reads as 45 and clamps to 2..600; max_triangles 0 reads as 4000000; unknown flags are dropped.
-    // Empty when raw is null or too short to hold faces.
+    // Honors size like parse_settings: fields past it keep their defaults. faces 0 reads as all seven, except with
+    // PHOTOREAL_SCENE_TRACE, where it asks for the self-test scene, and unknown bits are dropped; settle 0 reads as 45 and
+    // clamps to 2..600; max_triangles 0 reads as 4000000; unknown flags are dropped. A release ignores the rest. Empty
+    // when raw is null or too short to hold faces, or names no known face.
     std::optional<SceneRequest> parse_scene_request(const PhotorealSceneRequest *raw);
 
     // A frame's camera as the scene capture places geometry with it.

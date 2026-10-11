@@ -89,17 +89,25 @@ namespace photoreal
         SceneRequest r;
         if (copy.faces != 0)
             r.faces = copy.faces & kAllFaces;
-        if (r.faces == 0)
-            return std::nullopt;
         if (knows(offsetof(PhotorealSceneRequest, settle), sizeof copy.settle) && copy.settle != 0)
             r.settle = std::clamp<uint32_t>(copy.settle, 2, 600);
         if (knows(offsetof(PhotorealSceneRequest, flags), sizeof copy.flags))
         {
             r.raw = (copy.flags & PHOTOREAL_SCENE_RAW) != 0;
             r.ply = (copy.flags & PHOTOREAL_SCENE_PLY) != 0;
+            r.trace = (copy.flags & PHOTOREAL_SCENE_TRACE) != 0;
+            r.no_meshes = (copy.flags & PHOTOREAL_SCENE_NO_MESHES) != 0;
+            r.gbuffer = (copy.flags & PHOTOREAL_SCENE_GBUFFER) != 0;
+            r.release = (copy.flags & PHOTOREAL_SCENE_RELEASE) != 0;
         }
         if (knows(offsetof(PhotorealSceneRequest, max_triangles), sizeof copy.max_triangles) && copy.max_triangles != 0)
             r.max_triangles = copy.max_triangles;
+        if (r.release)
+            return r;
+        if (r.trace && copy.faces == 0)
+            r.faces = 0;
+        else if (r.faces == 0)
+            return std::nullopt;
         return r;
     }
 
