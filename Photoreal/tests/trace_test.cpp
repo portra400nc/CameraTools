@@ -1,8 +1,9 @@
 // The trace pass's decisions and its kernel compiled as C++: the ray generator's seeds, sequence and directions, the
 // samplers' means, the tiles' Morton order, the schedule of tiles and the time budget, what starts the samples again,
 // the sun's direction and floating origin from build 199's view-face constants (fixtures/scene-194351-face-6-sun.bin),
-// the constants, and one dispatch's work on the pixels of a camera looking down at a floor half under a roof.
-#include "../core/trace.h"
+// the constants, and one dispatch's work on the pixels of a camera looking down at a floor half under a roof. With an
+// output folder it also writes the synthetic traced frame run.sh hands to trace_reference and check_trace.py.
+#include "../core/trace_files.h"
 #include "../photoreal.h"
 
 #include <cmath>
@@ -65,6 +66,137 @@ namespace
         return v;
     }
 
+    // The synthetic traced frame: a courtyard of a floor and three walls 4 m high with a 1 m cube in it, 100 m east and
+    // 50 m south of the world's origin, seen from inside at 96x64 with the sun low over the open side. Its depth, normals
+    // and stencil are ray cast exactly, its history is this kernel's own over 6 passes, and a broken copy has a block of
+    // sun samples flipped, which check_trace.py must refuse.
+    namespace synthetic
+    {
+        constexpr uint32_t kWidth = 96, kHeight = 64;
+
+        void quad(std::vector<TraceTriangle> &out, Vec3f a, Vec3f b, Vec3f c, Vec3f d)
+        {
+            out.push_back(triangle(a, b, c));
+            out.push_back(triangle(a, c, d));
+        }
+
+        Vec3 cross3(const Vec3 &a, const Vec3 &b) { return { a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0] }; }
+        Vec3 unit3(const Vec3 &a)
+        {
+            const float l = std::sqrt(dot(a, a));
+            return { a[0] / l, a[1] / l, a[2] / l };
+        }
+
+        // Writes scene-trace-synthetic/trace-scene.bin, trace-synthetic/ and trace-synthetic-broken/ into out. Returns the
+        // pixels the cube's shadow darkens, for a check.
+        uint32_t write(const std::filesystem::path &out)
+        {
+            const Vec3d reference = { 100, 0, -50 };
+            std::vector<TraceTriangle> triangles;
+            quad(triangles, { -5, 0, -5 }, { 5, 0, -5 }, { 5, 0, 5 }, { -5, 0, 5 });
+            quad(triangles, { -5, 0, -5 }, { -5, 0, 5 }, { -5, 4, 5 }, { -5, 4, -5 });
+            quad(triangles, { 5, 0, -5 }, { 5, 4, -5 }, { 5, 4, 5 }, { 5, 0, 5 });
+            quad(triangles, { -5, 0, -5 }, { -5, 4, -5 }, { 5, 4, -5 }, { 5, 0, -5 });
+            const float x0 = 0.5f, x1 = 1.5f, z0 = -1.5f, z1 = -0.5f;
+            quad(triangles, { x0, 0, z0 }, { x1, 0, z0 }, { x1, 1, z0 }, { x0, 1, z0 });
+            quad(triangles, { x0, 0, z1 }, { x0, 1, z1 }, { x1, 1, z1 }, { x1, 0, z1 });
+            quad(triangles, { x0, 0, z0 }, { x0, 1, z0 }, { x0, 1, z1 }, { x0, 0, z1 });
+            quad(triangles, { x1, 0, z0 }, { x1, 0, z1 }, { x1, 1, z1 }, { x1, 1, z0 });
+            quad(triangles, { x0, 1, z0 }, { x1, 1, z0 }, { x1, 1, z1 }, { x0, 1, z1 });
+            const std::filesystem::path scene = out / "scene-trace-synthetic";
+            std::filesystem::create_directories(scene);
+            const std::string bytes = trace_scene_bytes(triangles, reference);
+            std::ofstream(scene / "trace-scene.bin", std::ios::binary).write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+            const Bvh bvh = build_bvh(triangles);
+
+            // 1.6 m up and 4 m from the open side, looking toward -z and 15 degrees down, a 60-degree view.
+            const Vec3 eye = { 0, 1.6f, 4 };
+            const Vec3 forward = unit3({ 0, -std::sin(0.2618f), -std::cos(0.2618f) });
+            const Vec3 right = unit3(cross3({ 0, 1, 0 }, forward)), up = cross3(forward, right);
+            const double fy = 1 / std::tan(0.5236), fx = fy * kHeight / kWidth;
+            double view[16] = {}, projection[16] = { fx, 0, 0, 0, 0, fy, 0, 0, 0, 0, 0, 0.1, 0, 0, -1, 0 };
+            const Vec3 rows[3] = { right, up, { -forward[0], -forward[1], -forward[2] } };
+            for (int r = 0; r < 3; r++)
+            {
+                const Vec3d world_eye = { reference[0] + eye[0], reference[1] + eye[1], reference[2] + eye[2] };
+                for (int k = 0; k < 3; k++)
+                    view[r * 4 + k] = rows[r][k];
+                view[r * 4 + 3] = -(rows[r][0] * world_eye[0] + rows[r][1] * world_eye[1] + rows[r][2] * world_eye[2]);
+            }
+            view[15] = 1;
+            Camera camera {};
+            set_unity(camera.world_to_view, view);
+            set_unity(camera.view_to_clip, projection);
+
+            TraceImage image;
+            image.size = { kWidth, kHeight };
+            image.depth.assign(kWidth * kHeight, 0);
+            image.normals.assign(kWidth * kHeight, 0);
+            image.stencil.assign(kWidth * kHeight, 0);
+            for (uint32_t y = 0; y < kHeight; y++)
+                for (uint32_t x = 0; x < kWidth; x++)
+                {
+                    const float vx = float(((x + 0.5) / kWidth * 2 - 1) / fx), vy = float((1 - (y + 0.5) / kHeight * 2) / fy);
+                    const Vec3 d = { right[0] * vx + up[0] * vy + forward[0], right[1] * vx + up[1] * vy + forward[1], right[2] * vx + up[2] * vy + forward[2] };
+                    const std::optional<Hit> hit = trace_nearest(bvh, eye, d, 1e5f);
+                    if (!hit)
+                        continue;
+                    const BvhTriangle &t = bvh.triangles[hit->triangle];
+                    Vec3 n = unit3(cross3({ t.e1[0], t.e1[1], t.e1[2] }, { t.e2[0], t.e2[1], t.e2[2] }));
+                    if (dot(n, d) > 0)
+                        n = { -n[0], -n[1], -n[2] };
+                    const size_t at = size_t(y) * kWidth + x;
+                    image.depth[at] = 0.1f / hit->t;
+                    image.normals[at] = encode_normal(n);
+                    image.stencil[at] = 128;
+                }
+
+            TraceSettings settings;
+            settings.ao_samples = 6;
+            settings.sun_samples = 4;
+            const Vec3 sun = unit3({ 0.5f, 0.6f, 0.3f });
+            TraceSave save;
+            save.size = image.size;
+            save.constants = *trace_constants(settings, 0.6f, camera, false, image.size, reference, sun, 1);
+            save.history.assign(size_t(kWidth) * kHeight * 4, 0);
+            for (int pass = 0; pass < 6; pass++)
+                for (uint32_t y = 0; y < kHeight; y++)
+                    for (uint32_t x = 0; x < kWidth; x++)
+                    {
+                        float *h = &save.history[(size_t(y) * kWidth + x) * 4];
+                        const PixelTrace r = trace_pixel(bvh, image, save.constants, x, y, { h[0], h[1], h[2], h[3] });
+                        std::copy(r.history.begin(), r.history.end(), h);
+                    }
+            save.depth = image.depth;
+            save.normals = image.normals;
+            save.stencil = image.stencil;
+            save.settings = settings;
+            save.level = 0.6f;
+            save.camera = camera;
+            save.reference = reference;
+            save.sun_source = "pushed";
+            save.scene = "scene-trace-synthetic";
+            save.generation = 1;
+            save.bvh_hash = bvh.hash;
+            save.triangles = static_cast<uint32_t>(bvh.triangles.size());
+            save.nodes = static_cast<uint32_t>(bvh.nodes.size());
+            save.passes = 6;
+            write_trace_folder(out / "trace-synthetic", save);
+            uint32_t shadowed = 0;
+            for (size_t i = 0; i < size_t(kWidth) * kHeight; i++)
+                shadowed += save.history[i * 4 + 3] > 0 && save.history[i * 4 + 1] == 0;
+            // A 24x24 block of the floor sees the sun where it did not and not where it did.
+            for (uint32_t y = 36; y < 60; y++)
+                for (uint32_t x = 30; x < 54; x++)
+                {
+                    float *h = &save.history[(size_t(y) * kWidth + x) * 4];
+                    h[1] = h[3] - h[1];
+                }
+            write_trace_folder(out / "trace-synthetic-broken", save);
+            return shadowed;
+        }
+    }
+
     SunCbuffers load_sun(const std::string &path)
     {
         std::ifstream file(path, std::ios::binary);
@@ -77,7 +209,7 @@ namespace
     }
 }
 
-int main()
+int main(int argc, char **argv)
 {
     {
         std::printf("INFO seeds %08x %08x %08x %08x\n", pixel_seed(0, 0, 1), pixel_seed(1, 0, 1), pixel_seed(0, 1, 1), pixel_seed(5, 7, 2));
@@ -263,6 +395,14 @@ int main()
         c.sun_cone[0] = c.sun_cone[1] = c.sun_cone[2] = c.sun_cone[3] = 0;
         const PixelTrace sunless = trace_pixel(bvh, image, c, 6, 3, { 0, 0, 0, 0 });
         check("without a sun its samples count as lit, untraced", sunless.history[1] == 1 && sunless.history[3] == 1 && sunless.counters[0] == 1);
+    }
+    if (argc > 1)
+    {
+        const uint32_t shadowed = synthetic::write(argv[1]);
+        std::printf("INFO the synthetic traced frame has %u pixels in full sun shadow\n", shadowed);
+        check("the synthetic traced frame is written, with sun shadows in it", std::filesystem::file_size(std::filesystem::path(argv[1]) / "trace-synthetic"
+            / "history.f32") == synthetic::kWidth * synthetic::kHeight * 16 && std::filesystem::exists(std::filesystem::path(argv[1]) / "scene-trace-synthetic"
+            / "trace-scene.bin") && shadowed > 100);
     }
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;

@@ -113,8 +113,10 @@ namespace photoreal
         write_vector(failed, folder, "depth.r32", s.depth);
         write_vector(failed, folder, "stencil.r8", s.stencil);
         write_vector(failed, folder, "normals.r10g10b10a2", s.normals);
-        write_vector(failed, folder, "mask.r8g8", s.mask);
-        write_vector(failed, folder, "irradiance.r11g11b10", s.irradiance);
+        if (!s.mask.empty())
+            write_vector(failed, folder, "mask.r8g8", s.mask);
+        if (!s.irradiance.empty())
+            write_vector(failed, folder, "irradiance.r11g11b10", s.irradiance);
         if (!write_bytes(folder / "constants.bin", &s.constants, sizeof s.constants))
             failed.push_back("constants.bin");
         if (s.sun && !write_bytes(folder / "sun.bin", s.sun->data(), s.sun->size()))

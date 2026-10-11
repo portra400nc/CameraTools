@@ -40,8 +40,9 @@ namespace photoreal
         uint64_t frame = 0;                 // the add-on's frame count of the saved frame
     };
 
-    // history.f32, depth.r32, stencil.r8, normals.r10g10b10a2, mask.r8g8, irradiance.r11g11b10, constants.bin (160 bytes),
-    // sun.bin (2224 bytes, when there were constants) and trace.tsv (one key and value a line). Creates the folder.
+    // history.f32, depth.r32, stencil.r8, normals.r10g10b10a2, mask.r8g8 and irradiance.r11g11b10 (each when the save
+    // holds it), constants.bin (160 bytes), sun.bin (2224 bytes, when there were constants) and trace.tsv (one key and value
+    // a line). Creates the folder.
     // Returns the names of the files that could not be written.
     std::vector<std::string> write_trace_folder(const std::filesystem::path &folder, const TraceSave &save);
 
