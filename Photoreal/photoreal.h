@@ -267,6 +267,40 @@ typedef struct PhotorealAccumulate
     float cat_eye_falloff;      // the width of the cut's soft edge in aperture radii; default 0.1, clamped to 0.01..1
 } PhotorealAccumulate;
 
+// The directions a scene capture turns the camera to: world-axis cube faces in D3D cube-map order, each with its own up
+// (+X, -X, +Z and -Z keep +Y up; +Y has -Z up and -Y has +Z up), at a 90-degree vertical field of view, and the view as
+// the camera already is. Values of PhotorealStatus.scene_face, and bits 1 << face of PhotorealSceneRequest.faces.
+enum
+{
+    PHOTOREAL_FACE_POS_X = 0,
+    PHOTOREAL_FACE_NEG_X,
+    PHOTOREAL_FACE_POS_Y,
+    PHOTOREAL_FACE_NEG_Y,
+    PHOTOREAL_FACE_POS_Z,
+    PHOTOREAL_FACE_NEG_Z,
+    PHOTOREAL_FACE_VIEW,
+    PHOTOREAL_FACE_COUNT,
+};
+#define PHOTOREAL_FACE_NONE 0xFFFFFFFFu
+
+// What a scene capture writes besides each face's OBJ, as bits of PhotorealSceneRequest.flags.
+enum
+{
+    PHOTOREAL_SCENE_RAW = 1u << 0,  // also face-N.so: the stream output's clip-space positions as captured
+    PHOTOREAL_SCENE_PLY = 1u << 1,  // a binary PLY per face instead of the OBJ
+};
+
+// A scene capture: the geometry of every G-buffer draw, replayed with stream output, in world space, from each face.
+typedef struct PhotorealSceneRequest
+{
+    uint32_t size;              // sizeof(PhotorealSceneRequest) as the caller compiled it
+    uint32_t faces;             // bits 1 << PHOTOREAL_FACE_*; 0 reads as all seven (0x7F)
+    uint32_t settle;            // presents each turned face is held before its frame is captured; 0 reads as 45, clamped
+                                // to 2..600. The view face waits 2.
+    uint32_t flags;             // PHOTOREAL_SCENE_*
+    uint32_t max_triangles;     // per face; whole draws past it are left out of the file and counted; 0 reads as 4000000
+} PhotorealSceneRequest;
+
 #define PHOTOREAL_COMPARE_MAX 16
 
 // One settings variant of a comparison capture.
