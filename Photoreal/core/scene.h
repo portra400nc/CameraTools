@@ -139,7 +139,7 @@ namespace photoreal
     struct DepthCounts
     {
         uint32_t tested = 0;
-        uint32_t matched = 0;   // within max(0.05 m, 1%) of the depth buffer
+        uint32_t matched = 0;   // within max(0.05 m, 1%) of the depth buffer's range around it
         uint32_t in_front = 0;  // nearer than the buffer: wrong, or an alpha-cut corner
         uint32_t behind = 0;    // occluded, which is fine
         friend bool operator==(const DepthCounts &a, const DepthCounts &b)
@@ -154,11 +154,12 @@ namespace photoreal
         uint32_t off_screen = 0;    // corners behind the camera or outside the picture
     };
 
-    // Compares each captured corner with the main depth at its pixel, both in meters along the camera's forward axis: the
-    // corner's clip w, and the buffer's reversed depth through the camera. The pixel comes from the clip the vertex
-    // shader wrote, column (x / w * 0.5 + 0.5) * width and row (0.5 - 0.5 * y / w) * height, so no flip is involved.
-    // clip holds 12 floats a triangle; depth holds width * height floats, top row first. This checks the replay, not the
-    // world transform: a corner is placed by the same camera that reads the buffer.
+    // Compares each captured corner with the main depth around its pixel, both in meters along the camera's forward axis:
+    // the corner's clip w, and the buffer's reversed depth through the camera. The pixel comes from the clip the vertex
+    // shader wrote, column (x / w * 0.5 + 0.5) * width and row (0.5 - 0.5 * y / w) * height, so no flip is involved. A
+    // corner matches within max(0.05 m, 1%) of the depths of the 3x3 pixels around it, and is in front when nearer than
+    // all of them or when none has a depth. clip holds 12 floats a triangle; depth holds width * height floats, top row
+    // first. This checks the replay, not the world transform: a corner is placed by the same camera that reads the buffer.
     DepthCheck check_depth(const SceneCamera &camera, const std::vector<SceneDrawRecord> &records, const std::vector<float> &clip, Size size,
         const std::vector<float> &depth);
 

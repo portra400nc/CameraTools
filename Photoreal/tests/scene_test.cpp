@@ -292,6 +292,16 @@ int main()
             d.classes[static_cast<size_t>(DrawClass::s128)] == DepthCounts { 3, 1, 1, 1 });
         check("the prepass: 1 tested and matched at 10.05 m; 2 off screen, one behind the camera and one right of the picture",
             d.classes[static_cast<size_t>(DrawClass::pre)] == DepthCounts { 1, 1, 0, 0 } && d.off_screen == 2);
+        // The right column at 20 m: a corner on the silhouette between the two depths matches either.
+        std::vector<float> step = depth;
+        for (int row = 0; row < 4; row++)
+            step[row * 4 + 3] = 0.0125f;
+        std::vector<float> edge;
+        for (const std::array<float, 4> &v : { at(2, 0, 20), at(2, 1, 10), at(1, 1, 20) })
+            edge.insert(edge.end(), v.begin(), v.end());
+        const DepthCheck e = check_depth(camera, { record(true, 128, false, 0, 1) }, edge, { 4, 4 }, step);
+        check("beside a depth step, a corner at 20 m and one at 10 m both match, and one at 20 m two pixels from the step is behind",
+            e.classes[static_cast<size_t>(DrawClass::s128)] == DepthCounts { 3, 2, 0, 1 });
     }
 
     {

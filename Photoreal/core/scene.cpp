@@ -256,7 +256,19 @@ namespace photoreal
         DepthCheck check;
         if (size.width == 0 || size.height == 0 || depth.size() < size_t(size.width) * size.height)
             return check;
+        // Each pixel's depth at its center, placed by the same camera, in meters along its forward axis; NaN where the
+        // camera places it at infinity, which then matches nothing.
         const Vec3d &forward = camera.basis[2];
+        std::vector<float> meters(size_t(size.width) * size.height);
+        for (uint32_t py = 0; py < size.height; py++)
+            for (uint32_t px = 0; px < size.width; px++)
+            {
+                const float ndc_x = (px + 0.5f) / size.width * 2 - 1, ndc_y = 1 - (py + 0.5f) / size.height * 2;
+                const size_t at = size_t(py) * size.width + px;
+                const std::optional<Vec3d> surface = clip_to_world(camera, { ndc_x, ndc_y, depth[at], 1 });
+                meters[at] = surface ? float(dot({ (*surface)[0] - camera.position[0], (*surface)[1] - camera.position[1], (*surface)[2] - camera.position[2] },
+                    forward)) : NAN;
+            }
         for (const SceneDrawRecord &record : records)
         {
             DepthCounts &counts = check.classes[static_cast<size_t>(draw_class(record))];
@@ -270,25 +282,29 @@ namespace photoreal
                     check.off_screen++;
                     continue;
                 }
+                // A corner on a silhouette, or on a surface seen edge-on, lies between pixel centers whose depths differ by
+                // more than the tolerance, so it is held against the range of the 3x3 pixels around it.
                 const uint32_t px = static_cast<uint32_t>(column), py = static_cast<uint32_t>(row);
-                // The buffer's depth at the pixel's center, placed by the same camera, in meters along its forward axis.
-                const float ndc_x = (px + 0.5f) / size.width * 2 - 1, ndc_y = 1 - (py + 0.5f) / size.height * 2;
-                const std::optional<Vec3d> surface = clip_to_world(camera, { ndc_x, ndc_y, depth[size_t(py) * size.width + px], 1 });
-                if (!surface)
-                {
-                    check.off_screen++;
-                    continue;
-                }
-                const double buffer = dot({ (*surface)[0] - camera.position[0], (*surface)[1] - camera.position[1], (*surface)[2] - camera.position[2] },
-                    forward);
-                const double tolerance = std::max(0.05, 0.01 * buffer), difference = w - buffer;
+                double nearest = INFINITY, farthest = -INFINITY;
+                for (uint32_t ny = py > 0 ? py - 1 : 0; ny <= std::min(py + 1, size.height - 1); ny++)
+                    for (uint32_t nx = px > 0 ? px - 1 : 0; nx <= std::min(px + 1, size.width - 1); nx++)
+                    {
+                        const float m = meters[size_t(ny) * size.width + nx];
+                        if (std::isfinite(m))
+                        {
+                            nearest = std::min<double>(nearest, m);
+                            farthest = std::max<double>(farthest, m);
+                        }
+                    }
                 counts.tested++;
-                if (std::fabs(difference) <= tolerance)
-                    counts.matched++;
-                else if (difference < 0)
+                if (w < nearest - std::max(0.05, 0.01 * nearest))
                     counts.in_front++;
-                else
+                else if (w > farthest + std::max(0.05, 0.01 * farthest))
                     counts.behind++;
+                else if (nearest <= farthest)
+                    counts.matched++;
+                else
+                    counts.in_front++;
             }
         }
         return check;
