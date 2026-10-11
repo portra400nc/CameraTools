@@ -126,6 +126,39 @@ namespace photoreal
             reshade::log::message(level, ("CameraTools Photoreal: " + message).c_str());
         }
 
+        // Why the game's bloom sometimes does not match is unknown, so a frame whose bloom step fell back turns on the
+        // tracker's trace for the frames after it, and the next such frame's draws go to ReShade.log, at most kBloomTraces
+        // times a session. The trace stops kBloomTraceFrames presents after the last fall-back, because it asks every draw
+        // for its inputs.
+        constexpr uint32_t kBloomTraces = 3;
+        constexpr uint64_t kBloomTraceFrames = 3600;
+        bool bloom_noted = false;
+        uint32_t bloom_traces = 0;
+        uint64_t bloom_trace_until = 0;
+
+        // At present, for a frame whose bloom step fell back.
+        void diagnose_bloom()
+        {
+            if (bloom_traces == kBloomTraces)
+                return;
+            bloom_trace_until = frames + kBloomTraceFrames;
+            if (!tracker.tracing())
+            {
+                if (!bloom_noted)
+                    log(reshade::log::level::info, "the game's bloom did not match in frame " + std::to_string(frames)
+                        + ", so the bloom step's passes ran at the tonemap draw. The next such frame's draws go to this log.");
+                bloom_noted = true;
+                return;
+            }
+            const std::vector<std::string> lines = describe_trace(tracker);
+            log(reshade::log::level::info, "the game's bloom did not match in frame " + std::to_string(frames) + ". Its "
+                + std::to_string(tracker.traced().size()) + " draws from the combine step to the tonemap draw, with render targets (rt), depth (ds) "
+                "and pixel shader inputs (t), each texture by frame-map entry or as #number DXGI_FORMAT:size:");
+            for (const std::string &line : lines)
+                log(reshade::log::level::info, "  " + line);
+            bloom_traces++;
+        }
+
         // A restore that left the game's bindings different would corrupt the rest of every frame, so the add-on stops
         // for good.
         void trip(const char *moved)
@@ -653,6 +686,8 @@ namespace photoreal
                 read_depth();
             if (report.armed)
                 report.finish(tracker, settings, inputs());
+            if (report.armed && report.fell_back.has(Step::bloom))
+                diagnose_bloom();
             report.error = sticky_error != PHOTOREAL_ERROR_NONE ? sticky_error : frame_error;
 
             std::vector<Variant> variants;
@@ -691,6 +726,7 @@ namespace photoreal
             const bool arm = (settings.enabled || accumulate.mode != AccumulateMode::off || reading_depth) && sticky_error == PHOTOREAL_ERROR_NONE
                 && gpu.ready();
             gpu.end_frame(arm && settings.enabled ? settings.view : View::off);
+            tracker.trace(bloom_traces < kBloomTraces && frames < bloom_trace_until);
             tracker.begin_frame();
             report = FrameReport::start(settings);
             report.armed = arm;

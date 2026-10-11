@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <initializer_list>
 #include <optional>
+#include <string>
 #include <variant>
 #include <vector>
 
@@ -152,6 +153,13 @@ namespace photoreal
 
     extern const std::array<StepSpec, static_cast<size_t>(Step::count)> kRecipe;
 
+    // A draw as the tracker's trace holds it: the targets bound and the pixel shader inputs by slot.
+    struct TracedDraw
+    {
+        Targets targets;
+        std::vector<Texture> inputs;
+    };
+
     // Feeds one frame's events through kRecipe. Rules:
     //  - a step matches at most once per frame, and only after its prerequisites;
     //  - a step whose prerequisites matched but which has not when its fallback matches falls back: the fallback's event
@@ -173,11 +181,28 @@ namespace photoreal
         StepSet fell_back() const { return fell_back_; }
         uint32_t restarts() const { return restarts_; }
 
+        // While on, every draw from the moment a step with a fallback could match until it or its fallback matched, the
+        // draw that did included, is traced with its inputs. Off by default, because asking every draw for its inputs
+        // costs. begin_frame empties the trace and keeps the switch.
+        void trace(bool on) { tracing_ = on; }
+        bool tracing() const { return tracing_; }
+        const std::vector<TracedDraw> &traced() const { return traced_; }
+
     private:
+        bool awaiting_fallback() const;
+
         Seen seen_;
         FrameMap map_;
         StepSet matched_;
         StepSet fell_back_;
         uint32_t restarts_ = 0;
+        bool tracing_ = false;
+        std::vector<TracedDraw> traced_;
     };
+
+    // The tracker's trace, one line per run of alike draws: "draws 4-6: rt #2 26:480x300; t0 hdr-scene t2 #3 60:1920x1200
+    // +9 more". rt and ds are the render targets and the depth target, t<slot> the pixel shader inputs from t0 to t7 and
+    // any frame-map entry past them, then how many other slots hold something. An entry goes by its name; any other
+    // texture by a number of its own in this trace, its DXGI_FORMAT number and its size.
+    std::vector<std::string> describe_trace(const FrameTracker &tracker);
 }

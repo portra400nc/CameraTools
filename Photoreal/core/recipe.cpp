@@ -232,6 +232,73 @@ namespace photoreal
         return false;
     }
 
+    std::vector<std::string> describe_trace(const FrameTracker &tracker)
+    {
+        // The game leaves earlier draws' inputs bound in the higher slots, so past these only entries are named.
+        constexpr size_t kNamedSlots = 8;
+        const FrameMap &map = tracker.map();
+        const auto entry = [&map](const Texture &t) -> const char * {
+            for (size_t e = 0; e < map.entries.size(); e++)
+                if (map.entries[e] && map.entries[e]->id == t.id)
+                    return kEntryNames[e];
+            return nullptr;
+        };
+        std::vector<ResourceId> numbered;
+        const auto name = [&](const Texture &t) {
+            if (const char *e = entry(t))
+                return std::string(e);
+            const auto it = std::find(numbered.begin(), numbered.end(), t.id);
+            const size_t number = it - numbered.begin() + 1;
+            if (it == numbered.end())
+                numbered.push_back(t.id);
+            return "#" + std::to_string(number) + " " + std::to_string(static_cast<uint32_t>(t.format)) + ":" + std::to_string(t.size.width) + "x"
+                + std::to_string(t.size.height);
+        };
+        std::vector<std::string> lines;
+        std::string last;
+        size_t first = 0;
+        const std::vector<TracedDraw> &draws = tracker.traced();
+        for (size_t i = 0; i <= draws.size(); i++)
+        {
+            std::string text;
+            if (i < draws.size())
+            {
+                const Targets &t = draws[i].targets;
+                text = "rt";
+                for (uint8_t c = 0; c < t.count; c++)
+                    text += " " + name(t.color[c]);
+                if (t.count == 0)
+                    text += " none";
+                if (t.depth)
+                    text += " ds " + name(*t.depth);
+                text += ";";
+                uint32_t more = 0;
+                for (size_t slot = 0; slot < draws[i].inputs.size(); slot++)
+                {
+                    const Texture &input = draws[i].inputs[slot];
+                    if (input.id == ResourceId {})
+                        continue;
+                    if (slot < kNamedSlots || entry(input))
+                        text += " t" + std::to_string(slot) + " " + name(input);
+                    else
+                        more++;
+                }
+                if (more != 0)
+                    text += " +" + std::to_string(more) + " more";
+                if (text.back() == ';')
+                    text += " no inputs";
+            }
+            if (i > 0 && text != last)
+            {
+                lines.push_back((i - first == 1 ? "draw " + std::to_string(first + 1) : "draws " + std::to_string(first + 1) + "-" + std::to_string(i))
+                    + ": " + last);
+                first = i;
+            }
+            last = std::move(text);
+        }
+        return lines;
+    }
+
     EntrySet FrameMap::found() const
     {
         EntrySet set;
@@ -249,6 +316,15 @@ namespace photoreal
         matched_ = {};
         fell_back_ = {};
         restarts_ = 0;
+        traced_.clear();
+    }
+
+    bool FrameTracker::awaiting_fallback() const
+    {
+        for (const StepSpec &spec : kRecipe)
+            if (spec.fallback != Step::count && matched_.contains(spec.after) && !matched_.has(spec.step) && !matched_.has(spec.fallback))
+                return true;
+        return false;
     }
 
     StepSet FrameTracker::feed(const FrameEvent &event)
@@ -261,6 +337,15 @@ namespace photoreal
             map_ = {};
             matched_ = {};
             fell_back_ = {};
+            traced_.clear();
+        }
+
+        // Before matching, so the trace holds the draw that matches.
+        if (const auto *draw = std::get_if<Draw>(&event); draw && tracing_ && awaiting_fallback())
+        {
+            uint32_t count = 0;
+            const Texture *inputs = draw->queries.ps_inputs(&count);
+            traced_.push_back({ seen_.targets, std::vector<Texture>(inputs, inputs + count) });
         }
 
         // At most one step per event: no event in the captures fits two.

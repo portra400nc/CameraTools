@@ -137,6 +137,33 @@ int main()
     }
     {
         auto rows = normal;
+        fixture::drop(rows, 921, 921);
+        FrameTracker tracker;
+        fixture::replay(rows, tracker);
+        check("with the trace off, the tracker traces nothing", !tracker.tracing() && tracker.traced().empty() && describe_trace(tracker).empty());
+        tracker.trace(true);
+        fixture::replay(rows, tracker);
+        const std::vector<std::string> lines = describe_trace(tracker);
+        check("111824 without the bloom draw, traced: the 64 draws from the combine clear 814 to the tonemap draw 951, in 44 lines",
+            tracker.traced().size() == 64 && lines.size() == 44);
+        check("the bloom chain's draws 931 to 933 into a 136x158 R11G11B10 target from the first bloom target are one line",
+            lines[39] == "draws 54-56: rt #58 26:136x158; t0 #57 26:480x300 t1 material-id t2 #2 29:4x4 t3 #1 19:1920x1200 t4 #2 29:4x4 "
+                         "t5 #20 26:128x128 t6 #42 0:512x512 t7 #43 0:128x128 +15 more");
+        check("the last line is the tonemap draw, which samples the HDR scene at t0 and the final bloom at t1",
+            lines[43] == "draw 64: rt tonemap-out; t0 hdr-scene t1 bloom-final t2 #44 28:1x1 t3 #55 29:4x4 t4 #2 29:4x4 t5 #20 26:128x128 "
+                         "t6 #42 0:512x512 t7 #43 0:128x128 +15 more");
+        check("the first line names the frame-map entries past t7 and counts the rest", describe_trace(tracker)[0].find(
+            "t8 smoothness t9 ambient-specular t11 ambient-diffuse +19 more") != std::string::npos);
+        auto whole = normal;
+        fixture::replay(whole, tracker);
+        check("111824 as captured, traced: the trace stops at the bloom draw 921, the 52nd, into the first bloom target 357",
+            tracker.tracing() && tracker.traced().size() == 52 && id(tracker.map(), Entry::bloom) == 357
+                && static_cast<uint64_t>(tracker.traced().back().targets.color[0].id) == 357);
+        tracker.begin_frame();
+        check("begin_frame empties the trace and keeps it on", tracker.traced().empty() && tracker.tracing());
+    }
+    {
+        auto rows = normal;
         fixture::drop(rows, 921, 951);  // the bloom chain and the tonemap draw
         FrameTracker tracker;
         fixture::replay(rows, tracker);
