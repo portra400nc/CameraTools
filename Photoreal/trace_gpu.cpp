@@ -102,6 +102,7 @@ namespace photoreal
         triangles_ = node_count_ = 0;
         hash_ = 0;
         key_.reset();
+        uploaded_constants_.reset();
         schedule_ = {};
         save_.reset();
     }
@@ -140,7 +141,6 @@ namespace photoreal
             return;
         state_ = TraceState::stale;
         why_ = why;
-        save_.reset();
     }
 
     bool TraceGpu::make_shader()
@@ -300,6 +300,7 @@ namespace photoreal
         }
         std::memcpy(mapped.pData, &constants, sizeof constants);
         c->Unmap(constants_.Get(), 0);
+        uploaded_constants_ = constants;
         if (!frame.dispatch)
             return true;
 
@@ -425,10 +426,15 @@ namespace photoreal
 
     bool TraceGpu::copy_for_save(const TraceSave &save, ID3D11Texture2D *normals, ID3D11Texture2D *depth, ID3D11Texture2D *mask, ID3D11Texture2D *irradiance)
     {
-        if (!history_)
+        if (!history_ || !uploaded_constants_ || (state_ != TraceState::ready && state_ != TraceState::stale))
             return false;
         auto p = std::make_unique<PendingSave>();
         p->save = save;
+        p->save.constants = *uploaded_constants_;
+        p->save.state = state_;
+        p->save.why = state_ == TraceState::stale ? why_ : std::string();
+        p->save.passes = passes();
+        p->save.counters = totals_;
         if (FAILED(staging_buffer(device_.Get(), 16, size_.width * size_.height, p->history)))
             return false;
         ID3D11DeviceContext1 *c = context_.Get();

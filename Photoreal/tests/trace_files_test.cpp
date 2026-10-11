@@ -55,13 +55,16 @@ int main(int argc, char **argv)
     s.triangles = 2377274;
     s.nodes = 756325;
     s.passes = 12;
+    s.state = TraceState::stale;
+    s.why = "rays from the camera met the scene off the depth buffer";
+    s.camera.view_to_clip[11] = -1;
     s.counters = { 1000, 1, 2, 30, 1, 20, 0, 0, 0, 10, 0, 0, 1, 0, 0, 0, 0 };
     s.mrays = 12.5;
     s.frame = 4321;
     const std::string tsv = trace_tsv(s);
-    check("trace.tsv names the scene, the BVH's hash, the samples and counters, the frame of the scene and the settings",
+    check("trace.tsv names the scene, the BVH's hash, the samples, the state and why, the counters, the frame of the scene and the settings",
         tsv.find("key\tvalue\nwidth\t3\nheight\t2\nframe\t4321\nscene\tscene-20261011-194351\ngeneration\t3\nbvh_hash\tb090ff09807266ca\n"
-                 "triangles\t2377274\nnodes\t756325\npasses\t12\nrays\t1000\nguard_stops\t1\nstack_overflows\t2\ngrid_tested\t30\ngrid_off\t1\n"
+                 "triangles\t2377274\nnodes\t756325\npasses\t12\nstate\tstale\nwhy\trays from the camera met the scene off the depth buffer\nrays\t1000\nguard_stops\t1\nstack_overflows\t2\ngrid_tested\t30\ngrid_off\t1\n"
                  "grid_128_tested\t20\ngrid_128_no_hit\t0\ngrid_128_nearer\t0\ngrid_128_farther\t0\ngrid_144_tested\t10\ngrid_144_no_hit\t0\n"
                  "grid_144_nearer\t0\ngrid_144_farther\t1\ngrid_other_tested\t0\ngrid_other_no_hit\t0\ngrid_other_nearer\t0\ngrid_other_farther\t0\n"
                  "mrays\t12.5\nreference\t1648.5,229.75,9468.25\nfloating_origin\t1648.68604,0,9468.5293\nsun_source\tgame\ntoward_sun\t0,1,0\n"
@@ -81,7 +84,15 @@ int main(int argc, char **argv)
         check("and read back as the reference tracer needs them", back && back->size == s.size && back->history == s.history && back->depth == s.depth
             && back->stencil == s.stencil && back->normals == s.normals && back->mask == s.mask && back->scene == s.scene && back->bvh_hash == s.bvh_hash
             && back->passes == 12 && back->generation == 3 && back->reference == s.reference && back->constants.eye_position[1] == 1.5f && back->sun
-            && (*back->sun)[5] == 9);
+            && (*back->sun)[5] == 9 && back->state == TraceState::stale && back->why == s.why && back->camera.world_to_view[0] == 1
+            && back->camera.view_to_clip[11] == -1 && back->camera.view_to_clip[10] == 0);
+        TraceSave ready = s;
+        ready.state = TraceState::ready;
+        ready.why.clear();
+        write_trace_folder(folder, ready);
+        const std::optional<TraceSave> ready_back = read_trace_folder(folder, why);
+        check("a save while ready says so, with no reason", trace_tsv(ready).find("\nstate\tready\nwhy\t-\n") != std::string::npos && ready_back
+            && ready_back->state == TraceState::ready && ready_back->why.empty());
         std::filesystem::remove(folder / "depth.r32");
         check("a missing image says which files it needs", !read_trace_folder(folder, why) && why.find("depth.r32") != std::string::npos);
     }

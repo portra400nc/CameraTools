@@ -553,11 +553,11 @@ namespace photoreal
             trace_traced = trace_frame->traced;
         }
 
-        // What a save holds besides the frame's images, as the trace pass has it now.
+        // What a save holds besides the frame's images, as the trace pass has it now; TraceGpu::copy_for_save adds the
+        // constants it last uploaded, its state, passes and counters.
         TraceSave trace_save_meta()
         {
             TraceSave s;
-            s.constants = trace_frame->constants;
             s.settings = settings.trace;
             s.level = settings.ambient.level;
             s.camera = camera;
@@ -570,8 +570,6 @@ namespace photoreal
             s.bvh_hash = trace_gpu.hash();
             s.triangles = trace_gpu.triangles();
             s.nodes = trace_gpu.nodes();
-            s.passes = trace_passes(trace_frame->schedule);
-            s.counters = trace_gpu.totals();
             s.mrays = trace_gpu.mrays();
             s.frame = frames;
             return s;
@@ -589,6 +587,10 @@ namespace photoreal
                 if (scene_gbuffer)
                     scene_gpu.copy_gbuffer(map);
                 prepare_trace(map);
+                // A save while the scene is stale, which the trace pass no longer runs for: this frame's images with the
+                // history as it was when the scene went stale.
+                if (trace_save_wanted.load() && !trace_gpu.saving() && trace_gpu.state() == TraceState::stale && gpu.save_trace(map, trace_save_meta(), trace_gpu))
+                    trace_save_wanted = false;
             }
             const Plan p = plan(step, map, settings, inputs());
             report.note(p);
@@ -633,8 +635,7 @@ namespace photoreal
                     case PassId::trace:
                     {
                         // A save waits for a frame the trace writes; run_trace copies it then.
-                        const std::optional<TraceSave> save = trace_save_wanted.load() && !trace_gpu.saving() && trace_frame ? std::optional(trace_save_meta())
-                                                                                                                             : std::nullopt;
+                        const std::optional<TraceSave> save = trace_save_wanted.load() && !trace_gpu.saving() ? std::optional(trace_save_meta()) : std::nullopt;
                         bool saved = false;
                         if (trace_frame)
                             call = gpu.run_trace(map, *trace_frame, settings.trace, camera, settings.flip, report.view == View::trace, save ? &*save : nullptr,
@@ -1296,8 +1297,8 @@ namespace photoreal
                 fs::path folder = output_root() / ("trace-" + timestamp());
                 for (int i = 2; fs::exists(folder); i++)
                     folder = output_root() / ("trace-" + timestamp() + "-" + std::to_string(i));
-                log(reshade::log::level::info, "saving the trace's frame " + std::to_string(save->frame) + " after " + std::to_string(save->passes) + " passes into "
-                    + folder.u8string() + ".");
+                log(reshade::log::level::info, "saving the trace's frame " + std::to_string(save->frame) + " after " + std::to_string(save->passes) + " passes"
+                    + (save->state == TraceState::stale ? ", its scene stale and its history as it was then," : "") + " into " + folder.u8string() + ".");
                 worker.push([folder, save = std::move(*save)] { log_unwritten(write_trace_folder(folder, save)); });
             }
             else if (failed)
@@ -1305,7 +1306,7 @@ namespace photoreal
             if (trace_save_wanted.load() && presents.load() - trace_save_asked.load() > kTraceSaveWait)
             {
                 trace_save_wanted = false;
-                log(reshade::log::level::warning, "the trace save was given up: the trace pass wrote no frame within " + std::to_string(kTraceSaveWait)
+                log(reshade::log::level::warning, "the trace save was given up: the trace pass wrote no frame, nor had a history to save, within " + std::to_string(kTraceSaveWait)
                     + " presents.");
             }
             log_trace_state();
@@ -1564,7 +1565,9 @@ extern "C" uint32_t PhotorealSaveTrace(void)
         std::lock_guard lock(status_box.mutex);
         status = status_box.value.status;
     }
-    if (status.trace_state != PHOTOREAL_TRACE_STATE_READY || status.trace_samples == 0 || trace_save_wanted.load())
+    // A stale scene keeps its history, which a save takes as it was; a ready one waits for its first full pass.
+    const bool ready = status.trace_state == PHOTOREAL_TRACE_STATE_READY && status.trace_samples != 0;
+    if (!(ready || status.trace_state == PHOTOREAL_TRACE_STATE_STALE) || trace_save_wanted.load())
         return 0;
     // The present first, so the render thread never sees the request with an older one.
     trace_save_asked = presents.load(std::memory_order_relaxed);

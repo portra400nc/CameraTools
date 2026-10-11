@@ -65,7 +65,7 @@ All exports use the C calling convention. Every one may be called from any threa
 | `void PhotorealGetStatus(PhotorealStatus *)` | Copies the last frame's status. Set `size` first. |
 | `uint32_t PhotorealDescribe(char *, uint32_t)` | Writes the last frame's status line and returns its length, or 0 when the buffer is too small. |
 | `uint32_t PhotorealCaptureScene(const PhotorealSceneRequest *)` | Starts a [scene capture](#scene-capture). Returns 1 when accepted, and 0 while a scene capture is still running or saving, or the request is null, too short to hold `faces`, or names no known face. It works whether `enabled` is on or not. |
-| `uint32_t PhotorealSaveTrace(void)` | Saves the next frame the [trace pass](#path-tracer) writes for the Mac's reference tracer. Returns 1 when accepted, and 0 while the traced scene is not ready, before its first full pass, or while a save waits. |
+| `uint32_t PhotorealSaveTrace(void)` | Saves the next frame the [trace pass](#path-tracer) writes for the Mac's reference tracer, or, while the traced scene is stale, the next frame's images with the history as it was. Returns 1 when accepted, and 0 while the traced scene is neither ready nor stale, before a ready scene's first full pass, or while a save waits. |
 | `uint32_t PhotorealCompare(const PhotorealVariant *, uint32_t)` | Starts a [comparison capture](#comparison-capture) of 1 to 16 variants. Each `PhotorealVariant` is a 32-byte UTF-8 name and a `PhotorealSettings`. Returns 1 when accepted, and 0 when a capture is still running or saving, or the input is invalid: a null pointer, no variants, more than 16, an empty name, or settings whose `size` does not hold `enabled`. |
 
 Settings:
@@ -391,16 +391,16 @@ The scene is fixed in the world it was captured in, so the trace stops, `trace_s
 
 ### Saving a frame
 
-`PhotorealSaveTrace` copies the next frame the pass writes and saves it to `<ReShade base path>\Photoreal\trace-<YYYYMMDD-HHMMSS>\`:
+`PhotorealSaveTrace` copies the next frame the pass writes and saves it to `<ReShade base path>\Photoreal\trace-<YYYYMMDD-HHMMSS>\`. While the scene is stale, the pass no longer runs, and the save takes the next frame's images at the combine step with the history as it was when the scene went stale, so a stale verdict can be checked on the Mac:
 
 | File | Holds |
 |---|---|
 | `history.f32` | Four float32 a pixel, top row first: the occlusion sum, the sun sum and their counts. |
 | `depth.r32`, `stencil.r8`, `normals.r10g10b10a2` | The frame the pass traced from, as stored. |
 | `mask.r8g8`, `irradiance.r11g11b10` | The game's shadow mask and diffuse irradiance as the pass found them, before any pass of ours. |
-| `constants.bin` | The 160 bytes of the trace's constants, `TraceConstants` in `core/trace.h`. |
+| `constants.bin` | The 160 bytes of the trace's constants, `TraceConstants` in `core/trace.h`, exactly as the last dispatch uploaded them, its tiles included. |
 | `sun.bin` | The newest shadow-mask constants `b0` to `b3` read back, when there were any. |
-| `trace.tsv` | One key and value a line: the size, frame, the scene folder holding `trace-scene.bin`, its generation, BVH hash, triangles and nodes, the full passes, the rays, guard stops, stack overflows and consistency grid since the samples started, with the grid by stencil class and reason (`grid_128_tested`, `grid_128_no_hit`, `grid_128_nearer`, `grid_128_farther`, and the same for `144` and `other`), the rays a second, the reference, the floating origin, the sun's source and direction, the eye, the pushed camera's matrices, the trace settings and `ambient.level`. |
+| `trace.tsv` | One key and value a line: the size, frame, the scene folder holding `trace-scene.bin`, its generation, BVH hash, triangles and nodes, the full passes, the state (`ready` or `stale`) and why it went stale (`-` while ready), the rays, guard stops, stack overflows and consistency grid since the samples started, with the grid by stencil class and reason (`grid_128_tested`, `grid_128_no_hit`, `grid_128_nearer`, `grid_128_farther`, and the same for `144` and `other`), the rays a second, the reference, the floating origin, the sun's source and direction, the eye, the pushed camera's matrices, the trace settings and `ambient.level`. |
 
 On the Mac, `tests/check_trace.sh <trace folder> [scene folder]` checks a saved frame: it builds `tests/trace_reference.cpp`, which reads the folder, builds the BVH of the scene folder's `trace-scene.bin` (by default the one `trace.tsv` names, beside the trace folder) with `core/bvh.cpp` and checks its hash against the Deck's, and gives every pixel the samples the Deck's history says it has, with the same constants, sequence and traversal (`shaders/trace.hlsli` compiled as C++), on all cores, into `reference.f32`. `tests/check_trace.py` then checks that every world pixel has the Deck's counts, that the occlusion and sun averages agree within 0.02 on at least 99% of the world pixels, and that no 16x16 tile's mean difference passes 0.005, and writes `check-trace.png` (the Deck's averages, the reference's, and their difference times 10, occlusion above sun). With the game's mask and the shadow-mask constants in the folder, it also reports the share of world pixels inside the game's cascades and shadow distance that the game shadows and the trace lights, which is casters the scene lacks, and the reverse; and how the traced occlusion follows the game's diffuse irradiance, as information.
 

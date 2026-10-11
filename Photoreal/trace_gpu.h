@@ -93,8 +93,10 @@ namespace photoreal
         Poll poll(const TraceSettings &settings);
 
         // A save of this frame: copies the history, the normals, the depth with its stencil, and the game's shadow mask and
-        // irradiance mirrors (as the trace pass found them) into CPU-readable copies, keeping save's other fields. false
-        // when a copy could not be made.
+        // irradiance mirrors (as the trace pass found them) into CPU-readable copies, keeping save's other fields but the
+        // constants, which become the last ones a dispatch uploaded, and the state, why, passes and counters, which become the
+        // trace's. Works while READY and while STALE, whose history stays as it was. false when there is no history or
+        // constants yet, or a copy could not be made.
         bool copy_for_save(const TraceSave &save, ID3D11Texture2D *normals, ID3D11Texture2D *depth, ID3D11Texture2D *mask, ID3D11Texture2D *irradiance);
         bool saving() const { return save_ != nullptr; }
         // At present: the save once the GPU has finished its copies, else empty; failed when a map failed, and the save is
@@ -151,6 +153,7 @@ namespace photoreal
         uint32_t triangles_ = 0, node_count_ = 0;
         uint64_t hash_ = 0;
         std::optional<TraceKey> key_;           // the last dispatched frame's
+        std::optional<TraceConstants> uploaded_constants_;  // what the last dispatch put in the constant buffer, tiles and all
         TraceSchedule schedule_;
         uint64_t epoch_ = 0;
         TraceCounts totals_ {};

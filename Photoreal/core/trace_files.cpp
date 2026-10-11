@@ -1,6 +1,7 @@
 #include "trace_files.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iterator>
@@ -77,6 +78,8 @@ namespace photoreal
         row("triangles", std::to_string(s.triangles));
         row("nodes", std::to_string(s.nodes));
         row("passes", std::to_string(s.passes));
+        row("state", kTraceStateNames[static_cast<size_t>(s.state)]);
+        row("why", s.why.empty() ? "-" : s.why);
         static const char *const kCounterNames[] = { "rays", "guard_stops", "stack_overflows", "grid_tested", "grid_off", "grid_128_tested",
             "grid_128_no_hit", "grid_128_nearer", "grid_128_farther", "grid_144_tested", "grid_144_no_hit", "grid_144_nearer", "grid_144_farther",
             "grid_other_tested", "grid_other_no_hit", "grid_other_nearer", "grid_other_farther" };
@@ -157,6 +160,17 @@ namespace photoreal
             return std::nullopt;
         }
         s.scene = get("scene");
+        for (size_t i = 0; i < kTraceStateNames.size(); i++)
+            if (get("state") == kTraceStateNames[i])
+                s.state = static_cast<TraceState>(i);
+        s.why = get("why") == "-" ? std::string() : get("why");
+        for (const auto &[key, matrix] : { std::pair { "world_to_view", s.camera.world_to_view }, std::pair { "view_to_clip", s.camera.view_to_clip } })
+        {
+            std::istringstream text(get(key));
+            std::string item;
+            for (int k = 0; k < 16 && std::getline(text, item, ','); k++)
+                matrix[k] = std::strtof(item.c_str(), nullptr);
+        }
         const size_t pixels = size_t(s.size.width) * s.size.height;
         std::vector<uint8_t> constants;
         if (!read_vector(folder / "history.f32", pixels * 4, s.history) || !read_vector(folder / "depth.r32", pixels, s.depth)

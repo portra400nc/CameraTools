@@ -22,7 +22,9 @@ namespace photoreal
         std::vector<uint32_t> normals;      // R10G10B10A2_UNORM as stored
         std::vector<uint8_t> mask;          // the game's shadow mask before any pass of ours, R8G8_UNORM, 2 bytes a pixel
         std::vector<uint8_t> irradiance;    // the game's diffuse irradiance before any pass of ours, R11G11B10_FLOAT, 4 bytes a pixel
-        TraceConstants constants {};        // as the frame's dispatch had them, apart from its tiles
+        TraceConstants constants {};        // the last ones the trace's dispatch uploaded, tiles and all: those its history was traced with
+        TraceState state = TraceState::ready;   // stale when the scene had gone stale: the history is what the trace had then
+        std::string why;                    // why it went stale; empty while ready
         TraceSettings settings;
         float level = 1;                    // ambient.level, which the traced occlusion is applied with
         Camera camera {};                   // the pushed camera of the frame
@@ -50,6 +52,6 @@ namespace photoreal
     std::string trace_tsv(const TraceSave &save);
 
     // The folder back, as the reference tracer needs it: the size, the images, the constants, the scene's name, the
-    // reference, the hash and the passes from trace.tsv. Empty, with why, when a file is missing or of the wrong size.
+    // reference, the hash, the passes, the state and why, and the pushed camera's matrices from trace.tsv. Empty, with why, when a file is missing or of the wrong size.
     std::optional<TraceSave> read_trace_folder(const std::filesystem::path &folder, std::string &why);
 }

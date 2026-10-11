@@ -303,6 +303,10 @@ namespace photoreal
         // failed, which then says why.
         std::optional<GameCall> run_trace(const FrameMap &map, const TraceFrame &frame, const TraceSettings &settings, const Camera &camera, bool flip,
             bool view, const TraceSave *save, bool &saved, TraceGpu &trace);
+        // A save while the trace pass does not run, its scene STALE: mirrors in this frame's normals, depth, shadow mask and
+        // diffuse irradiance, and copies them with the history as it was for trace.read_save. Copies only; no pipeline
+        // state changes. false when a mirror or a copy could not be made, or the map lacks an entry.
+        bool save_trace(const FrameMap &map, const TraceSave &save, TraceGpu &trace);
 
         // At the pending view's snapshot step: copies the entry into pending. false when the copy could not be made.
         bool snapshot(const Texture &entry);

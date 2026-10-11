@@ -682,6 +682,20 @@ namespace photoreal
         return GameCall::keep;
     }
 
+    bool Gpu::save_trace(const FrameMap &map, const TraceSave &save, TraceGpu &trace)
+    {
+        if (!map[Entry::shadow_mask] || !map[Entry::ambient_diffuse] || !map[Entry::normals] || !map[Entry::depth])
+            return false;
+        const Texture &mask = *map[Entry::shadow_mask], &irradiance = *map[Entry::ambient_diffuse];
+        ID3D11Device *d = device_.Get();
+        if (!shadow_mask_in_.sync(d, native(mask), static_cast<DXGI_FORMAT>(mask.format), false)
+            || !irradiance_in_.sync(d, native(irradiance), static_cast<DXGI_FORMAT>(irradiance.format), false) || !mirror_gbuffer(map))
+            return false;
+        shadow_mask_in_.copy_from(context_.Get(), native(mask));
+        irradiance_in_.copy_from(context_.Get(), native(irradiance));
+        return trace.copy_for_save(save, normals_.texture(), depth_.texture(), shadow_mask_in_.texture(), irradiance_in_.texture());
+    }
+
     std::optional<GameCall> Gpu::run_ambient(const FrameMap &map, const AmbientSettings &settings, const Camera &camera, bool flip)
     {
         const Texture &irradiance = *map[Entry::ambient_diffuse];
