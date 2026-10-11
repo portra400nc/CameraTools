@@ -215,7 +215,7 @@ typedef struct PhotorealWetness
 typedef struct PhotorealLightShafts
 {
     uint32_t enabled;           // default 0
-    float strength;             // multiplies the sun light the mist scatters; default 1.5, clamped to 0..10
+    float strength;             // multiplies the sun light the mist scatters; default 3, clamped to 0..10
     float density;              // the mist's extinction per meter at the camera's height; default 0.006, which hides 26% of a
                                 // pixel 50 m away level with the camera; clamped to 0..0.2
     float height;               // meters: the mist thins by e every height meters above the camera and thickens as fast
@@ -224,7 +224,7 @@ typedef struct PhotorealLightShafts
                                 // the camera looks toward the sun; default 0.6, clamped to -0.95..0.95
     float distance;             // meters of mist along each pixel's ray, up to the pixel, and all of it for the sky;
                                 // default 150, clamped to 5..900
-    float patchiness;           // 0 an even mist, 1 banks and clear holes; default 0.5, clamped to 0..1
+    float patchiness;           // 0 an even mist, 1 banks and clear holes; default 1, clamped to 0..1
     float patch_size;           // meters across a patch; default 6, clamped to 0.5..100
     float ambient;              // multiplies the sky light the mist scatters, which keeps mist in shadow from going black;
                                 // default 0.3, clamped to 0..4

@@ -84,12 +84,12 @@ namespace photoreal
     struct LightShaftSettings
     {
         bool enabled = false;
-        float strength = 1.5f;
+        float strength = 3.0f;
         float density = 0.006f;
         float height = 5.0f;
         float anisotropy = 0.6f;
         float distance = 150.0f;
-        float patchiness = 0.5f;
+        float patchiness = 1.0f;
         float patch_size = 6.0f;
         float ambient = 0.3f;
         uint32_t steps = 48;

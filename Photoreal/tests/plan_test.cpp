@@ -868,9 +868,9 @@ int main()
         raw.size = 132;  // a caller built before light shafts existed
         const Settings before = parse_settings(raw);
         const LightShaftSettings &b = before.light_shafts;
-        check("a 132-byte struct reads its wetness block and keeps light shafts off at strength 1.5, density 0.006, height 5, "
-              "anisotropy 0.6, distance 150, patchiness 0.5, patch size 6, ambient 0.3, 48 steps", !b.enabled && b.strength == 1.5f
-            && b.density == 0.006f && b.height == 5.0f && b.anisotropy == 0.6f && b.distance == 150.0f && b.patchiness == 0.5f
+        check("a 132-byte struct reads its wetness block and keeps light shafts off at strength 3, density 0.006, height 5, "
+              "anisotropy 0.6, distance 150, patchiness 1, patch size 6, ambient 0.3, 48 steps", !b.enabled && b.strength == 3.0f
+            && b.density == 0.006f && b.height == 5.0f && b.anisotropy == 0.6f && b.distance == 150.0f && b.patchiness == 1.0f
             && b.patch_size == 6.0f && b.ambient == 0.3f && b.steps == 48 && before.wetness.enabled && before.wetness.puddles == 0.6f);
         raw.size = 171;
         check("a struct one byte short of the light-shaft block keeps its defaults", !parse_settings(raw).light_shafts.enabled
@@ -878,9 +878,9 @@ int main()
         raw.size = sizeof raw;
         raw.light_shafts = { 1, NAN, INFINITY, -INFINITY, NAN, NAN, INFINITY, -INFINITY, NAN, 48 };
         const LightShaftSettings bad = parse_settings(raw).light_shafts;
-        check("light shafts: NaN and infinities fall back to strength 1.5, density 0.006, height 5, anisotropy 0.6, distance 150, "
-              "patchiness 0.5, patch size 6, ambient 0.3", bad.strength == 1.5f && bad.density == 0.006f && bad.height == 5.0f
-            && bad.anisotropy == 0.6f && bad.distance == 150.0f && bad.patchiness == 0.5f && bad.patch_size == 6.0f && bad.ambient == 0.3f);
+        check("light shafts: NaN and infinities fall back to strength 3, density 0.006, height 5, anisotropy 0.6, distance 150, "
+              "patchiness 1, patch size 6, ambient 0.3", bad.strength == 3.0f && bad.density == 0.006f && bad.height == 5.0f
+            && bad.anisotropy == 0.6f && bad.distance == 150.0f && bad.patchiness == 1.0f && bad.patch_size == 6.0f && bad.ambient == 0.3f);
         raw.light_shafts = { 1, -1, -1, 0, -1, 0, -1, 0, -1, 0 };
         const LightShaftSettings low = parse_settings(raw).light_shafts;
         check("light shafts clamp: strength, density, patchiness and ambient -1 to 0, height 0 to 0.5, anisotropy -1 to -0.95, "
