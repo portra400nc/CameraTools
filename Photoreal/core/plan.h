@@ -163,6 +163,25 @@ namespace photoreal
     float wet_share(float wetness, float up, float puddle);
     float wet_smoothness(float smoothness, float wet, float puddle);
 
+    // A march through the light shafts' mist in one color channel, as shaders/scatter.hlsli's Mist holds it.
+    struct Mist
+    {
+        float inscatter = 0;
+        float transmittance = 1;
+    };
+
+    // shaders/scatter.hlsli's formulas, compiled from the same source, in one color channel: the Henyey-Greenstein phase,
+    // the mist's extinction, where a march's samples lie and how long their spans are, a step's light, one step, the march
+    // over the scene, and the march taken to a ray ratio times as long.
+    float henyey_greenstein(float cosine, float g);
+    float mist_density(float density, float rise, float height, float noise, float patchiness);
+    float march_at(float i, float n, float jitter, float ray_length);
+    float march_span(float i, float n, float ray_length);
+    float mist_light(float sun, float visibility, float sky);
+    Mist mist_step(Mist m, float density, float dt, float light);
+    float mist_over(float scene, Mist m);
+    Mist mist_rescale(Mist m, float ratio);
+
     // Inverts a 4x4 matrix in either memory order. false when it is singular.
     bool invert(const float m[16], float out[16]);
 

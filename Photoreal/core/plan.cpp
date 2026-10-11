@@ -60,8 +60,16 @@ namespace photoreal
             const float t = saturate((x - edge0) / (edge1 - edge0));
             return t * t * (3 - 2 * t);
         }
+        float clamp(float x, float low, float high) { return std::fmin(std::fmax(x, low), high); }
+        float max(float a, float b) { return std::fmax(a, b); }
+        float exp(float x) { return std::exp(x); }
+        float log(float x) { return std::log(x); }
+        float sqrt(float x) { return std::sqrt(x); }
+        // One color channel: the tests check scatter.hlsli's color formulas per channel.
+        using float3 = float;
 
 #include "../shaders/wet.hlsli"
+#include "../shaders/scatter.hlsli"
     }
     }
 
@@ -268,6 +276,25 @@ namespace photoreal
     float puddle_cover(float noise, float up, float wetness, float puddles) { return hlsl::puddle_cover(noise, up, wetness, puddles); }
     float wet_share(float wetness, float up, float puddle) { return hlsl::wet_share(wetness, up, puddle); }
     float wet_smoothness(float smoothness, float wet, float puddle) { return hlsl::wet_smoothness(smoothness, wet, puddle); }
+    float henyey_greenstein(float cosine, float g) { return hlsl::henyey_greenstein(cosine, g); }
+    float mist_density(float density, float rise, float height, float noise, float patchiness)
+    {
+        return hlsl::mist_density(density, rise, height, noise, patchiness);
+    }
+    float march_at(float i, float n, float jitter, float ray_length) { return hlsl::march_at(i, n, jitter, ray_length); }
+    float march_span(float i, float n, float ray_length) { return hlsl::march_span(i, n, ray_length); }
+    float mist_light(float sun, float visibility, float sky) { return hlsl::mist_light(sun, visibility, sky); }
+    Mist mist_step(Mist m, float density, float dt, float light)
+    {
+        const hlsl::Mist stepped = hlsl::mist_step({ m.inscatter, m.transmittance }, density, dt, light);
+        return { stepped.inscatter, stepped.transmittance };
+    }
+    float mist_over(float scene, Mist m) { return hlsl::mist_over(scene, { m.inscatter, m.transmittance }); }
+    Mist mist_rescale(Mist m, float ratio)
+    {
+        const hlsl::Mist rescaled = hlsl::mist_rescale({ m.inscatter, m.transmittance }, ratio);
+        return { rescaled.inscatter, rescaled.transmittance };
+    }
 
     bool invert(const float m[16], float out[16])
     {

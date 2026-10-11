@@ -302,6 +302,71 @@ int main()
             == "found nothing; skipped wetness: missing normals albedo specular material-id smoothness depth");
     }
     {
+        const auto near = [](float a, float b) { return std::fabs(a - b) < 1e-5f; };
+        check("g 0 scatters evenly: 1 / (4 pi) toward the sun and away from it", near(henyey_greenstein(1, 0), 0.0795775f)
+            && near(henyey_greenstein(-1, 0), 0.0795775f));
+        check("g 0.6: 0.795775 toward the sun, 0.0124340 away from it", near(henyey_greenstein(1, 0.6f), 0.795775f)
+            && near(henyey_greenstein(-1, 0.6f), 0.0124340f));
+        double total = 0;
+        for (int i = 0; i < 20000; i++)
+            total += 2 * 3.14159265 * henyey_greenstein(-1 + (i + 0.5f) / 10000, 0.6f) / 10000;
+        check("g 0.6 integrates to 1 over the sphere", std::fabs(total - 1) < 1e-3);
+    }
+    {
+        const auto near = [](float a, float b) { return std::fabs(a - b) <= 1e-5f * std::fabs(b); };
+        check("at the camera's height, even mist has the density", mist_density(0.01f, 0, 10, 0.3f, 0) == 0.01f);
+        check("10 m above the camera at height 10 it is 1/e as dense, 10 m below e times", near(mist_density(0.01f, 10, 10, 0.5f, 0), 0.00367879f)
+            && near(mist_density(0.01f, -10, 10, 0.5f, 0), 0.0271828f));
+        check("far below the camera it stops at e^3 times as dense", near(mist_density(0.01f, -1000, 10, 0.5f, 0), 0.200855f)
+            && near(mist_density(0.01f, -30, 10, 0.5f, 0), 0.200855f));
+        check("far above the camera it is clear", mist_density(0.01f, 5000, 10, 0.5f, 0) < 1e-30f);
+        check("patchiness 1: noise 0.25 and below is a hole, 0.75 and above twice as dense, 0.5 the density",
+            mist_density(0.01f, 0, 10, 0.2f, 1) == 0.0f && near(mist_density(0.01f, 0, 10, 0.8f, 1), 0.02f)
+                && near(mist_density(0.01f, 0, 10, 0.5f, 1), 0.01f));
+        check("patchiness 0.5 halves the noise's reach: a hole is half as dense, a bank 1.5 times",
+            near(mist_density(0.01f, 0, 10, 0, 0.5f), 0.005f) && near(mist_density(0.01f, 0, 10, 1, 0.5f), 0.015f));
+        check("the patch factor is symmetric about noise 0.5, so it averages 1",
+            near(mist_density(1, 0, 10, 0.4f, 1) + mist_density(1, 0, 10, 0.6f, 1), 2));
+    }
+    {
+        double spans = 0;
+        for (int i = 0; i < 48; i++)
+            spans += march_span(static_cast<float>(i), 48, 150);
+        check("48 spans cover a 150 m ray", std::fabs(spans - 150) < 1e-3);
+        check("sample 0 of 48 over 150 m runs from 0 to 0.0651 m, and the last from 143.8 m to 150 m", march_at(0, 48, 0, 150) == 0.0f
+            && std::fabs(march_at(0, 48, 1, 150) - 0.0651042f) < 1e-6f && std::fabs(march_at(47, 48, 0, 150) - 143.815f) < 1e-3f
+            && march_at(47, 48, 1, 150) == 150.0f);
+        check("a sample's span is the distance between its start and the next one's",
+            std::fabs(march_span(10, 48, 150) - (march_at(11, 48, 0, 150) - march_at(10, 48, 0, 150))) < 1e-4f);
+    }
+    {
+        const auto near = [](float a, float b) { return std::fabs(a - b) < 1e-5f; };
+        const auto march = [](int steps, float density, float meters, float light) {
+            Mist m;
+            for (int i = 0; i < steps; i++)
+                m = mist_step(m, density, meters / steps, light);
+            return m;
+        };
+        const Mist one = march(1, 0.01f, 100, 2), many = march(48, 0.01f, 100, 2);
+        check("100 m of even mist at 0.01 lets exp(-1) through, in one step or 48", near(one.transmittance, 0.367879f)
+            && near(many.transmittance, 0.367879f));
+        check("and scatters light 2 times (1 - exp(-1)), in one step or 48", near(one.inscatter, 1.26424f) && near(many.inscatter, 1.26424f));
+        check("over a scene of 0.5 it shows 0.5 exp(-1) + 1.26424", near(mist_over(0.5f, many), 1.44818f));
+        const Mist shadowed = march(48, 0.01f, 100, mist_light(5, 0, 0.4f));
+        check("a march the sun never reaches scatters only the sky's 0.4 (1 - exp(-1))", near(shadowed.inscatter, 0.252848f));
+        check("half in the sun: sun 5 and sky 0.4 scatter 2.9 per unit", mist_light(5, 0.5f, 0.4f) == 2.9f);
+        const Mist clear = march(48, 0, 100, 3);
+        check("no mist leaves the scene as it was", clear.transmittance == 1.0f && clear.inscatter == 0.0f && mist_over(0.7f, clear) == 0.7f);
+        const Mist short_ray = march(48, 0.01f, 50, 2), long_ray = march(48, 0.01f, 150, 2), taken = mist_rescale(short_ray, 3);
+        check("50 m of even mist taken to 150 m is 150 m of it", near(taken.transmittance, long_ray.transmittance)
+            && near(taken.inscatter, long_ray.inscatter));
+        const Mist back = mist_rescale(long_ray, 1.0f / 3);
+        check("and 150 m taken to 50 m is 50 m of it", near(back.transmittance, short_ray.transmittance) && near(back.inscatter, short_ray.inscatter));
+        const Mist thin = march(1, 1e-7f, 100, 2);
+        check("a march with almost no mist doubles its light when taken twice as far", mist_rescale(thin, 2).inscatter == 2 * thin.inscatter);
+        check("a march with no mist stays clear at any length", mist_rescale(clear, 5).transmittance == 1.0f && mist_rescale(clear, 5).inscatter == 0.0f);
+    }
+    {
         Camera rain {};
         rain.wetness = 0.2f;
         WetnessSettings settings;
