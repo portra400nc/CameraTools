@@ -8,9 +8,9 @@ Texture2D<uint2> stencil : register(t1);    // the snapshot's stencil plane, bou
 static const uint DECODE_RGB = 0, DECODE_GRAY = 1, DECODE_MATERIAL = 2, DECODE_DEPTH = 3, DECODE_STENCIL = 4, DECODE_HDR = 5,
     DECODE_MISSING = 6;
 
-// 5x7 glyphs in encode_label's order: space, A-Z, 0-9, '-', '?'. Bit row * 5 + column, column 0 on the left; x holds
+// 5x7 glyphs in encode_label's order: space, A-Z, 0-9, '-', '?', ':', ','. Bit row * 5 + column, column 0 on the left; x holds
 // rows 0-3, y rows 4-6.
-static const uint2 font[39] = {
+static const uint2 font[41] = {
     uint2(0x00000, 0x0000), uint2(0xFC62E, 0x4631), uint2(0x7C62F, 0x3E31), uint2(0x0862E, 0x3A21),  // space A B C
     uint2(0x8C527, 0x1D31), uint2(0x7843F, 0x7C21), uint2(0x7843F, 0x0421), uint2(0xE862E, 0x7A31),  // D E F G
     uint2(0xFC631, 0x4631), uint2(0x2108E, 0x3884), uint2(0x4211C, 0x1928), uint2(0x19531, 0x4525),  // H I J K
@@ -20,7 +20,8 @@ static const uint2 font[39] = {
     uint2(0x22A31, 0x462A), uint2(0x22A31, 0x1084), uint2(0x2221F, 0x7C22), uint2(0xAE62E, 0x3A33),  // X Y Z 0
     uint2(0x210C4, 0x3884), uint2(0x4422E, 0x7C44), uint2(0x4111F, 0x3A30), uint2(0x4A988, 0x211F),  // 1 2 3 4
     uint2(0x83C3F, 0x3A30), uint2(0x7844C, 0x3A31), uint2(0x2221F, 0x0842), uint2(0x7462E, 0x3A31),  // 5 6 7 8
-    uint2(0xF462E, 0x1910), uint2(0xF8000, 0x0000), uint2(0x4422E, 0x1004),                          // 9 - ?
+    uint2(0xF462E, 0x1910), uint2(0xF8000, 0x0000), uint2(0x4422E, 0x1004), uint2(0x01080, 0x0084),  // 9 - ? :
+    uint2(0x00000, 0x0880),                                                                          // ,
 };
 
 // Material IDs use the low six bits; a golden-ratio hue walk keeps neighbouring IDs apart.
@@ -83,7 +84,7 @@ float3 with_label(float3 color, float2 position)
         return color * 0.3;
     uint4 words = i < 16 ? label[0] : label[1];  // not label[i >> 4]: the composite's cbuffer stays immediately indexed
     uint glyph = (words[(i >> 2) & 3] >> ((i & 3) * 8)) & 0xFFu;
-    uint2 rows = font[min(glyph, 38u)];
+    uint2 rows = font[min(glyph, 40u)];
     uint bit = uint(glyph_cell.y) * 5 + column;
     bool lit = ((bit < 20 ? rows.x >> bit : rows.y >> (bit - 20)) & 1u) != 0;
     return lit ? 1 : color * 0.3;

@@ -681,6 +681,8 @@ namespace photoreal
                 report.view_found = false;
                 frame_error = PHOTOREAL_ERROR_TEXTURE;
             }
+            if (report.view != View::off && view.snapshot_at == step && !report.view_found)
+                gpu.note_view_why(view_missing_why(report));
             return skip;
         }
 

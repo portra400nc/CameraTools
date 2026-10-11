@@ -237,7 +237,7 @@ The errors are `not-d3d11`, `shader` (our shaders or states failed to create), `
 
 ## Debug views
 
-A view is copied at its step and drawn over the back buffer at `reshade_present`, after ReShade's effects and overlay, so ReShade screenshots do not include it. The view's name, as the status line writes it, sits in white capitals on a dark box in the top-left corner, so it shows even though the view covers the mod's own messages. The shader draws it from a built-in 5x7 font at 3 screen pixels per font pixel at 800 lines, scaled with the back buffer's height.
+A view is copied at its step and drawn over the back buffer at `reshade_present`, after ReShade's effects and overlay, so ReShade screenshots do not include it. The view's name, as the status line writes it, sits in white capitals on a dark box in the top-left corner, so it shows even though the view covers the mod's own messages. The shader draws it from a built-in 5x7 font at 3 screen pixels per font pixel at 800 lines, scaled with the back buffer's height. A view with nothing to show draws dark magenta stripes, and its label adds why: for a view a pass of ours draws, such as `trace`, the reason the status line gives for skipping that pass (`TRACE: SCENE STALE`, `TRACE: SCENE BUILDING`, `TRACE: NO CAMERA, SCENE NONE`), or `OFF` when the pass is not on; otherwise ` MISSING`. The font has the letters, digits, `-`, `:`, `,` and `?` for any other character, and a label stops at 32 glyphs.
 
 | View | Shows |
 |---|---|

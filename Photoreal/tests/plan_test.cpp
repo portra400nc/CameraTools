@@ -715,7 +715,10 @@ int main()
             glyphs(view_label(View::shadow_mask, true)) == std::vector<int> { 19, 8, 1, 4, 15, 23, 37, 13, 1, 19, 11 });
         check("a missing view's label adds a space and MISSING",
             glyphs(view_label(View::hdr_scene, false)) == std::vector<int> { 8, 4, 18, 37, 19, 3, 5, 14, 5, 0, 13, 9, 19, 19, 9, 14, 7 });
-        check("digits, either case, and an unknown character as '?'", glyphs(encode_label("Ab09_")) == std::vector<int> { 1, 2, 27, 36, 38 });
+        check("digits, either case, a colon, a comma, and an unknown character as '?'", glyphs(encode_label("Ab09:,_")) == std::vector<int> { 1, 2, 27, 36, 39, 40, 38 });
+        check("a view with nothing to show and a reason names it after a colon, cut at 32 glyphs",
+            glyphs(view_label(View::trace, false, "scene stale")) == std::vector<int> { 20, 18, 1, 3, 5, 39, 0, 19, 3, 5, 14, 5, 0, 19, 20, 1, 12, 5 }
+            && view_label(View::trace, false, std::string(40, 'x')).length == 32 && glyphs(view_label(View::trace, true, "scene stale")).size() == 5);
         check("a label stops at 32 glyphs", encode_label(std::string(40, 'z')).length == 32);
     }
     {
@@ -1021,9 +1024,32 @@ int main()
         check("the trace view is copied at the combine step from the pass's own result", snapshots == std::vector<Step> { Step::combine }
             && view.view_shown() == View::trace && view_label(View::trace, true).length == 5);
         rows = walk;
+        const FrameReport building = run_frame(rows, trace_on(0, PHOTOREAL_VIEW_TRACE), Inputs { true, SunCheck::ok, TraceState::building, false });
         check("and without a scene the view says the trace did not run",
-            describe(run_frame(rows, trace_on(0, PHOTOREAL_VIEW_TRACE), Inputs { true, SunCheck::ok, TraceState::building, false }))
-            == std::string(kAllSteps) + raster + "; skipped trace: scene building; view trace: trace did not run");
+            describe(building) == std::string(kAllSteps) + raster + "; skipped trace: scene building; view trace: trace did not run");
+        const auto text = [](const Label &label) {
+            static const char kFont[] = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-?:,";
+            std::string out;
+            for (uint8_t i = 0; i < label.length; i++)
+                out += kFont[label.glyphs[i]];
+            return out;
+        };
+        check("its label says why, as the status line does: TRACE: SCENE BUILDING", view_missing_why(building) == "scene building"
+            && text(view_label(building.view, building.view_found, view_missing_why(building))) == "TRACE: SCENE BUILDING");
+        rows = walk;
+        const FrameReport stale = run_frame(rows, trace_on(0, PHOTOREAL_VIEW_TRACE), Inputs { true, SunCheck::ok, TraceState::stale, false });
+        rows = walk;
+        const FrameReport cameraless = run_frame(rows, trace_on(0, PHOTOREAL_VIEW_TRACE), Inputs { false, SunCheck::ok, TraceState::none, false });
+        rows = walk;
+        const FrameReport off = run_frame(rows, view_only(PHOTOREAL_VIEW_TRACE), Inputs { true, SunCheck::ok, TraceState::ready, false });
+        std::printf("INFO labels: %s | %s | %s\n", text(view_label(stale.view, stale.view_found, view_missing_why(stale))).c_str(),
+            text(view_label(cameraless.view, cameraless.view_found, view_missing_why(cameraless))).c_str(), text(view_label(off.view, off.view_found, view_missing_why(off))).c_str());
+        check("a stale scene, no camera and no scene, and the trace off, each in the label",
+            text(view_label(stale.view, stale.view_found, view_missing_why(stale))) == "TRACE: SCENE STALE"
+                && text(view_label(cameraless.view, cameraless.view_found, view_missing_why(cameraless))) == "TRACE: NO CAMERA, SCENE NONE"
+                && text(view_label(off.view, off.view_found, view_missing_why(off))) == "TRACE: OFF");
+        check("a found view, and a game entry's view, have no reason", view_missing_why(view).empty()
+            && view_missing_why(run_frame(rows = walk, view_only(PHOTOREAL_VIEW_SHADOW_MASK), kCamera)).empty());
         check("only sun shadows, contact shadows and ambient are replaced, each by its output", replaced_by_trace(PassId::sun_shadows, alone.trace)
             && replaced_by_trace(PassId::ambient, alone.trace) && !replaced_by_trace(PassId::atmosphere, alone.trace)
             && !replaced_by_trace(PassId::ambient, trace_on(PHOTOREAL_TRACE_SUN).trace));

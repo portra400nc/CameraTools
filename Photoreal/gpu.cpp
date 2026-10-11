@@ -1091,6 +1091,7 @@ namespace photoreal
         std::swap(pending_, shown_);
         pending_.view = next_view;
         pending_.found = false;
+        pending_.why.clear();
         sun_ready_ = false;
     }
 
@@ -1143,7 +1144,7 @@ namespace photoreal
         constants.render_size[3] = 1.0f / desc.Height;
         constants.flip = flip ? 1.0f : 0.0f;
         constants.decode = static_cast<uint32_t>(shown_.found ? kViews[static_cast<size_t>(shown_.view)].decode : Decode::missing);
-        const Label label = view_label(shown_.view, shown_.found);
+        const Label label = view_label(shown_.view, shown_.found, shown_.why);
         constants.label_length = label.length;
         std::memcpy(constants.label, label.glyphs.data(), sizeof constants.label);
         upload(constants);

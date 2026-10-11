@@ -198,6 +198,7 @@ namespace photoreal
     {
         View view = View::off;      // off: nothing to show
         bool found = false;         // false with a view: the entry was missing, the composite shows the "missing" pattern
+        std::string why;            // with found false: why, for the label, as the status line says it; empty for "missing"
         Mirror image;
     };
 
@@ -292,6 +293,8 @@ namespace photoreal
 
         // At present: shown = pending, and pending starts empty for next_view (found = false until its step copies it).
         void end_frame(View next_view);
+        // At the pending view's snapshot step, when it has nothing to show: why, for its label (view_missing_why).
+        void note_view_why(std::string why) { pending_.why = std::move(why); }
 
         // The trace pass, first at the combine step (trace_gpu.h): mirror in the normals, depth, shadow mask and diffuse
         // irradiance; dispatch frame's tiles of the trace kernel over trace's history; then, when frame.traced, draw

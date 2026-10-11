@@ -170,15 +170,56 @@ namespace photoreal
                 glyph = static_cast<uint8_t>(27 + ch - '0');
             else if (ch == '-')
                 glyph = 37;
+            else if (ch == ':')
+                glyph = 39;
+            else if (ch == ',')
+                glyph = 40;
             label.glyphs[label.length++] = glyph;
         }
         return label;
     }
 
-    Label view_label(View view, bool found)
+    Label view_label(View view, bool found, std::string_view why)
     {
         const std::string name = kViews[static_cast<size_t>(view)].name;
-        return encode_label(found ? name : name + " missing");
+        return encode_label(found ? name : why.empty() ? name + " missing" : name + ": " + std::string(why));
+    }
+
+    std::string skip_text(const SkipReason &why, PassId pass)
+    {
+        std::string reasons;
+        const auto add = [&reasons](const std::string &reason) { reasons += (reasons.empty() ? "" : ", ") + reason; };
+        if (!why.missing.empty())
+        {
+            std::string missing = "missing";
+            for (size_t e = 0; e < kEntryNames.size(); e++)
+                if (why.missing.has(static_cast<Entry>(e)))
+                    missing += std::string(" ") + kEntryNames[e];
+            add(missing);
+        }
+        if (why.step_missed)
+            add(std::string("no ") + kRecipe[static_cast<size_t>(pass_spec(pass).at)].name);
+        if (why.camera_missing)
+            add("no camera");
+        if (why.sun != SunCheck::ok)
+            add(std::string("sun constants ") + kSunCheckNames[static_cast<size_t>(why.sun)]);
+        if (why.scene != TraceState::ready)
+            add(std::string("scene ") + kTraceStateNames[static_cast<size_t>(why.scene)]);
+        if (why.failed)
+            add("no texture");
+        return reasons;
+    }
+
+    std::string view_missing_why(const FrameReport &report)
+    {
+        if (report.view == View::off || report.view_found)
+            return {};
+        const PassId from = kViews[static_cast<size_t>(report.view)].from;
+        if (from == PassId::count || report.ran.has(from))
+            return {};
+        if (report.skipped.has(from))
+            return skip_text(report.why[static_cast<size_t>(from)], from);
+        return "off";
     }
 
     Settings parse_settings(const PhotorealSettings &raw)
@@ -564,27 +605,8 @@ namespace photoreal
             {
                 if (!report.skipped.has(spec.id))
                     continue;
-                const SkipReason &why = report.why[static_cast<size_t>(spec.id)];
-                line += std::string("; skipped ") + spec.name + ":";
-                std::string reasons;
-                if (!why.missing.empty())
-                {
-                    reasons += " missing";
-                    for (size_t e = 0; e < kEntryNames.size(); e++)
-                        if (why.missing.has(static_cast<Entry>(e)))
-                            reasons += std::string(" ") + kEntryNames[e];
-                }
-                if (why.step_missed)
-                    reasons += std::string(reasons.empty() ? "" : ",") + " no " + kRecipe[static_cast<size_t>(spec.at)].name;
-                if (why.camera_missing)
-                    reasons += std::string(reasons.empty() ? "" : ",") + " no camera";
-                if (why.sun != SunCheck::ok)
-                    reasons += std::string(reasons.empty() ? "" : ",") + " sun constants " + kSunCheckNames[static_cast<size_t>(why.sun)];
-                if (why.scene != TraceState::ready)
-                    reasons += std::string(reasons.empty() ? "" : ",") + " scene " + kTraceStateNames[static_cast<size_t>(why.scene)];
-                if (why.failed)
-                    reasons += std::string(reasons.empty() ? "" : ",") + " no texture";
-                line += reasons;
+                const std::string reasons = skip_text(report.why[static_cast<size_t>(spec.id)], spec.id);
+                line += std::string("; skipped ") + spec.name + ":" + (reasons.empty() ? "" : " " + reasons);
             }
             if (report.view != View::off)
             {

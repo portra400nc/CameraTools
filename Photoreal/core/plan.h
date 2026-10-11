@@ -259,7 +259,7 @@ namespace photoreal
     extern const std::array<ViewSpec, static_cast<size_t>(View::count)> kViews;  // kViews[off] is unused
 
     // The debug composite's label, as glyph indices into shaders/view_ps.hlsl's font: 0 space, 1-26 A-Z, 27-36 0-9,
-    // 37 '-', 38 '?'.
+    // 37 '-', 38 '?', 39 ':', 40 ','.
     struct Label
     {
         std::array<uint8_t, 32> glyphs {};
@@ -269,8 +269,8 @@ namespace photoreal
     // Letters of either case share a glyph, and any other character reads as '?'. Text past the capacity is cut.
     Label encode_label(std::string_view text);
 
-    // The view's name as describe() writes it, then " missing" when its entry was not found.
-    Label view_label(View view, bool found);
+    // The view's name as describe() writes it; when its entry was not found, then ": " and why, or " missing" without one.
+    Label view_label(View view, bool found, std::string_view why = {});
 
     struct Decision
     {
@@ -365,6 +365,14 @@ namespace photoreal
         // The steps whose moment came, matched or at their fallback's.
         StepSet moments() const { StepSet s = found; s |= fell_back; return s; }
     };
+
+    // Why a wanted pass did not run, as describe() writes it after "skipped <pass>: ", such as "scene stale",
+    // "missing normals depth" or "no camera, scene building".
+    std::string skip_text(const SkipReason &why, PassId pass);
+
+    // Why the report's view, drawn by a pass of ours, has nothing to show: its pass's skip_text, or "off" when the pass
+    // was not wanted. Empty while it was found, for a view of a game entry, and when its pass ran but the copy failed.
+    std::string view_missing_why(const FrameReport &report);
 
     // "1152x720 found gbuffer ... tonemap; ran ambient@combine; view normals", or "...; ran trace@combine (64 ao, 32 sun);
     // replaced sun-shadows contact-shadows ambient" once the trace pass writes the frame, where a pass whose step fell back names
