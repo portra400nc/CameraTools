@@ -126,9 +126,9 @@ namespace CameraToolsPhotoreal
         // haze that dims a pixel 500 m away by 15%, thins by e every 50 m up, and glows around the sun, a tone map that
         // reproduces the game's, full-strength sun shadows whose soft edge is 0.03 m wide per meter from the caster and at
         // least 0.02 m, wet surfaces that follow the weather, darken by 0.35 when soaked and grow puddles on flat ground at
-        // 0.3, and light shafts at strength 1 through a mist that hides 39% of a pixel 50 m away, thins by e every 10 m up,
+        // 0.3, and light shafts at strength 1.5 through a mist that hides 26% of a pixel 50 m away, thins by e every 5 m up,
         // scatters sun light forward with anisotropy 0.6, is marched 150 m in 48 steps, lies in patches 6 m across at
-        // patchiness 0.5, and takes the sky's light at 1.
+        // patchiness 0.5, and takes the sky's light at 0.3.
         public static PhotorealSettings Defaults => new()
         {
             Size = (uint)Marshal.SizeOf<PhotorealSettings>(),
@@ -141,7 +141,7 @@ namespace CameraToolsPhotoreal
             Wetness = new PhotorealWetness { Wetness = 0, Darkening = 0.35f, Puddles = 0.3f },
             LightShafts = new PhotorealLightShafts
             {
-                Strength = 1, Density = 0.01f, Height = 10, Anisotropy = 0.6f, Distance = 150, Patchiness = 0.5f, PatchSize = 6, Ambient = 1, Steps = 48,
+                Strength = 1.5f, Density = 0.006f, Height = 5, Anisotropy = 0.6f, Distance = 150, Patchiness = 0.5f, PatchSize = 6, Ambient = 0.3f, Steps = 48,
             },
         };
     }
