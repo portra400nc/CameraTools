@@ -202,14 +202,6 @@ namespace photoreal
         // Empty when a texture of ours failed.
         std::optional<GameCall> run_contact_shadows(const FrameMap &map, const ContactShadowSettings &settings, const Camera &camera, bool flip);
 
-        // The leaves pass: mirror in the HDR scene, shadow mask, normals, albedo, material id and depth; add the sun light let
-        // through leaves and grass toward the camera into the scene's mirror; copy it over the game's HDR scene. Each leaf's
-        // share of the sun comes through the foliage between it and the sun, measured in the atlas and the constants
-        // gather_sun copied this frame when sun gives their cascades and the copies were made, and from the shadow mask
-        // otherwise. Empty when a texture of ours failed.
-        std::optional<GameCall> run_leaves(const FrameMap &map, const LeavesSettings &settings, const Camera &camera, const SunShadowConstants *sun,
-            bool flip);
-
         // The wetness pass, at the first draw that reads the finished G-buffer: mirror in the albedo, specular, smoothness,
         // material id, normals and depth; draw them wet, by amount, into mirrors of the albedo, specular and smoothness on
         // world pixels and as they were elsewhere; copy those over the game's. Does nothing while amount is 0. Empty when a
@@ -272,7 +264,7 @@ namespace photoreal
         ComPtr<ID3D11Device> device_;
         ComPtr<ID3D11DeviceContext1> context_;
         ComPtr<ID3D11VertexShader> fullscreen_vs_;
-        ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, leaves_ps_, atmosphere_ps_,
+        ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_,
             tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_;
         ComPtr<ID3D11SamplerState> point_, linear_, lit_compare_;
         ComPtr<ID3D11Buffer> constants_;

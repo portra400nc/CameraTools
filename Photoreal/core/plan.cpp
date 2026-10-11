@@ -15,7 +15,6 @@ namespace photoreal
         bool atmosphere_wanted(const Settings &s) { return s.atmosphere.enabled; }
         bool tonemap_wanted(const Settings &s) { return s.tonemap.enabled; }
         bool sun_shadows_wanted(const Settings &s) { return s.sun_shadows.enabled; }
-        bool leaves_wanted(const Settings &s) { return s.leaves.enabled; }
         bool wetness_wanted(const Settings &s) { return s.wetness.enabled; }
 
         float finite_or(float value, float fallback, float low, float high)
@@ -27,8 +26,8 @@ namespace photoreal
 
         static_assert(PHOTOREAL_PASS_AMBIENT == bit(PassId::ambient) && PHOTOREAL_PASS_CONTACT_SHADOWS == bit(PassId::contact_shadows)
             && PHOTOREAL_PASS_ATMOSPHERE == bit(PassId::atmosphere) && PHOTOREAL_PASS_TONEMAP == bit(PassId::tonemap)
-            && PHOTOREAL_PASS_SUN_SHADOWS == bit(PassId::sun_shadows) && PHOTOREAL_PASS_LEAVES == bit(PassId::leaves)
-            && PHOTOREAL_PASS_WETNESS == bit(PassId::wetness) && static_cast<int>(PassId::count) == 7);
+            && PHOTOREAL_PASS_SUN_SHADOWS == bit(PassId::sun_shadows) && PHOTOREAL_PASS_WETNESS == bit(PassId::wetness)
+            && static_cast<int>(PassId::count) == 6);
         static_assert(PHOTOREAL_CURVE_AGX == static_cast<int>(Curve::agx) && PHOTOREAL_CURVE_COUNT == static_cast<int>(Curve::count));
         static_assert(PHOTOREAL_VIEW_COUNT == static_cast<int>(View::count) && PHOTOREAL_VIEW_STENCIL == static_cast<int>(View::stencil)
             && PHOTOREAL_VIEW_HDR_SCENE == static_cast<int>(View::hdr_scene) && PHOTOREAL_VIEW_BLOOM_FINAL == static_cast<int>(View::bloom_final)
@@ -37,15 +36,14 @@ namespace photoreal
         const char *const kErrorNames[] = { "none", "not-d3d11", "shader", "texture", "state" };
         static_assert(PHOTOREAL_ERROR_STATE == 4);
         // Callers built before foliage_ao_strength send 32 bytes, those before contact shadows 36, those before their
-        // foliage_strength 52, those before atmosphere 56, those before tonemap 76, those before sun shadows 100, those
-        // before leaves 116, those before wetness 128, those before leaves_transmission 144; csharp/Photoreal.cs marshals
-        // 148.
+        // foliage_strength 52, those before atmosphere 56, those before tonemap 76, those before sun shadows 100. Version 6
+        // dropped the leaves blocks, which moved wetness from 128 to 116, so a binding of version 5 must not call
+        // PhotorealApply; csharp/Photoreal.cs checks the version and marshals 132.
         static_assert(offsetof(PhotorealSettings, ambient) + offsetof(PhotorealAmbient, foliage_ao_strength) == 32
             && offsetof(PhotorealSettings, contact_shadows) == 36
             && offsetof(PhotorealSettings, contact_shadows) + offsetof(PhotorealContactShadows, foliage_strength) == 52
             && offsetof(PhotorealSettings, atmosphere) == 56 && offsetof(PhotorealSettings, tonemap) == 76
-            && offsetof(PhotorealSettings, sun_shadows) == 100 && offsetof(PhotorealSettings, leaves) == 116 && offsetof(PhotorealSettings, wetness) == 128
-            && offsetof(PhotorealSettings, leaves_transmission) == 144 && sizeof(PhotorealSettings) == 148);
+            && offsetof(PhotorealSettings, sun_shadows) == 100 && offsetof(PhotorealSettings, wetness) == 116 && sizeof(PhotorealSettings) == 132);
         static_assert(sizeof(PhotorealCamera) == 48 * sizeof(float));
         static_assert(PHOTOREAL_ACCUMULATE_PRESENT == static_cast<int>(AccumulateMode::present)
             && PHOTOREAL_ACCUMULATE_COUNT == static_cast<int>(AccumulateMode::count));
@@ -60,11 +58,8 @@ namespace photoreal
             const float t = saturate((x - edge0) / (edge1 - edge0));
             return t * t * (3 - 2 * t);
         }
-        float max(float a, float b) { return std::fmax(a, b); }
-        float exp(float x) { return std::exp(x); }
 
 #include "../shaders/wet.hlsli"
-#include "../shaders/leaves.hlsli"
     }
     }
 
@@ -79,11 +74,6 @@ namespace photoreal
         { PassId::contact_shadows, "contact-shadows", Step::combine, { Entry::normals, Entry::depth, Entry::shadow_mask }, true, SunUse::none,
           contact_shadows_wanted },
         { PassId::ambient, "ambient", Step::combine, { Entry::normals, Entry::depth, Entry::ambient_diffuse }, true, SunUse::none, ambient_wanted },
-        // The sun constants and atlas measure the leaves between each leaf and the sun; without them a leaf takes the
-        // sun's visibility in the shadow mask.
-        { PassId::leaves, "leaves", Step::forward,
-          { Entry::normals, Entry::albedo, Entry::material_id, Entry::depth, Entry::shadow_mask, Entry::hdr_scene }, true, SunUse::optional,
-          leaves_wanted },
         { PassId::atmosphere, "atmosphere", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::none, atmosphere_wanted },
         // bloom-final is optional: a tone map draw without one still gets ours, without bloom.
         { PassId::tonemap, "tonemap", Step::tonemap, { Entry::hdr_scene, Entry::tonemap_out }, false, SunUse::none, tonemap_wanted },
@@ -201,14 +191,6 @@ namespace photoreal
             s.sun_shadows.min_penumbra = finite_or(u.min_penumbra, sun_defaults.min_penumbra, 0.0f, 0.5f);
             s.sun_shadows.strength = finite_or(u.strength, sun_defaults.strength, 0.0f, 1.0f);
         }
-        const LeavesSettings leaves_defaults;
-        const PhotorealLeaves &l = raw.leaves;
-        if (knows(offsetof(PhotorealSettings, leaves), sizeof l))
-        {
-            s.leaves.enabled = l.enabled != 0;
-            s.leaves.strength = finite_or(l.strength, leaves_defaults.strength, 0.0f, 4.0f);
-            s.leaves.scatter_sharpness = finite_or(l.scatter_sharpness, leaves_defaults.scatter_sharpness, 1.0f, 32.0f);
-        }
         const WetnessSettings wetness_defaults;
         const PhotorealWetness &w = raw.wetness;
         if (knows(offsetof(PhotorealSettings, wetness), sizeof w))
@@ -218,9 +200,6 @@ namespace photoreal
             s.wetness.darkening = finite_or(w.darkening, wetness_defaults.darkening, 0.0f, 1.0f);
             s.wetness.puddles = finite_or(w.puddles, wetness_defaults.puddles, 0.0f, 1.0f);
         }
-        const PhotorealLeavesTransmission &lt = raw.leaves_transmission;
-        if (knows(offsetof(PhotorealSettings, leaves_transmission), sizeof lt))
-            s.leaves.depth = finite_or(lt.depth, leaves_defaults.depth, 0.1f, 10.0f);
         return s;
     }
 
@@ -272,8 +251,6 @@ namespace photoreal
     float puddle_cover(float noise, float up, float wetness, float puddles) { return hlsl::puddle_cover(noise, up, wetness, puddles); }
     float wet_share(float wetness, float up, float puddle) { return hlsl::wet_share(wetness, up, puddle); }
     float wet_smoothness(float smoothness, float wet, float puddle) { return hlsl::wet_smoothness(smoothness, wet, puddle); }
-    float leaf_thickness(float stored, float receiver, float meters_per_depth) { return hlsl::leaf_thickness(stored, receiver, meters_per_depth); }
-    float leaf_transmission(float thickness, float depth) { return hlsl::leaf_transmission(thickness, depth); }
 
     bool invert(const float m[16], float out[16])
     {

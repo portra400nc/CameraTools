@@ -64,15 +64,6 @@ namespace
         return parse_settings(raw);
     }
 
-    Settings leaves_on(bool ambient, bool atmosphere)
-    {
-        PhotorealSettings raw = raw_settings();
-        raw.ambient.enabled = ambient;
-        raw.atmosphere = { atmosphere, 0.000325f, 0.02f, 1, 0.7f };
-        raw.leaves = { 1, 1, 4 };
-        return parse_settings(raw);
-    }
-
     Settings wetness_on(bool ambient)
     {
         PhotorealSettings raw = raw_settings();
@@ -258,69 +249,21 @@ int main()
     }
     {
         auto rows = walk;
-        const FrameReport report = run_frame(rows, leaves_on(false, false), kCamera);
-        check("leaves run at forward", report.ran.bits == PHOTOREAL_PASS_LEAVES && describe(report) == std::string(kAllSteps) + "; ran leaves@forward");
-        check("steps wanted by leaves: gbuffer, combine and forward",
-            report.wanted.bits == (PHOTOREAL_STEP_GBUFFER | PHOTOREAL_STEP_COMBINE | PHOTOREAL_STEP_FORWARD));
         FrameTracker tracker;
         fixture::replay(rows, tracker);
-        const Plan at_forward = plan(Step::forward, tracker.map(), leaves_on(false, false), kCamera);
-        check("the forward plan runs leaves alone", at_forward.count == 1 && at_forward.items[0].pass == PassId::leaves
-            && at_forward.items[0].kind == Decision::Kind::run);
-        check("with this frame's sun constants, leaves use them", at_forward.items[0].uses_sun);
-        const Plan unread = plan(Step::forward, tracker.map(), leaves_on(false, false), Inputs { true, SunCheck::unread });
-        check("before any sun constants were read back, leaves run without them", unread.items[0].kind == Decision::Kind::run
-            && !unread.items[0].uses_sun);
-        const Plan failed = plan(Step::forward, tracker.map(), leaves_on(false, false), Inputs { true, SunCheck::radii_order });
-        check("with sun constants that failed a check, leaves run without them", failed.items[0].kind == Decision::Kind::run
-            && !failed.items[0].uses_sun);
-        const Plan ambient = plan(Step::combine, tracker.map(), ambient_on(), kCamera);
-        check("ambient never uses the sun constants", ambient.items[2].pass == PassId::ambient && ambient.items[2].kind == Decision::Kind::run
-            && !ambient.items[2].uses_sun);
+        const Plan at_combine = plan(Step::combine, tracker.map(), sun_shadows_on(false), kCamera);
+        check("with this frame's sun constants, sun shadows use them", at_combine.items[0].pass == PassId::sun_shadows
+            && at_combine.items[0].kind == Decision::Kind::run && at_combine.items[0].uses_sun);
+        check("ambient never uses the sun constants", at_combine.items[2].pass == PassId::ambient && at_combine.items[2].kind == Decision::Kind::run
+            && !at_combine.items[2].uses_sun);
     }
     {
-        auto rows = walk;
-        const FrameReport report = run_frame(rows, leaves_on(false, false), Inputs { true, SunCheck::signature });
-        check("leaves without usable sun constants still run and say nothing of them", report.ran.bits == PHOTOREAL_PASS_LEAVES
-            && describe(report) == std::string(kAllSteps) + "; ran leaves@forward");
-        std::vector<fixture::Row> menu;
-        check("no G-buffer and no sun constants: leaves name only the entries they need", describe(run_frame(menu, leaves_on(false, false),
-            Inputs { true, SunCheck::unread })) == "found nothing; skipped leaves: missing normals albedo material-id depth shadow-mask hdr-scene");
-    }
-    {
-        check("leaves want the sun constants", wants_sun(leaves_on(false, false)));
         check("sun shadows want the sun constants", wants_sun(sun_shadows_on(false)));
         check("ambient, contact shadows, atmosphere, tonemap and wetness do not", !wants_sun(ambient_on()) && !wants_sun(contact_shadows_on(true))
             && !wants_sun(atmosphere_on()) && !wants_sun(tonemap_on(true)) && !wants_sun(wetness_on(true)));
-        Settings off = leaves_on(false, false);
+        Settings off = sun_shadows_on(false);
         off.enabled = false;
         check("disabled settings want no sun constants", !wants_sun(off));
-    }
-    {
-        auto rows = walk;
-        const FrameReport report = run_frame(rows, leaves_on(true, true), kCamera);
-        check("ambient at combine, then leaves at forward, then atmosphere at bloom", describe(report)
-            == std::string(kAllSteps) + "; ran ambient@combine leaves@forward atmosphere@bloom");
-    }
-    {
-        auto rows = fixture::load("fixtures/capture-20261010-111824.tsv");
-        const FrameReport report = run_frame(rows, leaves_on(false, false), kCamera);
-        check("111824, the user's normal settings: leaves run at forward", describe(report)
-            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward gbuffer-done; ran leaves@forward");
-    }
-    {
-        auto rows = walk;
-        fixture::drop(rows, 892, 892);  // the shadow mask's clear, so no shadow mask is found
-        const FrameReport report = run_frame(rows, leaves_on(false, false), kCamera);
-        check("without the shadow mask, leaves skip and say so", report.skipped.bits == PHOTOREAL_PASS_LEAVES
-            && report.missing.bits == PHOTOREAL_ENTRY_SHADOW_MASK && describe(report)
-            == "1152x720 found gbuffer quarter-shadow ambient-pair combine bloom tonemap forward gbuffer-done; skipped leaves: missing shadow-mask");
-    }
-    {
-        auto rows = walk;
-        const FrameReport report = run_frame(rows, leaves_on(false, false), kNoCamera);
-        check("without a camera, leaves skip and say so", report.skipped.bits == PHOTOREAL_PASS_LEAVES && report.ran.empty()
-            && describe(report) == std::string(kAllSteps) + "; skipped leaves: no camera");
     }
     {
         auto rows = walk;
@@ -359,18 +302,6 @@ int main()
             == "found nothing; skipped wetness: missing normals albedo specular material-id smoothness depth");
     }
     {
-        const auto near = [](float a, float b) { return std::fabs(a - b) < 1e-5f; };
-        check("a caster 0.01 depth units above a leaf in a 100 m deep cascade is 1 m of foliage", near(leaf_thickness(0.51f, 0.5f, 100), 1.0f));
-        check("a leaf the atlas holds itself, or one nearer the sun than the atlas, has no foliage above it",
-            leaf_thickness(0.5f, 0.5f, 100) == 0.0f && leaf_thickness(0.4f, 0.5f, 100) == 0.0f);
-        check("an empty atlas texel, stored 0, is no foliage", leaf_thickness(0, 0.3f, 100) == 0.0f);
-        check("no foliage lets all the light through", leaf_transmission(0, 1.5f) == 1.0f);
-        check("1.5 m of foliage at depth 1.5 lets 1/e through, 3 m 1/e^2", near(leaf_transmission(1.5f, 1.5f), 0.367879f)
-            && near(leaf_transmission(3, 1.5f), 0.135335f));
-        check("4.5 m into a crown: 0.0498 at depth 1.5, 0.6376 at depth 10, under 1e-19 at depth 0.1", near(leaf_transmission(4.5f, 1.5f), 0.0497871f)
-            && near(leaf_transmission(4.5f, 10), 0.637628f) && leaf_transmission(4.5f, 0.1f) < 1e-19f);
-    }
-    {
         Camera rain {};
         rain.wetness = 0.2f;
         WetnessSettings settings;
@@ -398,12 +329,6 @@ int main()
         check("smoothness 0.3 wets to 0.9, halfway to 0.6, and in a puddle to 0.97", near(wet_smoothness(0.3f, 1, 0), 0.9f)
             && near(wet_smoothness(0.3f, 0.5f, 0), 0.6f) && near(wet_smoothness(0.3f, 1, 1), 0.97f));
         check("dry smoothness stays as stored", wet_smoothness(0.3f, 0, 0) == 0.3f);
-    }
-    {
-        std::vector<fixture::Row> menu;
-        const FrameReport report = run_frame(menu, leaves_on(false, false), kCamera);
-        check("no G-buffer: leaves name the entries they need", describe(report)
-            == "found nothing; skipped leaves: missing normals albedo material-id depth shadow-mask hdr-scene");
     }
     {
         auto rows = fixture::load("fixtures/capture-20261010-111824.tsv");
@@ -539,7 +464,7 @@ int main()
         check("a label stops at 32 glyphs", encode_label(std::string(40, 'z')).length == 32);
     }
     {
-        FrameReport report = FrameReport::start(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, 0, 1, {}, {}, {}, {}, {}, {}, {}, {} }));
+        FrameReport report = FrameReport::start(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, 0, 1, {}, {}, {}, {}, {}, {} }));
         check("disabled: describe says off", describe(report) == "off");
         report.error = PHOTOREAL_ERROR_SHADER;
         check("disabled by an error: describe says which", describe(report) == "off; error shader");
@@ -729,42 +654,16 @@ int main()
     {
         PhotorealSettings raw = raw_settings();
         raw.sun_shadows = { 1, 0.05f, 0.1f, 0.8f };
-        raw.leaves = { 1, 1.5f, 8 };
-        const Settings whole = parse_settings(raw);
-        check("a whole struct reads leaves: on, strength 1.5, scatter sharpness 8", whole.leaves.enabled && whole.leaves.strength == 1.5f
-            && whole.leaves.scatter_sharpness == 8.0f);
-        raw.size = 116;  // a caller built before leaves existed
-        const Settings v5 = parse_settings(raw);
-        check("a 116-byte struct reads its sun-shadow block and keeps leaves off at strength 1, scatter sharpness 4", !v5.leaves.enabled
-            && v5.leaves.strength == 1.0f && v5.leaves.scatter_sharpness == 4.0f && v5.sun_shadows.enabled && v5.sun_shadows.light_size == 0.05f);
-        raw.size = 127;
-        check("a struct one byte short of the leaves block keeps its defaults", !parse_settings(raw).leaves.enabled
-            && parse_settings(raw).leaves.scatter_sharpness == 4.0f);
-        raw.size = sizeof raw;
-        raw.leaves = { 1, NAN, INFINITY };
-        const Settings bad = parse_settings(raw);
-        check("leaves: NaN and infinity fall back to strength 1, scatter sharpness 4", bad.leaves.strength == 1.0f
-            && bad.leaves.scatter_sharpness == 4.0f);
-        raw.leaves = { 1, -1, 0.5f };
-        const Settings low = parse_settings(raw);
-        check("leaves clamp: strength -1 to 0, scatter sharpness 0.5 to 1", low.leaves.strength == 0.0f && low.leaves.scatter_sharpness == 1.0f);
-        raw.leaves = { 1, 9, 100 };
-        const Settings high = parse_settings(raw);
-        check("leaves clamp: strength 9 to 4, scatter sharpness 100 to 32", high.leaves.strength == 4.0f && high.leaves.scatter_sharpness == 32.0f);
-    }
-    {
-        PhotorealSettings raw = raw_settings();
-        raw.leaves = { 1, 1.5f, 8 };
         raw.wetness = { 1, 0.75f, 0.5f, 0.6f };
         const Settings whole = parse_settings(raw);
         check("a whole struct reads wetness: on, wetness 0.75, darkening 0.5, puddles 0.6", whole.wetness.enabled && whole.wetness.wetness == 0.75f
             && whole.wetness.darkening == 0.5f && whole.wetness.puddles == 0.6f);
-        raw.size = 128;  // a caller built before wetness existed
+        raw.size = 116;  // a caller built before wetness existed
         const Settings before = parse_settings(raw);
-        check("a 128-byte struct reads its leaves block and keeps wetness off, following the weather, darkening 0.35, puddles 0.3",
+        check("a 116-byte struct reads its sun-shadow block and keeps wetness off, following the weather, darkening 0.35, puddles 0.3",
             !before.wetness.enabled && before.wetness.wetness == 0.0f && before.wetness.darkening == 0.35f && before.wetness.puddles == 0.3f
-                && before.leaves.enabled && before.leaves.strength == 1.5f);
-        raw.size = 143;
+                && before.sun_shadows.enabled && before.sun_shadows.light_size == 0.05f);
+        raw.size = 131;
         check("a struct one byte short of the wetness block keeps its defaults", !parse_settings(raw).wetness.enabled
             && parse_settings(raw).wetness.darkening == 0.35f);
         raw.size = sizeof raw;
@@ -778,28 +677,6 @@ int main()
         raw.wetness = { 1, 2, 1.5f, 3 };
         const Settings high = parse_settings(raw);
         check("wetness clamps: 2, 1.5 and 3 to 1", high.wetness.wetness == 1.0f && high.wetness.darkening == 1.0f && high.wetness.puddles == 1.0f);
-    }
-    {
-        PhotorealSettings raw = raw_settings();
-        raw.wetness = { 1, 0.75f, 0.5f, 0.6f };
-        raw.leaves_transmission = { 3 };
-        check("a whole struct reads the leaves' transmission: depth 3", parse_settings(raw).leaves.depth == 3.0f);
-        raw.size = 144;  // a caller built before leaves_transmission existed
-        const Settings before = parse_settings(raw);
-        check("a 144-byte struct reads its wetness block and keeps the leaves' depth at 1.5", before.leaves.depth == 1.5f
-            && before.wetness.enabled && before.wetness.puddles == 0.6f);
-        raw.size = 147;
-        check("a struct one byte short of the leaves' transmission keeps depth 1.5", parse_settings(raw).leaves.depth == 1.5f);
-        check("the default settings let light 1.5 m into leaves", Settings {}.leaves.depth == 1.5f);
-        raw.size = sizeof raw;
-        raw.leaves_transmission = { NAN };
-        check("leaves' transmission: NaN falls back to depth 1.5", parse_settings(raw).leaves.depth == 1.5f);
-        raw.leaves_transmission = { INFINITY };
-        check("leaves' transmission: infinity falls back to depth 1.5", parse_settings(raw).leaves.depth == 1.5f);
-        raw.leaves_transmission = { 0 };
-        check("leaves' transmission clamps: depth 0 to 0.1", parse_settings(raw).leaves.depth == 0.1f);
-        raw.leaves_transmission = { 50 };
-        check("leaves' transmission clamps: depth 50 to 10", parse_settings(raw).leaves.depth == 10.0f);
     }
     {
         PhotorealCamera raw {};
@@ -850,7 +727,7 @@ int main()
     }
     {
         check("disabled settings want no step", wanted_steps(view_only(PHOTOREAL_VIEW_HDR_SCENE)).bits != 0
-            && wanted_steps(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, PHOTOREAL_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1 }, { 1, 1, 1, 1 }, { 1 } })).empty());
+            && wanted_steps(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, PHOTOREAL_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1 } })).empty());
     }
     {
         // Unity's GL.GetGPUProjectionMatrix for a 60 degree, 16:10 camera with near 0.1 and far 1000, reversed Z.

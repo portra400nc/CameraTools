@@ -72,14 +72,6 @@ namespace photoreal
         float strength = 1.0f;
     };
 
-    struct LeavesSettings
-    {
-        bool enabled = false;
-        float strength = 1.0f;
-        float scatter_sharpness = 4.0f;
-        float depth = 1.5f;     // PhotorealLeavesTransmission.depth
-    };
-
     struct WetnessSettings
     {
         bool enabled = false;
@@ -99,7 +91,6 @@ namespace photoreal
         AtmosphereSettings atmosphere;
         TonemapSettings tonemap;
         SunShadowSettings sun_shadows;
-        LeavesSettings leaves;
         WetnessSettings wetness;
     };
 
@@ -157,11 +148,6 @@ namespace photoreal
     float wet_share(float wetness, float up, float puddle);
     float wet_smoothness(float smoothness, float wet, float puddle);
 
-    // shaders/leaves.hlsli's formulas, compiled from the same source: the meters of foliage between a leaf and the sun at
-    // one atlas tap, and the share of sun light that comes through them.
-    float leaf_thickness(float stored, float receiver, float meters_per_depth);
-    float leaf_transmission(float thickness, float depth);
-
     // Inverts a 4x4 matrix in either memory order. false when it is singular.
     bool invert(const float m[16], float out[16]);
 
@@ -169,7 +155,7 @@ namespace photoreal
     enum class GameCall : bool { keep, skip };
 
     // The PHOTOREAL_PASS_* bit order, not the run order.
-    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, leaves, wetness, count };
+    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, wetness, count };
     using PassSet = Set<PassId>;
 
     // How a pass reads the game's sun shadow constants and atlas, which the shell copies at the shadow-mask draw.
@@ -192,7 +178,7 @@ namespace photoreal
     };
 
     // Table order is run order within a step: wetness at gbuffer-done; sun shadows, contact shadows, then ambient at
-    // combine; leaves at forward; atmosphere at bloom; tonemap at tonemap.
+    // combine; atmosphere at bloom; tonemap at tonemap.
     extern const std::array<PassSpec, static_cast<size_t>(PassId::count)> kPasses;
 
     struct ViewSpec

@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define PHOTOREAL_VERSION 5
+#define PHOTOREAL_VERSION 6
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -85,8 +85,7 @@ enum
     PHOTOREAL_PASS_ATMOSPHERE = 1u << 2,
     PHOTOREAL_PASS_TONEMAP = 1u << 3,
     PHOTOREAL_PASS_SUN_SHADOWS = 1u << 4,
-    PHOTOREAL_PASS_LEAVES = 1u << 5,
-    PHOTOREAL_PASS_WETNESS = 1u << 6,
+    PHOTOREAL_PASS_WETNESS = 1u << 5,
 };
 
 // The tonemap pass's curves, values of PhotorealTonemap.curve.
@@ -180,7 +179,7 @@ typedef struct PhotorealTonemap
 // mask is drawn again with a penumbra that widens with the distance between the shadow and what casts it, and replaces
 // the game's, before the combine pass reads it. Characters, the sky, and pixels past the game's cascades or shadow
 // distance keep the game's value.
-// leaves follows it in PhotorealSettings, so this block keeps its size.
+// wetness follows it in PhotorealSettings, so this block keeps its size.
 typedef struct PhotorealSunShadows
 {
     uint32_t enabled;           // default 0
@@ -190,25 +189,10 @@ typedef struct PhotorealSunShadows
     float strength;             // 0 no sun shadow, 1 full; default 1, clamped to 0..1
 } PhotorealSunShadows;
 
-// Light through leaves: on leaf and grass pixels (stencil 129, 136 or 137 with material id 2, 15 or 3), the sun light a
-// leaf passes on toward the camera is added to the HDR scene after the game's deferred lighting and before its sky,
-// transparent and fog draws. A leaf glows where the camera looks toward the sun through its back, and leaves lit from the
-// front are unchanged. The light is the sun's color and direction from PhotorealCamera, times the leaf's albedo and the
-// share of the sun that reaches it through the foliage in front of it (PhotorealLeavesTransmission), or the sun's
-// visibility in the shadow mask where the game's sun shadow atlas cannot say.
-// wetness follows it in PhotorealSettings, so this block keeps its size.
-typedef struct PhotorealLeaves
-{
-    uint32_t enabled;           // default 0
-    float strength;             // multiplies the light let through; default 1, clamped to 0..4
-    float scatter_sharpness;    // the power of the glow's falloff away from the sun: 1 is broad, higher gathers it closer
-                                // around the sun; default 4, clamped to 1..32
-} PhotorealLeaves;
-
 // Wet surfaces: on world pixels, after the game's last G-buffer write and before anything reads it, the G-buffer's albedo
 // darkens, its smoothness rises and its specular color moves toward water's, more on surfaces that face up, and puddles
 // form on flat ground. The game's reflections, sun light and ambient light then all see the wet surface.
-// leaves_transmission follows it in PhotorealSettings, so this block keeps its size.
+// The last block of PhotorealSettings, so a field added here goes at the end and size keeps older callers working.
 typedef struct PhotorealWetness
 {
     uint32_t enabled;           // default 0
@@ -218,16 +202,6 @@ typedef struct PhotorealWetness
     float puddles;              // how much of the flat ground puddles cover when soaked, from none at 0 to all of it at 1;
                                 // default 0.3, clamped to 0..1
 } PhotorealWetness;
-
-// Light through leaves, continued: PhotorealLeaves keeps its size, so the leaves pass's later fields go here. How much sun
-// light reaches a leaf through the foliage between it and the sun, read from the game's sun shadow atlas, which the
-// add-on copies whenever the leaves or sun-shadow pass is on: from the caster nearest the sun down to the leaf, the light
-// falls by e every depth meters. A leaf with nothing above it gets all of it.
-// The last block of PhotorealSettings, so a field added here goes at the end and size keeps older callers working.
-typedef struct PhotorealLeavesTransmission
-{
-    float depth;                // how far sun light reaches into foliage, in meters; default 1.5, clamped to 0.1..10
-} PhotorealLeavesTransmission;
 
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller
 // knows, and fields past it keep their defaults.
@@ -243,9 +217,7 @@ typedef struct PhotorealSettings
     PhotorealAtmosphere atmosphere;
     PhotorealTonemap tonemap;
     PhotorealSunShadows sun_shadows;
-    PhotorealLeaves leaves;
     PhotorealWetness wetness;
-    PhotorealLeavesTransmission leaves_transmission;
 } PhotorealSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and

@@ -39,15 +39,13 @@ cbuffer Constants : register(b0)
     float sun_light_size;       // penumbra width per meter between caster and receiver
     float sun_min_penumbra;     // meters
     float sun_strength;
-    float leaves_strength;      // PhotorealLeaves.strength
-    float leaves_scatter_sharpness;  // the power of the glow's falloff away from the sun
     float2 lens_sample;         // this frame's aperture point, x right and y up
     float cat_eye;              // PhotorealAccumulate.cat_eye
     float cat_eye_falloff;
     float wetness;              // the wetness pass's amount: PhotorealWetness.wetness, or the weather's while that is 0
     float wet_darkening;        // PhotorealWetness.darkening
     float puddles;              // PhotorealWetness.puddles
-    float leaves_depth;         // PhotorealLeavesTransmission.depth: meters of foliage that dim the sun light by e
+    float3 padding3;
 };
 
 SamplerState point_clamp : register(s0);
