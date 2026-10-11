@@ -66,6 +66,12 @@ namespace photoreal
     // Empty when a value is not finite.
     std::optional<SceneCamera> scene_camera(const SunShadowConstants &game);
 
+    // The same camera from the shadow-mask draw's b1 row 5 and b2 rows 10 to 13 and 18 to 20 alone, checked on its own:
+    // every value finite and the basis orthonormal. parse_sun_shadows also checks b3's cascades, which the camera does not
+    // use, and on the Deck in build 198 it refused every scene frame at radii-order, so every face fell back to the pushed
+    // camera. Empty with why set to "not-finite", "basis" or "transform" when a check fails.
+    std::optional<SceneCamera> scene_camera(const SunCbuffers &bytes, std::string &why);
+
     // The camera CameraTools pushed: inverse(flip * view_to_clip * world_to_view), with y negated when flip is set, as the
     // game's targets are stored. Empty when that does not invert.
     std::optional<SceneCamera> scene_camera(const Camera &pushed, bool flip);

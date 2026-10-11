@@ -800,15 +800,15 @@ namespace photoreal
                 facts.stop = got.why;
                 return;
             }
-            // The game's own camera of the frame when its shadow-mask constants pass their checks, else the pushed one.
+            // The game's own camera of the frame when its shadow-mask constants hold one, else the pushed one. Only b1 and
+            // b2 are checked: the cascades in b3 are the sun-shadow pass's business, not the camera's.
             std::optional<SceneCamera> camera;
             std::string note = "no shadow-mask constants";
             if (run.sun)
             {
-                const SunParse parse = parse_sun_shadows(*run.sun);
-                if (parse.check == SunCheck::ok)
-                    camera = scene_camera(parse.constants);
-                note = std::string("sun constants ") + kSunCheckNames[static_cast<size_t>(parse.check)];
+                std::string why;
+                camera = scene_camera(*run.sun, why);
+                note = "shadow-mask camera " + why;
             }
             if (!camera && run.pushed)
                 camera = scene_camera(*run.pushed, settings.flip);

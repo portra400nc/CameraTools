@@ -134,6 +134,50 @@ namespace photoreal
         return camera;
     }
 
+    std::optional<SceneCamera> scene_camera(const SunCbuffers &bytes, std::string &why)
+    {
+        // b1 starts 768 bytes into SunCbuffers and b2 192 bytes after it, as parse_sun_shadows reads them.
+        const auto row = [&bytes](size_t buffer, uint32_t index) {
+            Row r;
+            std::memcpy(r.data(), bytes.data() + buffer + index * 16, sizeof r);
+            return r;
+        };
+        constexpr size_t kB1 = 768, kB2 = 768 + 192;
+        SunShadowConstants c;
+        const Row position = row(kB1, 5);
+        c.camera = { position[0], position[1], position[2] };
+        bool finite_rows = std::all_of(position.begin(), position.begin() + 3, [](float v) { return std::isfinite(v); });
+        for (uint32_t i = 0; i < 4; i++)
+        {
+            c.inverse_projection[i] = row(kB2, 10 + i);
+            finite_rows &= std::all_of(c.inverse_projection[i].begin(), c.inverse_projection[i].end(), [](float v) { return std::isfinite(v); });
+        }
+        for (uint32_t i = 0; i < 3; i++)
+        {
+            const Row axis = row(kB2, 18 + i);
+            c.basis[i] = { axis[0], axis[1], axis[2] };
+            finite_rows &= std::all_of(axis.begin(), axis.begin() + 3, [](float v) { return std::isfinite(v); });
+        }
+        if (!finite_rows)
+        {
+            why = "not-finite";
+            return std::nullopt;
+        }
+        for (uint32_t i = 0; i < 3; i++)
+        {
+            const Vec3d a = widen(c.basis[i]), b = widen(c.basis[(i + 1) % 3]);
+            if (std::fabs(std::sqrt(dot(a, a)) - 1) > 1e-3 || std::fabs(dot(a, b)) > 1e-3)
+            {
+                why = "basis";
+                return std::nullopt;
+            }
+        }
+        std::optional<SceneCamera> camera = scene_camera(c);
+        if (!camera)
+            why = "transform";
+        return camera;
+    }
+
     std::optional<SceneCamera> scene_camera(const Camera &pushed, bool flip)
     {
         const Mat4d view = from_unity(pushed.world_to_view);

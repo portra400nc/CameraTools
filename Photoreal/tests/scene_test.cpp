@@ -237,6 +237,37 @@ int main()
         check("a clip point at infinity (w' = 0) gives nothing", !clip_to_world(camera, { 1, 0, 0, 0 }));
         check("a singular matrix does not invert", !invert(Mat4d {}));
     }
+    for (const char *capture : { "capture-20261010-111824", "capture-20261009-214859" })
+    {
+        const SunCbuffers bytes = load_sun(capture);
+        std::string why;
+        const std::optional<SceneCamera> alone = scene_camera(bytes, why);
+        const SceneCamera parsed = *scene_camera(parse_sun_shadows(bytes).constants);
+        check((std::string(capture) + ": the camera from b1 and b2 alone is the parsed constants' camera, to the bit").c_str(),
+            alone && why.empty() && alone->clip_to_world == parsed.clip_to_world && alone->position == parsed.position);
+    }
+    {
+        // Cascade 2's sphere shrunk below cascade 1's, in rows 0 to 7 and in row 8 that repeats them: b3 starts at byte 1312.
+        SunCbuffers bytes = load_sun("capture-20261010-111824");
+        float radius2;
+        std::memcpy(&radius2, bytes.data() + 1312 + 1 * 16 + 12, sizeof radius2);
+        radius2 /= 2;
+        std::memcpy(bytes.data() + 1312 + 2 * 16 + 12, &radius2, sizeof radius2);
+        std::memcpy(bytes.data() + 1312 + 8 * 16 + 2 * 4, &radius2, sizeof radius2);
+        std::string why;
+        const std::optional<SceneCamera> camera = scene_camera(bytes, why);
+        check("cascades that fail radii-order for the sun pass still give the game's camera", parse_sun_shadows(bytes).check == SunCheck::radii_order
+            && camera && camera->source == SceneCamera::Source::game && why.empty());
+        SunCbuffers skewed = bytes;
+        const float two = 2;
+        std::memcpy(skewed.data() + 960 + 18 * 16, &two, sizeof two);
+        SunCbuffers infinite = bytes;
+        const float nan = NAN;
+        std::memcpy(infinite.data() + 768 + 5 * 16 + 4, &nan, sizeof nan);
+        std::string skewed_why, infinite_why;
+        check("a right vector of length 2: no camera, basis; a NaN in b1 row 5: no camera, not-finite",
+            !scene_camera(skewed, skewed_why) && skewed_why == "basis" && !scene_camera(infinite, infinite_why) && infinite_why == "not-finite");
+    }
 
     {
         // b2's basis turned onto each face: the rotation that takes b2's forward and up to the face's.
