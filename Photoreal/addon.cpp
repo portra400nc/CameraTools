@@ -1325,6 +1325,11 @@ namespace photoreal
             s.scene_face = scene_face;
             s.scene_remaining = scene_remaining.load();
             s.scene_support = scene_gpu.support();
+            s.trace_state = static_cast<uint32_t>(trace_gpu.state());
+            s.trace_triangles = trace_gpu.triangles();
+            s.trace_samples = trace_gpu.passes();
+            s.trace_mrays_x100 = static_cast<uint32_t>(std::min(trace_gpu.mrays() * 100, 4e9));
+            s.trace_generation = static_cast<uint32_t>(trace_gpu.generation());
             report.accumulated = accumulator.samples;
             published.line = describe(report);
             status_box.put(published);
@@ -1472,7 +1477,7 @@ namespace photoreal
 using namespace photoreal;
 
 extern "C" __declspec(dllexport) const char *NAME = "CameraTools Photoreal";
-extern "C" __declspec(dllexport) const char *DESCRIPTION = "Finds Genshin's G-buffer and lighting buffers each frame, shows them as debug views, relights the world's ambient light, softens the sun's shadows and adds contact shadows to them, adds aerial perspective and sun shafts through a ground mist to the scene, replaces the game's tone map, averages lens samples into depth of field, saves comparison captures of settings variants, and captures the scene's geometry around the camera. Driven by CameraTools.";
+extern "C" __declspec(dllexport) const char *DESCRIPTION = "Finds Genshin's G-buffer and lighting buffers each frame, shows them as debug views, relights the world's ambient light, softens the sun's shadows and adds contact shadows to them, adds aerial perspective and sun shafts through a ground mist to the scene, replaces the game's tone map, averages lens samples into depth of field, saves comparison captures of settings variants, captures the scene's geometry around the camera, and traces ambient occlusion and sun shadows against it. Driven by CameraTools.";
 
 extern "C" uint32_t PhotorealVersion(void)
 {
@@ -1538,6 +1543,21 @@ extern "C" float PhotorealDepthAt(float u, float v)
         depth_ask = { true, u, v, now, now, -1, 0 };
     depth_ask.last = now;
     return depth_ask.answered > depth_ask.asked ? depth_ask.meters : -1;
+}
+
+extern "C" uint32_t PhotorealSaveTrace(void)
+{
+    PhotorealStatus status;
+    {
+        std::lock_guard lock(status_box.mutex);
+        status = status_box.value.status;
+    }
+    if (status.trace_state != PHOTOREAL_TRACE_STATE_READY || status.trace_samples == 0 || trace_save_wanted.load())
+        return 0;
+    // The present first, so the render thread never sees the request with an older one.
+    trace_save_asked = presents.load(std::memory_order_relaxed);
+    trace_save_wanted = true;
+    return 1;
 }
 
 extern "C" void PhotorealGetStatus(PhotorealStatus *status)

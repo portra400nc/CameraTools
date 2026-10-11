@@ -14,7 +14,7 @@ namespace CameraToolsPhotoreal
     internal enum PhotorealView : uint
     {
         Off, Normals, Albedo, Specular, MaterialId, Smoothness, Character, Depth, Stencil,
-        ShadowMask, QuarterShadow, AmbientDiffuse, AmbientSpecular, HdrScene, BloomFinal, SunAtlas, LightShafts, Count,
+        ShadowMask, QuarterShadow, AmbientDiffuse, AmbientSpecular, HdrScene, BloomFinal, SunAtlas, LightShafts, Trace, Count,
     }
 
     // PHOTOREAL_ERROR_* in photoreal.h.
@@ -104,6 +104,33 @@ namespace CameraToolsPhotoreal
         public uint Steps;
     }
 
+    // PHOTOREAL_TRACE_AO and PHOTOREAL_TRACE_SUN in photoreal.h: what the trace pass writes. None reads as both.
+    [Flags]
+    internal enum PhotorealTraceOutputs : uint { None = 0, Ao = 1 << 0, Sun = 1 << 1 }
+
+    // PHOTOREAL_TRACE_CAST_* in photoreal.h: what casts in the traced scene besides the world.
+    [Flags]
+    internal enum PhotorealTraceCasters : uint { None = 0, Characters = 1 << 0, AlphaCards = 1 << 2 }
+
+    // PHOTOREAL_TRACE_STATE_* in photoreal.h, in order.
+    internal enum PhotorealTraceState : uint { None, Building, Uploading, Ready, Stale, Failed }
+
+    // PhotorealTrace in photoreal.h, field for field.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct PhotorealTrace
+    {
+        public uint Enabled;
+        public PhotorealTraceOutputs Outputs;
+        public PhotorealTraceCasters Casters;
+        public float AoDistance;
+        public float AoStrength;
+        public float SunSize;
+        public float SunStrength;
+        public uint AoSamples;
+        public uint SunSamples;
+        public float BudgetMs;
+    }
+
     // PhotorealSettings in photoreal.h, field for field.
     [StructLayout(LayoutKind.Sequential)]
     internal struct PhotorealSettings
@@ -119,6 +146,7 @@ namespace CameraToolsPhotoreal
         public PhotorealSunShadows SunShadows;
         public PhotorealWetness Wetness;
         public PhotorealLightShafts LightShafts;
+        public PhotorealTrace Trace;
 
         // The add-on's defaults: everything off, game targets upside down, and when switched on ambient level 0.6, AO
         // strength 0.5 at a 1 m radius, half that strength on grass, vegetation and foliage, full-strength contact
@@ -128,7 +156,9 @@ namespace CameraToolsPhotoreal
         // least 0.02 m, wet surfaces that follow the weather, darken by 0.35 when soaked and grow puddles on flat ground at
         // 0.3, and light shafts at strength 3 through a mist that hides 26% of a pixel 50 m away, thins by e every 5 m up,
         // scatters sun light forward with anisotropy 0.6, is marched 150 m in 48 steps, lies in patches 6 m across at
-        // patchiness 1, and takes the sky's light at 0.3.
+        // patchiness 1, and takes the sky's light at 0.3, and a trace of occlusion within 2 m and sun shadows of the real
+        // sun's size, both at full strength and cast by characters and cards too, to 64 and 32 samples a pixel within 20 ms a
+        // frame, applied with the ambient level.
         public static PhotorealSettings Defaults => new()
         {
             Size = (uint)Marshal.SizeOf<PhotorealSettings>(),
@@ -142,6 +172,11 @@ namespace CameraToolsPhotoreal
             LightShafts = new PhotorealLightShafts
             {
                 Strength = 3, Density = 0.006f, Height = 5, Anisotropy = 0.6f, Distance = 150, Patchiness = 1, PatchSize = 6, Ambient = 0.3f, Steps = 48,
+            },
+            Trace = new PhotorealTrace
+            {
+                Outputs = PhotorealTraceOutputs.Ao | PhotorealTraceOutputs.Sun, Casters = PhotorealTraceCasters.Characters | PhotorealTraceCasters.AlphaCards,
+                AoDistance = 2, AoStrength = 1, SunSize = 0.0093f, SunStrength = 1, AoSamples = 64, SunSamples = 32, BudgetMs = 20,
             },
         };
     }
@@ -176,12 +211,12 @@ namespace CameraToolsPhotoreal
     // PHOTOREAL_FACE_* in photoreal.h, in order, and PHOTOREAL_FACE_NONE.
     internal enum PhotorealFace : uint { PosX, NegX, PosY, NegY, PosZ, NegZ, View, None = 0xFFFFFFFF }
 
-    // PHOTOREAL_SCENE_* in photoreal.h.
+    // PHOTOREAL_SCENE_* in photoreal.h. Trace with no faces traces the self-test scene; Release frees the traced scene.
     [Flags]
-    internal enum PhotorealSceneFlags : uint { None = 0, Raw = 1 << 0, Ply = 1 << 1 }
+    internal enum PhotorealSceneFlags : uint { None = 0, Raw = 1 << 0, Ply = 1 << 1, Trace = 1 << 2, NoMeshes = 1 << 3, GBuffer = 1 << 4, Release = 1 << 5 }
 
-    // PhotorealSceneRequest in photoreal.h, field for field. Zero fields read as the add-on's defaults: all seven faces,
-    // 45 presents of settle and 4000000 triangles a face.
+    // PhotorealSceneRequest in photoreal.h, field for field. Zero fields read as the add-on's defaults: all seven faces
+    // (with Trace, none: the self-test scene), 45 presents of settle and 4000000 triangles a face.
     [StructLayout(LayoutKind.Sequential)]
     internal struct PhotorealSceneRequest
     {
@@ -239,13 +274,18 @@ namespace CameraToolsPhotoreal
         public PhotorealFace SceneFace;
         public uint SceneRemaining;
         public uint SceneSupport;   // 0 untried, 1 stream output wrote triangles, 2 the Deck's DXVK refused stream output
+        public PhotorealTraceState TraceState;
+        public uint TraceTriangles;
+        public uint TraceSamples;   // full passes: samples every traced pixel has
+        public uint TraceMraysX100; // rays a second, in millions times 100
+        public uint TraceGeneration;
     }
 
     // The only class that knows CameraToolsPhotoreal.addon64.
     internal static class Photoreal
     {
         private const string ModuleName = "CameraToolsPhotoreal.addon64";
-        private const uint Version = 7;
+        private const uint Version = 8;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -276,8 +316,11 @@ namespace CameraToolsPhotoreal
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate uint CaptureSceneCall(ref PhotorealSceneRequest request);
 
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate uint SaveTraceCall();
+
         private sealed record AddOn(IntPtr Module, ApplyCall Apply, SetCameraCall SetCamera, GetStatusCall GetStatus, DescribeCall Describe, CompareCall Compare,
-            SetAccumulateCall SetAccumulate, DepthAtCall DepthAt, CaptureSceneCall CaptureScene);
+            SetAccumulateCall SetAccumulate, DepthAtCall DepthAt, CaptureSceneCall CaptureScene, SaveTraceCall SaveTrace);
 
         private static readonly float[] camera = new float[48];
         private static readonly byte[] line = new byte[512];
@@ -384,6 +427,11 @@ namespace CameraToolsPhotoreal
             return addOn.CaptureScene(ref request) != 0;
         }
 
+        // Saves the next frame the trace pass writes, with what the Mac's reference tracer needs, to
+        // <ReShade base path>\Photoreal\trace-<time>\. False while the add-on is not loaded, the traced scene is not ready
+        // (Status.TraceState), before its first full pass (Status.TraceSamples), or while a save waits.
+        public static bool SaveTrace() => addOn != null && addOn.SaveTrace() != 0;
+
         // SceneFace reads None while the add-on is not loaded, so no caller turns the camera for a capture that is not there.
         public static PhotorealStatus Status
         {
@@ -455,13 +503,14 @@ namespace CameraToolsPhotoreal
                 || !TryExport<CompareCall>(module, "PhotorealCompare", out var compare)
                 || !TryExport<SetAccumulateCall>(module, "PhotorealSetAccumulate", out var setAccumulate)
                 || !TryExport<DepthAtCall>(module, "PhotorealDepthAt", out var depthAt)
-                || !TryExport<CaptureSceneCall>(module, "PhotorealCaptureScene", out var captureScene))
+                || !TryExport<CaptureSceneCall>(module, "PhotorealCaptureScene", out var captureScene)
+                || !TryExport<SaveTraceCall>(module, "PhotorealSaveTrace", out var saveTrace))
             {
                 MelonLogger.Warning($"Photoreal: {ModuleName} version {found} is missing an export.");
                 return;
             }
             rejected = IntPtr.Zero;
-            addOn = new AddOn(module, apply, setCamera, getStatus, describe, compare, setAccumulate, depthAt, captureScene);
+            addOn = new AddOn(module, apply, setCamera, getStatus, describe, compare, setAccumulate, depthAt, captureScene, saveTrace);
             MelonLogger.Msg($"Photoreal: connected to {ModuleName} version {found}.");
         }
 

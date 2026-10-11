@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define PHOTOREAL_VERSION 7
+#define PHOTOREAL_VERSION 8
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -418,6 +418,11 @@ typedef struct PhotorealStatus
     uint32_t scene_remaining;   // faces of the scene capture not yet written, 0 when none runs
     uint32_t scene_support;     // 0 untried, 1 stream output wrote triangles, 2 CreateGeometryShaderWithStreamOutput failed with
                                 // DXGI_ERROR_INVALID_CALL, which DXVK returns without transform feedback
+    uint32_t trace_state;       // PHOTOREAL_TRACE_STATE_* of the traced scene
+    uint32_t trace_triangles;   // triangles in its BVH, 0 while there is none
+    uint32_t trace_samples;     // full passes since the samples last started: samples every traced pixel has
+    uint32_t trace_mrays_x100;  // the last measured rays a second, in millions times 100
+    uint32_t trace_generation;  // the scene's, one more for each scene uploaded since the add-on loaded
 } PhotorealStatus;
 
 PHOTOREAL_EXPORT uint32_t PhotorealVersion(void);
@@ -446,6 +451,13 @@ PHOTOREAL_EXPORT uint32_t PhotorealCompare(const PhotorealVariant *variants, uin
 PHOTOREAL_EXPORT uint32_t PhotorealCaptureScene(const PhotorealSceneRequest *request);
 
 PHOTOREAL_EXPORT void PhotorealGetStatus(PhotorealStatus *status);
+
+// Saves the next frame the trace pass writes into <ReShade base path>\Photoreal\trace-<YYYYMMDD-HHMMSS>\: its history,
+// depth, stencil and normals, the game's shadow mask and diffuse irradiance as the pass found them, the constants it
+// traced with, the shadow-mask constants and trace.tsv, which names the scene folder holding trace-scene.bin, for the
+// Mac's reference tracer. Returns 1 when accepted, and 0 while the scene is not ready, before the first full pass, or while
+// a save waits; a save that sees no traced frame within 300 presents is given up, which ReShade.log says.
+PHOTOREAL_EXPORT uint32_t PhotorealSaveTrace(void);
 
 // Copies the accumulation's state; it takes effect at the next frame boundary, like PhotorealApply. A null pointer, or a
 // size too small to hold mode, changes nothing. It works whether settings.enabled is on or not.
