@@ -16,15 +16,16 @@ static const float kBlend = 0.1;            // the outer tenth of each cascade's
 // the game lights fully, and 2 shadowed 0.001%.
 static const float kMaxSlope = 2;
 
-// A stored pixel in the game's view space. The game's constants already account for its targets being stored upside
-// down, so v counts texture rows from the top, and flip plays no part.
-float3 game_view(int2 pixel)
+// A stored point in the game's view space, at uv with reversed device depth d. The game's constants already account for
+// its targets being stored upside down, so v counts texture rows from the top, and flip plays no part.
+float3 game_view_at(float2 uv, float d)
 {
-    float2 uv = (pixel + 0.5) * render_size.zw;
-    float3 ndc = float3(uv * 2 - 1, 1 - 2 * depth.Load(int3(pixel, 0)));
+    float3 ndc = float3(uv * 2 - 1, 1 - 2 * d);
     float4 view = ndc.x * game_b2[10] + ndc.y * game_b2[11] + ndc.z * game_b2[12] + game_b2[13];
     return view.xyz / view.w;
 }
+
+float3 game_view(int2 pixel) { return game_view_at((pixel + 0.5) * render_size.zw, depth.Load(int3(pixel, 0))); }
 
 // The world position the game's shadow shaders compute for the same pixel, so it lands on the atlas exactly.
 float3 game_world(float3 view) { return game_b1[5].xyz + view.x * game_b2[18].xyz + view.y * game_b2[19].xyz - view.z * game_b2[20].xyz; }
@@ -57,34 +58,61 @@ struct Receiver
     float2 plane;           // the receiver plane's depth change per unit of u and of v
 };
 
-// n tilts the receiver's plane; 0 keeps it flat across the light.
-Receiver project(int c, float3 p, float3 n)
+// Cascade c's transform from world space into the atlas: with q = p - origin, (u, v, depth, w) = q.x * m0 + q.y * m1 +
+// q.z * m2 + m3.
+struct CascadeTransform
+{
+    float4 m0, m1, m2, m3;
+    float3 origin;
+};
+
+CascadeTransform cascade_transform(int c)
 {
     // Picked by an unrolled loop, not game_b3[15 + 4 * c]: vkd3d-compiler declares a dynamically indexed buffer as
     // immediately indexed, which the bytecode does not allow.
-    float4 m0 = 0, m1 = 0, m2 = 0, m3 = 0, origin = 0;
+    CascadeTransform t;
+    t.m0 = 0;
+    t.m1 = 0;
+    t.m2 = 0;
+    t.m3 = 0;
+    t.origin = 0;
     [unroll] for (int i = 0; i < kMaxCascades; i++)
     {
         if (i == c)
         {
-            m0 = game_b3[15 + 4 * i];
-            m1 = game_b3[16 + 4 * i];
-            m2 = game_b3[17 + 4 * i];
-            m3 = game_b3[18 + 4 * i];
-            origin = game_b3[49 + i];
+            t.m0 = game_b3[15 + 4 * i];
+            t.m1 = game_b3[16 + 4 * i];
+            t.m2 = game_b3[17 + 4 * i];
+            t.m3 = game_b3[18 + 4 * i];
+            t.origin = game_b3[49 + i].xyz;
         }
     }
-    float3 q = p - origin.xyz;
-    float4 a = q.x * m0 + q.y * m1 + q.z * m2 + m3;
-    float3 gu = float3(m0.x, m1.x, m2.x), gv = float3(m0.y, m1.y, m2.y), gz = float3(m0.z, m1.z, m2.z);
+    return t;
+}
+
+// Cascade c's tile in the whole atlas, a texel in from each edge so taps never read a neighbor: xy the low corner, zw the
+// high one.
+float4 cascade_tile(int c)
+{
+    float2 grid = float2(sun_columns, sun_rows);
+    float2 tile = float2(uint(c) % sun_columns, uint(c) / sun_columns);
+    return float4(tile / grid + game_b0[0].xy, (tile + 1) / grid - game_b0[0].xy);
+}
+
+// n tilts the receiver's plane; 0 keeps it flat across the light.
+Receiver project(int c, float3 p, float3 n)
+{
+    CascadeTransform t = cascade_transform(c);
+    float3 q = p - t.origin;
+    float4 a = q.x * t.m0 + q.y * t.m1 + q.z * t.m2 + t.m3;
+    float3 gu = float3(t.m0.x, t.m1.x, t.m2.x), gv = float3(t.m0.y, t.m1.y, t.m2.y), gz = float3(t.m0.z, t.m1.z, t.m2.z);
     Receiver r;
     r.atlas = a.xyz / a.w;
     r.uv_per_meter = float2(length(gu), length(gv));
     r.meters_per_depth = 1 / length(gz);
-    float2 grid = float2(sun_columns, sun_rows);
-    float2 tile = float2(uint(c) % sun_columns, uint(c) / sun_columns);
-    r.lo = tile / grid + game_b0[0].xy;
-    r.hi = (tile + 1) / grid - game_b0[0].xy;
+    float4 tile = cascade_tile(c);
+    r.lo = tile.xy;
+    r.hi = tile.zw;
     // A surface lit at a slant rises toward the sun across the light. Predicting its depth at each tap keeps a wide
     // filter from shadowing the surface with itself.
     float facing = dot(n, normalize(gz));
