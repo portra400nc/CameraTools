@@ -39,6 +39,7 @@ enum
     PHOTOREAL_VIEW_HDR_SCENE,
     PHOTOREAL_VIEW_BLOOM_FINAL,
     PHOTOREAL_VIEW_SUN_ATLAS,
+    PHOTOREAL_VIEW_LIGHT_SHAFTS,    // not an entry: the light the light-shaft pass's mist scatters, drawn by the pass for it
     PHOTOREAL_VIEW_COUNT,
 };
 

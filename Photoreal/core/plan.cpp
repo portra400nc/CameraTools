@@ -33,7 +33,7 @@ namespace photoreal
         static_assert(PHOTOREAL_CURVE_AGX == static_cast<int>(Curve::agx) && PHOTOREAL_CURVE_COUNT == static_cast<int>(Curve::count));
         static_assert(PHOTOREAL_VIEW_COUNT == static_cast<int>(View::count) && PHOTOREAL_VIEW_STENCIL == static_cast<int>(View::stencil)
             && PHOTOREAL_VIEW_HDR_SCENE == static_cast<int>(View::hdr_scene) && PHOTOREAL_VIEW_BLOOM_FINAL == static_cast<int>(View::bloom_final)
-            && PHOTOREAL_VIEW_SUN_ATLAS == static_cast<int>(View::sun_atlas));
+            && PHOTOREAL_VIEW_SUN_ATLAS == static_cast<int>(View::sun_atlas) && PHOTOREAL_VIEW_LIGHT_SHAFTS == static_cast<int>(View::light_shafts));
 
         const char *const kErrorNames[] = { "none", "not-d3d11", "shader", "texture", "state" };
         static_assert(PHOTOREAL_ERROR_STATE == 4);
@@ -114,7 +114,22 @@ namespace photoreal
         { View::bloom_final, "bloom-final", Entry::bloom_final, Step::tonemap, Decode::hdr },
         // At the draw that samples it: the atlas then holds this frame's cascades.
         { View::sun_atlas, "sun-atlas", Entry::sun_atlas, Step::shadow_mask, Decode::gray },
+        // The light the mist scatters alone, which the light-shaft pass draws for this view as it lays the mist over the HDR
+        // scene.
+        { View::light_shafts, "light-shafts", Entry::hdr_scene, Step::bloom, Decode::hdr, PassId::light_shafts },
     } };
+
+    namespace
+    {
+        // kPasses is in run order, so a pass is found by its id.
+        const PassSpec &pass_spec(PassId id)
+        {
+            for (const PassSpec &spec : kPasses)
+                if (spec.id == id)
+                    return spec;
+            return kPasses[0];
+        }
+    }
 
     Label encode_label(std::string_view text)
     {
@@ -424,6 +439,8 @@ namespace photoreal
         const ViewSpec &spec = kViews[static_cast<size_t>(view)];
         if (spec.snapshot_at != step)
             return false;
+        if (spec.from != PassId::count)
+            return view_found = ran.has(spec.from);
         view_found = map[spec.entry].has_value();
         if (!view_found)
             missing.add(spec.entry);
@@ -454,8 +471,9 @@ namespace photoreal
                 spec.sun == SunUse::required ? inputs.sun : SunCheck::ok };
             missing |= absent;
         }
-        if (view != View::off && !entries.has(kViews[static_cast<size_t>(view)].entry))
-            missing.add(kViews[static_cast<size_t>(view)].entry);
+        const ViewSpec &shown = kViews[static_cast<size_t>(view)];
+        if (view != View::off && shown.from == PassId::count && !entries.has(shown.entry))
+            missing.add(shown.entry);
     }
 
     std::string describe(const FrameReport &report)
@@ -511,6 +529,8 @@ namespace photoreal
                 line += std::string("; view ") + spec.name;
                 if (!report.found.has(spec.snapshot_at))
                     line += std::string(": no ") + kRecipe[static_cast<size_t>(spec.snapshot_at)].name;
+                else if (!report.view_found && spec.from != PassId::count)
+                    line += std::string(": ") + pass_spec(spec.from).name + " did not run";
                 else if (!report.view_found)
                     line += std::string(": missing ") + kEntryNames[static_cast<size_t>(spec.entry)];
             }

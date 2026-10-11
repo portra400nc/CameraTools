@@ -128,6 +128,7 @@ namespace photoreal
         bool sync(ID3D11Device *device, Size size, DXGI_FORMAT format);
         ID3D11ShaderResourceView *srv() const { return srv_.Get(); }
         ID3D11RenderTargetView *rtv() const { return rtv_.Get(); }
+        ID3D11Texture2D *texture() const { return texture_.Get(); }
 
     private:
         Size size_;
@@ -211,10 +212,10 @@ namespace photoreal
         // The light-shaft pass: mirror in the HDR scene and depth; march each half-size ray through the mist into shafts_
         // and shafts_meters_, with the sun's visibility at each step from the atlas and the constants gather_sun copied this
         // frame; draw out = in * T + in-scatter at full size from a 4x4 window of the march; copy out over the game's HDR
-        // scene. sun gives the cascades in use and the atlas's grid. Empty when gather_sun copied nothing this frame or a
-        // texture of ours failed.
+        // scene. sun gives the cascades in use and the atlas's grid. With view, the in-scatter alone also goes into
+        // shafts_view_ for snapshot_light_shafts. Empty when gather_sun copied nothing this frame or a texture of ours failed.
         std::optional<GameCall> run_light_shafts(const FrameMap &map, const LightShaftSettings &settings, const Camera &camera,
-            const SunShadowConstants &sun, bool flip);
+            const SunShadowConstants &sun, bool flip, bool view);
 
         // The atmosphere pass: mirror in the HDR scene and depth; draw out = in * T + (sky + sun * sun_scatter * phase) *
         // (1 - T) on pixels with depth, where T is the transmittance of the height-fading haze along the view ray, and in
@@ -246,6 +247,8 @@ namespace photoreal
 
         // At the pending view's snapshot step: copies the entry into pending. false when the copy could not be made.
         bool snapshot(const Texture &entry);
+        // The same for the light-shafts view, from what run_light_shafts drew for it this frame.
+        bool snapshot_light_shafts();
 
         // At reshade_present: draws shown over the back buffer through a mirror of it, with the view's name in the top-left
         // corner, then copies the mirror over it.
@@ -300,6 +303,7 @@ namespace photoreal
         Scratch sum_;               // R32G32B32A32_FLOAT: rgb the weighted HDR sum, a the weight sum
         Scratch shafts_;            // half size, R16G16B16A16_FLOAT: rgb the mist's raw in-scatter, a its transmittance
         Scratch shafts_meters_;     // half size, R16_FLOAT: the meters each ray marched
+        Scratch shafts_view_;       // R16G16B16A16_FLOAT: the mist's in-scatter at full size, for the light-shafts view
         ComPtr<ID3D11Texture2D> depth_texel_;   // 1x1 R32G8X24_TYPELESS, CPU-readable
         bool depth_texel_pending_ = false;      // copied and not yet read
         Snapshot pending_, shown_;

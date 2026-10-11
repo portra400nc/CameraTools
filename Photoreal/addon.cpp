@@ -422,7 +422,8 @@ namespace photoreal
                         call = gpu.run_atmosphere(map, settings.atmosphere, camera, settings.flip);
                         break;
                     case PassId::light_shafts:
-                        call = gpu.run_light_shafts(map, settings.light_shafts, camera, sun_parse.constants, settings.flip);
+                        call = gpu.run_light_shafts(map, settings.light_shafts, camera, sun_parse.constants, settings.flip,
+                            report.view == View::light_shafts);
                         break;
                     case PassId::tonemap:
                         call = gpu.run_tonemap(map, settings.tonemap);
@@ -448,7 +449,8 @@ namespace photoreal
                 accumulate_at_bloom(map);
                 copy_depth_at_bloom(map);
             }
-            if (report.note_view(step, map) && !gpu.snapshot(*map[kViews[static_cast<size_t>(report.view)].entry]))
+            const ViewSpec &view = kViews[static_cast<size_t>(report.view)];
+            if (report.note_view(step, map) && !(view.from == PassId::light_shafts ? gpu.snapshot_light_shafts() : gpu.snapshot(*map[view.entry])))
             {
                 report.view_found = false;
                 frame_error = PHOTOREAL_ERROR_TEXTURE;

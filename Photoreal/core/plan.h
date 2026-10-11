@@ -18,7 +18,7 @@ namespace photoreal
     enum class View : uint8_t
     {
         off, normals, albedo, specular, material_id, smoothness, character, depth, stencil,
-        shadow_mask, quarter_shadow, ambient_diffuse, ambient_specular, hdr_scene, bloom_final, sun_atlas, count,
+        shadow_mask, quarter_shadow, ambient_diffuse, ambient_specular, hdr_scene, bloom_final, sun_atlas, light_shafts, count,
     };
 
     // How the view shader turns an entry into a picture. One value per branch of shaders/view_ps.hlsl.
@@ -231,6 +231,8 @@ namespace photoreal
         Entry entry;
         Step snapshot_at;       // copied after the passes at this step ran, so the view shows what the game reads next
         Decode decode;
+        // A pass whose own result the view shows in place of the entry, found only when the pass ran; count for an entry.
+        PassId from = PassId::count;
     };
 
     extern const std::array<ViewSpec, static_cast<size_t>(View::count)> kViews;  // kViews[off] is unused

@@ -746,7 +746,7 @@ namespace photoreal
     }
 
     std::optional<GameCall> Gpu::run_light_shafts(const FrameMap &map, const LightShaftSettings &settings, const Camera &camera,
-        const SunShadowConstants &sun, bool flip)
+        const SunShadowConstants &sun, bool flip, bool view)
     {
         const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
         const auto scene_format = static_cast<DXGI_FORMAT>(scene.format);
@@ -755,7 +755,8 @@ namespace photoreal
         Constants constants;
         if (!sun_ready_ || !scene_in_.sync(d, native(scene), scene_format, false) || !scene_out_.sync(d, native(scene), scene_format, true)
             || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false) || !shafts_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT)
-            || !shafts_meters_.sync(d, half, DXGI_FORMAT_R16_FLOAT) || !pass_constants(camera, map.render, flip, constants))
+            || !shafts_meters_.sync(d, half, DXGI_FORMAT_R16_FLOAT) || (view && !shafts_view_.sync(d, map.render, DXGI_FORMAT_R16G16B16A16_FLOAT))
+            || !pass_constants(camera, map.render, flip, constants))
             return std::nullopt;
         constants.sun_cascades = sun.cascades;
         constants.sun_columns = sun.columns;
@@ -781,7 +782,8 @@ namespace photoreal
         draw_fullscreen(shafts_ps_.Get(), march, 7, rays, 2, half);
         // The second draw's target change unbinds the march's two textures as targets before they are bound at t5 and t6.
         ID3D11ShaderResourceView *const apply[] = { scene_in_.srv(), nullptr, depth_.srv(), nullptr, nullptr, shafts_.srv(), shafts_meters_.srv() };
-        draw_fullscreen(light_shafts_ps_.Get(), apply, 7, scene_out_.rtv(), map.render);
+        ID3D11RenderTargetView *const out[] = { scene_out_.rtv(), shafts_view_.rtv() };
+        draw_fullscreen(light_shafts_ps_.Get(), apply, 7, out, view ? 2 : 1, map.render);
         scene_out_.copy_to(c, native(scene));
         return GameCall::keep;
     }
@@ -941,6 +943,16 @@ namespace photoreal
         if (!pending_.image.sync(device_.Get(), native(entry), static_cast<DXGI_FORMAT>(entry.format), false))
             return false;
         pending_.image.copy_from(context_.Get(), native(entry));
+        pending_.found = true;
+        return true;
+    }
+
+    bool Gpu::snapshot_light_shafts()
+    {
+        ID3D11Texture2D *const shafts = shafts_view_.texture();
+        if (shafts == nullptr || !pending_.image.sync(device_.Get(), shafts, DXGI_FORMAT_R16G16B16A16_FLOAT, false))
+            return false;
+        pending_.image.copy_from(context_.Get(), shafts);
         pending_.found = true;
         return true;
     }

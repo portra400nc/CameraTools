@@ -577,6 +577,41 @@ int main()
     }
     {
         auto rows = walk;
+        std::vector<Step> snapshots;
+        Settings settings = light_shafts_on(false);
+        settings.view = View::light_shafts;
+        const FrameReport report = run_frame(rows, settings, kCamera, &snapshots);
+        check("the light-shafts view snapshots at bloom, after the pass that draws it, and is shown",
+            snapshots == std::vector<Step> { Step::bloom } && report.view_shown() == View::light_shafts && report.missing.empty());
+        check("describe names the pass and the light-shafts view", describe(report) == std::string(kAllSteps) + "; ran light-shafts@bloom; view light-shafts");
+        const Label label = view_label(View::light_shafts, true);
+        check("the light-shafts label spells LIGHT-SHAFTS", std::vector<int>(label.glyphs.begin(), label.glyphs.begin() + label.length)
+            == std::vector<int> { 12, 9, 7, 8, 20, 37, 19, 8, 1, 6, 20, 19 });
+    }
+    {
+        auto rows = walk;
+        const FrameReport report = run_frame(rows, view_only(PHOTOREAL_VIEW_LIGHT_SHAFTS), kCamera);
+        check("with the pass off, the light-shafts view shows nothing, misses no entry, and says the pass did not run",
+            report.view_shown() == View::off && report.missing.empty()
+                && describe(report) == std::string(kAllSteps) + "; view light-shafts: light-shafts did not run");
+        check("the light-shafts view wants the steps up to bloom", report.wanted.bits == (PHOTOREAL_STEP_GBUFFER | PHOTOREAL_STEP_COMBINE | PHOTOREAL_STEP_BLOOM));
+    }
+    {
+        auto rows = walk;
+        Settings settings = light_shafts_on(false);
+        settings.view = View::light_shafts;
+        const FrameReport report = run_frame(rows, settings, Inputs { true, SunCheck::unread });
+        check("with the pass skipped, the light-shafts view says so too", report.view_shown() == View::off && describe(report)
+            == std::string(kAllSteps) + "; skipped light-shafts: sun constants unread; view light-shafts: light-shafts did not run");
+        FrameTracker tracker;
+        fixture::replay(rows, tracker);
+        FrameReport failed = FrameReport::start(settings);
+        failed.note(plan(Step::bloom, tracker.map(), settings, kCamera));
+        failed.note_failed(PassId::light_shafts);
+        check("a light-shaft pass whose texture failed shows no view", !failed.note_view(Step::bloom, tracker.map()) && failed.view_shown() == View::off);
+    }
+    {
+        auto rows = walk;
         fixture::find(rows, 1118).draw.inputs.resize(1);
         const FrameReport report = run_frame(rows, view_only(PHOTOREAL_VIEW_BLOOM_FINAL), kCamera);
         check("without a final bloom at the tonemap draw, the view says it is missing", report.view_shown() == View::off
