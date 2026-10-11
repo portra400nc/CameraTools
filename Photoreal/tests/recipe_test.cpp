@@ -115,6 +115,32 @@ int main()
             id(map, Entry::hdr_scene) == 17 && id(map, Entry::bloom) == 357 && id(map, Entry::tonemap_out) == 362);
         check("111824: final bloom 361 at 480x300", id(map, Entry::bloom_final) == 361 && map[Entry::bloom_final]->size == Size { 480, 300 });
         check("111824: sun atlas 249 at 4096x2048", id(map, Entry::sun_atlas) == 249 && map[Entry::sun_atlas]->size == Size { 4096, 2048 });
+        check("111824: no step fell back", tracker.fell_back().empty());
+    }
+    {
+        auto rows = normal;
+        fixture::drop(rows, 921, 921);  // the first bloom draw, the one that samples the HDR scene
+        FrameTracker tracker;
+        std::vector<Moment> expected = k111824;
+        expected[7] = { 951, Step::bloom };
+        check("111824 without the bloom draw: the bloom step's moment is the tonemap draw 951, just before tonemap's",
+            fixture::replay(rows, tracker) == expected);
+        check("111824 without the bloom draw: tonemap matched with its output 362 and final bloom 361, bloom fell back and left no entry",
+            tracker.matched().has(Step::tonemap) && !tracker.matched().has(Step::bloom) && tracker.fell_back().bits == (StepSet { Step::bloom }).bits
+                && id(tracker.map(), Entry::tonemap_out) == 362 && id(tracker.map(), Entry::bloom_final) == 361 && !tracker.map()[Entry::bloom]);
+        fixture::insert_before(rows, 952, fixture::slice(normal, 919, 921));
+        expected = k111824;
+        expected[7] = { 951, Step::bloom };
+        check("a bloom draw after the step fell back does not match: the bloom step has one moment", fixture::replay(rows, tracker) == expected);
+        tracker.begin_frame();
+        check("begin_frame forgets the step that fell back", tracker.fell_back().empty());
+    }
+    {
+        auto rows = normal;
+        fixture::drop(rows, 921, 951);  // the bloom chain and the tonemap draw
+        FrameTracker tracker;
+        fixture::replay(rows, tracker);
+        check("111824 without the bloom and tonemap draws: nothing fell back", tracker.fell_back().empty() && !tracker.matched().has(Step::bloom));
     }
     {
         auto rows = normal;
@@ -328,6 +354,13 @@ int main()
             filled |= spec.fills;
         }
         check("every entry has exactly one writer step", !overlap && filled.bits == (1u << static_cast<uint32_t>(Entry::count)) - 1);
+    }
+    {
+        bool later = true;
+        for (const StepSpec &spec : kRecipe)
+            later &= spec.fallback == Step::count || (spec.fallback > spec.step && kRecipe[static_cast<size_t>(spec.fallback)].after.contains(spec.after));
+        check("every fallback is a later row with the same prerequisites or more, so a step that fell back runs first",
+            later && kRecipe[static_cast<size_t>(Step::bloom)].fallback == Step::tonemap);
     }
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;

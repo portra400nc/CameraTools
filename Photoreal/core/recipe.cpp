@@ -215,7 +215,10 @@ namespace photoreal
         { Step::shadow_mask, "shadow-mask", { Step::gbuffer }, { Entry::shadow_mask, Entry::sun_atlas }, match_shadow_mask },
         { Step::ambient_pair, "ambient-pair", { Step::gbuffer }, { Entry::ambient_specular, Entry::ambient_diffuse }, match_ambient_pair },
         { Step::combine, "combine", { Step::gbuffer }, { Entry::hdr_scene }, match_combine },
-        { Step::bloom, "bloom", { Step::combine }, { Entry::bloom }, match_bloom },
+        // The tonemap draw samples the HDR scene too, so when the game's bloom takes another shape (build 196 on the Deck
+        // lost it for up to a quarter second every 3 to 13 s while walking), the bloom step's passes still run before the
+        // scene is read, only after the game's bloom of that frame.
+        { Step::bloom, "bloom", { Step::combine }, { Entry::bloom }, match_bloom, Step::tonemap },
         { Step::tonemap, "tonemap", { Step::combine }, { Entry::tonemap_out, Entry::bloom_final }, match_tonemap },
         { Step::forward, "forward", { Step::combine }, {}, match_forward },
         { Step::gbuffer_done, "gbuffer-done", { Step::gbuffer }, {}, match_gbuffer_done },
@@ -244,10 +247,11 @@ namespace photoreal
         seen_.clears.clear();
         map_ = {};
         matched_ = {};
+        fell_back_ = {};
         restarts_ = 0;
     }
 
-    std::optional<Step> FrameTracker::feed(const FrameEvent &event)
+    StepSet FrameTracker::feed(const FrameEvent &event)
     {
         const auto *bind = std::get_if<BindTargets>(&event);
         if (bind && matched_.has(Step::gbuffer) && !matched_.has(Step::combine) && is_gbuffer(bind->targets)
@@ -256,27 +260,34 @@ namespace photoreal
             restarts_++;
             map_ = {};
             matched_ = {};
+            fell_back_ = {};
         }
 
         // At most one step per event: no event in the captures fits two.
-        std::optional<Step> result;
+        StepSet moments;
         for (const StepSpec &spec : kRecipe)
         {
-            if (matched_.has(spec.step) || !matched_.contains(spec.after))
+            if (matched_.has(spec.step) || fell_back_.has(spec.step) || !matched_.contains(spec.after))
                 continue;
             if (spec.match(seen_, event, map_))
             {
                 matched_.add(spec.step);
-                result = spec.step;
+                moments.add(spec.step);
                 break;
             }
         }
+        for (const StepSpec &spec : kRecipe)
+            if (spec.fallback != Step::count && moments.has(spec.fallback) && !matched_.has(spec.step) && matched_.contains(spec.after))
+            {
+                fell_back_.add(spec.step);
+                moments.add(spec.step);
+            }
 
         // After matching, so a match sees the targets bound and the clears done before this event.
         if (bind)
             seen_.targets = bind->targets;
         else if (const auto *clear = std::get_if<ClearTarget>(&event))
             seen_.clears.push_back({ clear->cleared.id, clear->color });
-        return result;
+        return moments;
     }
 }

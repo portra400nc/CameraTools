@@ -300,6 +300,7 @@ namespace photoreal
         bool armed = false;
         Size render;
         StepSet found;
+        StepSet fell_back;      // steps whose moment came at their fallback's, which found leaves out
         StepSet wanted;
         PassSet ran;
         PassSet skipped;
@@ -325,9 +326,12 @@ namespace photoreal
         void finish(const FrameTracker &tracker, const Settings &settings, const Inputs &inputs);
 
         View view_shown() const { return view_found ? view : View::off; }
+        // The steps whose moment came, matched or at their fallback's.
+        StepSet moments() const { StepSet s = found; s |= fell_back; return s; }
     };
 
-    // "1152x720 found gbuffer ... tonemap; ran ambient@combine; view normals", or
+    // "1152x720 found gbuffer ... tonemap; ran ambient@combine; view normals", where a pass whose step fell back names
+    // the fallback ("found ... combine tonemap ...; ran light-shafts@tonemap"), or
     // "found nothing; skipped ambient: missing normals depth ambient-diffuse", or "off; comparing 2/5", or
     // "1152x720 found ...; presenting 96 samples". Accumulating names no count, so the line does not change every frame.
     // Names come from kRecipe, kEntryNames, kPasses and kViews.

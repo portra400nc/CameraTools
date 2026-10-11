@@ -51,8 +51,8 @@ namespace photoreal::fixture
 
     Row &find(std::vector<Row> &rows, uint32_t seq);
 
-    // Feeds rows through tracker as one frame (begin_frame first); returns (seq, step) for every event that completed
-    // a step.
+    // Feeds rows through tracker as one frame (begin_frame first); returns (seq, step) for every step's moment, in the
+    // order the shell runs them: a step that fell back comes at its fallback's event, just before the fallback.
     struct Moment
     {
         uint32_t seq;

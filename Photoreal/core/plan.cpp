@@ -458,12 +458,13 @@ namespace photoreal
     {
         render = tracker.map().render;
         found = tracker.matched();
+        fell_back = tracker.fell_back();
         restarts = tracker.restarts();
         wanted = wanted_steps(settings);
         const EntrySet entries = tracker.map().found();
         for (const PassSpec &spec : kPasses)
         {
-            if (!settings.enabled || !spec.wanted(settings) || found.has(spec.at))
+            if (!settings.enabled || !spec.wanted(settings) || moments().has(spec.at))
                 continue;
             const EntrySet absent = spec.needs.minus(entries);
             skipped.add(spec.id);
@@ -496,8 +497,12 @@ namespace photoreal
             {
                 line += "; ran";
                 for (const PassSpec &spec : kPasses)
-                    if (report.ran.has(spec.id))
-                        line += std::string(" ") + spec.name + "@" + kRecipe[static_cast<size_t>(spec.at)].name;
+                {
+                    if (!report.ran.has(spec.id))
+                        continue;
+                    const Step at = report.fell_back.has(spec.at) ? kRecipe[static_cast<size_t>(spec.at)].fallback : spec.at;
+                    line += std::string(" ") + spec.name + "@" + kRecipe[static_cast<size_t>(at)].name;
+                }
             }
             for (const PassSpec &spec : kPasses)
             {
@@ -527,7 +532,7 @@ namespace photoreal
             {
                 const ViewSpec &spec = kViews[static_cast<size_t>(report.view)];
                 line += std::string("; view ") + spec.name;
-                if (!report.found.has(spec.snapshot_at))
+                if (!report.moments().has(spec.snapshot_at))
                     line += std::string(": no ") + kRecipe[static_cast<size_t>(spec.snapshot_at)].name;
                 else if (!report.view_found && spec.from != PassId::count)
                     line += std::string(": ") + pass_spec(spec.from).name + " did not run";

@@ -304,7 +304,8 @@ typedef struct PhotorealStatus
     uint64_t settings_applied;  // the generation PhotorealApply returned for the settings the last frame used
     uint32_t render_width;      // main depth size of the last frame, 0 when no G-buffer was found
     uint32_t render_height;
-    uint32_t steps_found;       // PHOTOREAL_STEP_* matched last frame
+    uint32_t steps_found;       // PHOTOREAL_STEP_* matched last frame; a step whose passes ran at a later step's moment
+                                // because it did not match is not in it
     uint32_t steps_wanted;      // steps the enabled passes and the view need
     uint32_t passes_ran;        // PHOTOREAL_PASS_*
     uint32_t passes_skipped;    // wanted, but an entry, the camera or a texture of ours was missing at their step

@@ -145,12 +145,17 @@ namespace photoreal
         StepSet after;      // prerequisites matched earlier this frame
         EntrySet fills;     // the entries this step is the only writer of
         bool (*match)(const Seen &seen, const FrameEvent &event, FrameMap &map);
+        // A later row whose event is this step's moment too when this step has not matched by then, because the game's
+        // call there still reads what this step's passes write; count for none.
+        Step fallback = Step::count;
     };
 
     extern const std::array<StepSpec, static_cast<size_t>(Step::count)> kRecipe;
 
     // Feeds one frame's events through kRecipe. Rules:
     //  - a step matches at most once per frame, and only after its prerequisites;
+    //  - a step whose prerequisites matched but which has not when its fallback matches falls back: the fallback's event
+    //    is its moment too, and it matches no more that frame, so its passes never run twice;
     //  - a gbuffer bind with a different depth before combine restarts the frame (another camera drew first);
     //  - after combine the frame is committed and gbuffer binds are ignored;
     //  - clears are facts of the frame: a restart keeps them, begin_frame forgets them.
@@ -159,17 +164,20 @@ namespace photoreal
     public:
         void begin_frame();
 
-        // The step this event completed, if any. That step is the moment passes subscribed to it run.
-        std::optional<Step> feed(const FrameEvent &event);
+        // The steps whose moment this event is: the step it completed, if any, and the steps that fell back to it. Passes
+        // subscribed to them run now, in kRecipe order, so a step that fell back runs before its fallback.
+        StepSet feed(const FrameEvent &event);
 
         const FrameMap &map() const { return map_; }
         StepSet matched() const { return matched_; }
+        StepSet fell_back() const { return fell_back_; }
         uint32_t restarts() const { return restarts_; }
 
     private:
         Seen seen_;
         FrameMap map_;
         StepSet matched_;
+        StepSet fell_back_;
         uint32_t restarts_ = 0;
     };
 }

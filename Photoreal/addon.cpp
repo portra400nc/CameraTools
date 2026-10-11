@@ -462,8 +462,14 @@ namespace photoreal
         {
             if (cmd_list != immediate)
                 return false;
-            const std::optional<Step> step = tracker.feed(event);
-            return step && on_step(*step);
+            const StepSet moments = tracker.feed(event);
+            if (moments.empty())
+                return false;
+            bool skip = false;
+            for (const StepSpec &spec : kRecipe)
+                if (moments.has(spec.step))
+                    skip |= on_step(spec.step);
+            return skip;
         }
 
         void on_bind_render_targets(command_list *cmd_list, uint32_t count, const resource_view *rtvs, resource_view dsv)

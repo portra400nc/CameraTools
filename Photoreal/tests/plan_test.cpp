@@ -91,20 +91,38 @@ namespace
         return parse_settings(raw);
     }
 
-    // Replays a fixture as the shell does: at every moment, plan the passes, note the plan and the view; finish at the end.
-    FrameReport run_frame(std::vector<fixture::Row> &rows, const Settings &settings, const Inputs &inputs, std::vector<Step> *snapshots = nullptr)
+    // A pass the plan ran: the event it ran at and the step it was planned for.
+    struct Run
+    {
+        uint32_t seq;
+        Step step;
+        PassId pass;
+        friend bool operator==(const Run &a, const Run &b) { return a.seq == b.seq && a.step == b.step && a.pass == b.pass; }
+    };
+
+    // Replays a fixture as the shell does: at every moment, in kRecipe order, plan the passes, note the plan and the view;
+    // finish at the end.
+    FrameReport run_frame(std::vector<fixture::Row> &rows, const Settings &settings, const Inputs &inputs, std::vector<Step> *snapshots = nullptr,
+        std::vector<Run> *runs = nullptr)
     {
         FrameTracker tracker;
         FrameReport report = FrameReport::start(settings);
         tracker.begin_frame();
         for (fixture::Row &row : rows)
         {
-            const std::optional<Step> step = tracker.feed(fixture::event(row));
-            if (!step)
-                continue;
-            report.note(plan(*step, tracker.map(), settings, inputs));
-            if (report.note_view(*step, tracker.map()) && snapshots)
-                snapshots->push_back(*step);
+            const StepSet moments = tracker.feed(fixture::event(row));
+            for (const StepSpec &spec : kRecipe)
+            {
+                if (!moments.has(spec.step))
+                    continue;
+                const Plan p = plan(spec.step, tracker.map(), settings, inputs);
+                report.note(p);
+                for (uint8_t i = 0; i < p.count && runs; i++)
+                    if (p.items[i].kind == Decision::Kind::run)
+                        runs->push_back({ row.seq, spec.step, p.items[i].pass });
+                if (report.note_view(spec.step, tracker.map()) && snapshots)
+                    snapshots->push_back(spec.step);
+            }
         }
         report.finish(tracker, settings, inputs);
         return report;
@@ -213,8 +231,15 @@ int main()
         auto rows = walk;
         fixture::drop(rows, 1088, 1088);  // the first bloom draw, the one that samples the HDR scene
         const FrameReport report = run_frame(rows, atmosphere_on(), kCamera);
-        check("no bloom moment: atmosphere skips and names the step", describe(report)
-            == "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine tonemap forward gbuffer-done; skipped atmosphere: no bloom");
+        check("no bloom draw: atmosphere runs at the tonemap draw instead, and the line says so", describe(report)
+            == "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine tonemap forward gbuffer-done; ran atmosphere@tonemap");
+    }
+    {
+        auto rows = walk;
+        fixture::drop(rows, 1088, 1200);  // the first bloom draw, and everything from the tonemap on
+        const FrameReport report = run_frame(rows, atmosphere_on(), kCamera);
+        check("no bloom draw and no tonemap draw: atmosphere skips and names the bloom step", describe(report)
+            == "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine forward gbuffer-done; skipped atmosphere: no bloom");
     }
     {
         std::vector<fixture::Row> menu;
@@ -295,8 +320,47 @@ int main()
     {
         auto rows = walk;
         fixture::drop(rows, 1088, 1088);  // the first bloom draw, the one that samples the HDR scene
-        check("no bloom moment: light shafts skip and name the step", describe(run_frame(rows, light_shafts_on(false), kCamera))
-            == "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine tonemap forward gbuffer-done; skipped light-shafts: no bloom");
+        check("no bloom draw: light shafts run at the tonemap draw instead", describe(run_frame(rows, light_shafts_on(false), kCamera))
+            == "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine tonemap forward gbuffer-done; ran light-shafts@tonemap");
+    }
+    {
+        // Build 196's flicker: frames where the game's bloom does not match, but its tonemap draw does.
+        auto rows = fixture::load("fixtures/capture-20261010-111824.tsv");
+        std::vector<Run> normal_runs;
+        const FrameReport normal = run_frame(rows, tonemap_on(true), kCamera, nullptr, &normal_runs);
+        check("111824 as captured: atmosphere at the bloom draw 921, tonemap at the tonemap draw 951", normal_runs == std::vector<Run> {
+            { 921, Step::bloom, PassId::atmosphere }, { 951, Step::tonemap, PassId::tonemap } } && normal.fell_back.empty());
+        Settings settings = light_shafts_on(true);
+        settings.tonemap.enabled = true;
+        auto missing = rows;
+        fixture::drop(missing, 921, 921);
+        std::vector<Run> runs;
+        const FrameReport report = run_frame(missing, settings, kCamera, nullptr, &runs);
+        check("111824 without the bloom draw 921: atmosphere and light shafts are planned once, at the tonemap draw 951, before tonemap",
+            runs == std::vector<Run> { { 951, Step::bloom, PassId::atmosphere }, { 951, Step::bloom, PassId::light_shafts },
+                { 951, Step::tonemap, PassId::tonemap } });
+        check("and the line names the tonemap step as their moment, with bloom not found", describe(report)
+            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine tonemap forward gbuffer-done; ran atmosphere@tonemap "
+               "light-shafts@tonemap tonemap@tonemap" && report.fell_back.bits == PHOTOREAL_STEP_BLOOM && report.skipped.empty());
+        auto other = rows;
+        fixture::find(other, 919).targets.color[0].size = { 960, 600 };  // a half-size first bloom target
+        runs.clear();
+        run_frame(other, settings, kCamera, nullptr, &runs);
+        check("111824 with the first bloom target at half size: the same three runs at 951", runs == std::vector<Run> {
+            { 951, Step::bloom, PassId::atmosphere }, { 951, Step::bloom, PassId::light_shafts }, { 951, Step::tonemap, PassId::tonemap } });
+        auto late = missing;
+        fixture::insert_before(late, 952, fixture::slice(rows, 919, 921));
+        runs.clear();
+        run_frame(late, settings, kCamera, nullptr, &runs);
+        check("a bloom draw after the tonemap draw does not run the bloom passes a second time", runs == std::vector<Run> {
+            { 951, Step::bloom, PassId::atmosphere }, { 951, Step::bloom, PassId::light_shafts }, { 951, Step::tonemap, PassId::tonemap } });
+        std::vector<Step> snapshots;
+        Settings view = light_shafts_on(false);
+        view.view = View::light_shafts;
+        const FrameReport shown = run_frame(missing, view, kCamera, &snapshots);
+        check("the light-shafts view snapshots at the bloom step's moment, at the tonemap draw, and is shown",
+            snapshots == std::vector<Step> { Step::bloom } && shown.view_shown() == View::light_shafts && describe(shown)
+                == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine tonemap forward gbuffer-done; ran light-shafts@tonemap; view light-shafts");
     }
     {
         std::vector<fixture::Row> menu;

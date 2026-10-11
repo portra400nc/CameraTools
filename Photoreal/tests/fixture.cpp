@@ -178,8 +178,12 @@ namespace photoreal::fixture
         std::vector<Moment> moments;
         tracker.begin_frame();
         for (Row &row : rows)
-            if (const std::optional<Step> step = tracker.feed(event(row)))
-                moments.push_back({ row.seq, *step });
+        {
+            const StepSet steps = tracker.feed(event(row));
+            for (const StepSpec &spec : kRecipe)
+                if (steps.has(spec.step))
+                    moments.push_back({ row.seq, spec.step });
+        }
         return moments;
     }
 }
