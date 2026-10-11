@@ -4,7 +4,10 @@
 #include "core/compare.h"
 #include "core/plan.h"
 #include "core/png.h"
+#include "core/scene_files.h"
+#include "core/shaders.h"
 #include "gpu.h"
+#include "scene_gpu.h"
 
 #include <reshade.hpp>
 
@@ -60,7 +63,12 @@ namespace photoreal
 
         struct Published
         {
-            PhotorealStatus status {};
+            // No scene face until the first present says otherwise: a binding that read 0 would turn the camera to +X.
+            PhotorealStatus status = [] {
+                PhotorealStatus s {};
+                s.scene_face = PHOTOREAL_FACE_NONE;
+                return s;
+            }();
             std::string line = "off";
         };
 
@@ -69,6 +77,7 @@ namespace photoreal
         Mailbox<Published> status_box;
         Mailbox<std::vector<Variant>> compare_box;
         Mailbox<AccumulateSettings> accumulate_box;
+        Mailbox<SceneRequest> scene_box;
 
         // The point PhotorealDepthAt asks about and its answer, shared by the C# thread and the render thread.
         struct DepthAsk
@@ -92,16 +101,27 @@ namespace photoreal
         // second capture is accepted.
         std::atomic<uint32_t> compare_remaining { 0 };
 
+        // Faces of the scene capture not yet written, which PhotorealCaptureScene raises from 0 and the worker lowers like
+        // compare_remaining, and faces handed to the worker and not yet written, at which the schedule holds its next
+        // capture.
+        std::atomic<uint32_t> scene_remaining { 0 };
+        std::atomic<uint32_t> scene_backlog { 0 };
+
+        // Every vertex and domain shader's bytecode and every pixel shader's hash, from the events of their creation on
+        // the game's threads.
+        ShaderRegistry shaders;
+
         // The hot path's only check. Written by the render thread at present, so tracking never starts mid-frame.
         std::atomic<bool> armed { false };
 
         // Render-thread state.
         command_list *immediate = nullptr;
         Gpu gpu;
+        SceneGpu scene_gpu;
         FrameTracker tracker;
         FrameReport report;
         Settings settings;                  // this frame's, taken at present
-        uint64_t settings_seen = 0, camera_seen = 0, compare_seen = 0, accumulate_seen = 0;
+        uint64_t settings_seen = 0, camera_seen = 0, compare_seen = 0, accumulate_seen = 0, scene_seen = 0;
         AccumulateSettings accumulate;      // this frame's, taken at present
         Accumulator accumulator;
         // The depth texel in flight: the point it answers, and the frame and camera it was copied with.
@@ -114,6 +134,7 @@ namespace photoreal
         std::optional<DepthCopy> depth_copy;
         Camera camera {};
         uint32_t camera_age = UINT32_MAX;
+        bool scene_frame = false;           // the scene capture replays this frame's G-buffer draws
         SunParse sun_parse;                 // the newest constants read back, from one or two frames before
         SunCheck sun_frame = SunCheck::unread;  // this frame's verdict on them
         uint64_t frames = 0;
@@ -342,10 +363,11 @@ namespace photoreal
         // At the shadow-mask draw, before it runs: parse the newest finished readback of an earlier frame's constants,
         // then copy this draw's. The passes draw with this frame's copies on the GPU, so they stay exact while the camera
         // moves. The readback only decides whether they use them and gives the cascade layout, which changes only with
-        // the graphics settings, and with it the atlas's size, which sun_check compares.
+        // the graphics settings, and with it the atlas's size, which sun_check compares. A frame the scene capture replays
+        // copies them too, so the capture can place its geometry with that frame's own camera.
         void gather_sun(const FrameMap &map)
         {
-            if (!wants_sun(settings) || !map[Entry::sun_atlas])
+            if (!(wants_sun(settings) || scene_frame) || !map[Entry::sun_atlas])
                 return;
             if (const std::optional<SunCbuffers> bytes = gpu.sun_constants(frames))
                 sun_parse = parse_sun_shadows(*bytes);
@@ -505,6 +527,48 @@ namespace photoreal
             return skip;
         }
 
+        // The G-buffer is bound now, in a frame the scene capture replays.
+        bool in_gbuffer = false;
+
+        // A scene capture in progress, on the render thread. scene_tick() says what each present does.
+        struct SceneRun
+        {
+            SceneSchedule schedule;
+            std::shared_ptr<SceneFolder> folder;    // touched only by worker jobs
+            std::optional<Vec3d> reference;         // the first saved face's camera position, which every mesh is relative to
+            // The frame copy_at_present copied last.
+            uint64_t frame = 0;
+            std::string status;                     // describe() of it
+            bool gbuffer = false;                   // it found the gbuffer step
+            std::optional<Camera> pushed;           // the camera CameraTools pushed for it
+            std::optional<SunCbuffers> sun;         // its shadow-mask draw's constants, once read
+            std::optional<std::string> stop;        // a replay's reason to stop, taken at the next present
+        };
+
+        std::optional<SceneRun> scene;
+        uint32_t scene_count = 0;           // the last scene capture's faces, for describe's progress until all are written
+        std::string scene_stopped;          // why the last scene capture stopped, for describe until the next one starts
+        uint32_t scene_face = PHOTOREAL_FACE_NONE;  // the face the last present published
+
+        // Before the game's draw, in a replayed frame while the G-buffer is bound. A trip or a reason to stop ends the
+        // frame's replays.
+        void replay_scene(const ReplayCall &call)
+        {
+            const char *moved = nullptr;
+            std::optional<std::string> stop = scene_gpu.replay(call, shaders, moved);
+            if (moved)
+            {
+                scene_frame = false;
+                trip(moved);
+            }
+            if (stop)
+            {
+                scene_frame = false;
+                if (scene && !scene->stop)
+                    scene->stop = std::move(stop);
+            }
+        }
+
         void on_bind_render_targets(command_list *cmd_list, uint32_t count, const resource_view *rtvs, resource_view dsv)
         {
             if (!armed.load(std::memory_order_relaxed))
@@ -519,7 +583,16 @@ namespace photoreal
             bind.targets.count = static_cast<uint8_t>(count);
             if (dsv.handle != 0)
                 bind.targets.depth = resolve(dev, dsv);
+            const uint32_t restarts = tracker.restarts();
             feed(cmd_list, bind);
+            if (!scene_frame || cmd_list != immediate)
+                return;
+            // A restart drops another camera's G-buffer: only the frame's last one, which the passes use too, is captured.
+            if (tracker.restarts() != restarts)
+                scene_gpu.begin_frame();
+            const FrameMap &map = tracker.map();
+            in_gbuffer = tracker.matched().has(Step::gbuffer) && !tracker.matched().has(Step::combine) && bind.targets.count == 6 && bind.targets.depth
+                && bind.targets.color[0].id == map[Entry::normals]->id && bind.targets.depth->id == map[Entry::depth]->id;
         }
 
         bool on_clear_rtv(command_list *cmd_list, resource_view rtv, const float color[4], uint32_t, const rect *)
@@ -537,8 +610,33 @@ namespace photoreal
             return feed(cmd_list, Draw { native });
         }
 
-        bool on_draw(command_list *cmd_list, uint32_t, uint32_t, uint32_t, uint32_t) { return on_draw_any(cmd_list); }
-        bool on_draw_indexed(command_list *cmd_list, uint32_t, uint32_t, uint32_t, int32_t, uint32_t) { return on_draw_any(cmd_list); }
+        // The scene capture's checks cost one branch while it does not run. DrawAuto comes as a draw of 0 vertices, which
+        // draws nothing to replay.
+        bool on_draw(command_list *cmd_list, uint32_t vertices, uint32_t instances, uint32_t first_vertex, uint32_t first_instance)
+        {
+            if (armed.load(std::memory_order_relaxed) && cmd_list == immediate && scene_frame && in_gbuffer && vertices != 0)
+                replay_scene({ ReplayKind::draw, vertices, instances, first_vertex, 0, first_instance, nullptr, 0 });
+            return on_draw_any(cmd_list);
+        }
+
+        bool on_draw_indexed(command_list *cmd_list, uint32_t indices, uint32_t instances, uint32_t first_index, int32_t vertex_offset, uint32_t first_instance)
+        {
+            if (armed.load(std::memory_order_relaxed) && cmd_list == immediate && scene_frame && in_gbuffer)
+                replay_scene({ ReplayKind::indexed, indices, instances, first_index, vertex_offset, first_instance, nullptr, 0 });
+            return on_draw_any(cmd_list);
+        }
+
+        // Indirect draws go to the scene capture only: the frame recipe never matched them, so it still sees only direct
+        // draws.
+        bool on_draw_or_dispatch_indirect(command_list *cmd_list, indirect_command type, resource buffer, uint64_t offset, uint32_t draw_count, uint32_t)
+        {
+            if (!armed.load(std::memory_order_relaxed) || cmd_list != immediate || !scene_frame || !in_gbuffer || type == indirect_command::dispatch
+                || draw_count != 1)
+                return false;
+            replay_scene({ type == indirect_command::draw_indexed ? ReplayKind::indirect_indexed : ReplayKind::indirect, 0, 0, 0, 0, 0,
+                reinterpret_cast<ID3D11Buffer *>(buffer.handle), static_cast<uint32_t>(offset) });
+            return false;
+        }
 
         void start_capture(std::vector<Variant> variants)
         {
@@ -627,6 +725,169 @@ namespace photoreal
             return {};
         }
 
+        void log_unwritten(const std::vector<std::string> &files)
+        {
+            for (const std::string &file : files)
+                log(reshade::log::level::warning, "could not write " + file + ".");
+        }
+
+        void begin_scene_capture(const SceneRequest &request)
+        {
+            auto folder = std::make_shared<SceneFolder>();
+            folder->path = output_root() / ("scene-" + timestamp());
+            for (int i = 2; fs::exists(folder->path); i++)
+                folder->path = output_root() / ("scene-" + timestamp() + "-" + std::to_string(i));
+            SceneRun run;
+            run.schedule = start_scene(request);
+            run.folder = folder;
+            scene_count = static_cast<uint32_t>(run.schedule.order.size());
+            scene_stopped.clear();
+            log(reshade::log::level::info, "capturing the scene from " + std::to_string(scene_count) + " faces into " + folder->path.u8string() + ".");
+            worker.push([folder] { log_unwritten(begin_scene_folder(*folder)); });
+            scene = std::move(run);
+            if (gpu.ready())
+                if (const std::optional<std::string> why = scene_gpu.begin())
+                    scene->stop = why;
+        }
+
+        // Ends the scene capture: what was handed to the worker is still written, then stopped.txt with why, when there
+        // is a reason.
+        void end_scene_capture(const std::optional<std::string> &why)
+        {
+            SceneRun &run = *scene;
+            if (why)
+            {
+                const std::string note = "stopped after " + std::to_string(run.schedule.saved) + " of " + std::to_string(run.schedule.order.size())
+                    + " faces: " + *why + ".";
+                log(reshade::log::level::warning, "the scene capture " + note);
+                worker.push([folder = run.folder, note] {
+                    log_unwritten(write_scene_stopped(*folder, note));
+                    scene_remaining = 0;
+                });
+                scene_stopped = *why;
+            }
+            else
+                log(reshade::log::level::info, "the scene capture's " + std::to_string(run.schedule.saved) + " faces go to " + run.folder->path.u8string() + ".");
+            scene_gpu.end();
+            scene.reset();
+            scene_frame = false;
+            scene_face = PHOTOREAL_FACE_NONE;
+        }
+
+        // At the read present: the captured frame's camera, stream output, depth and picture, judged, and on ok handed to
+        // the worker. Sets facts.read, or facts.stop when a read failed.
+        void read_scene_face(SceneRun &run, SceneFacts &facts)
+        {
+            // Their stage still holds the captured frame's constants at the first read, two presents after it.
+            if (!run.sun && gpu.sun_staged(run.frame))
+            {
+                run.sun = gpu.sun_constants_of(run.frame);
+                if (!run.sun)
+                {
+                    facts.read = Judgement { FaceVerdict::not_ready, {} };
+                    return;
+                }
+            }
+            SceneRead got = scene_gpu.read();
+            if (got.state == SceneRead::State::not_ready)
+            {
+                facts.read = Judgement { FaceVerdict::not_ready, {} };
+                return;
+            }
+            if (got.state == SceneRead::State::failed)
+            {
+                facts.stop = got.why;
+                return;
+            }
+            // The game's own camera of the frame when its shadow-mask constants pass their checks, else the pushed one.
+            std::optional<SceneCamera> camera;
+            std::string note = "no shadow-mask constants";
+            if (run.sun)
+            {
+                const SunParse parse = parse_sun_shadows(*run.sun);
+                if (parse.check == SunCheck::ok)
+                    camera = scene_camera(parse.constants);
+                note = std::string("sun constants ") + kSunCheckNames[static_cast<size_t>(parse.check)];
+            }
+            if (!camera && run.pushed)
+                camera = scene_camera(*run.pushed, settings.flip);
+            if (camera && camera->source == SceneCamera::Source::game)
+                note.clear();
+            // The buffer grows before the verdict, which captures again only when it did.
+            const bool grown = got.overflowed && scene_gpu.grow(got.needed);
+            const uint32_t face = run.schedule.face();
+            const Judgement judgement = judge_face(face, got.records, run.gbuffer, got.overflowed, grown, camera, run.reference);
+            facts.read = judgement;
+            if (judgement.verdict != FaceVerdict::ok)
+                return;
+            if (!run.reference)
+                run.reference = camera->position;
+            SceneFaceData data;
+            data.face = face;
+            data.frame = run.frame;
+            data.attempts = run.schedule.attempts;
+            data.camera = *camera;
+            data.camera_note = note;
+            data.sun = run.sun;
+            data.pushed = run.pushed;
+            data.status = run.status;
+            data.render = got.render;
+            data.records = std::move(got.records);
+            data.clip = std::move(got.clip);
+            data.depth = std::move(got.depth);
+            data.overflowed = got.overflowed;
+            data.origin = *run.reference;
+            scene_backlog++;
+            worker.push([folder = run.folder, request = run.schedule.request, data = std::move(data), picture = std::move(got.picture)]() mutable {
+                if (picture)
+                {
+                    data.rgb = to_rgb(*picture);
+                    data.picture = picture->size;
+                }
+                log_unwritten(write_scene_face(*folder, data, request));
+                scene_backlog--;
+                scene_remaining--;
+            });
+        }
+
+        // One present of the scene capture, after the frame's report is finished.
+        void tick_scene(swapchain *chain)
+        {
+            SceneRun &run = *scene;
+            SceneFacts facts;
+            facts.backlog = scene_backlog.load();
+            if (sticky_error != PHOTOREAL_ERROR_NONE)
+                facts.stop = "the add-on is off after an error";
+            else if (!gpu.ready())
+                facts.stop = "there is no D3D11 device";
+            else if (run.stop)
+                facts.stop = run.stop;
+            else if (run.schedule.wants_read())
+                read_scene_face(run, facts);
+            const SceneTick tick = scene_tick(run.schedule, facts);
+            scene_face = tick.publish_face;
+            scene_frame = tick.capture_next_frame;
+            if (tick.copy_at_present)
+            {
+                // The frame that just ended: its report, its camera, which the mailbox has not replaced yet, and its map.
+                run.frame = frames - 1;
+                run.status = describe(report);
+                run.gbuffer = report.found.has(Step::gbuffer);
+                run.pushed = camera_known() ? std::optional<Camera>(camera) : std::nullopt;
+                run.sun.reset();
+                const resource back_buffer = chain->get_current_back_buffer();
+                if (!scene_gpu.copy_at_present(tracker.map()[Entry::depth], reinterpret_cast<ID3D11Resource *>(back_buffer.handle)))
+                {
+                    end_scene_capture(std::string("the captured frame's depth could not be copied"));
+                    return;
+                }
+            }
+            if (tick.stop)
+                end_scene_capture(tick.stop);
+            else if (tick.done)
+                end_scene_capture(std::nullopt);
+        }
+
         void init(command_queue *queue)
         {
             device *const dev = queue->get_device();
@@ -643,6 +904,7 @@ namespace photoreal
                 log(reshade::log::level::error, "could not create its shaders or states. Photoreal is off.");
                 return;
             }
+            scene_gpu.init(gpu.device(), gpu.context(), gpu.no_write(), gpu.no_depth());
             log(reshade::log::level::info, "ready.");
         }
 
@@ -669,6 +931,9 @@ namespace photoreal
             s.accum_mode = static_cast<uint32_t>(report.accumulate);
             s.accum_samples = accumulator.samples;
             s.accum_generation = accumulator.generation;
+            s.scene_face = scene_face;
+            s.scene_remaining = scene_remaining.load();
+            s.scene_support = scene_gpu.support();
             report.accumulated = accumulator.samples;
             published.line = describe(report);
             status_box.put(published);
@@ -701,6 +966,18 @@ namespace photoreal
                 compare_count = 0;
             report.compare_count = compare_count;
             report.compare_saved = compare_count - std::min(remaining, compare_count);
+
+            SceneRequest request;
+            if (!scene && scene_box.take(request, scene_seen))
+                begin_scene_capture(request);
+            if (scene)
+                tick_scene(chain);
+            const uint32_t scene_left = scene_remaining.load();
+            if (scene_left == 0 && !scene)
+                scene_count = 0;
+            report.scene_count = scene_count;
+            report.scene_saved = scene_count - std::min(scene_left, scene_count);
+            report.scene_stopped = scene_stopped;
             publish(remaining);
 
             // A capture owns the settings until it ends; settings applied meanwhile take over after it.
@@ -723,8 +1000,12 @@ namespace photoreal
                 reading_depth = depth_ask.active;
             }
 
-            const bool arm = (settings.enabled || accumulate.mode != AccumulateMode::off || reading_depth) && sticky_error == PHOTOREAL_ERROR_NONE
+            const bool arm = (settings.enabled || accumulate.mode != AccumulateMode::off || reading_depth || scene) && sticky_error == PHOTOREAL_ERROR_NONE
                 && gpu.ready();
+            scene_frame &= arm;
+            in_gbuffer = false;
+            if (scene_frame)
+                scene_gpu.begin_frame();
             gpu.end_frame(arm && settings.enabled ? settings.view : View::off);
             tracker.trace(bloom_traces < kBloomTraces && frames < bloom_trace_until);
             tracker.begin_frame();
@@ -744,6 +1025,33 @@ namespace photoreal
                 trip(moved);
         }
 
+        // Every shader the game creates, on its loading threads: the vertex and domain shaders' bytecode, which a scene
+        // capture replays, and the pixel shaders' hashes, which name them.
+        void on_init_pipeline(device *, pipeline_layout, uint32_t count, const pipeline_subobject *subobjects, pipeline pipeline)
+        {
+            for (uint32_t i = 0; i < count; i++)
+            {
+                ShaderStage stage;
+                switch (subobjects[i].type)
+                {
+                case pipeline_subobject_type::vertex_shader: stage = ShaderStage::vertex; break;
+                case pipeline_subobject_type::domain_shader: stage = ShaderStage::domain; break;
+                case pipeline_subobject_type::pixel_shader: stage = ShaderStage::pixel; break;
+                default: continue;
+                }
+                const auto *desc = static_cast<const shader_desc *>(subobjects[i].data);
+                if (subobjects[i].count == 0 || desc == nullptr || desc->code == nullptr || desc->code_size == 0)
+                    continue;
+                shaders.add(pipeline.handle, stage, desc->code, desc->code_size);
+                return;
+            }
+        }
+
+        void on_destroy_pipeline(device *, pipeline pipeline)
+        {
+            shaders.remove(pipeline.handle);
+        }
+
         void on_destroy_device(device *dev)
         {
             if (!gpu.ready() || reinterpret_cast<ID3D11Device *>(dev->get_native()) != gpu.device())
@@ -755,6 +1063,9 @@ namespace photoreal
             depth_copy.reset();
             if (capture)
                 stop_capture("the D3D11 device went away");
+            if (scene)
+                end_scene_capture(std::string("the D3D11 device went away"));
+            scene_gpu = SceneGpu {};
         }
     }
 }
@@ -762,7 +1073,7 @@ namespace photoreal
 using namespace photoreal;
 
 extern "C" __declspec(dllexport) const char *NAME = "CameraTools Photoreal";
-extern "C" __declspec(dllexport) const char *DESCRIPTION = "Finds Genshin's G-buffer and lighting buffers each frame, shows them as debug views, relights the world's ambient light, softens the sun's shadows and adds contact shadows to them, adds aerial perspective and sun shafts through a ground mist to the scene, replaces the game's tone map, averages lens samples into depth of field, and saves comparison captures of settings variants. Driven by CameraTools.";
+extern "C" __declspec(dllexport) const char *DESCRIPTION = "Finds Genshin's G-buffer and lighting buffers each frame, shows them as debug views, relights the world's ambient light, softens the sun's shadows and adds contact shadows to them, adds aerial perspective and sun shafts through a ground mist to the scene, replaces the game's tone map, averages lens samples into depth of field, saves comparison captures of settings variants, and captures the scene's geometry around the camera. Driven by CameraTools.";
 
 extern "C" uint32_t PhotorealVersion(void)
 {
@@ -857,6 +1168,11 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
         reshade::register_event<reshade::addon_event::clear_render_target_view>(on_clear_rtv);
         reshade::register_event<reshade::addon_event::draw>(on_draw);
         reshade::register_event<reshade::addon_event::draw_indexed>(on_draw_indexed);
+        reshade::register_event<reshade::addon_event::draw_or_dispatch_indirect>(on_draw_or_dispatch_indirect);
+        // Before the game creates its device, so every shader's creation is seen, and so ReShade attaches the destroy
+        // callback that destroy_pipeline needs to each of them.
+        reshade::register_event<reshade::addon_event::init_pipeline>(on_init_pipeline);
+        reshade::register_event<reshade::addon_event::destroy_pipeline>(on_destroy_pipeline);
         reshade::register_event<reshade::addon_event::destroy_device>(on_destroy_device);
         break;
     case DLL_PROCESS_DETACH:

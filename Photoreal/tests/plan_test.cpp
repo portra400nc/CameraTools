@@ -713,6 +713,13 @@ int main()
         report.compare_saved = 1;
         report.compare_count = 3;
         check("a comparison capture's progress comes before the error", describe(report) == "off; comparing 1/3; error shader");
+        report.scene_saved = 2;
+        report.scene_count = 7;
+        check("a scene capture's progress follows the comparison's", describe(report) == "off; comparing 1/3; scene 2/7; error shader");
+        report.scene_count = 0;
+        report.scene_stopped = "the camera moved at +Y: it was 0.250 m from the first saved face's";
+        check("a stopped scene capture says why",
+            describe(report) == "off; comparing 1/3; scene stopped: the camera moved at +Y: it was 0.250 m from the first saved face's; error shader");
     }
     {
         auto rows = walk;

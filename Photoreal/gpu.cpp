@@ -388,10 +388,10 @@ namespace photoreal
         return true;
     }
 
-    std::optional<RawFrame> Staging::read(ID3D11DeviceContext *context) const
+    std::optional<RawFrame> Staging::read(ID3D11DeviceContext *context, UINT flags) const
     {
         D3D11_MAPPED_SUBRESOURCE mapped;
-        if (!texture_ || FAILED(context->Map(texture_.Get(), 0, D3D11_MAP_READ, 0, &mapped)))
+        if (!texture_ || FAILED(context->Map(texture_.Get(), 0, D3D11_MAP_READ, flags, &mapped)))
             return std::nullopt;
         RawFrame frame { { desc_.Width, desc_.Height }, order_, std::vector<uint8_t>(size_t(desc_.Width) * desc_.Height * 4) };
         const size_t row = size_t(desc_.Width) * 4;
@@ -444,6 +444,8 @@ namespace photoreal
 
         D3D11_BLEND_DESC blend = {};
         blend.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+        // RenderTarget[0] applies to all eight without independent blending.
+        D3D11_BLEND_DESC no_write = {};
         D3D11_BLEND_DESC additive = blend;
         D3D11_RENDER_TARGET_BLEND_DESC &add = additive.RenderTarget[0];
         add.BlendEnable = TRUE;
@@ -487,6 +489,7 @@ namespace photoreal
             && SUCCEEDED(device->CreateBuffer(&game_tonemap, nullptr, &made.game_tonemap_))
             && SUCCEEDED(device->CreateBlendState(&blend, &made.opaque_))
             && SUCCEEDED(device->CreateBlendState(&additive, &made.additive_))
+            && SUCCEEDED(device->CreateBlendState(&no_write, &made.no_write_))
             && SUCCEEDED(device->CreateTexture2D(&depth_texel, nullptr, &made.depth_texel_))
             && SUCCEEDED(device->CreateDepthStencilState(&depth, &made.no_depth_))
             && SUCCEEDED(device->CreateRasterizerState(&rasterizer, &made.no_cull_));
@@ -646,6 +649,23 @@ namespace photoreal
             return bytes;
         }
         return std::nullopt;
+    }
+
+    std::optional<SunCbuffers> Gpu::sun_constants_of(uint64_t frame)
+    {
+        SunStage &stage = sun_stages_[frame % sun_stages_.size()];
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        if (stage.frame != frame || !stage.buffer || FAILED(context_->Map(stage.buffer.Get(), 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &mapped)))
+            return std::nullopt;
+        SunCbuffers bytes;
+        std::memcpy(bytes.data(), mapped.pData, bytes.size());
+        context_->Unmap(stage.buffer.Get(), 0);
+        return bytes;
+    }
+
+    bool Gpu::sun_staged(uint64_t frame) const
+    {
+        return sun_stages_[frame % sun_stages_.size()].frame == frame;
     }
 
     std::optional<GameCall> Gpu::run_sun_shadows(const FrameMap &map, const SunShadowSettings &settings, const Camera &camera,

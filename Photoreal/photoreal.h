@@ -352,6 +352,10 @@ typedef struct PhotorealStatus
     uint32_t accum_mode;        // PHOTOREAL_ACCUMULATE_* the last frame ran
     uint32_t accum_samples;     // frames added into the sum since it was last emptied
     uint32_t accum_generation;  // the generation the sum belongs to, 0 before the first bloom step with an accumulation
+    uint32_t scene_face;        // PHOTOREAL_FACE_* a scene capture wants the camera to show now; PHOTOREAL_FACE_NONE when none
+    uint32_t scene_remaining;   // faces of the scene capture not yet written, 0 when none runs
+    uint32_t scene_support;     // 0 untried, 1 stream output wrote triangles, 2 CreateGeometryShaderWithStreamOutput failed with
+                                // DXGI_ERROR_INVALID_CALL, which DXVK returns without transform feedback
 } PhotorealStatus;
 
 PHOTOREAL_EXPORT uint32_t PhotorealVersion(void);

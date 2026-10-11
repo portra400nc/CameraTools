@@ -145,8 +145,9 @@ namespace photoreal
     public:
         // false when the back buffer is not 8-bit RGBA or BGRA, is multisampled, or the texture failed.
         bool copy_from(ID3D11Device *device, ID3D11DeviceContext *context, ID3D11Resource *back_buffer);
-        // Empty when the map failed.
-        std::optional<RawFrame> read(ID3D11DeviceContext *context) const;
+        // Empty when the map failed, or with D3D11_MAP_FLAG_DO_NOT_WAIT in flags while the GPU has not finished the copy.
+        std::optional<RawFrame> read(ID3D11DeviceContext *context, UINT flags = 0) const;
+        bool copied() const { return texture_ != nullptr; }
 
     private:
         D3D11_TEXTURE2D_DESC desc_ {};
@@ -188,6 +189,17 @@ namespace photoreal
         // The newest constants staged one or two frames before frame whose copy the GPU has finished, read without
         // waiting. Empty when neither has finished.
         std::optional<SunCbuffers> sun_constants(uint64_t frame);
+
+        // The constants gather_sun staged at frame, read without waiting, for the scene capture, which reads its frame's two
+        // presents later. Empty while the GPU has not finished the copy, or when frame's are no longer staged: the
+        // shadow-mask draw did not match that frame, or a frame since took its stage. sun_staged says which.
+        std::optional<SunCbuffers> sun_constants_of(uint64_t frame);
+        bool sun_staged(uint64_t frame) const;
+
+        // Our shared fixed states: a blend state that writes no render target and a depth-stencil state with depth and
+        // stencil off.
+        ID3D11BlendState *no_write() const { return no_write_.Get(); }
+        ID3D11DepthStencilState *no_depth() const { return no_depth_.Get(); }
 
         // The sun-shadow pass: mirror in the shadow mask, normals and depth; draw raw sun visibility into sun_ from the
         // atlas and the constants gather_sun copied this frame, with a penumbra that widens with the distance to the
@@ -292,7 +304,7 @@ namespace photoreal
         };
         std::array<SunStage, 3> sun_stages_;
         bool sun_ready_ = false;                // gather_sun copied the constants and the atlas this frame
-        ComPtr<ID3D11BlendState> opaque_, additive_;
+        ComPtr<ID3D11BlendState> opaque_, additive_, no_write_;
         ComPtr<ID3D11DepthStencilState> no_depth_;
         ComPtr<ID3D11RasterizerState> no_cull_;
         Mirror irradiance_in_, irradiance_out_, shadow_mask_in_, shadow_mask_out_, scene_in_, scene_out_, bloom_in_, tonemap_out_, normals_, depth_,

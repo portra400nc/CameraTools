@@ -13,9 +13,10 @@ namespace photoreal
         static_assert(PHOTOREAL_COMPARE_MAX == kCompareMax && sizeof(PhotorealVariant) == 32 + sizeof(PhotorealSettings));
         static_assert(sizeof(PhotorealSettings) == 172, "settings_tsv writes every field: give a new one a column");
         // compare_remaining took the padding at the end, so a caller built before it still sends 72 bytes. The accumulator's
-        // three fields follow, with 4 bytes of padding after them, which the C# binding's layout has too.
+        // three fields follow, and the scene capture's three took the 4 bytes of padding after them and one more row, so a
+        // caller of version 6 sends 88 and gets scene_face in its padding.
         static_assert(offsetof(PhotorealStatus, compare_remaining) == 68 && offsetof(PhotorealStatus, accum_generation) == 80
-            && sizeof(PhotorealStatus) == 88);
+            && offsetof(PhotorealStatus, scene_face) == 84 && sizeof(PhotorealStatus) == 96);
 
         constexpr uint32_t kPeriod = kSettlePresents + 2;
 

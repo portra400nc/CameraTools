@@ -48,6 +48,13 @@ int main()
     const auto replaced = registry.find(0x3000);
     check("a handle added again replaces its entry and frees what only it held", replaced && replaced->stage == ShaderStage::vertex
         && replaced->hash == 0xd13184314dc3a9c2ull && registry.bytes() == vs.size());
+    const std::string ps = "pixel shader bytes";
+    registry.add(0x6000, ShaderStage::pixel, ps.data(), ps.size());
+    const auto pixel = registry.find(0x6000);
+    check("a pixel shader keeps its hash and no bytecode", pixel && pixel->stage == ShaderStage::pixel && pixel->hash == shader_hash(ps.data(), ps.size())
+        && !pixel->code && registry.bytes() == vs.size());
+    registry.remove(0x6000);
+    check("and is removed like any other", !registry.find(0x6000) && registry.bytes() == vs.size());
     registry.remove(0x5000);
     check("removing an unknown handle changes nothing", registry.bytes() == vs.size());
     std::printf("%s: %d failed\n", __FILE__, failures);

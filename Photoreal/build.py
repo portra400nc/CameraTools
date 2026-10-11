@@ -27,7 +27,8 @@ RESHADE_HEADERS = [
     "reshade_api_resource.hpp", "reshade_events.hpp", "reshade_overlay.hpp",
 ]
 SOURCES = [
-    "addon.cpp", "gpu.cpp", "core/recipe.cpp", "core/plan.cpp", "core/sun.cpp", "core/png.cpp", "core/compare.cpp", "core/accumulate.cpp",
+    "addon.cpp", "gpu.cpp", "scene_gpu.cpp", "core/recipe.cpp", "core/plan.cpp", "core/sun.cpp", "core/png.cpp", "core/compare.cpp",
+    "core/accumulate.cpp", "core/dxbc.cpp", "core/shaders.cpp", "core/scene.cpp", "core/scene_files.cpp",
 ]
 # (symbol in photoreal_shaders.h, source in shaders/, profile)
 SHADERS = [

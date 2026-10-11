@@ -311,6 +311,8 @@ namespace photoreal
         uint32_t restarts = 0;
         uint32_t error = 0;     // PHOTOREAL_ERROR_*
         uint32_t compare_saved = 0, compare_count = 0;  // a comparison capture's progress; count 0 when none runs
+        uint32_t scene_saved = 0, scene_count = 0;      // a scene capture's faces written and requested; count 0 when none runs
+        std::string scene_stopped;                      // why the last scene capture stopped, until the next one starts
         AccumulateMode accumulate = AccumulateMode::off;
         uint32_t accumulated = 0;   // the sum's frames, which present mode reports
 
@@ -333,7 +335,8 @@ namespace photoreal
     // "1152x720 found gbuffer ... tonemap; ran ambient@combine; view normals", where a pass whose step fell back names
     // the fallback ("found ... combine tonemap ...; ran light-shafts@tonemap"), or
     // "found nothing; skipped ambient: missing normals depth ambient-diffuse", or "off; comparing 2/5", or
-    // "1152x720 found ...; presenting 96 samples". Accumulating names no count, so the line does not change every frame.
+    // "1152x720 found ...; presenting 96 samples", or "...; scene 3/7" while a scene capture runs and
+    // "...; scene stopped: <reason>" after one stopped. Accumulating names no count, so the line does not change every frame.
     // Names come from kRecipe, kEntryNames, kPasses and kViews.
     std::string describe(const FrameReport &report);
 }

@@ -17,8 +17,9 @@
 | `core/scene.*` | The [scene capture](#scene-capture)'s request, faces, the game's and the pushed camera as clip-to-world transforms, the draw records, the depth check, the verdict on a captured frame, and its schedule of presents (`scene_tick`). Pure C++17. |
 | `core/scene_files.*` | The scene capture's files: each face's OBJ or binary PLY, picture, depth and raw stream, `scene.mtl`, and the rows of `scene.tsv`, `draws.tsv` and `camera.tsv`. Pure C++17. |
 | `core/shaders.*` | The game's vertex and domain shader bytecode, kept from each shader's creation and looked up by the bound shader, with FrameCensus's hash. Pure C++17. |
-| `addon.cpp` | The ReShade shell: events, exports, mailboxes between the C# thread and the render thread, and the capture's file writer thread. |
+| `addon.cpp` | The ReShade shell: events, exports, mailboxes between the C# thread and the render thread, the shader registry's events, and the captures' file writer thread. |
 | `gpu.*` | The D3D11 side: `StateGuard`, `Mirror`, `Scratch`, `Staging`, the sun constants' copies and readback, the wetness, sun-shadow, contact-shadow, ambient, atmosphere, light-shaft and tonemap passes, snapshots and the debug composite. |
+| `scene_gpu.*` | The scene capture's D3D11 side: `ReplayGuard`, the stream-output geometry shaders made from the game's own bytecode, the replay of each G-buffer draw, its buffers and queries, and the copies and readback of a captured frame. |
 | `shaders/` | HLSL, compiled to DXBC by `build.py` and embedded in the add-on. `sun.hlsli` holds the sun atlas projection the sun-shadow and light-shaft passes share, and `scatter.hlsli` the scattering arithmetic of the atmosphere pass and the light shafts' mist. `cat_eye.hlsli` also compiles as C++ in `core/accumulate.cpp`, and `wet.hlsli` and `scatter.hlsli` in `core/plan.cpp`, so the tests check the shaders' own arithmetic. |
 | `csharp/Photoreal.cs` | The C# binding a MelonLoader mod adds as is. |
 | `tests/` | Native tests that replay recorded FrameCensus frames through `core/`. |

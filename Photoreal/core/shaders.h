@@ -1,6 +1,6 @@
 // The game's vertex and domain shader bytecode, kept from the moment each shader is created, because D3D11 cannot give
-// bytecode back from a bound shader. Pure C++17 like recipe.h. The shell feeds it from ReShade's init_pipeline and
-// destroy_pipeline events, as FrameCensus does.
+// bytecode back from a bound shader, and its pixel shaders' hashes. Pure C++17 like recipe.h. The shell feeds it from
+// ReShade's init_pipeline and destroy_pipeline events, as FrameCensus does.
 #pragma once
 
 #include <cstddef>
@@ -13,7 +13,8 @@
 
 namespace photoreal
 {
-    enum class ShaderStage : uint8_t { vertex, domain };
+    // A pixel shader keeps only its hash: the scene capture names it in draws.tsv and never replays it.
+    enum class ShaderStage : uint8_t { vertex, domain, pixel };
 
     // FrameCensus's FNV-1a of the bytecode, so a scene's files name the shaders as a census capture's shaders/ folder
     // does, and the Mac tools can join the two.
@@ -23,7 +24,7 @@ namespace photoreal
     {
         ShaderStage stage = ShaderStage::vertex;
         uint64_t hash = 0;
-        std::shared_ptr<const std::string> code;
+        std::shared_ptr<const std::string> code;   // null for a pixel shader
     };
 
     // Any thread: the game creates shaders on its loading threads while the render thread looks them up.
@@ -35,7 +36,7 @@ namespace photoreal
         void add(uint64_t handle, ShaderStage stage, const void *code, size_t size);
         void remove(uint64_t handle);
         std::optional<ShaderCode> find(uint64_t handle) const;
-        // Bytecode held, each distinct one counted once.
+        // Bytecode held, each distinct one counted once; pixel shaders hold none.
         size_t bytes() const;
 
     private:

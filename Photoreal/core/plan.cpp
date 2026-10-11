@@ -548,6 +548,10 @@ namespace photoreal
             line += "; presenting " + std::to_string(report.accumulated) + " samples";
         if (report.compare_count != 0)
             line += "; comparing " + std::to_string(report.compare_saved) + "/" + std::to_string(report.compare_count);
+        if (report.scene_count != 0)
+            line += "; scene " + std::to_string(report.scene_saved) + "/" + std::to_string(report.scene_count);
+        else if (!report.scene_stopped.empty())
+            line += "; scene stopped: " + report.scene_stopped;
         if (report.error != PHOTOREAL_ERROR_NONE && report.error < std::size(kErrorNames))
             line += std::string("; error ") + kErrorNames[report.error];
         return line;
