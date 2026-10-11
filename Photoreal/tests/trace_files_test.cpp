@@ -58,6 +58,7 @@ int main(int argc, char **argv)
     s.state = TraceState::stale;
     s.why = "rays from the camera met the scene off the depth buffer";
     s.camera.view_to_clip[11] = -1;
+    s.camera.toward_sun[0] = 0.25f;
     s.counters = { 1000, 1, 2, 30, 1, 20, 0, 0, 0, 10, 0, 0, 1, 0, 0, 0, 0 };
     s.mrays = 12.5;
     s.frame = 4321;
@@ -67,7 +68,7 @@ int main(int argc, char **argv)
                  "triangles\t2377274\nnodes\t756325\npasses\t12\nstate\tstale\nwhy\trays from the camera met the scene off the depth buffer\nrays\t1000\nguard_stops\t1\nstack_overflows\t2\ngrid_tested\t30\ngrid_off\t1\n"
                  "grid_128_tested\t20\ngrid_128_no_hit\t0\ngrid_128_nearer\t0\ngrid_128_farther\t0\ngrid_144_tested\t10\ngrid_144_no_hit\t0\n"
                  "grid_144_nearer\t0\ngrid_144_farther\t1\ngrid_other_tested\t0\ngrid_other_no_hit\t0\ngrid_other_nearer\t0\ngrid_other_farther\t0\n"
-                 "mrays\t12.5\nreference\t1648.5,229.75,9468.25\nfloating_origin\t1648.68604,0,9468.5293\nsun_source\tgame\ntoward_sun\t0,1,0\n"
+                 "mrays\t12.5\nreference\t1648.5,229.75,9468.25\nfloating_origin\t1648.68604,0,9468.5293\nsun_source\tgame\ntoward_sun\t0,1,0\npushed_sun\t0.25,0,0\n"
                  "eye\t0,1.5,0\nworld_to_view\t1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n") == 0
             && tsv.find("trace.ao_samples\t16\n") != std::string::npos && tsv.find("ambient.level\t0.600000024\n") != std::string::npos);
     if (argc > 1)
@@ -85,7 +86,7 @@ int main(int argc, char **argv)
             && back->stencil == s.stencil && back->normals == s.normals && back->mask == s.mask && back->scene == s.scene && back->bvh_hash == s.bvh_hash
             && back->passes == 12 && back->generation == 3 && back->reference == s.reference && back->constants.eye_position[1] == 1.5f && back->sun
             && (*back->sun)[5] == 9 && back->state == TraceState::stale && back->why == s.why && back->camera.world_to_view[0] == 1
-            && back->camera.view_to_clip[11] == -1 && back->camera.view_to_clip[10] == 0);
+            && back->camera.view_to_clip[11] == -1 && back->camera.view_to_clip[10] == 0 && back->camera.toward_sun[0] == 0.25f);
         TraceSave ready = s;
         ready.state = TraceState::ready;
         ready.why.clear();

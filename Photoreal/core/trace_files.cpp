@@ -7,6 +7,7 @@
 #include <iterator>
 #include <map>
 #include <sstream>
+#include <tuple>
 
 namespace photoreal
 {
@@ -91,6 +92,7 @@ namespace photoreal
         row("floating_origin", s.floating_origin ? list(s.floating_origin->data(), 3) : "-");
         row("sun_source", s.sun_source);
         row("toward_sun", list(s.constants.sun_cone, 3));
+        row("pushed_sun", list(s.camera.toward_sun, 3));
         row("eye", list(s.constants.eye_position, 3));
         row("world_to_view", list(s.camera.world_to_view, 16));
         row("view_to_clip", list(s.camera.view_to_clip, 16));
@@ -164,12 +166,13 @@ namespace photoreal
             if (get("state") == kTraceStateNames[i])
                 s.state = static_cast<TraceState>(i);
         s.why = get("why") == "-" ? std::string() : get("why");
-        for (const auto &[key, matrix] : { std::pair { "world_to_view", s.camera.world_to_view }, std::pair { "view_to_clip", s.camera.view_to_clip } })
+        for (const auto &[key, values, count] : { std::tuple { "world_to_view", s.camera.world_to_view, 16 }, std::tuple { "view_to_clip", s.camera.view_to_clip, 16 },
+                 std::tuple { "pushed_sun", s.camera.toward_sun, 3 } })
         {
             std::istringstream text(get(key));
             std::string item;
-            for (int k = 0; k < 16 && std::getline(text, item, ','); k++)
-                matrix[k] = std::strtof(item.c_str(), nullptr);
+            for (int k = 0; k < count && std::getline(text, item, ','); k++)
+                values[k] = std::strtof(item.c_str(), nullptr);
         }
         const size_t pixels = size_t(s.size.width) * s.size.height;
         std::vector<uint8_t> constants;

@@ -540,9 +540,16 @@ namespace photoreal
             }
             if (source != trace_sun_source)
             {
-                log(reshade::log::level::info, "the trace's sun comes from " + (source == "game" ? "the game's cascade 0: " + vec_text(toward)
-                    : source == "pushed" ? "the pushed camera: " + vec_text(toward) : std::string("nowhere: there is no sun")) + "; the pushed camera's is "
-                    + vec_text({ camera.toward_sun[0], camera.toward_sun[1], camera.toward_sun[2] }) + ".");
+                // Cascade 0 is what the game's own sun shadows follow: on build 202's capture, sun rays along it agreed with
+                // the game's shadow mask on 94.7% of the world pixels within 60 m, and along the pushed camera's, 5.4
+                // degrees off, on 74.8% (README, "Tracing").
+                const Vec3 pushed = { camera.toward_sun[0], camera.toward_sun[1], camera.toward_sun[2] };
+                const double cosine = double(toward[0]) * pushed[0] + double(toward[1]) * pushed[1] + double(toward[2]) * pushed[2];
+                char apart[64];
+                std::snprintf(apart, sizeof apart, ", %.2f degrees apart", std::acos(std::clamp(cosine, -1.0, 1.0)) * 57.29577951308232);
+                log(reshade::log::level::info, "the trace's sun comes from " + (source == "game" ? "the game's cascade 0, which the game's own sun shadows follow: " + vec_text(toward)
+                    : source == "pushed" ? "the pushed camera, as the game's shadow-mask constants were not read: " + vec_text(toward)
+                    : std::string("nowhere: there is no sun")) + "; the pushed camera's is " + vec_text(pushed) + (source == "game" && pushed != Vec3 {} ? apart : "") + ".");
                 trace_sun_source = source;
             }
             const std::optional<TraceConstants> constants = trace_constants(settings.trace, settings.ambient.level, camera, settings.flip, map.render,
