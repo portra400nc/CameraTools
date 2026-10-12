@@ -222,6 +222,38 @@ int main()
         check("an equal-depth copy without an alpha test keeps the prepass copy's, its class its own and its corners the prepass's order",
             e.size() == 1 && info_class(e[0].info) == TraceClass::vegetation && (e[0].info & kOpaque) == 0 && equal.counts().inherited == 1
                 && e[0].corner[0] == Vec3f { 0, 0, 0 } && inherited[inherited[2] + 1] == 2 && u1 == 1);
+        // A face's draw with a program: its corners' floats from the stream's attributes at its first_attribute, its rows
+        // from the frame's constants at alpha_constants, as unpack_stream and the replay's copies left them.
+        SceneCamera camera;
+        camera.clip_to_world = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+        SceneDrawRecord r = draw("main", 137);
+        r.written = 1;
+        r.reserved = r.corners = 3;
+        r.alpha = DrawAlpha::program;
+        r.analysis = std::make_shared<const AlphaAnalysis>(cutoff);
+        r.stride = 24;
+        r.first_attribute = 2;
+        r.alpha_tile = 4;
+        r.alpha_address = 9;
+        r.alpha_constants = 4;
+        r.alpha_rows = 1;
+        const std::vector<float> clip = { 0, 0, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1 }, attributes = { 9, 9, 0.5f, 0.25f, 1, 0.25f, 0.5f, 1 };
+        const std::vector<uint32_t> constants = { 0, 0, 0, 0, 11, 12, 13, 14 };
+        SceneBuilder face;
+        add_face(face, camera, { 0, 0, 0 }, { r }, clip, attributes, constants);
+        std::vector<uint32_t> streamed;
+        const std::vector<TraceTriangle> f = face.take(10, &streamed);
+        float u0;
+        std::memcpy(&u0, &streamed[streamed[0] + 1], 4);
+        check("a face's draw with a program brings its corners' floats from its first attribute and its row from its constants",
+            f.size() == 1 && (f[0].info & kOpaque) == 0 && streamed[streamed[2] + 1] == 4 && streamed[streamed[2] + 2] == 9 && streamed[streamed[2] + 4] == 11
+                && streamed[streamed[2] + 7] == 14 && u0 == 0.5f);
+        r.stride = 16;
+        SceneBuilder short_stride;
+        add_face(short_stride, camera, { 0, 0, 0 }, { r }, clip, attributes, constants);
+        std::vector<uint32_t> none_streamed;
+        short_stride.take(10, &none_streamed);
+        check("a draw whose stride does not hold its program's floats stays whole", none_streamed.empty());
         SceneBuilder plain;
         plain.add_draw(draw("main", 128), { kA });
         std::vector<uint32_t> none = { 1 };
