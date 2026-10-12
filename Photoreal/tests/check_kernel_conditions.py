@@ -2,7 +2,7 @@
 
 HLSL evaluates both sides of &&, || and ?: (vkd3d, like fxc, compiles them without short-circuiting), while C++
 short-circuits them, so a call there runs on the GPU when the Mac's twin of the kernel skips it. Build 204's
-`h.x < hit.t && ... && !alpha_keeps(...)` ran an alpha program for every triangle the Deck's rays tested and hung its
+`h.x < hit.t && ... && !alpha_keeps(...)` (now alpha_test) ran an alpha program for every triangle the Deck's rays tested and hung its
 GPU, which the Mac could not see. A function is costly when its body holds a loop or calls a costly function.
 
     python3 check_kernel_conditions.py [shaders folder]
@@ -89,10 +89,11 @@ def main():
         print(("PASS " if ok else "FAIL ") + name)
         failures += 0 if ok else 1
 
-    check("the kernel's costly functions are found: alpha_keeps, visit_leaf, trace_bvh and trace_pixel_of among %d" % len(costly),
-          {"alpha_keeps", "visit_leaf", "trace_bvh", "trace_pixel_of"} <= costly and "box_entry" not in costly)
+    check("the kernel's costly functions are found: alpha_test, visit_leaf, trace_bvh and trace_pixel_of among %d" % len(costly),
+          {"alpha_test", "visit_leaf", "trace_bvh", "trace_pixel_of"} <= costly and "box_entry" not in costly)
+    # Build 204's line, with the interpreter under its present name.
     old = "if (h.x < hit.t && (mask & kAlphaTests) != 0u && (tri.info & kOpaqueRecord) != kOpaqueRecord && " \
-          "!alpha_keeps(tri.info & kOpaqueRecord, h.y, h.z, lane))\n    continue;"
+          "alpha_test(tri.info & kOpaqueRecord, h.y, h.z, lane).keeps == 0u)\n    continue;"
     check("build 204's alpha test in a chain of && is refused", len(violations(old, costly)) == 1)
     check("a costly call in ?: is refused", len(violations("hit = any ? trace_bvh(o, d, t, true, m, l) : hit;", costly)) == 1)
     check("a costly call in an if's body after a condition with && is allowed",

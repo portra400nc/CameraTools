@@ -258,6 +258,183 @@ int main()
         check("2,000 rays through the card: the traversal meets what testing every triangle with its alpha test meets, about half the card",
             same == 2000 && light > 800 && light < 1200);
     }
+    {
+        // A ray's caps (shaders/bvh.hlsli): a stack of 40 cards 0.1 m apart in front of a wall at 5 m, each alpha-tested with
+        // a program that discards everywhere, so without caps the ray would run 40 programs and meet the wall.
+        const AlphaAnalysis cutoff = analyze("68b05754fdce207c.ps.dxbc");
+        const uint32_t cutoff_steps = static_cast<uint32_t>(cutoff.program->code.size());
+        // 19 moves of a literal 1 into r0 and a discard where r0.x is not 0: 20 steps, always discarded.
+        AlphaProgram long_program;
+        long_program.literals = { { 1, 1, 1, 1 } };
+        for (int i = 0; i < 19; i++)
+            long_program.code.push_back({ alpha_op::mov | 15u << 12, 3u, 0, 0 });
+        long_program.code.push_back({ alpha_op::discard_nz, 0, 0, 0 });
+        // 49 instructions, past the interpreter's cap, which the analysis would refuse but a buffer can still hold.
+        AlphaProgram too_long = long_program;
+        too_long.code.insert(too_long.code.begin(), 29, too_long.code[0]);
+        const auto stack = [&](const std::shared_ptr<const AlphaProgram> &program, std::vector<uint32_t> &words) {
+            AlphaBuffer b;
+            std::vector<uint32_t> constants;
+            append(constants, row(0, 0.5f, 0, 0));
+            const uint32_t draw = b.add_draw(b.add_program(program), 0, address(kClamp), constants);
+            std::vector<TraceTriangle> triangles;
+            const float uv[6] = { 0, 0, 1, 0, 0, 1 };
+            for (int k = 1; k <= 40; k++)
+            {
+                const float z = 0.1f * k;
+                TraceTriangle t;
+                t.corner = { Vec3f { -1, -1, z }, Vec3f { 3, -1, z }, Vec3f { -1, 3, z } };
+                t.info = triangle_info(TraceClass::foliage, b.add_record(draw, uv, 2));
+                triangles.push_back(t);
+            }
+            TraceTriangle wall;
+            wall.corner = { Vec3f { -5, -5, 5 }, Vec3f { 5, -5, 5 }, Vec3f { 0, 5, 5 } };
+            triangles.push_back(wall);
+            words = b.words(std::vector<uint8_t>(kAtlasTile * kAtlasTile, 0));
+            return build_bvh(triangles);
+        };
+        const uint32_t all = kAllClasses | kAlphaTests;
+        std::vector<uint32_t> words;
+        const Bvh cards = stack(cutoff.program, words);
+        TraversalStats stats;
+        const std::optional<Hit> capped = trace_nearest(cards, { 0, 0, 0 }, { 0, 0, 1 }, 10, all, &stats, &words);
+        const std::optional<Hit> brute = brute_nearest(cards, { 0, 0, 0 }, { 0, 0, 1 }, 10, all, &words);
+        check("through 40 cards that discard everywhere, a ray runs 32 programs of " + std::to_string(cutoff_steps)
+                + " steps, meets the guard and then a card counted whole, where testing every triangle meets the wall at 5 m",
+            stats.alpha_tests == 32 && stats.alpha_steps == 32 * cutoff_steps && stats.guard && capped && capped->t < 4.05f && brute && brute->t == 5);
+        const Bvh slow = stack(std::make_shared<const AlphaProgram>(long_program), words);
+        const std::optional<Hit> stepped = trace_nearest(slow, { 0, 0, 0 }, { 0, 0, 1 }, 10, all, &stats, &words);
+        check("with a program of 20 steps the ray stops at 24 programs and 480 steps, as a 25th could pass 512, and meets a card",
+            stats.alpha_tests == 24 && stats.alpha_steps == 480 && stats.guard && stepped && stepped->t < 4.05f);
+        const Bvh refused = stack(std::make_shared<const AlphaProgram>(too_long), words);
+        const std::optional<Hit> whole = trace_nearest(refused, { 0, 0, 0 }, { 0, 0, 1 }, 10, all, &stats, &words);
+        check("a program of 49 instructions in the buffer is not run: the nearest card counts whole, 0 steps, and the guard counts it",
+            whole && std::fabs(whole->t - 0.1f) < 1e-6f && stats.alpha_steps == 0 && stats.guard && alpha_keeps(words, 0, 0.2f, 0.2f));
+    }
+    {
+        // The work cap: 6,000 triangles across the ray's path whose boxes it passes through but which it misses, each the
+        // lower part of a square cut along a line under the ray, then a wall at 10 m. The ray tests them all until its
+        // work, nodes and triangles together, reaches 4,096, and stops there, short of the wall.
+        std::vector<TraceTriangle> triangles;
+        for (int i = 0; i < 6000; i++)
+        {
+            const float z = 0.001f * (i + 1);
+            TraceTriangle t;
+            t.corner = { Vec3f { -1, -1, z }, Vec3f { 1, -1, z }, Vec3f { 1, 0.9f, z } };
+            triangles.push_back(t);
+        }
+        TraceTriangle wall;
+        wall.corner = { Vec3f { -5, -5, 10 }, Vec3f { 5, -5, 10 }, Vec3f { 0, 5, 10 } };
+        triangles.push_back(wall);
+        const Bvh bvh = build_bvh(triangles);
+        TraversalStats stats;
+        const std::optional<Hit> hit = trace_nearest(bvh, { 0, 0, 0 }, { 0, 0, 1 }, 20, kAllClasses, &stats);
+        check("a ray whose boxes hold 6,000 triangles it misses stops at the work cap: work " + std::to_string(stats.work) + " of 4,096 + 32, "
+                + std::to_string(stats.steps) + " nodes, guard",
+            stats.guard && stats.work >= 4096 && stats.work <= 4096 + 32 && stats.alpha_tests == 0 && (!hit || hit->t == 10)
+                && brute_nearest(bvh, { 0, 0, 0 }, { 0, 0, 1 }, 20) && brute_nearest(bvh, { 0, 0, 0 }, { 0, 0, 1 }, 20)->t == 10);
+    }
+    {
+        // tests/fixtures/scene-085011-alpha-rays.bin, which make_alpha_fixture.cpp cut from build 203's capture at the spot
+        // where build 204 hung the Deck's GPU: 64 rays of the first 4 tiles of its frame, the 32 crossing the most foliage
+        // cards and 32 others, and the 469 triangles near them. Its cards get 68b05754's program.
+        std::ifstream file("fixtures/scene-085011-alpha-rays.bin", std::ios::binary);
+        const std::string bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        std::vector<uint32_t> w(bytes.size() / 4);
+        std::memcpy(w.data(), bytes.data(), w.size() * 4);
+        const auto f = [&](size_t i) {
+            float v;
+            std::memcpy(&v, &w[i], 4);
+            return v;
+        };
+        struct FixtureRay
+        {
+            Vec3f o, d;
+            float t_max;
+            bool any_hit;
+            uint32_t mask;
+        };
+        std::vector<FixtureRay> rays;
+        std::vector<TraceTriangle> triangles;
+        if (w.size() > 3 && w[0] == 0x46414850u && w[1] == 1)
+        {
+            size_t at = 3;
+            for (uint32_t i = 0; i < w[2] && at + 9 <= w.size(); i++, at += 9)
+                rays.push_back({ { f(at), f(at + 1), f(at + 2) }, { f(at + 3), f(at + 4), f(at + 5) }, f(at + 6), w[at + 7] != 0, w[at + 8] });
+            const uint32_t count = at < w.size() ? w[at++] : 0;
+            for (uint32_t i = 0; i < count && at + 10 <= w.size(); i++, at += 10)
+            {
+                TraceTriangle t;
+                t.corner = { Vec3f { f(at), f(at + 1), f(at + 2) }, Vec3f { f(at + 3), f(at + 4), f(at + 5) }, Vec3f { f(at + 6), f(at + 7), f(at + 8) } };
+                t.info = triangle_info(static_cast<TraceClass>(w[at + 9]));
+                triangles.push_back(t);
+            }
+        }
+        check("the Deck spot's fixture holds 64 rays and 469 triangles", rays.size() == 64 && triangles.size() == 469);
+        const AlphaAnalysis cutoff = analyze("68b05754fdce207c.ps.dxbc");
+        const auto with_atlas = [&](const std::vector<uint8_t> &atlas, std::vector<uint32_t> &words) {
+            AlphaBuffer b;
+            std::vector<uint32_t> constants;
+            append(constants, row(0, 0.5f, 0, 0));
+            const uint32_t draw = b.add_draw(b.add_program(cutoff.program), 0, address(kWrap), constants);
+            std::vector<TraceTriangle> carded = triangles;
+            uint32_t cards = 0;
+            const float uv[6] = { 0, 0, 1, 0, 0, 1 };
+            for (TraceTriangle &t : carded)
+                if (info_class(t.info) == TraceClass::vegetation || info_class(t.info) == TraceClass::foliage)
+                {
+                    t.info = triangle_info(info_class(t.info), b.add_record(draw, uv, 2));
+                    cards++;
+                }
+            words = b.words(atlas);
+            return std::pair { build_bvh(carded), cards };
+        };
+        // Every card discarding: each ray runs a program for each card nearer than what it meets, all within the caps.
+        std::vector<uint32_t> words;
+        const auto [clear, cards] = with_atlas(std::vector<uint8_t>(kAtlasTile * kAtlasTile, 0), words);
+        uint32_t most = 0, guards = 0, total = 0;
+        for (const FixtureRay &r : rays)
+        {
+            TraversalStats stats;
+            if (r.any_hit)
+                trace_any(clear, r.o, r.d, r.t_max, r.mask, &stats, &words);
+            else
+                trace_nearest(clear, r.o, r.d, r.t_max, r.mask, &stats, &words);
+            most = std::max(most, stats.alpha_tests);
+            guards += stats.guard;
+            total += stats.alpha_tests;
+        }
+        check("with every one of its " + std::to_string(cards) + " cards discarding, its rays run " + std::to_string(total) + " programs, at most "
+                + std::to_string(most) + " a ray, within the caps, and no ray meets a guard",
+            cards == 443 && total == 731 && most == 20 && guards == 0);
+        // Leaf shapes: blobs of a texture about 43% opaque. Each ray meets what testing every triangle with its alpha test meets.
+        std::vector<uint8_t> atlas(kAtlasTile * kAtlasTile);
+        for (uint32_t i = 0; i < atlas.size(); i++)
+            atlas[i] = ((i % kAtlasTile / 16) * 5 + (i / kAtlasTile / 16) * 3) % 7 < 3 ? 255 : 0;
+        const auto [leaves, unused] = with_atlas(atlas, words);
+        (void)unused;
+        uint32_t same = 0, shadowed = 0;
+        guards = 0;
+        for (const FixtureRay &r : rays)
+        {
+            TraversalStats stats;
+            const std::optional<Hit> brute = brute_nearest(leaves, r.o, r.d, r.t_max, r.mask, &words);
+            if (r.any_hit)
+            {
+                const bool any = trace_any(leaves, r.o, r.d, r.t_max, r.mask, &stats, &words);
+                same += any == brute.has_value();
+                shadowed += any;
+            }
+            else
+            {
+                const std::optional<Hit> hit = trace_nearest(leaves, r.o, r.d, r.t_max, r.mask, &stats, &words);
+                same += hit.has_value() == brute.has_value() && (!hit || (hit->triangle == brute->triangle && hit->t == brute->t));
+            }
+            guards += stats.guard;
+        }
+        check("with leaf-shaped cards all 64 rays meet what testing every triangle meets (" + std::to_string(shadowed) + " sun rays shadowed), and no ray meets a guard",
+            same == 64 && shadowed == 48 && guards == 0);
+    }
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;
 }

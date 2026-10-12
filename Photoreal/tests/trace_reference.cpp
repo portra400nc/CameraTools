@@ -131,7 +131,7 @@ int main(int argc, char **argv)
     for (std::thread &t : threads)
         t.join();
     const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
-    std::printf("INFO traced %llu rays in %.1f s on %u threads (%.2f Mrays/s); %llu stopped by the step guard, %llu stack overflows\n",
+    std::printf("INFO traced %llu rays in %.1f s on %u threads (%.2f Mrays/s); %llu cut short by a cap, %llu stack overflows\n",
         static_cast<unsigned long long>(rays.load()), seconds, options.tasks, rays.load() / std::max(seconds, 1e-9) / 1e6,
         static_cast<unsigned long long>(guard.load()), static_cast<unsigned long long>(overflow.load()));
     std::ofstream out(folder / "reference.f32", std::ios::binary | std::ios::trunc);

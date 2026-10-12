@@ -13,6 +13,26 @@ static const uint kAlphaRegisters = 14u;
 static const uint kAlphaInputs = 8u;
 static const uint kAlphaSources = 11u;
 static const uint kOpaqueRecord = 0xFFFFFFu;
+// The interpreter's cap: instructions of one program, core/alpha.h's kAlphaMaxCode. A program longer than this in the
+// buffer is not run and its hit counts whole; the others end within it, as their jumps only go forward.
+static const uint kAlphaCodeCap = 48u;
+
+// One run of a program at a hit.
+struct AlphaRun
+{
+    uint keeps;     // 1 when no kept discard fired, so the hit counts
+    uint steps;     // instructions interpreted
+    uint capped;    // 1 when the program was past kAlphaCodeCap and was not run: the hit counts whole
+};
+
+AlphaRun alpha_run_of(uint keeps, uint steps, uint capped)
+{
+    AlphaRun r;
+    r.keeps = keeps;
+    r.steps = steps;
+    r.capped = capped;
+    return r;
+}
 
 // core/alpha.h's alpha_op numbers.
 static const uint kOpMov = 0u, kOpMovc = 1u, kOpAdd = 2u, kOpMul = 3u, kOpMad = 4u, kOpDiv = 5u, kOpMin = 6u, kOpMax = 7u, kOpDp2 = 8u,
@@ -197,9 +217,9 @@ uint4 alpha_source(uint s, bool integer, uint block, uint rows, uint literals, u
     return o;
 }
 
-// Whether the alpha test keeps a hit at barycentric (u, v) of the triangle whose record starts at word record of the
-// records: false when a kept discard of its draw's pixel shader fires there.
-bool alpha_keeps(uint record, float u, float v, uint lane)
+// The alpha test of a hit at barycentric (u, v) of the triangle whose record starts at word record of the records: it keeps
+// the hit unless a kept discard of its draw's pixel shader fires there. At most kAlphaCodeCap steps.
+AlphaRun alpha_test(uint record, float u, float v, uint lane)
 {
     uint4 header = alpha_row(0u);
     uint at = header.x + record;
@@ -209,6 +229,8 @@ bool alpha_keeps(uint record, float u, float v, uint lane)
     uint4 p0 = alpha_row(program);
     uint4 map = alpha_row(program + 2u);
     uint count = p0.x & 0xFFFFu;
+    if (count > kAlphaCodeCap)
+        return alpha_run_of(1u, 0u, 1u);
     uint floats = p0.y & 0xFFFFu;
     uint flat = p0.y >> 16;
     uint literals = program + 8u + count * 4u;
@@ -235,8 +257,11 @@ bool alpha_keeps(uint record, float u, float v, uint lane)
     LOOP for (uint t = 0u; t < kAlphaInputs; t++)
         ALPHA_STORE(lane, t, uint4(0u, 0u, 0u, 0u));
 
+    // pc only grows, so the loop runs at most count <= kAlphaCodeCap times.
+    uint steps = 0u;
     LOOP for (uint pc = 0u; pc < count; pc++)
     {
+        steps++;
         uint4 ins = alpha_row(program + 8u + pc * 4u);
         uint op = ins.x & 255u;
         uint target = ins.x >> 20;
@@ -259,7 +284,7 @@ bool alpha_keeps(uint record, float u, float v, uint lane)
         if (op == kOpDiscardNz || op == kOpDiscardZ)
         {
             if ((a.x != 0u) == (op == kOpDiscardNz))
-                return false;
+                return alpha_run_of(0u, steps, 0u);
             continue;
         }
         uint4 result = uint4(0u, 0u, 0u, 0u);
@@ -296,5 +321,5 @@ bool alpha_keeps(uint record, float u, float v, uint lane)
         ALPHA_STORE(lane, dst, uint4((mask & 1u) != 0u ? result.x : old.x, (mask & 2u) != 0u ? result.y : old.y, (mask & 4u) != 0u ? result.z : old.z,
             (mask & 8u) != 0u ? result.w : old.w));
     }
-    return true;
+    return alpha_run_of(1u, steps, 0u);
 }

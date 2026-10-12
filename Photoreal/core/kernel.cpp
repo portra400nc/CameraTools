@@ -104,7 +104,7 @@ namespace photoreal::shader
             alpha = nullptr;
             scene = nullptr;
             if (stats)
-                *stats = { hit.steps, hit.overflow != 0, hit.guard != 0 };
+                *stats = { hit.steps, hit.overflow != 0, hit.guard != 0, hit.work, hit.alpha_tests, hit.alpha_steps };
             return hit;
         }
     }
@@ -141,7 +141,7 @@ namespace photoreal
                 continue;
             const shader::float4 h = shader::intersect_triangle(tri, shader::vec(origin), shader::vec(direction), limit);
             if (h.x < limit && alpha && (classes & kAlphaTests) != 0 && (tri.info & kOpaque) != kOpaque
-                && !shader::alpha_keeps(tri.info & kOpaque, h.y, h.z, 0))
+                && shader::alpha_test(tri.info & kOpaque, h.y, h.z, 0).keeps == 0)
                 continue;
             if (h.x < limit)
             {
@@ -157,7 +157,7 @@ namespace photoreal
     bool alpha_keeps(const std::vector<uint32_t> &buffer, uint32_t record, float u, float v)
     {
         shader::alpha = &buffer;
-        const bool keeps = shader::alpha_keeps(record, u, v, 0);
+        const bool keeps = shader::alpha_test(record, u, v, 0).keeps != 0;
         shader::alpha = nullptr;
         return keeps;
     }

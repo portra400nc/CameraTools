@@ -1,5 +1,5 @@
 // The traced scene's traversal: a ray against core/bvh.h's nodes and triangles, nearest hit or any hit, with a stack of
-// kStackSize entries per ray and a guard of kMaxSteps nodes. Shared by shaders/trace_cs.hlsl and, compiled as C++ through
+// kStackSize entries per ray and hard caps on its work, so no ray can run long enough to stall the GPU. Shared by shaders/trace_cs.hlsl and, compiled as C++ through
 // core/hlsl.h, by core/kernel.cpp, so it keeps to what core/hlsl.h supports.
 //
 // The includer defines, before including it:
@@ -7,11 +7,20 @@
 //   uint4 triangle_row(uint index, uint row)       a triangle's 16-byte row 0 to 2
 //   STACK_STORE(lane, slot, value), STACK_LOAD(lane, slot)  the ray's stack, kStackSize entries per lane
 //   LOOP                                           [loop] in HLSL
+// and may define TRACE_RAY_HOOK(origin, direction, t_max, any_hit, mask), called as each ray starts, as
+// tests/make_alpha_fixture.cpp does to keep the kernel's own rays.
 //   what shaders/alpha.hlsli needs: the alpha buffer and the interpreter's registers
 #include "alpha.hlsli"
 
 static const uint kStackSize = 24u;
-static const uint kMaxSteps = 4096u;
+// A ray's caps. Its work, the nodes it visits, the triangles it tests and the alpha instructions it interprets, stops the
+// traversal once it reaches kMaxWork; a node's leaves can add at most 32 triangles and the alpha caps past it. A ray runs at
+// most kMaxAlphaTests alpha programs and kMaxAlphaSteps of their instructions; past those its alpha-tested triangles count
+// whole. Each cap a ray meets counts it in the guard counter. On build 203's capture at build 204's spot, with every foliage
+// card alpha-tested, no ray did more than 568 work, 25 programs or 100 instructions (README, "Tracing").
+static const uint kMaxWork = 4096u;
+static const uint kMaxAlphaTests = 32u;
+static const uint kMaxAlphaSteps = 512u;
 static const uint kLeafLink = 0x80000000u;
 static const uint kNoLink = 0xFFFFFFFFu;
 static const uint kNoHit = 0xFFFFFFFFu;
@@ -28,8 +37,11 @@ struct BvhHit
     float u;
     float v;
     uint steps;         // nodes visited
+    uint work;          // nodes visited, triangles tested and alpha instructions interpreted
+    uint alpha_tests;   // alpha programs run
+    uint alpha_steps;   // their instructions
     uint overflow;      // 1 when a far child was left out because the stack was full
-    uint guard;         // 1 when the ray stopped after kMaxSteps nodes
+    uint guard;         // 1 when the ray met a cap: kMaxWork, kMaxAlphaTests, kMaxAlphaSteps or kAlphaCodeCap
 };
 
 // 1 / d, with each component at least 1e-12 from 0 first, so a ray parallel to a slab gets a large finite inverse and
@@ -94,7 +106,7 @@ float4 intersect_triangle(BvhTriangleData tri, float3 origin, float3 direction, 
 }
 
 // The triangles of a leaf, of the classes in mask (bits 1 << class), against the hit so far. A nearer hit on a triangle with
-// an alpha record counts only where its alpha test keeps it, when mask asks for the test.
+// an alpha record counts only where its alpha test keeps it, when mask asks for the test and the ray is within its alpha caps.
 BvhHit visit_leaf(BvhHit hit, uint link, float3 origin, float3 direction, bool any_hit, uint mask, uint lane)
 {
     uint first = (link & 0x7FFFFFFFu) >> 4;
@@ -102,6 +114,7 @@ BvhHit visit_leaf(BvhHit hit, uint link, float3 origin, float3 direction, bool a
     LOOP for (uint i = 0u; i < count; i++)
     {
         BvhTriangleData tri = load_bvh_triangle(first + i);
+        hit.work++;
         if (((mask >> ((tri.info >> 24) & 15u)) & 1u) == 0u)
             continue;
         float4 h = intersect_triangle(tri, origin, direction, hit.t);
@@ -111,8 +124,18 @@ BvhHit visit_leaf(BvhHit hit, uint link, float3 origin, float3 direction, bool a
         // program runs only inside the ifs that ask for it (build 204 ran it on every triangle and hung the Deck's GPU).
         if ((mask & kAlphaTests) != 0u && (tri.info & kOpaqueRecord) != kOpaqueRecord)
         {
-            if (!alpha_keeps(tri.info & kOpaqueRecord, h.y, h.z, lane))
-                continue;
+            if (hit.alpha_tests < kMaxAlphaTests && hit.alpha_steps + kAlphaCodeCap <= kMaxAlphaSteps)
+            {
+                AlphaRun run = alpha_test(tri.info & kOpaqueRecord, h.y, h.z, lane);
+                hit.alpha_tests++;
+                hit.alpha_steps += run.steps;
+                hit.work += run.steps;
+                hit.guard = max(hit.guard, run.capped);
+                if (run.keeps == 0u)
+                    continue;
+            }
+            else
+                hit.guard = 1u;
         }
         {
             hit.t = h.x;
@@ -136,19 +159,26 @@ BvhHit trace_bvh(float3 origin, float3 direction, float t_max, bool any_hit, uin
     hit.u = 0.0f;
     hit.v = 0.0f;
     hit.steps = 0u;
+    hit.work = 0u;
+    hit.alpha_tests = 0u;
+    hit.alpha_steps = 0u;
     hit.overflow = 0u;
     hit.guard = 0u;
+#ifdef TRACE_RAY_HOOK
+    TRACE_RAY_HOOK(origin, direction, t_max, any_hit, mask);
+#endif
     float3 inverse = safe_inverse(direction);
     uint node = 0u;
     uint sp = 0u;
     LOOP for (;;)
     {
-        if (hit.steps == kMaxSteps)
+        if (hit.work >= kMaxWork)
         {
             hit.guard = 1u;
             break;
         }
         hit.steps++;
+        hit.work++;
         uint4 r0 = node_row(node, 0u);
         uint4 r1 = node_row(node, 1u);
         uint4 r2 = node_row(node, 2u);

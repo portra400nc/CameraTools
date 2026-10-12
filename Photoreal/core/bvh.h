@@ -76,13 +76,15 @@ namespace photoreal
         float u = 0, v = 0;     // barycentric coordinates of the hit: v0 + u e1 + v e2
     };
 
-    // What one ray's traversal did: nodes visited, whether its 24-entry stack overflowed and a far child was left out, and
-    // whether it stopped at the 4096-node guard.
+    // What one ray's traversal did: nodes visited, whether its 24-entry stack overflowed and a far child was left out,
+    // whether it met a cap of shaders/bvh.hlsli's (its work, alpha programs or alpha instructions), its work (nodes,
+    // triangles tested and alpha instructions), and the alpha programs it ran and their instructions.
     struct TraversalStats
     {
         uint32_t steps = 0;
         bool overflow = false;
         bool guard = false;
+        uint32_t work = 0, alpha_tests = 0, alpha_steps = 0;
     };
 
     // The nearest hit and any hit beyond 1e-4 and before t_max, on triangles of the given classes, by the compute shader's

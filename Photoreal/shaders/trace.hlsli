@@ -159,7 +159,7 @@ struct PixelTraceData
     float4 history;     // occlusion sum, sun sum, occlusion count, sun count
     uint world;         // 1 when the pixel is traced
     uint rays;
-    uint guard;         // rays stopped by the step guard
+    uint guard;         // rays that met a cap of bvh.hlsli's
     uint overflow;      // rays whose stack overflowed
     uint tested;        // 1 when its ray from the camera checked the scene
     uint off;           // 1 when that ray met the scene off the depth buffer, or not at all
