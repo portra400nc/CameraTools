@@ -338,6 +338,11 @@ namespace photoreal
         // The comparison capture's two copies, one per frame of a variant. slot is 0 or 1.
         bool copy_back_buffer(ID3D11Resource *back_buffer, uint32_t slot) { return copies_[slot].copy_from(device_.Get(), context_.Get(), back_buffer); }
         std::optional<RawFrame> read_back_buffer(uint32_t slot) const { return copies_[slot].read(context_.Get()); }
+        // The view the frame that just ended snapshot, drawn as the composite draws it into a texture of size of our own,
+        // and copied for read_view: a comparison variant's view, which the capture's back buffer copies do not show.
+        // false, with moved null, when there is no view or a texture failed; moved names a binding the restore missed.
+        bool copy_view(Size size, bool flip, const char *&moved);
+        std::optional<RawFrame> read_view() const { return copies_[2].read(context_.Get()); }
 
     private:
         void draw_fullscreen(ID3D11PixelShader *shader, ID3D11ShaderResourceView *const *srvs, UINT srv_count, ID3D11RenderTargetView *target, Size size,
@@ -405,6 +410,7 @@ namespace photoreal
         ComPtr<ID3D11Texture2D> depth_texel_;   // 1x1 R32G8X24_TYPELESS, CPU-readable
         bool depth_texel_pending_ = false;      // copied and not yet read
         Snapshot pending_, shown_;
-        Staging copies_[2];
+        Staging copies_[3];         // the comparison capture's two frames, and its variant's view
+        Scratch view_copy_;         // R8G8B8A8_UNORM at the back buffer's size: a comparison variant's view
     };
 }

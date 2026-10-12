@@ -1271,6 +1271,30 @@ namespace photoreal
         trace.copy_hdr_for_save(scene_in_.texture());
     }
 
+    bool Gpu::copy_view(Size size, bool flip, const char *&moved)
+    {
+        moved = nullptr;
+        if (pending_.view == View::off || !view_copy_.sync(device_.Get(), size, DXGI_FORMAT_R8G8B8A8_UNORM))
+            return false;
+        Constants constants = {};
+        constants.render_size[0] = static_cast<float>(size.width);
+        constants.render_size[1] = static_cast<float>(size.height);
+        constants.render_size[2] = 1.0f / size.width;
+        constants.render_size[3] = 1.0f / size.height;
+        constants.flip = flip ? 1.0f : 0.0f;
+        constants.decode = static_cast<uint32_t>(pending_.found ? kViews[static_cast<size_t>(pending_.view)].decode : Decode::missing);
+        const Label label = view_label(pending_.view, pending_.found, pending_.why);
+        constants.label_length = label.length;
+        std::memcpy(constants.label, label.glyphs.data(), sizeof constants.label);
+        upload(constants);
+        {
+            StateGuard guard(context_.Get(), moved);
+            ID3D11ShaderResourceView *const srvs[] = { pending_.found ? pending_.image.srv() : nullptr, pending_.found ? pending_.image.stencil_srv() : nullptr };
+            draw_fullscreen(view_ps_.Get(), srvs, 2, view_copy_.rtv(), size);
+        }
+        return copies_[2].copy_from(device_.Get(), context_.Get(), view_copy_.texture());
+    }
+
     const char *Gpu::composite(ID3D11Resource *back_buffer, bool flip)
     {
         const char *moved = nullptr;

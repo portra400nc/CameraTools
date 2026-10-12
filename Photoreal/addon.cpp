@@ -364,6 +364,7 @@ namespace photoreal
             std::shared_ptr<CompareFiles> files;
             uint32_t waited = 0;                // presents the variant about to be copied waited for its trace's samples
             std::vector<CompareRow> trace;      // each copied variant's trace fields, at its second copy
+            std::vector<bool> views;            // whether each copied variant's view was copied too
         };
 
         std::optional<Capture> capture;
@@ -972,7 +973,7 @@ namespace photoreal
             log(reshade::log::level::info, "comparing " + std::to_string(variants.size()) + " settings variants into " + files->folder.u8string() + ".");
             worker.push([files, text = settings_tsv(variants)] { write_file(files->folder / "settings.tsv", text); });
             compare_count = static_cast<uint32_t>(variants.size());
-            capture = Capture { std::move(variants), settings, 0, std::nullopt, {}, 0, files, 0, {} };
+            capture = Capture { std::move(variants), settings, 0, std::nullopt, {}, 0, files, 0, {}, {} };
         }
 
         // Reads the next variant's two copies and hands them to the worker, which saves the PNG and rewrites
@@ -984,8 +985,17 @@ namespace photoreal
             if (!first || !second || first->size != second->size)
                 return false;
             const uint32_t index = c.read++;
+            // A variant with a view: the view's own picture, which the copies of the back buffer, taken before the composite, lack.
+            std::optional<RawFrame> view = index < c.views.size() && c.views[index] ? gpu.read_view() : std::nullopt;
             worker.push([files = c.files, index, name = c.variants[index].name, line = c.lines[index], trace = c.trace[index], first = std::move(*first),
-                            second = std::move(*second)] {
+                            second = std::move(*second), view = std::move(view)] {
+                if (view)
+                {
+                    std::string file = png_name(index, name);
+                    file.replace(file.size() - 4, 4, ".view.png");
+                    const std::vector<uint8_t> rgb = to_rgb(*view);
+                    write_file(files->folder / file, encode_png(rgb.data(), view->size.width, view->size.height));
+                }
                 const std::vector<uint8_t> a = to_rgb(first), b = to_rgb(second);
                 CompareRow row = trace;
                 row.index = index;
@@ -1056,6 +1066,15 @@ namespace photoreal
                     return "the back buffer is not 8-bit RGBA or BGRA, or its copy failed";
                 if (tick.copy->frame == 1)
                 {
+                    const char *moved = nullptr;
+                    const resource_desc desc = chain->get_device()->get_resource_desc(back_buffer);
+                    c.views.push_back(c.variants[tick.copy->variant].settings.view != View::off
+                        && gpu.copy_view({ desc.texture.width, desc.texture.height }, settings.flip, moved));
+                    if (moved)
+                    {
+                        trip(moved);
+                        return "the state did not come back after the view's copy";
+                    }
                     c.lines.push_back(describe(report));
                     CompareRow &row = c.trace.emplace_back();
                     if (traces)
