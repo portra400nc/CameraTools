@@ -1683,6 +1683,8 @@ namespace photoreal
                 && gpu.ready();
             scene_frame &= arm;
             scene_gbuffer &= scene_frame;
+            scene_light &= scene_frame;
+            scene_first &= scene_frame;
             in_gbuffer = false;
             if (scene_frame)
                 scene_gpu.begin_frame();
@@ -1761,7 +1763,7 @@ namespace photoreal
 using namespace photoreal;
 
 extern "C" __declspec(dllexport) const char *NAME = "CameraTools Photoreal";
-extern "C" __declspec(dllexport) const char *DESCRIPTION = "Finds Genshin's G-buffer and lighting buffers each frame, shows them as debug views, relights the world's ambient light, softens the sun's shadows and adds contact shadows to them, adds aerial perspective and sun shafts through a ground mist to the scene, replaces the game's tone map, averages lens samples into depth of field, saves comparison captures of settings variants, captures the scene's geometry around the camera, and traces ambient occlusion and sun shadows against it. Driven by CameraTools.";
+extern "C" __declspec(dllexport) const char *DESCRIPTION = "Finds Genshin's G-buffer and lighting buffers each frame, shows them as debug views, relights the world's ambient light, softens the sun's shadows and adds contact shadows to them, adds aerial perspective and sun shafts through a ground mist to the scene, replaces the game's tone map, averages lens samples into depth of field, saves comparison captures of settings variants, captures the scene's geometry and light around the camera, traces ambient occlusion and sun shadows against it, and gathers one bounce of diffuse light from it. Driven by CameraTools.";
 
 extern "C" uint32_t PhotorealVersion(void)
 {
