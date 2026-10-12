@@ -368,3 +368,6 @@ FodyWeavers.xsd
 
 # The ReShade headers ReShadeBridge/build.py downloads
 .deps/
+
+# The Photoreal add-on's working notes stay local.
+Photoreal/README.md
