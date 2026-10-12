@@ -231,7 +231,7 @@ namespace photoreal
         "\ts144_tested\ts144_matched\ts144_in_front\ts144_behind\ts165_tested\ts165_matched\ts165_in_front\ts165_behind"
         "\tother_tested\tother_matched\tother_in_front\tother_behind\toff_screen\torigin\tposition\tforward\tup"
         "\talpha_none\talpha_dither\talpha_program\talpha_unsupported\talpha_no-bytecode\talpha_class\talpha_tessellated\talpha_outputs"
-        "\talpha_constants\talpha_texture\talpha_atlas-full\talpha_stream\talpha_tiles\n";
+        "\talpha_constants\talpha_texture\talpha_atlas-full\talpha_stream\talpha_tiles\tlight_albedo\tlight_hdr\tlight_why\tsky_pixels\n";
 
     const char *const kDrawsHeader = "face\tdraw\tkind\tclass\tcall\tcount\tinstances\tfirst\tbase_vertex\tfirst_instance\targs_offset\ttopology"
         "\tvs\tds\tps\tstencil\tstencil_ref\tdepth_func\tdepth_write\texpected\twritten\tneeded\tfirst_triangle\tskip\tpoints\toffset\treserved\tcorners\tunwritten"
@@ -272,7 +272,15 @@ namespace photoreal
             alphas[static_cast<size_t>(r.alpha)]++;
         for (uint32_t n : alphas)
             row += '\t' + std::to_string(n);
-        return row + '\t' + std::to_string(d.atlas.size() / (kAtlasTile * kAtlasTile)) + '\n';
+        // The light's copies: 1 copied, 0 not, - not asked for; and the pixels whose depth is 0, the sky's.
+        const size_t pixels = size_t(d.render.width) * d.render.height;
+        const bool asked = !d.light_why.empty() || !d.albedo.empty() || !d.hdr.empty();
+        uint64_t sky = 0;
+        for (float v : d.depth)
+            sky += v == 0;
+        row += '\t' + std::to_string(d.atlas.size() / (kAtlasTile * kAtlasTile)) + '\t' + (asked ? (d.albedo.size() == pixels * 4 ? "1" : "0") : "-") + '\t'
+            + (asked ? (d.hdr.size() == pixels ? "1" : "0") : "-") + '\t' + (d.light_why.empty() ? "-" : d.light_why) + '\t' + std::to_string(sky);
+        return row + '\n';
     }
 
     std::string draw_rows(uint32_t face, const std::vector<SceneDrawRecord> &records)
@@ -392,10 +400,12 @@ namespace photoreal
         if (d.sun && !write_bytes(folder.path / (prefix + "-sun.bin"), d.sun->data(), d.sun->size()))
             failed.push_back(prefix + "-sun.bin");
         const std::pair<const std::vector<uint8_t> *, const char *> gbuffer[] = { { &d.stencil, "-stencil.r8" }, { &d.normals, "-normals.r10g10b10a2" },
-            { &d.mask, "-mask.r8g8" }, { &d.irradiance, "-irradiance.r11g11b10" } };
+            { &d.mask, "-mask.r8g8" }, { &d.irradiance, "-irradiance.r11g11b10" }, { &d.albedo, "-albedo.rgba8" } };
         for (const auto &[bytes, suffix] : gbuffer)
-            if (!bytes->empty() && !write_bytes(folder.path / (prefix + suffix), bytes->data(), bytes->size()))
+            if (request.gbuffer && !bytes->empty() && !write_bytes(folder.path / (prefix + suffix), bytes->data(), bytes->size()))
                 failed.push_back(prefix + suffix);
+        if (request.gbuffer && !d.hdr.empty() && !write_bytes(folder.path / (prefix + "-hdr.r11g11b10"), d.hdr.data(), d.hdr.size() * 4))
+            failed.push_back(prefix + "-hdr.r11g11b10");
 
         folder.faces.push_back(scene_row(d, mesh, check_depth(d.camera, d.records, d.clip, d.render, d.depth)));
         folder.draws += draw_rows(d.face, d.records);

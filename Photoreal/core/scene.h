@@ -48,6 +48,7 @@ namespace photoreal
         bool no_meshes = false;         // PHOTOREAL_SCENE_NO_MESHES
         bool gbuffer = false;           // PHOTOREAL_SCENE_GBUFFER
         bool release = false;           // PHOTOREAL_SCENE_RELEASE
+        bool light = false;             // PHOTOREAL_SCENE_LIGHT, with trace: the faces' albedo, stencil and HDR, and the scene's light
         uint32_t max_triangles = 4000000;
 
         // A trace request with no faces: the self-test scene, captured from nothing.

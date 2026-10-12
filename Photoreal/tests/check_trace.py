@@ -16,7 +16,12 @@ checks are statistical. On every world pixel with samples:
 4. The mean difference over the whole frame is within 5 standard errors plus 0.0005.
 
 A logic error that changes what a pixel's rays meet moves whole tiles or many pixels by far more than their noise, which
-2 to 4 catch; the noise of independent rays does not. It writes check-trace.png: the Deck's occlusion and sun averages, the reference's, and their difference times 10, a row
+2 to 4 catch; the noise of independent rays does not.
+
+When the folder holds the gather's sums and trace_reference wrote its own (reference-gather-hit.f32 and the rest), checks
+2 to 4 run for three more: the hits' luminance, the sky's luminance and the misses, each over the gather's samples. The
+misses lie between 0 and 1 like the occlusion; the luminances do not, so each pixel's variance is the reference's own
+sample variance, at least its second moment over its samples, which is what one sample in n differing would give. It writes check-trace.png: the Deck's occlusion and sun averages, the reference's, and their difference times 10, a row
 each. When the folder holds the game's shadow mask and the shadow-mask constants, it reports as information how often the
 game's mask and the traced sun disagree within the game's shadow distance and cascades: game shadowed and traced lit
 means a caster the scene lacks. It also reports how the traced occlusion follows the game's diffuse irradiance.
@@ -64,14 +69,21 @@ def tile_sums(values, valid, size):
     return padded.reshape(ph // size, size, pw // size, size).sum(axis=(1, 3))
 
 
-def sampling_checks(name, deck, mine, squares, valid):
-    """Checks 2 to 4 for one kind of ray: deck and mine are (sum, count) images, squares the reference's squared samples."""
+def sampling_checks(name, deck, mine, squares, valid, bounded=True):
+    """Checks 2 to 4 for one kind of ray: deck and mine are (sum, count) images, squares the reference's squared samples.
+    bounded: the samples lie between 0 and 1, so p(1 - p) of the pooled average bounds their variance; else the variance
+    is the reference's own, at least its second moment over its samples."""
     n_deck, n_mine = np.maximum(deck[1], 1), np.maximum(mine[1], 1)
     mean_mine = mine[0] / n_mine
     difference = deck[0] / n_deck - mean_mine
-    pooled = (deck[0] + mine[0] + 0.5) / (deck[1] + mine[1] + 1)
-    bound = pooled * (1 - pooled)
-    z = difference / np.sqrt(bound * (1 / n_deck + 1 / n_mine))
+    if bounded:
+        pooled = (deck[0] + mine[0] + 0.5) / (deck[1] + mine[1] + 1)
+        bound = pooled * (1 - pooled)
+    else:
+        second = squares / n_mine
+        bound = np.maximum(second - mean_mine ** 2, second / n_mine)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        z = np.nan_to_num(difference / np.sqrt(bound * (1 / n_deck + 1 / n_mine)), nan=0.0, posinf=1e9, neginf=-1e9)
     outliers = (np.abs(z[valid]) > 5).mean()
     report("PASS" if outliers <= 0.001 else "FAIL", f"2 {name}: {outliers:.5f} of {valid.sum()} pixels differ by more than 5 standard errors "
                                                     f"(need at most 0.001; largest {np.abs(z[valid]).max():.1f})")
@@ -174,6 +186,35 @@ def compare_irradiance(folder, world, ao):
                    f"over {valid.sum()} world pixels (information only)")
 
 
+def luminance(rgb):
+    return rgb[..., 0] * 0.2126 + rgb[..., 1] * 0.7152 + rgb[..., 2] * 0.0722
+
+
+def gather_checks(folder, h, w, history, world):
+    """The gather's hits' luminance, sky's luminance and misses, against trace_reference's, when both are there."""
+    paths = [os.path.join(folder, name) for name in ("gather-hit.f32", "gather-sky.f32", "reference-gather-hit.f32", "reference-gather-sky.f32",
+                                                       "reference-gather-squares.f32")]
+    if not os.path.exists(paths[0]):
+        return
+    if not all(os.path.exists(path) for path in paths[2:]):
+        report("FAIL", f"{folder} gathered, but has no reference-gather-hit.f32: run this build's trace_reference on it")
+        return
+    hit, sky, my_hit, my_sky = (np.fromfile(path, np.float32).reshape(h, w, 4).astype(np.float64) for path in paths[:4])
+    squares = np.fromfile(paths[4], np.float32).reshape(h, w, 2).astype(np.float64)
+    reference = np.fromfile(os.path.join(folder, "reference.f32"), np.float32).reshape(h, w, 4).astype(np.float64)
+    samples, my_samples = history[..., 2].astype(np.float64), reference[..., 2]
+    valid = world & (samples > 0) & (my_samples > 0)
+    if valid.sum() == 0:
+        report("FAIL", "2 gather: no world pixel has gather samples")
+        return
+    report("INFO", f"the gather: {samples[valid].mean():.1f} samples a pixel, sky visibility {(sky[..., 3][valid] / samples[valid]).mean():.4f} "
+                   f"(the Mac's {(my_sky[..., 3][valid] / my_samples[valid]).mean():.4f}), bounce luminance {(luminance(hit)[valid] / samples[valid]).mean():.5f} "
+                   f"(the Mac's {(luminance(my_hit)[valid] / my_samples[valid]).mean():.5f})")
+    sampling_checks("misses", (sky[..., 3], samples), (my_sky[..., 3], my_samples), my_sky[..., 3], valid)
+    sampling_checks("hit luminance", (luminance(hit), samples), (luminance(my_hit), my_samples), squares[..., 0], valid, bounded=False)
+    sampling_checks("sky luminance", (luminance(sky), samples), (luminance(my_sky), my_samples), squares[..., 1], valid, bounded=False)
+
+
 def main(folder):
     info = values(folder)
     w, h = int(info["width"]), int(info["height"])
@@ -209,6 +250,7 @@ def main(folder):
         rows.append(np.concatenate([gray(np.where(world, deck, np.nan)), gray(np.where(world, mine, np.nan)), red(np.where(valid, difference, 0))], axis=1))
     if len(rows) == 2:
         write_png(os.path.join(folder, "check-trace.png"), np.concatenate(rows, axis=0))
+    gather_checks(folder, h, w, history, world)
     compare_game(folder, info, world, averages(history, 1), depth)
     compare_irradiance(folder, world, averages(history, 0))
     print(f"{folder}: {'all checks passed' if failures == 0 else 'some checks failed'}")

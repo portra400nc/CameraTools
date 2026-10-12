@@ -68,8 +68,15 @@ namespace photoreal
         Vec3d origin {};                    // the first saved face's camera position, which every mesh is relative to
         // PHOTOREAL_SCENE_GBUFFER's, the view face's only, at render, top row first, each empty when not copied: the
         // stencil (1 byte a pixel), and the G-buffer normals (R10G10B10A2_UNORM), the game's shadow mask (R8G8_UNORM) and
-        // diffuse irradiance (R11G11B10_FLOAT) as stored, 4, 2 and 4 bytes a pixel.
+        // diffuse irradiance (R11G11B10_FLOAT) as stored, 4, 2 and 4 bytes a pixel. With PHOTOREAL_SCENE_LIGHT, every face's
+        // stencil, and the view face's normals and irradiance.
         std::vector<uint8_t> stencil, normals, mask, irradiance;
+        // PHOTOREAL_SCENE_LIGHT's, every face's, at render, top row first: the G-buffer albedo at the combine step
+        // (R8G8B8A8, sRGB, 4 bytes a pixel) and the HDR scene at the bloom step before any pass of ours (R11G11B10_FLOAT),
+        // each empty when not copied, and light_why why one was not.
+        std::vector<uint8_t> albedo;
+        std::vector<uint32_t> hdr;
+        std::string light_why;
     };
 
     // A scene folder being written, touched only by the writer.
@@ -97,9 +104,10 @@ namespace photoreal
 
     // Writes the face's mesh (PLY when request.ply, none when request.no_meshes), half-size picture, depth, raw stream
     // when request.raw, the shadow-mask draw's b0 to b3 as they were read back when there were any (face-N-sun.bin, 2224
-    // bytes), and the G-buffer copies it holds (face-N-stencil.r8, face-N-normals.r10g10b10a2, face-N-mask.r8g8 and
-    // face-N-irradiance.r11g11b10), then rewrites scene.tsv, draws.tsv and camera.tsv with its rows added. Returns the
-    // names of the files that could not be written.
+    // bytes), and with request.gbuffer the G-buffer copies it holds (face-N-stencil.r8, face-N-normals.r10g10b10a2,
+    // face-N-mask.r8g8 and face-N-irradiance.r11g11b10, and with request.light face-N-albedo.rgba8 and
+    // face-N-hdr.r11g11b10), then rewrites scene.tsv, draws.tsv and camera.tsv with its rows added. Returns the names of
+    // the files that could not be written.
     std::vector<std::string> write_scene_face(SceneFolder &folder, const SceneFaceData &data, const SceneRequest &request);
 
     // stopped.txt: how many faces were saved, and why the capture stopped.

@@ -761,6 +761,19 @@ namespace photoreal
         return sun;
     }
 
+    SceneLight build_light(std::vector<TraceTriangle> &triangles, const std::vector<uint32_t> &materials, const LightInputs &inputs, const Vec3d &reference,
+        uint32_t tasks)
+    {
+        SceneLight light;
+        light.albedo = bake_albedo(triangles, materials, inputs.faces, reference, tasks);
+        light.sky = build_sky_map(inputs.faces, inputs.pushed_sky);
+        light.ambient = fit_ambient(inputs.first_size, inputs.first_irradiance, inputs.first_normals, inputs.first_stencil, inputs.first_depth, inputs.pushed_sky);
+        light.sun = sun_light(inputs.combine, inputs.cascade, inputs.pushed_sun_color, inputs.pushed_sun_direction);
+        if (inputs.cascade)
+            light.cascade = *inputs.cascade;
+        return light;
+    }
+
     uint32_t SceneLight::flags() const
     {
         return (albedo.triangles[static_cast<size_t>(AlbedoSource::direct)] + albedo.triangles[static_cast<size_t>(AlbedoSource::covered)] != 0 ? kLightAlbedo : 0)
@@ -768,7 +781,8 @@ namespace photoreal
             | (ambient.kind == AmbientFit::Kind::fit ? kLightAmbient : 0);
     }
 
-    std::string light_bytes(const std::vector<TraceTriangle> &triangles, const std::vector<uint32_t> &materials, const SceneLight &light)
+    std::string light_bytes(const std::vector<TraceTriangle> &triangles, const std::vector<uint32_t> &materials, const SceneLight &light,
+        const std::vector<FaceImages> &faces)
     {
         std::string out = "PRTL";
         out.reserve(8 + triangles.size() * 8 + light.sky.texels.size() * 4 + 256);
@@ -794,6 +808,15 @@ namespace photoreal
         put(out, light.cascade);
         put(out, static_cast<uint32_t>(light.sun.color_source));
         put(out, static_cast<uint32_t>(light.sun.shade_source));
+        put(out, static_cast<uint32_t>(faces.size()));
+        for (const FaceImages &f : faces)
+        {
+            put(out, f.face);
+            put(out, f.size.width);
+            put(out, f.size.height);
+            for (double v : f.clip_to_world)
+                put(out, v);
+        }
         return out;
     }
 
@@ -835,7 +858,24 @@ namespace photoreal
         in.get(light.cascade);
         in.get(color_source);
         in.get(shade_source);
-        if (!in.ok || in.at != bytes.size() || kind > static_cast<uint32_t>(AmbientFit::Kind::pushed)
+        uint32_t faces = 0;
+        in.get(faces);
+        for (uint32_t i = 0; i < faces && in.ok && i < kFaceCount; i++)
+        {
+            SceneCamera camera;
+            uint32_t face = 0;
+            Size size;
+            in.get(face);
+            in.get(size.width);
+            in.get(size.height);
+            for (double &v : camera.clip_to_world)
+                in.get(v);
+            const std::optional<FaceImages> images = face_images(face, camera, size);
+            if (!images)
+                return std::nullopt;
+            file.faces.push_back(*images);
+        }
+        if (!in.ok || in.at != bytes.size() || faces > kFaceCount || kind > static_cast<uint32_t>(AmbientFit::Kind::pushed)
             || color_source >= static_cast<uint32_t>(LightSource::count) || shade_source >= static_cast<uint32_t>(LightSource::count))
             return std::nullopt;
         light.sky.fallback = fallback != 0;

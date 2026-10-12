@@ -1,9 +1,12 @@
 // The traced scene's light (core/light.h): the light word, the sRGB and R11G11B10 decodes, the albedo bake on a room
 // seen from seven faces, the sky map, the ambient fit of build 208's meadow (fixtures/trace-180456-ambient.bin), the sun
 // from the combine constants of captures 111824 and 214859 (fixtures/<capture>-combine-b0.bin and -b3.bin, which
-// make_light_fixtures.py wrote) and trace-light.bin.
+// make_light_fixtures.py wrote) and trace-light.bin. With an output folder it also writes, with the add-on's own
+// writers, a synthetic PHOTOREAL_SCENE_LIGHT | GBUFFER capture of the room without its ceiling, under a sky, and a save
+// of its view, which run.sh hands to check_light.sh.
 #include "../core/light.h"
-#include "../core/trace.h"
+#include "../core/scene_files.h"
+#include "../core/trace_files.h"
 
 #include <cmath>
 #include <cstdio>
@@ -52,7 +55,7 @@ namespace
 
     // A face's camera at position, as CameraTools pushes it: Unity's view and the reversed GPU projection, 90 degrees
     // vertical at aspect, unflipped.
-    SceneCamera face_camera(const Vec3d &position, Vec3d forward, Vec3d up, double aspect)
+    SceneCamera face_camera(const Vec3d &position, Vec3d forward, Vec3d up, double aspect, Camera *out = nullptr)
     {
         const Vec3d right = cross(up, forward);
         const double view[16] = { right[0], right[1], right[2], -dot(right, position), up[0], up[1], up[2], -dot(up, position), -forward[0], -forward[1],
@@ -61,6 +64,8 @@ namespace
         Camera pushed {};
         set_unity(pushed.world_to_view, view);
         set_unity(pushed.view_to_clip, projection);
+        if (out)
+            *out = pushed;
         return *scene_camera(pushed, false);
     }
 
@@ -112,10 +117,11 @@ namespace
                 }
         }
 
-        std::vector<Surface> surfaces()
+        std::vector<Surface> surfaces(bool ceiling = true)
         {
             std::vector<Surface> out;
-            const float x0 = -6, x1 = 6, y0 = -3, y1 = 4, z0 = -6, z1 = 6;
+            // Without its ceiling, its walls end 1.5 m above the camera, so the sky fills the faces above.
+            const float x0 = -6, x1 = 6, y0 = -3, y1 = ceiling ? 4 : 1.5f, z0 = -6, z1 = 6;
             const std::array<std::array<uint8_t, 3>, 6> colors = { { { 200, 60, 60 }, { 60, 200, 60 }, { 60, 60, 200 }, { 220, 220, 120 }, { 120, 220, 220 },
                 { 230, 230, 230 } } };
             for (uint32_t side = 0; side < 6; side++)
@@ -128,7 +134,7 @@ namespace
                 case 0: quad(s, { x0, y0, z0 }, { x0, y0, z1 }, {}, { x0, y1, z0 }, 24); break;          // -X wall
                 case 1: quad(s, { x1, y0, z0 }, { x1, y0, z1 }, {}, { x1, y1, z0 }, 24); break;          // +X wall
                 case 2: quad(s, { x0, y0, z0 }, { x1, y0, z0 }, {}, { x0, y0, z1 }, 24); break;          // floor
-                case 3: quad(s, { x0, y1, z0 }, { x1, y1, z0 }, {}, { x0, y1, z1 }, 24); break;          // ceiling
+                case 3: if (ceiling) quad(s, { x0, y1, z0 }, { x1, y1, z0 }, {}, { x0, y1, z1 }, 24); break; // ceiling
                 case 4: quad(s, { x0, y0, z0 }, { x1, y0, z0 }, {}, { x0, y1, z0 }, 24); break;          // -Z wall
                 case 5: quad(s, { x0, y0, z1 }, { x1, y0, z1 }, {}, { x0, y1, z1 }, 24); break;          // +Z wall
                 }
@@ -167,8 +173,10 @@ namespace
             return out;
         }
 
-        // Each face's depth, albedo and stencil, ray cast through every surface, cards included.
-        std::vector<FaceImages> images(const std::vector<Surface> &all)
+        // Each face's depth, albedo and stencil, ray cast through every surface, cards included; and its HDR scene: a sky
+        // brighter toward the sun above, each surface its albedo times 0.8. normals, when asked for, gets the view face's
+        // normals as the G-buffer stores them.
+        std::vector<FaceImages> images(const std::vector<Surface> &all, std::vector<uint32_t> *normals = nullptr)
         {
             std::vector<TraceTriangle> triangles;
             std::vector<const Surface *> owner;
@@ -188,6 +196,9 @@ namespace
                 f.depth.assign(size_t(kWidth) * kHeight, 0);
                 f.albedo.assign(size_t(kWidth) * kHeight * 4, 0);
                 f.stencil.assign(size_t(kWidth) * kHeight, 0);
+                f.hdr.assign(size_t(kWidth) * kHeight, 0);
+                if (normals && face == kFaceView)
+                    normals->assign(size_t(kWidth) * kHeight, 0);
                 for (uint32_t py = 0; py < kHeight; py++)
                     for (uint32_t px = 0; px < kWidth; px++)
                     {
@@ -198,7 +209,11 @@ namespace
                         d = { d[0] / length, d[1] / length, d[2] / length };
                         const std::optional<Hit> hit = trace_nearest(bvh, { 0, 0, 0 }, { float(d[0]), float(d[1]), float(d[2]) }, 1e4f);
                         if (!hit)
+                        {
+                            const float bright = float(0.6 + 0.8 * std::max(0.0, d[0] * 0.5 + d[1] * 0.8));
+                            f.hdr[size_t(py) * kWidth + px] = hdr_stored({ 0.5f * bright, 0.7f * bright, bright });
                             continue;
+                        }
                         const double distance = hit->t * dot(d, camera.basis[2]);
                         const size_t i = size_t(py) * kWidth + px;
                         const Surface &s = *owner[bvh.source[hit->triangle]];
@@ -207,6 +222,17 @@ namespace
                         for (int k = 0; k < 3; k++)
                             f.albedo[i * 4 + k] = s.srgb[k];
                         f.albedo[i * 4 + 3] = 255;
+                        f.hdr[i] = hdr_stored({ 0.8f * srgb_linear(s.srgb[0]), 0.8f * srgb_linear(s.srgb[1]), 0.8f * srgb_linear(s.srgb[2]) });
+                        if (normals && face == kFaceView)
+                        {
+                            const BvhTriangle &t = bvh.triangles[hit->triangle];
+                            Vec3d n = cross({ t.e1[0], t.e1[1], t.e1[2] }, { t.e2[0], t.e2[1], t.e2[2] });
+                            const double l = std::sqrt(dot(n, n)) * (dot(n, d) > 0 ? -1 : 1);
+                            uint32_t word = 0;
+                            for (int k = 0; k < 3; k++)
+                                word |= uint32_t(std::lround((n[k] / l * 0.5 + 0.5) * 1023)) << (k * 10);
+                            (*normals)[i] = word;
+                        }
                     }
                 out.push_back(std::move(f));
             }
@@ -263,7 +289,113 @@ namespace
     }
 }
 
-int main()
+namespace
+{
+    // The synthetic PHOTOREAL_SCENE_LIGHT | GBUFFER capture of the open room and a save of its view, by the add-on's writers.
+    void write_synthetic(const std::filesystem::path &out)
+    {
+        const std::vector<room::Surface> surfaces = room::surfaces(false);
+        std::vector<uint32_t> view_normals;
+        std::vector<FaceImages> faces = room::images(surfaces, &view_normals);
+        std::vector<TraceTriangle> triangles;
+        std::vector<uint32_t> materials;
+        for (size_t s = 0; s + 2 < surfaces.size(); s++)
+            for (const TraceTriangle &t : surfaces[s].triangles)
+            {
+                triangles.push_back(t);
+                materials.push_back(surfaces[s].material);
+            }
+        SceneFolder folder;
+        folder.path = out / "scene-light-synthetic";
+        begin_scene_folder(folder);
+        SceneRequest request;
+        request.trace = request.light = request.gbuffer = request.no_meshes = true;
+        LightInputs inputs;
+        const auto directions = face_directions();
+        Camera view_camera {};
+        for (FaceImages &f : faces)
+        {
+            Camera pushed {};
+            SceneFaceData data;
+            data.face = f.face;
+            data.frame = 100 + f.face;
+            data.attempts = 1;
+            data.camera = face_camera(room::kReference, directions[f.face].first, directions[f.face].second, double(room::kWidth) / room::kHeight, &pushed);
+            data.pushed = pushed;
+            data.status = "96x60 synthetic";
+            data.render = f.size;
+            data.origin = room::kReference;
+            data.depth = f.depth;
+            data.stencil = f.stencil;
+            data.albedo = f.albedo;
+            data.hdr = f.hdr;
+            if (f.face == kFaceView)
+            {
+                view_camera = pushed;
+                // The game's irradiance a function of the normal alone, as the meadow's.
+                data.normals.resize(view_normals.size() * 4);
+                data.irradiance.resize(view_normals.size() * 4);
+                for (size_t i = 0; i < view_normals.size(); i++)
+                {
+                    const float ny = (view_normals[i] >> 10 & 1023u) / 1023.0f * 2 - 1;
+                    const uint32_t irradiance = hdr_stored({ 0.2f + 0.13f * ny, 0.43f + 0.16f * ny, 0.61f + 0.2f * ny });
+                    std::memcpy(&data.normals[i * 4], &view_normals[i], 4);
+                    std::memcpy(&data.irradiance[i * 4], &irradiance, 4);
+                }
+                inputs.first_size = f.size;
+                inputs.first_normals = data.normals;
+                inputs.first_irradiance = data.irradiance;
+                inputs.first_stencil = data.stencil;
+                inputs.first_depth = data.depth;
+            }
+            write_scene_face(folder, data, request);
+        }
+        inputs.faces = faces;
+        inputs.combine = CombineConstants { kCombineCbufferBytes, { 2.8f, 2.5f, 1.13f, 1.6f }, { 0.259f, 0.5247f, -0.811f, 0 } };
+        inputs.cascade = Vec3 { 0.2491f, 0.5736f, -0.7803f };
+        inputs.pushed_sky = { 0.3f, 0.5f, 0.8f };
+        std::vector<TraceTriangle> baked = triangles;
+        const SceneLight light = build_light(baked, materials, inputs, room::kReference, 3);
+        const std::string scene_bytes = trace_scene_bytes(triangles, room::kReference);
+        std::ofstream(folder.path / "trace-scene.bin", std::ios::binary).write(scene_bytes.data(), static_cast<std::streamsize>(scene_bytes.size()));
+        const std::string light_file = light_bytes(baked, materials, light, faces);
+        std::ofstream(folder.path / "trace-light.bin", std::ios::binary).write(light_file.data(), static_cast<std::streamsize>(light_file.size()));
+
+        // The view's save: its G-buffer as the trace pass found it, and the frame the combine pass lit, sun and all.
+        const FaceImages &view = faces.back();
+        TraceSave save;
+        save.size = view.size;
+        TraceSettings settings;
+        save.constants = *trace_constants(settings, 1, view_camera, false, view.size, room::kReference, *inputs.cascade, 1);
+        save.history.assign(size_t(view.size.width) * view.size.height * 4, 0);
+        save.depth = view.depth;
+        save.stencil = view.stencil;
+        save.normals = view_normals;
+        save.albedo = view.albedo;
+        save.camera = view_camera;
+        save.reference = room::kReference;
+        save.scene = folder.path.filename().u8string();
+        save.irradiance = inputs.first_irradiance;
+        save.mask.assign(save.depth.size() * 2, 255);
+        save.hdr.resize(save.depth.size() * 4);
+        for (size_t i = 0; i < save.depth.size(); i++)
+        {
+            const Vec3f irradiance = hdr_rgb(*reinterpret_cast<const uint32_t *>(&save.irradiance[i * 4]));
+            Vec3f n;
+            for (int k = 0; k < 3; k++)
+                n[k] = (view_normals[i] >> (k * 10) & 1023u) / 1023.0f * 2 - 1;
+            const float cosine = std::max(0.0f, n[0] * light.sun.shade[0] + n[1] * light.sun.shade[1] + n[2] * light.sun.shade[2]);
+            Vec3f lit;
+            for (int k = 0; k < 3; k++)
+                lit[k] = srgb_linear(view.albedo[i * 4 + k]) * (light.sun.color[k] * cosine + irradiance[k]);
+            const uint32_t stored = view.depth[i] > 0 ? hdr_stored(lit) : view.hdr[i];
+            std::memcpy(&save.hdr[i * 4], &stored, 4);
+        }
+        write_trace_folder(out / "trace-light-synthetic", save);
+    }
+}
+
+int main(int argc, char **argv)
 {
     {
         const uint32_t word = pack_light({ 0.25f, 0.5f, 1.0f }, AlbedoSource::covered);
@@ -505,18 +637,31 @@ int main()
         light.sun.shade = { 0.26f, 0.52f, -0.81f };
         light.sun.color_source = LightSource::game;
         light.cascade = { 0.25f, 0.57f, -0.78f };
-        const std::string bytes = light_bytes(triangles, { 0, 5, 9 }, light);
+        std::vector<FaceImages> faces = sky_faces({ 0.5f, 0.25f, 1 }, false, 32, 20);
+        faces.resize(2);
+        const std::string bytes = light_bytes(triangles, { 0, 5, 9 }, light, faces);
         const std::optional<LightFile> back = parse_light(bytes);
-        check("trace-light.bin reads back its words, materials, sky map, harmonics, fit and sun",
+        check("trace-light.bin reads back its words, materials, sky map, harmonics, fit, sun and the faces' cameras",
             back && back->words == std::vector<uint32_t> { 0, triangles[1].light, triangles[2].light } && back->materials == std::vector<uint32_t> { 0, 5, 9 }
                 && back->light.sky.texels == light.sky.texels && back->light.sky.real == light.sky.real && back->light.sky.harmonics == light.sky.harmonics
                 && back->light.ambient.rows == light.ambient.rows && back->light.ambient.kind == AmbientFit::Kind::fit && back->light.sun.color == light.sun.color
                 && back->light.sun.color_source == LightSource::game && back->light.sun.shade_source == LightSource::pushed && back->light.cascade == light.cascade
-                && bytes.size() == 8 + 3 * 8 + 4 + kSkyMapSide * kSkyMapSide * 16 + 8 + 9 * 12 + 4 * 12 + 12 + 8 + 3 * 12 + 8);
+                && back->faces.size() == 2 && back->faces[1].face == 1 && back->faces[1].size == Size { 32, 20 }
+                && back->faces[1].clip_to_world == faces[1].clip_to_world && back->faces[1].world_to_clip == faces[1].world_to_clip
+                && bytes.size() == 8 + 3 * 8 + 4 + kSkyMapSide * kSkyMapSide * 16 + 8 + 9 * 12 + 4 * 12 + 12 + 8 + 3 * 12 + 8 + 4 + 2 * (12 + 128));
         check("trace-light.bin cut short or with a wrong magic reads as nothing", !parse_light(bytes.substr(0, bytes.size() - 1)) && !parse_light("PRTS" + bytes.substr(4)));
         light.albedo = count_albedo(triangles);
         check("the scene's light flags: albedo, sky, the ambient fit, not the sun with a pushed direction",
             light.flags() == (kLightAlbedo | kLightSky | kLightAmbient));
+    }
+    if (argc > 1)
+    {
+        write_synthetic(argv[1]);
+        check("the synthetic light capture is written with its faces' raw copies, trace-scene.bin and trace-light.bin",
+            std::filesystem::exists(std::filesystem::path(argv[1]) / "scene-light-synthetic" / "face-3-hdr.r11g11b10")
+                && std::filesystem::file_size(std::filesystem::path(argv[1]) / "scene-light-synthetic" / "face-6-albedo.rgba8") == room::kWidth * room::kHeight * 4
+                && std::filesystem::exists(std::filesystem::path(argv[1]) / "scene-light-synthetic" / "trace-light.bin")
+                && std::filesystem::exists(std::filesystem::path(argv[1]) / "trace-light-synthetic" / "albedo.rgba8"));
     }
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;

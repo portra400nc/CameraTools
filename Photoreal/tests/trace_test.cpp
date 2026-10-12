@@ -72,7 +72,10 @@ namespace
     // card alpha-tested by the census shader 68b05754 with a checkerboard, 100 m east and 50 m south of the world's origin,
     // seen from inside at 96x64 with the sun low over the open side. Its depth, normals and stencil are ray cast exactly,
     // with the card's holes, its history is this kernel's own over 6 passes, and a broken copy has a block of sun samples
-    // flipped, which check_trace.py must refuse.
+    // flipped, which check_trace.py must refuse. A second save gathers over the same frame, with the scene's albedos and a
+    // sky brighter toward +x in trace-light.bin, 8 gather samples and 4 sun samples a pixel, as the add-on runs the two
+    // kernels; and three broken copies of it, with a block's bounce doubled, a block's misses dropped, and its sky sums
+    // gathered from the sky turned a quarter about the vertical, which check_trace.py must refuse each.
     namespace synthetic
     {
         constexpr uint32_t kWidth = 96, kHeight = 64;
@@ -95,6 +98,7 @@ namespace
             uint32_t shadowed = 0;  // pixels in full sun shadow
             uint32_t card = 0;      // pixels that show the card
             uint32_t holes = 0;     // pixels whose ray passes through a hole of the card, which it would meet whole
+            uint32_t gathered_hits = 0; // pixels of the gathering save whose rays met a surface
         };
 
         // Writes scene-trace-synthetic/trace-scene.bin, trace-synthetic/ and trace-synthetic-broken/ into out.
@@ -227,6 +231,89 @@ namespace
                     h[1] = h[3] - h[1];
                 }
             write_trace_folder(out / "trace-synthetic-broken", save);
+
+            // The gathering save: the triangles' light words, the sky map and the gather's constants into trace-light.bin
+            // beside trace-scene.bin, then both kernels as the add-on dispatches them.
+            std::vector<TraceTriangle> worded = triangles;
+            for (size_t i = 0; i < worded.size(); i++)
+                worded[i].light = pack_light({ 0.2f + 0.07f * (i % 9), 0.5f, 0.8f - 0.06f * (i % 11) }, AlbedoSource::direct);
+            Bvh lit = bvh;
+            for (size_t i = 0; i < lit.triangles.size(); i++)
+                lit.triangles[i].light = worded[lit.source[i]].light;
+            const auto sky_of = [](bool turned) {
+                SceneLight light;
+                light.sky.texels.resize(size_t(kSkyMapSide) * kSkyMapSide * 4);
+                for (uint32_t y = 0; y < kSkyMapSide; y++)
+                    for (uint32_t x = 0; x < kSkyMapSide; x++)
+                    {
+                        Vec3f d = sky_direction((x + 0.5f) / kSkyMapSide, (y + 0.5f) / kSkyMapSide);
+                        if (turned)
+                            d = { -d[2], d[1], d[0] };
+                        float *t = &light.sky.texels[(size_t(y) * kSkyMapSide + x) * 4];
+                        t[0] = t[1] = t[2] = 0.3f + 0.9f * std::max(d[0], 0.0f);
+                        t[3] = 1;
+                    }
+                light.sky.real = kSkyMapSide * kSkyMapSide;
+                return light;
+            };
+            SceneLight light = sky_of(false);
+            light.sun.color = { 2, 2, 2 };
+            light.sun.shade = sun;
+            light.ambient.rows = { { { 0.3f, 0.3f, 0.3f }, { 0, 0, 0 }, { 0.1f, 0.1f, 0.1f }, { 0, 0, 0 } } };
+            light.ambient.kind = AmbientFit::Kind::fit;
+            const std::string light_file = light_bytes(worded, std::vector<uint32_t>(worded.size(), 0), light, {});
+            std::ofstream(scene / "trace-light.bin", std::ios::binary).write(light_file.data(), static_cast<std::streamsize>(light_file.size()));
+            GatherSettings gather;
+            gather.enabled = true;
+            gather.samples = 8;
+            gather.hit_ambient = 1;
+            TraceSave gathered = save;
+            gathered.gathering = true;
+            gathered.gather = gather;
+            gathered.gather_constants = gather_constants(gather, light.sun, light.ambient);
+            gathered.target = trace_target(settings, gather, true);
+            gathered.passes = 8;
+            const auto dispatch = [&](const std::vector<float> &sky, TraceSave &into) {
+                into.history.assign(size_t(kWidth) * kHeight * 4, 0);
+                into.gather_hit.assign(into.history.size(), 0);
+                into.gather_sky.assign(into.history.size(), 0);
+                TraceConstants constants = into.constants;
+                constants.trace_counts[0] = 0;
+                for (uint32_t pass = 0; pass < 8; pass++)
+                    for (uint32_t y = 0; y < kHeight; y++)
+                        for (uint32_t x = 0; x < kWidth; x++)
+                        {
+                            const size_t at = (size_t(y) * kWidth + x) * 4;
+                            std::array<float, 4> h, hit, sky_sums;
+                            std::copy_n(&into.history[at], 4, h.begin());
+                            std::copy_n(&into.gather_hit[at], 4, hit.begin());
+                            std::copy_n(&into.gather_sky[at], 4, sky_sums.begin());
+                            if (trace_kernel_runs(pass, settings.sun_samples))
+                                h = trace_pixel(bvh, image, constants, x, y, h, &alpha).history;
+                            const GatherPixel g = gather_pixel(lit, image, constants, into.gather_constants, sky, x, y, h, hit, sky_sums, &alpha);
+                            std::copy(g.history.begin(), g.history.end(), &into.history[at]);
+                            std::copy(g.hit.begin(), g.hit.end(), &into.gather_hit[at]);
+                            std::copy(g.sky.begin(), g.sky.end(), &into.gather_sky[at]);
+                        }
+            };
+            gathered.constants.trace_counts[0] = 0;
+            dispatch(light.sky.texels, gathered);
+            write_trace_folder(out / "trace-synthetic-gather", gathered);
+            for (uint32_t i = 0; i < size_t(kWidth) * kHeight; i++)
+                written.gathered_hits += gathered.gather_hit[i * 4] > 0;
+            TraceSave doubled = gathered, dropped = gathered, turned = gathered;
+            for (uint32_t y = 36; y < 60; y++)
+                for (uint32_t x = 30; x < 54; x++)
+                {
+                    const size_t at = (size_t(y) * kWidth + x) * 4;
+                    for (int k = 0; k < 3; k++)
+                        doubled.gather_hit[at + k] *= 2;
+                    dropped.gather_sky[at + 3] = 0;
+                }
+            write_trace_folder(out / "trace-synthetic-gather-bounce-doubled", doubled);
+            write_trace_folder(out / "trace-synthetic-gather-misses-dropped", dropped);
+            dispatch(sky_of(true).sky.texels, turned);
+            write_trace_folder(out / "trace-synthetic-gather-sky-turned", turned);
             return written;
         }
     }
@@ -553,6 +640,8 @@ int main(int argc, char **argv)
         const synthetic::Written written = synthetic::write(argv[1]);
         std::printf("INFO the synthetic traced frame has %u pixels in full sun shadow, %u of the card and %u through its holes\n", written.shadowed,
             written.card, written.holes);
+        check("the synthetic gathering save is written, its pixels' rays meeting surfaces", written.gathered_hits > 2000
+            && std::filesystem::file_size(std::filesystem::path(argv[1]) / "trace-synthetic-gather" / "gather-hit.f32") == synthetic::kWidth * synthetic::kHeight * 16);
         check("the synthetic traced frame is written, with sun shadows, the card and the wall through its holes in it",
             std::filesystem::file_size(std::filesystem::path(argv[1]) / "trace-synthetic" / "history.f32") == synthetic::kWidth * synthetic::kHeight * 16
                 && std::filesystem::exists(std::filesystem::path(argv[1]) / "scene-trace-synthetic" / "trace-scene.bin") && written.shadowed > 100

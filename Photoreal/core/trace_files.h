@@ -40,11 +40,26 @@ namespace photoreal
         TraceCounts counters {};            // every dispatch's, since the samples last started again
         double mrays = 0;                   // the last measured rays a second, in millions
         uint64_t frame = 0;                 // the add-on's frame count of the saved frame
+
+        // The gather's, when the trace gathered: its settings, the constants its last dispatch uploaded, its two buffers of
+        // 4 floats a pixel (the hits' light summed and the sun-lit hits; the misses' sky summed and the misses), the
+        // samples every pixel gets and the error at the last full pass, and what of the scene's light came from the game.
+        bool gathering = false;
+        GatherSettings gather;
+        GatherConstants gather_constants {};
+        std::vector<float> gather_hit, gather_sky;
+        uint32_t target = 0;
+        double error = 0;
+        uint32_t light = 0;                 // kLightAlbedo and the rest
+        // The view's G-buffer albedo at the combine step (R8G8B8A8, sRGB), its HDR scene at the bloom step before any pass
+        // of ours (R11G11B10_FLOAT), and the diffuse irradiance the trace pass wrote (R11G11B10_FLOAT), when copied.
+        std::vector<uint8_t> albedo, hdr, irradiance_out;
     };
 
     // history.f32, depth.r32, stencil.r8, normals.r10g10b10a2, mask.r8g8 and irradiance.r11g11b10 (each when the save
     // holds it), constants.bin (160 bytes), sun.bin (2224 bytes, when there were constants) and trace.tsv (one key and value
-    // a line). Creates the folder.
+    // a line); when it gathered, gather-hit.f32, gather-sky.f32 and gather.bin (112 bytes); and albedo.rgba8,
+    // hdr.r11g11b10 and irradiance-out.r11g11b10 when it holds them. Creates the folder.
     // Returns the names of the files that could not be written.
     std::vector<std::string> write_trace_folder(const std::filesystem::path &folder, const TraceSave &save);
 
@@ -52,6 +67,7 @@ namespace photoreal
     std::string trace_tsv(const TraceSave &save);
 
     // The folder back, as the reference tracer needs it: the size, the images, the constants, the scene's name, the
-    // reference, the hash, the passes, the state and why, and the pushed camera's matrices from trace.tsv. Empty, with why, when a file is missing or of the wrong size.
+    // reference, the hash, the passes, the state and why, the pushed camera's matrices from trace.tsv, and the gather's
+    // settings, constants and buffers when it gathered. Empty, with why, when a file is missing or of the wrong size.
     std::optional<TraceSave> read_trace_folder(const std::filesystem::path &folder, std::string &why);
 }

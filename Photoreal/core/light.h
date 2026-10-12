@@ -178,15 +178,39 @@ namespace photoreal
         uint32_t flags() const;
     };
 
+    // What a PHOTOREAL_SCENE_LIGHT capture brings for its scene's light: every face's images, the first face's G-buffer
+    // normals, diffuse irradiance, stencil and depth for the ambient fit, the newest combine constants and cascade 0's
+    // direction, and the pushed camera's sun and sky for what the game's cannot give.
+    struct LightInputs
+    {
+        std::vector<FaceImages> faces;
+        Size first_size;
+        std::vector<uint8_t> first_normals, first_irradiance, first_stencil;
+        std::vector<float> first_depth;
+        std::optional<CombineConstants> combine;
+        std::optional<Vec3> cascade;
+        Vec3 pushed_sun_color {}, pushed_sun_direction {}, pushed_sky {};
+    };
+
+    // The scene's light from its inputs, as the add-on's writer thread builds it before the alpha bake: each triangle's
+    // light word (bake_albedo), the sky map (build_sky_map, the pushed sky where the faces show too little), the ambient
+    // fit of the first face (fit_ambient) and the sun (sun_light).
+    SceneLight build_light(std::vector<TraceTriangle> &triangles, const std::vector<uint32_t> &materials, const LightInputs &inputs, const Vec3d &reference,
+        uint32_t tasks);
+
     // trace-light.bin, beside trace-scene.bin: b"PRTL", a uint32 count, each triangle's light word and material in
     // trace-scene.bin's order, the sky map's side and its float4 texels, its count of real texels and 1 when it fell
-    // back, its 9 harmonics, the ambient fit's 4 rows, r2, pixels and kind, and the sun's color, its shading direction,
-    // cascade 0's direction and the color's and the direction's sources, little-endian.
-    std::string light_bytes(const std::vector<TraceTriangle> &triangles, const std::vector<uint32_t> &materials, const SceneLight &light);
+    // back, its 9 harmonics, the ambient fit's 4 rows, r2, pixels and kind, the sun's color, its shading direction,
+    // cascade 0's direction and the color's and the direction's sources, and the faces the bake read: their count, and
+    // each one's number, its size as baked and its clip_to_world as 16 float64, so the Mac bakes the raw copies to the
+    // Deck's bits; little-endian.
+    std::string light_bytes(const std::vector<TraceTriangle> &triangles, const std::vector<uint32_t> &materials, const SceneLight &light,
+        const std::vector<FaceImages> &faces);
     struct LightFile
     {
         std::vector<uint32_t> words, materials;     // a triangle each
         SceneLight light;                           // without the albedo's counts, which the words and the triangles give
+        std::vector<FaceImages> faces;              // the faces' numbers, sizes and cameras, without images
     };
     // Empty when the bytes are not such a file.
     std::optional<LightFile> parse_light(const std::string &bytes);

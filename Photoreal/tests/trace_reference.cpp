@@ -1,8 +1,19 @@
-// The Mac's reference tracer: traces a saved frame again with the compute shader's own rays and traversal
-// (shaders/trace.hlsli compiled as C++ in core/kernel.cpp) and writes reference.f32 beside history.f32, with each pixel's
-// samples squared and summed in reference-squares.f32, for check_trace.py to compare.
+// The Mac's reference tracer: traces a saved frame again with the compute shaders' own rays and traversal
+// (shaders/trace.hlsli and shaders/gather.hlsli compiled as C++ in core/kernel.cpp) and writes reference.f32 beside
+// history.f32, with each pixel's samples squared and summed in reference-squares.f32, for check_trace.py to compare.
 //
-//   trace_reference <trace folder> [scene folder] [--leaf-cards <ps.dxbc>] [--drop-class <class>] [--drop-near <meters>]
+//   trace_reference <trace folder> [scene folder] [--leaf-cards <ps.dxbc>] [--drop-class <class>] [--drop-near <meters>] [--gather]
+//
+// A save that gathered is traced as the add-on traced it: the trace kernel for the sun alone, and the gather kernel for
+// the occlusion and the gathered light, with the gather's constants it saved and the light of the scene folder's
+// trace-light.bin. Then reference-gather-hit.f32 and reference-gather-sky.f32 hold the Mac's gather sums, and
+// reference-gather-squares.f32 each pixel's hits' and skies' luminances squared and summed. --gather does the same for a
+// save of T1, before the gather existed, whose occlusion samples are the gather's first samples, ray for ray: its light
+// stands in where the save and the scene lack it (the scene's own trace-light.bin when it has one; else the albedo bake's
+// sources from the faces' depth, with any surface within 1.5 m in front of a sample covering it, and the census's albedos
+// by class; a sky map from the faces' pictures through the game's tone curve inverted; the ambient fit of the save's own
+// irradiance; and the sun's color of census capture 111824 along the pushed camera's sun), says so, and writes them as
+// reference-light.bin, in trace-light.bin's format, for predict_shot.py.
 //
 // The trace folder is what PhotorealSaveTrace wrote; the scene folder holds the trace-scene.bin trace.tsv names, by
 // default beside the trace folder. It bakes the scene's alpha programs into masks as the add-on does
@@ -24,6 +35,7 @@
 // like the tests.
 #include "../core/alpha_bake.h"
 #include "../core/trace_files.h"
+#include "scene_light.h"
 
 #include <algorithm>
 #include <atomic>
@@ -34,6 +46,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -56,8 +69,14 @@ int main(int argc, char **argv)
 {
     std::vector<std::string> args(argv + 1, argv + argc);
     std::string leaf_cards, drop, drop_near;
-    for (size_t i = 0; i + 1 < args.size();)
-        if (args[i] == "--leaf-cards" || args[i] == "--drop-class" || args[i] == "--drop-near")
+    bool want_gather = false;
+    for (size_t i = 0; i < args.size();)
+        if (args[i] == "--gather")
+        {
+            want_gather = true;
+            args.erase(args.begin() + static_cast<std::ptrdiff_t>(i));
+        }
+        else if (i + 1 < args.size() && (args[i] == "--leaf-cards" || args[i] == "--drop-class" || args[i] == "--drop-near"))
         {
             (args[i] == "--leaf-cards" ? leaf_cards : args[i] == "--drop-class" ? drop : drop_near) = args[i + 1];
             args.erase(args.begin() + static_cast<std::ptrdiff_t>(i), args.begin() + static_cast<std::ptrdiff_t>(i) + 2);
@@ -67,7 +86,7 @@ int main(int argc, char **argv)
     const float radius = drop_near.empty() ? 0.0f : std::strtof(drop_near.c_str(), nullptr);
     if (args.empty() || args[0].rfind("--", 0) == 0 || (!drop_near.empty() && !(radius > 0)))
     {
-        std::fprintf(stderr, "usage: trace_reference <trace folder> [scene folder] [--leaf-cards <ps.dxbc>] [--drop-class <class>] [--drop-near <meters>]\n");
+        std::fprintf(stderr, "usage: trace_reference <trace folder> [scene folder] [--leaf-cards <ps.dxbc>] [--drop-class <class>] [--drop-near <meters>] [--gather]\n");
         return 2;
     }
     const fs::path folder = args[0];
@@ -181,30 +200,150 @@ int main(int argc, char **argv)
     image.normals = save->normals;
     image.stencil = save->stencil;
     const uint32_t width = save->size.width, height = save->size.height;
+
+    // The gather's light: its constants, the scene's sky map and each triangle's light word, set into the BVH's triangles
+    // after its hash was checked, as a scene captured without light has them 0.
+    const bool gathering = save->gathering || want_gather;
+    GatherConstants gather = save->gather_constants;
+    std::vector<float> sky;
+    std::array<uint64_t, 4> hits_by_source {};
+    Bvh lit = gathering ? bvh : Bvh {};
+    if (gathering)
+    {
+        const std::string light_file = scene_light::slurp(scene_folder / "trace-light.bin");
+        std::optional<LightFile> light = parse_light(light_file);
+        if (light && light->words.size() != scene->triangles.size())
+            light.reset();
+        if (save->gathering && !light)
+        {
+            std::printf("FAIL the save gathered, but %s holds no trace-light.bin of its %zu triangles\n", scene_folder.u8string().c_str(), scene->triangles.size());
+            return 1;
+        }
+        std::vector<uint32_t> words;
+        if (light)
+        {
+            words = light->words;
+            sky = light->light.sky.texels;
+            std::printf("INFO the light of %s's trace-light.bin: %u real sky texels%s, the ambient %s, the sun's color %s and direction %s\n",
+                scene_folder.u8string().c_str(), light->light.sky.real, light->light.sky.fallback ? " (it fell back)" : "",
+                light->light.ambient.kind == AmbientFit::Kind::fit ? "fit" : "not fit", kLightSourceNames[static_cast<size_t>(light->light.sun.color_source)],
+                kLightSourceNames[static_cast<size_t>(light->light.sun.shade_source)]);
+        }
+        else
+        {
+            // Stand-ins for a capture made before PHOTOREAL_SCENE_LIGHT.
+            const scene_light::SceneFaces faces = scene_light::read_faces(scene_folder, std::nullopt, true);
+            // The faces' depth at their full size, an albedo of no consequence, and any surface covering: what the bake can
+            // tell of where its samples lie without the copies.
+            std::vector<FaceImages> bake = scene_light::read_faces(scene_folder, std::nullopt, false).faces;
+            for (FaceImages &f : bake)
+            {
+                f.albedo.assign(f.depth.size() * 4, 128);
+                f.stencil.assign(f.depth.size(), 136);
+            }
+            std::vector<TraceTriangle> triangles = scene->triangles;
+            const auto start_bake = std::chrono::steady_clock::now();
+            const AlbedoCounts counts = bake_albedo(triangles, {}, bake, scene->reference, options.tasks);
+            std::printf("STANDIN no trace-light.bin: the albedo bake's sources from the depth of %zu faces, with any surface within 1.5 m in front covering, "
+                        "in %.2f s: %llu direct, %llu covered, %llu by class (no materials); albedos the census's by class\n",
+                bake.size(), std::chrono::duration<double>(std::chrono::steady_clock::now() - start_bake).count(),
+                static_cast<unsigned long long>(counts.triangles[0]), static_cast<unsigned long long>(counts.triangles[1]),
+                static_cast<unsigned long long>(counts.triangles[2] + counts.triangles[3]));
+            words.resize(triangles.size());
+            for (size_t i = 0; i < triangles.size(); i++)
+                words[i] = pack_light(scene_light::class_albedo(info_class(triangles[i].info)), light_source(triangles[i].light));
+            const SkyMap map = build_sky_map(faces.faces, { 0.62f, 0.84f, 1.07f });
+            sky = map.texels;
+            std::printf("STANDIN the sky map from the faces' pictures through the game's tone curve inverted: %u real texels of %u%s\n", map.real,
+                kSkyMapSide * kSkyMapSide, map.fallback ? ", fell back to census 111824's horizon sky" : "");
+            const AmbientFit fit = fit_ambient(save->size, save->irradiance, std::vector<uint8_t>(reinterpret_cast<const uint8_t *>(save->normals.data()),
+                reinterpret_cast<const uint8_t *>(save->normals.data()) + save->normals.size() * 4), save->stencil, save->depth, { 0.33f, 0.59f, 0.81f });
+            SunLight sun;
+            sun.color = { 2.804184f, 2.501149f, 1.130967f };
+            sun.shade = { save->camera.toward_sun[0], save->camera.toward_sun[1], save->camera.toward_sun[2] };
+            GatherSettings settings;
+            settings.samples = 0;
+            for (size_t i = 0; i < save->history.size(); i += 4)
+                settings.samples = std::max(settings.samples, static_cast<uint32_t>(save->history[i + 2]));
+            gather = gather_constants(settings, sun, fit);
+            // The stand-ins for predict_shot.py, as trace-light.bin would hold them.
+            SceneLight standin;
+            standin.sun = sun;
+            standin.ambient = fit;
+            standin.sky = map;
+            std::vector<TraceTriangle> worded = scene->triangles;
+            for (size_t i = 0; i < worded.size(); i++)
+                worded[i].light = words[i];
+            const std::string bytes = light_bytes(worded, std::vector<uint32_t>(worded.size(), 0), standin, {});
+            std::ofstream(folder / "reference-light.bin", std::ios::binary | std::ios::trunc).write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+            std::printf("STANDIN the ambient fit of the save's own irradiance (%s, r2 %.4f %.4f %.4f), hit_ambient 0.5, the sun's color census 111824's "
+                        "along the pushed camera's sun (%.4f, %.4f, %.4f)\n", fit.kind == AmbientFit::Kind::fit ? "fit" : "mean", fit.r2[0], fit.r2[1], fit.r2[2],
+                sun.shade[0], sun.shade[1], sun.shade[2]);
+        }
+        for (size_t i = 0; i < lit.triangles.size(); i++)
+            lit.triangles[i].light = words[lit.source[i]];
+    }
     std::vector<float> reference(size_t(width) * height * 4, 0.0f);
     // Each pixel's occlusion and sun samples squared and summed, so check_trace.py knows each pixel's sampling variance.
     std::vector<float> squares(size_t(width) * height * 2, 0.0f);
+    // The gather's sums, and each pixel's hits' and skies' luminances squared and summed.
+    std::vector<float> gather_hit(gathering ? size_t(width) * height * 4 : 0), gather_sky(gather_hit.size()), gather_squares(gathering ? size_t(width) * height * 2 : 0);
+    std::atomic<uint64_t> gather_rays { 0 }, gather_guard { 0 }, gather_overflow { 0 };
     const std::vector<uint32_t> *alpha = masks.words.empty() ? nullptr : &masks.words;
     if (!alpha)
         std::printf("INFO the scene holds no alpha tests\n");
     std::atomic<uint32_t> next_row { 0 };
     std::atomic<uint64_t> rays { 0 }, guard { 0 }, overflow { 0 };
+    std::mutex sources_lock;
     start = std::chrono::steady_clock::now();
     std::vector<std::thread> threads;
     for (uint32_t t = 0; t < options.tasks; t++)
         threads.emplace_back([&] {
-            uint64_t my_rays = 0, my_guard = 0, my_overflow = 0;
+            uint64_t my_rays = 0, my_guard = 0, my_overflow = 0, my_gather_rays = 0, my_gather_guard = 0, my_gather_overflow = 0;
+            std::array<uint64_t, 4> my_sources {};
             for (uint32_t y; (y = next_row++) < height;)
                 for (uint32_t x = 0; x < width; x++)
                 {
                     const size_t at = (size_t(y) * width + x) * 4;
-                    // The Deck's counts become this pixel's caps, so it gets exactly their samples; no consistency ray.
+                    // The Deck's counts become this pixel's caps, so it gets exactly their samples; no consistency ray. While it
+                    // gathers, the gather takes the occlusion samples and the trace kernel the sun's alone.
                     TraceConstants constants = save->constants;
-                    constants.trace_counts[0] = static_cast<uint32_t>(save->history[at + 2]);
+                    constants.trace_counts[0] = gathering ? 0 : static_cast<uint32_t>(save->history[at + 2]);
                     constants.trace_counts[1] = static_cast<uint32_t>(save->history[at + 3]);
                     constants.trace_render[3] = 0;
-                    std::array<float, 4> h {};
-                    double square[2] = {};
+                    if (gathering)
+                    {
+                        GatherConstants mine = gather;
+                        mine.counts[0] = static_cast<uint32_t>(save->history[at + 2]);
+                        std::array<float, 4> h {}, hit {}, sky_sum {};
+                        double occlusion2 = 0, hit2 = 0, sky2 = 0;
+                        for (uint32_t k = mine.counts[0]; k > 0; k--)
+                        {
+                            const GatherPixel g = gather_pixel(lit, image, constants, mine, sky, x, y, h, hit, sky_sum, alpha);
+                            if (!g.world)
+                                break;
+                            const double l = 0.2126 * g.light[0] + 0.7152 * g.light[1] + 0.0722 * g.light[2];
+                            occlusion2 += double(g.occlusion) * g.occlusion;
+                            (g.light[3] < 1.5f ? hit2 : sky2) += l * l;
+                            h = g.history;
+                            hit = g.hit;
+                            sky_sum = g.sky;
+                            my_gather_rays += g.counters[static_cast<size_t>(GatherCounter::rays)];
+                            my_gather_guard += g.counters[static_cast<size_t>(GatherCounter::guard)];
+                            my_gather_overflow += g.counters[static_cast<size_t>(GatherCounter::overflow)];
+                            for (size_t s = 0; s < 4; s++)
+                                my_sources[s] += g.counters[static_cast<size_t>(GatherCounter::direct) + s];
+                        }
+                        reference[at] = h[0];
+                        reference[at + 2] = h[2];
+                        squares[at / 2] = static_cast<float>(occlusion2);
+                        std::copy(hit.begin(), hit.end(), gather_hit.begin() + static_cast<std::ptrdiff_t>(at));
+                        std::copy(sky_sum.begin(), sky_sum.end(), gather_sky.begin() + static_cast<std::ptrdiff_t>(at));
+                        gather_squares[at / 2] = static_cast<float>(hit2);
+                        gather_squares[at / 2 + 1] = static_cast<float>(sky2);
+                    }
+                    std::array<float, 4> h = { reference[at], 0, reference[at + 2], 0 };
+                    double square[2] = { squares[at / 2], 0 };
                     for (uint32_t k = std::max(constants.trace_counts[0], constants.trace_counts[1]); k > 0; k--)
                     {
                         const PixelTrace r = trace_pixel(bvh, image, constants, x, y, h, alpha);
@@ -225,6 +364,12 @@ int main(int argc, char **argv)
             rays += my_rays;
             guard += my_guard;
             overflow += my_overflow;
+            gather_rays += my_gather_rays;
+            gather_guard += my_gather_guard;
+            gather_overflow += my_gather_overflow;
+            std::lock_guard<std::mutex> lock(sources_lock);
+            for (size_t s = 0; s < 4; s++)
+                hits_by_source[s] += my_sources[s];
         });
     for (std::thread &t : threads)
         t.join();
@@ -236,6 +381,25 @@ int main(int argc, char **argv)
     // something no scene should, as build 207's meadow did.
     std::snprintf(line, sizeof line, "at most 0.1%% of the rays were cut short by a cap (%.3f%%)", 100.0 * guard.load() / std::max<uint64_t>(rays.load(), 1));
     check(line, guard.load() * 1000 <= rays.load());
+    if (gathering)
+    {
+        const uint64_t hits = hits_by_source[0] + hits_by_source[1] + hits_by_source[2] + hits_by_source[3];
+        std::printf("INFO the gather traced %llu rays, %llu cut short by a cap and %llu stack overflows; its %llu hits by albedo source: direct %.1f%%, "
+                    "covered %.1f%%, material %.1f%%, class %.1f%%\n", static_cast<unsigned long long>(gather_rays.load()),
+            static_cast<unsigned long long>(gather_guard.load()), static_cast<unsigned long long>(gather_overflow.load()), static_cast<unsigned long long>(hits),
+            100.0 * hits_by_source[0] / std::max<uint64_t>(hits, 1), 100.0 * hits_by_source[1] / std::max<uint64_t>(hits, 1),
+            100.0 * hits_by_source[2] / std::max<uint64_t>(hits, 1), 100.0 * hits_by_source[3] / std::max<uint64_t>(hits, 1));
+        check("no gather ray met a cap", gather_guard.load() == 0);
+        bool written = true;
+        for (const auto &[name, data] : { std::pair { "reference-gather-hit.f32", &gather_hit }, std::pair { "reference-gather-sky.f32", &gather_sky },
+                 std::pair { "reference-gather-squares.f32", &gather_squares } })
+        {
+            std::ofstream file_out(folder / name, std::ios::binary | std::ios::trunc);
+            file_out.write(reinterpret_cast<const char *>(data->data()), static_cast<std::streamsize>(data->size() * sizeof(float)));
+            written &= static_cast<bool>(file_out);
+        }
+        check("reference-gather-hit.f32, reference-gather-sky.f32 and reference-gather-squares.f32 are written", written);
+    }
     std::ofstream out(folder / "reference.f32", std::ios::binary | std::ios::trunc);
     out.write(reinterpret_cast<const char *>(reference.data()), static_cast<std::streamsize>(reference.size() * sizeof(float)));
     std::ofstream out_squares(folder / "reference-squares.f32", std::ios::binary | std::ios::trunc);

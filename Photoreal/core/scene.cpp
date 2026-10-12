@@ -102,6 +102,7 @@ namespace photoreal
             r.no_meshes = (copy.flags & PHOTOREAL_SCENE_NO_MESHES) != 0;
             r.gbuffer = (copy.flags & PHOTOREAL_SCENE_GBUFFER) != 0;
             r.release = (copy.flags & PHOTOREAL_SCENE_RELEASE) != 0;
+            r.light = (copy.flags & PHOTOREAL_SCENE_LIGHT) != 0 && r.trace;
         }
         if (knows(offsetof(PhotorealSceneRequest, max_triangles), sizeof copy.max_triangles) && copy.max_triangles != 0)
             r.max_triangles = copy.max_triangles;

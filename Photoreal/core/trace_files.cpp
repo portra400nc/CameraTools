@@ -110,6 +110,26 @@ namespace photoreal
         row("trace.sun_samples", std::to_string(t.sun_samples));
         row("trace.budget_ms", number(t.budget_ms));
         row("ambient.level", number(s.level));
+        // Since T2a: the gather, its counters and what the scene's light came from.
+        const GatherSettings &g = s.gather;
+        row("gather.enabled", g.enabled ? "1" : "0");
+        row("gather.samples", std::to_string(g.samples));
+        row("gather.sky", kGatherSkyNames[static_cast<size_t>(g.sky)]);
+        row("gather.filter", std::to_string(g.filter));
+        row("gather.strength", number(g.strength));
+        row("gather.hit_ambient", number(g.hit_ambient));
+        row("gathering", s.gathering ? "1" : "0");
+        row("trace_target", std::to_string(s.target));
+        row("error", number(s.error));
+        static const char *const kGatherNames[] = { "gather_rays", "gather_guard_stops", "gather_stack_overflows", "gather_hits_direct", "gather_hits_covered",
+            "gather_hits_material", "gather_hits_class", "gather_deviation", "gather_mean" };
+        static_assert(std::size(kGatherNames) == kGatherCounters);
+        for (uint32_t i = 0; i < kGatherCounters; i++)
+            row(kGatherNames[i], std::to_string(s.counters[kTraceCounters + i]));
+        // The tone map's exposure stays on the GPU; predict_shot.py takes the census's 0.985.
+        row("exposure", "-");
+        row("light", s.light != 0 || s.gathering ? s.scene : "-");
+        row("light_flags", std::to_string(s.light));
         return out;
     }
 
@@ -130,6 +150,17 @@ namespace photoreal
             failed.push_back("constants.bin");
         if (s.sun && !write_bytes(folder / "sun.bin", s.sun->data(), s.sun->size()))
             failed.push_back("sun.bin");
+        if (s.gathering)
+        {
+            write_vector(failed, folder, "gather-hit.f32", s.gather_hit);
+            write_vector(failed, folder, "gather-sky.f32", s.gather_sky);
+            if (!write_bytes(folder / "gather.bin", &s.gather_constants, sizeof s.gather_constants))
+                failed.push_back("gather.bin");
+        }
+        for (const auto &[bytes, name] : { std::pair { &s.albedo, "albedo.rgba8" }, std::pair { &s.hdr, "hdr.r11g11b10" },
+                 std::pair { &s.irradiance_out, "irradiance-out.r11g11b10" } })
+            if (!bytes->empty())
+                write_vector(failed, folder, name, *bytes);
         const std::string tsv = trace_tsv(s);
         if (!write_bytes(folder / "trace.tsv", tsv.data(), tsv.size()))
             failed.push_back("trace.tsv");
@@ -195,6 +226,38 @@ namespace photoreal
             s.sun.emplace();
             std::memcpy(s.sun->data(), sun.data(), sun.size());
         }
+        read_vector(folder / "albedo.rgba8", pixels * 4, s.albedo);
+        read_vector(folder / "hdr.r11g11b10", pixels * 4, s.hdr);
+        read_vector(folder / "irradiance-out.r11g11b10", pixels * 4, s.irradiance_out);
+        s.gathering = get("gathering") == "1";
+        if (s.gathering)
+        {
+            std::vector<uint8_t> gather;
+            if (!read_vector(folder / "gather-hit.f32", pixels * 4, s.gather_hit) || !read_vector(folder / "gather-sky.f32", pixels * 4, s.gather_sky)
+                || !read_vector(folder / "gather.bin", sizeof s.gather_constants, gather))
+            {
+                why = "the save gathered, but gather-hit.f32, gather-sky.f32 or gather.bin is missing or not its size";
+                return std::nullopt;
+            }
+            std::memcpy(&s.gather_constants, gather.data(), sizeof s.gather_constants);
+        }
+        s.gather.enabled = get("gather.enabled") == "1";
+        for (size_t i = 0; i < kGatherSkyNames.size(); i++)
+            if (get("gather.sky") == kGatherSkyNames[i])
+                s.gather.sky = static_cast<GatherSky>(i);
+        const auto number_of = [&get](const char *key, double fallback) {
+            const std::string text = get(key);
+            return text.empty() || text == "-" ? fallback : std::strtod(text.c_str(), nullptr);
+        };
+        s.gather.samples = static_cast<uint32_t>(number_of("gather.samples", s.gather.samples));
+        s.gather.filter = static_cast<uint32_t>(number_of("gather.filter", s.gather.filter));
+        s.gather.strength = static_cast<float>(number_of("gather.strength", s.gather.strength));
+        s.gather.hit_ambient = static_cast<float>(number_of("gather.hit_ambient", s.gather.hit_ambient));
+        s.level = static_cast<float>(number_of("ambient.level", s.level));
+        s.settings.ao_strength = static_cast<float>(number_of("trace.ao_strength", s.settings.ao_strength));
+        s.settings.ao_distance = static_cast<float>(number_of("trace.ao_distance", s.settings.ao_distance));
+        s.target = static_cast<uint32_t>(number_of("trace_target", 0));
+        s.light = static_cast<uint32_t>(number_of("light_flags", 0));
         return s;
     }
 }

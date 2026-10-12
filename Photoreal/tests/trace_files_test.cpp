@@ -94,6 +94,38 @@ int main(int argc, char **argv)
         const std::optional<TraceSave> ready_back = read_trace_folder(folder, why);
         check("a save while ready says so, with no reason", trace_tsv(ready).find("\nstate\tready\nwhy\t-\n") != std::string::npos && ready_back
             && ready_back->state == TraceState::ready && ready_back->why.empty());
+        TraceSave gathered = ready;
+        gathered.gathering = true;
+        gathered.gather.enabled = true;
+        gathered.gather.samples = 256;
+        gathered.gather.sky = GatherSky::weighted;
+        gathered.gather_constants.sun[0] = 2.5f;
+        gathered.gather_constants.counts[0] = 256;
+        gathered.gather_hit.assign(24, 0.5f);
+        gathered.gather_sky.assign(24, 0.25f);
+        gathered.albedo.assign(24, 9);
+        gathered.hdr.assign(24, 8);
+        gathered.irradiance_out.assign(24, 7);
+        gathered.target = 256;
+        gathered.light = 0xB;
+        gathered.counters[gather_counter(GatherCounter::rays)] = 777;
+        const std::filesystem::path light = std::filesystem::path(argv[1]) / "trace-gathered";
+        const std::vector<std::string> wrote = write_trace_folder(light, gathered);
+        const std::optional<TraceSave> gathered_back = read_trace_folder(light, why);
+        const std::string gathered_tsv = trace_tsv(gathered);
+        check("a gathering save writes its sums, constants and copies, and trace.tsv its settings, target, counters and light, after T1's rows",
+            wrote.empty() && std::filesystem::file_size(light / "gather-hit.f32") == 96 && std::filesystem::file_size(light / "gather.bin") == 112
+                && std::filesystem::file_size(light / "albedo.rgba8") == 24 && std::filesystem::file_size(light / "hdr.r11g11b10") == 24
+                && std::filesystem::file_size(light / "irradiance-out.r11g11b10") == 24 && gathered_tsv.find(trace_tsv(ready).substr(0, trace_tsv(ready).find("ambient.level"))) == 0
+                && gathered_tsv.find("\ngather.samples\t256\ngather.sky\tweighted\n") != std::string::npos
+                && gathered_tsv.find("\ngathering\t1\ntrace_target\t256\n") != std::string::npos && gathered_tsv.find("\ngather_rays\t777\n") != std::string::npos
+                && gathered_tsv.find("\nexposure\t-\nlight\tscene-20261011-194351\nlight_flags\t11\n") != std::string::npos);
+        check("and reads them back", gathered_back && gathered_back->gathering && gathered_back->gather_hit == gathered.gather_hit
+            && gathered_back->gather_sky == gathered.gather_sky && gathered_back->gather_constants.sun[0] == 2.5f && gathered_back->gather.samples == 256
+            && gathered_back->gather.sky == GatherSky::weighted && gathered_back->albedo == gathered.albedo && gathered_back->hdr == gathered.hdr
+            && gathered_back->irradiance_out == gathered.irradiance_out && gathered_back->target == 256 && gathered_back->light == 0xB);
+        std::filesystem::remove(light / "gather-sky.f32");
+        check("a gathering save without its sky sums says so", !read_trace_folder(light, why) && why.find("gather-sky.f32") != std::string::npos);
         std::filesystem::remove(folder / "depth.r32");
         check("a missing image says which files it needs", !read_trace_folder(folder, why) && why.find("depth.r32") != std::string::npos);
     }

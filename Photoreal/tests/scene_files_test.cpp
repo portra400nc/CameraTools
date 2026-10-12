@@ -366,10 +366,11 @@ int main(int argc, char **argv)
         std::ostringstream out;
         const MeshStats stats = write_obj(out, camera, origin, records, clip, 4000000);
         const std::string row = scene_row(data, stats, check_depth(camera, records, clip, data.render, data.depth));
-        check("scene.tsv: the face, its frame and camera, 1 replayed and 1 skipped for no-bytecode, triangles, 6 corners matched at 10 m, and the camera",
+        check("scene.tsv: the face, its frame and camera, 1 replayed and 1 skipped for no-bytecode, triangles, 6 corners matched at 10 m, the camera, "
+              "no light copies asked for and no sky",
             row == "6\tview\t1234\t2\tpushed\tsun constants unread\t320x200 found gbuffer\t4\t4\t2\t1\t1\t0\t0\t0\t0\t0\t0\t0\t2\t2\t0\t2\t4\t0\t0\t0\t0\t0"
                    "\t0\t0\t0\t0\t6\t6\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0"
-                   "\t0\t0.5,0,0\t0,0,0\t0,0,-1\t0,1,0\t2\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\n");
+                   "\t0\t0.5,0,0\t0,0,0\t0,0,-1\t0,1,0\t2\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t-\t-\t-\t0\n");
         check("camera.tsv: no shadow-mask constants, then clip_to_world and the pushed matrices row by row",
             camera_row(data) == "6\tpushed\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t1,0,0,0,0,1,0,0,0,0,0,-1,0,0,4,0\t1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1"
                                 "\t1,0,0,0,0,1,0,0,0,0,0,0.25,0,0,-1,0\n");
