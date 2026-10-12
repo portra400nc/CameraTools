@@ -116,7 +116,8 @@ namespace photoreal
             ComPtr<ID3D11Query> disjoint, begin, end;
             ComPtr<ID3D11Buffer> counters;      // CPU-readable copy of counters_
             bool pending = false;
-            uint32_t tiles = 0;                 // the dispatch's
+            uint32_t tiles = 0;                 // the frame's
+            uint32_t measured = 0;              // the first submission's, which the timestamps bracket
             uint32_t passes_before = 0, passes_after = 0;
             uint64_t epoch = 0;                 // the samples' start it belongs to
         };
@@ -164,6 +165,7 @@ namespace photoreal
         TraceCounts window_ {};                 // since the last pass the consistency grid judged
         bool check_consistency_ = true;
         uint32_t window_pass_ = 0, logged_pass_ = 0;
+        uint32_t measures_logged_ = 0;         // measurements of these samples logged, before any pass
         double mrays_ = 0;
         std::unique_ptr<PendingSave> save_;
     };

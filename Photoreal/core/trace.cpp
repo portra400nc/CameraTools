@@ -159,19 +159,28 @@ namespace photoreal
         return d;
     }
 
-    std::vector<TraceDispatch> trace_chunks(const TraceDispatch &frame, uint32_t tiles)
+    std::vector<TraceDispatch> trace_chunks(const TraceDispatch &frame, uint32_t tiles, uint32_t chunk)
     {
         std::vector<TraceDispatch> out;
-        for (uint32_t done = 0; done < frame.count && tiles > 0; done += kMaxDispatchTiles)
-            out.push_back({ static_cast<uint32_t>((uint64_t(frame.first) + done) % tiles), std::min(kMaxDispatchTiles, frame.count - done) });
+        chunk = std::max<uint32_t>(chunk, 1);
+        for (uint32_t done = 0; done < frame.count && tiles > 0; done += chunk)
+            out.push_back({ static_cast<uint32_t>((uint64_t(frame.first) + done) % tiles), std::min(chunk, frame.count - done) });
         return out;
     }
 
-    uint32_t next_batch(uint32_t batch, double measured_ms, double budget_ms, uint32_t tiles)
+    uint32_t next_batch(uint32_t batch, uint32_t measured, double measured_ms, double budget_ms, uint32_t tiles)
     {
         const double most = std::min<double>(2.0 * std::max<uint32_t>(batch, 1), std::max<uint32_t>(tiles, 1));
-        const double wanted = measured_ms > 0 ? batch * budget_ms / measured_ms : most;
+        const double wanted = measured_ms > 0 ? std::max<uint32_t>(measured, 1) * budget_ms / measured_ms : most;
         return static_cast<uint32_t>(std::clamp(std::floor(wanted), 1.0, most));
+    }
+
+    uint32_t next_chunk(uint32_t measured, double measured_ms)
+    {
+        if (!(measured_ms > 0))
+            return 1;
+        const double wanted = std::max<uint32_t>(measured, 1) * kSubmissionMs / measured_ms;
+        return static_cast<uint32_t>(std::clamp(std::floor(wanted), 1.0, double(kMaxChunkTiles)));
     }
 
     TraceKey trace_key(uint64_t generation, Size render, const Camera &camera, const Vec3 &toward_sun, const TraceSettings &settings)

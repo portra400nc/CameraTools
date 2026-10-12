@@ -44,10 +44,11 @@ namespace photoreal
     constexpr uint32_t kTileSize = 64;      // pixels a side; 64 groups of 8x8 threads
     constexpr uint32_t kGridStride = 16;    // every 16th pixel each way shoots a ray from the camera to check the scene
     constexpr uint32_t kStartBatch = 1;     // tiles of the first frame, whose measured time sets the next ones'
-    // Tiles of one GPU submission. A tile's 4,096 pixels shoot at most 3 rays each, and a ray at its caps of shaders/bvh.hlsli
-    // costs about 16 us of the Deck's GPU at worst (README, "Tracing"), so a tile takes at most about 0.2 s and a submission
-    // about 0.4 s, well inside the GPU driver's timeout whatever the scene.
-    constexpr uint32_t kMaxDispatchTiles = 2;
+    // A GPU submission of the trace aims at this much time, so even a slow scene never holds the GPU long at once. A tile's
+    // 4,096 pixels shoot at most 3 rays each, and a ray at its caps of shaders/bvh.hlsli costs about 16 us of the Deck's GPU
+    // at worst (README, "Tracing"), so a lone tile takes at most about 0.2 s, well inside the GPU driver's timeout.
+    constexpr double kSubmissionMs = 50;
+    constexpr uint32_t kMaxChunkTiles = 64; // tiles of one submission at most, however cheap they measure
 
     // The render size's tiles in Morton order, each x | y << 16, so a frame's tiles lie together.
     std::vector<uint32_t> tile_order(Size render);
@@ -59,6 +60,7 @@ namespace photoreal
         uint32_t tiles = 0;
         uint64_t visits = 0;
         uint32_t batch = kStartBatch;   // tiles a frame, from the time budget
+        uint32_t chunk = 1;             // tiles a GPU submission, from kSubmissionMs; 1 until a tile's time is measured
     };
 
     // Full passes: samples every traced pixel has.
@@ -73,13 +75,17 @@ namespace photoreal
     // occlusion and sun samples).
     std::optional<TraceDispatch> trace_next(TraceSchedule &schedule, uint32_t samples);
 
-    // A frame's tiles as the dispatches that trace them, each at most kMaxDispatchTiles from where the last stopped,
-    // wrapping at tiles.
-    std::vector<TraceDispatch> trace_chunks(const TraceDispatch &frame, uint32_t tiles);
+    // A frame's tiles as the dispatches that trace them, each at most chunk tiles from where the last stopped, wrapping at
+    // tiles.
+    std::vector<TraceDispatch> trace_chunks(const TraceDispatch &frame, uint32_t tiles, uint32_t chunk);
 
-    // The next frame's tiles from a dispatch of batch tiles that took measured_ms: batch * budget_ms / measured_ms,
-    // at most twice batch, so a cheap frame of sky tiles cannot make the next one long, and from 1 to all tiles.
-    uint32_t next_batch(uint32_t batch, double measured_ms, double budget_ms, uint32_t tiles);
+    // The next frame's tiles, from a frame of batch tiles whose first measured tiles took measured_ms on the GPU:
+    // measured * budget_ms / measured_ms, at most twice batch, so a cheap frame of sky tiles cannot make the next one long,
+    // and from 1 to all tiles.
+    uint32_t next_batch(uint32_t batch, uint32_t measured, double measured_ms, double budget_ms, uint32_t tiles);
+
+    // Tiles of one GPU submission from measured tiles that took measured_ms: kSubmissionMs worth, from 1 to kMaxChunkTiles.
+    uint32_t next_chunk(uint32_t measured, double measured_ms);
 
     // What the samples depend on: a change to any of it starts them again.
     struct TraceKey

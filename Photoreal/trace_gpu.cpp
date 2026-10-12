@@ -309,6 +309,7 @@ namespace photoreal
             totals_ = {};
             window_ = {};
             window_pass_ = logged_pass_ = 0;
+            measures_logged_ = 0;
             mrays_ = 0;
         }
         key_ = frame.key;
@@ -364,20 +365,26 @@ namespace photoreal
         c->CSSetConstantBuffers(0, 1, buffers);
         c->CSSetShaderResources(0, static_cast<UINT>(std::size(srvs)), srvs);
         c->CSSetUnorderedAccessViews(0, static_cast<UINT>(std::size(uavs)), uavs, nullptr);
+        // The game's work so far goes to the GPU first, then each part on its own, so no one submission holds more than
+        // schedule_.chunk tiles of the trace, nor the game's work. The timestamps bracket only the first part, inside its
+        // own submission: around a flush they would also count the GPU waiting for the rest of the game's frame, which made
+        // every frame look over budget and held build 205 at 1 tile a frame.
+        c->Flush();
         c->Begin(flight.disjoint.Get());
-        c->End(flight.begin.Get());
-        // Each part goes to the GPU on its own, so no one submission holds more than kMaxDispatchTiles tiles of the trace,
-        // nor the game's work before it.
         bool uploaded = true;
-        for (const TraceDispatch &part : trace_chunks(*frame.dispatch, tile_count_))
+        const std::vector<TraceDispatch> parts = trace_chunks(*frame.dispatch, tile_count_, schedule_.chunk);
+        for (size_t i = 0; i < parts.size(); i++)
         {
-            uploaded = upload(part.first);
+            uploaded = upload(parts[i].first);
             if (!uploaded)
                 break;
+            if (i == 0)
+                c->End(flight.begin.Get());
+            c->Dispatch(kGroupsPerTile, parts[i].count, 1);
+            if (i == 0)
+                c->End(flight.end.Get());
             c->Flush();
-            c->Dispatch(kGroupsPerTile, part.count, 1);
         }
-        c->End(flight.end.Get());
         c->End(flight.disjoint.Get());
         // Unbound before the apply draw reads the history as a shader resource.
         ID3D11ShaderResourceView *const no_srvs[std::size(srvs)] = {};
@@ -389,6 +396,7 @@ namespace photoreal
         c->CopyResource(flight.counters.Get(), counters_.Get());
         flight.pending = true;
         flight.tiles = frame.dispatch->count;
+        flight.measured = parts.empty() ? 0 : parts[0].count;
         flight.passes_before = trace_passes(TraceSchedule { schedule_.tiles, schedule_.visits - frame.dispatch->count, schedule_.batch });
         flight.passes_after = trace_passes(schedule_);
         flight.epoch = epoch_;
@@ -427,14 +435,18 @@ namespace photoreal
             context_->Unmap(f.counters.Get(), 0);
             const double ms = disjoint.Disjoint || disjoint.Frequency == 0 || end < begin ? -1 : double(end - begin) * 1000.0 / double(disjoint.Frequency);
             if (ms > 0)
-                schedule_.batch = next_batch(f.tiles, ms, settings.budget_ms, tile_count_);
+            {
+                schedule_.batch = next_batch(f.tiles, f.measured, ms, settings.budget_ms, tile_count_);
+                schedule_.chunk = next_chunk(f.measured, ms);
+            }
             if (f.epoch != epoch_ || state_ != TraceState::ready)
                 continue;
             for (uint32_t k = 0; k < kTraceCounters; k++)
                 totals_[k] += counts[k];
             const uint32_t rays = counts[static_cast<size_t>(TraceCounter::rays)];
-            if (ms > 0 && rays != 0)
-                mrays_ = rays / ms / 1000.0;
+            // The rays of the whole frame, over the time of its first part scaled to all its tiles.
+            if (ms > 0 && rays != 0 && f.measured != 0)
+                mrays_ = rays / (ms * f.tiles / f.measured) / 1000.0;
             for (uint32_t k = 0; k < kTraceCounters; k++)
                 window_[k] += counts[k];
             const uint64_t tested = window_[static_cast<size_t>(TraceCounter::tested)], off = window_[static_cast<size_t>(TraceCounter::off)];
@@ -451,14 +463,25 @@ namespace photoreal
                 window_ = {};
                 window_pass_ = f.passes_after;
             }
+            // The first measurements of a scene's samples are logged even before a pass completes, so a slow trace shows what
+            // a tile costs.
+            if (measures_logged_ < 3)
+            {
+                measures_logged_++;
+                char line[240];
+                std::snprintf(line, sizeof line, "trace measured %u tiles in %.2f ms; the next frames trace %u tiles in submissions of %u (pass %u, %llu rays so far).",
+                    f.measured, ms, schedule_.batch, schedule_.chunk, f.passes_after, static_cast<unsigned long long>(totals_[0]));
+                out.log.push_back(line);
+            }
             const uint32_t target = std::max(settings.ao_samples, settings.sun_samples);
             if (f.passes_after > logged_pass_ && (power_of_two(f.passes_after) || f.passes_after >= target))
             {
                 logged_pass_ = f.passes_after;
                 char line[400];
-                std::snprintf(line, sizeof line, "trace pass %u: %llu rays so far, %.2f Mrays/s, %u tiles a frame (%.1f ms for the last %u), %llu cut short "
-                    "by a cap (4,096 work, 32 alpha programs or 512 alpha instructions a ray), %llu stack overflows, consistency grid %llu off of %llu.", f.passes_after,
-                    static_cast<unsigned long long>(totals_[0]), mrays_, schedule_.batch, ms, f.tiles, static_cast<unsigned long long>(totals_[1]),
+                std::snprintf(line, sizeof line, "trace pass %u: %llu rays so far, %.2f Mrays/s, %u tiles a frame in submissions of %u (%.1f ms for the first %u "
+                    "of the last %u), %llu cut short by a cap (4,096 work, 32 alpha programs or 512 alpha instructions a ray), %llu stack overflows, consistency grid "
+                    "%llu off of %llu.", f.passes_after, static_cast<unsigned long long>(totals_[0]), mrays_, schedule_.batch, schedule_.chunk, ms, f.measured, f.tiles,
+                    static_cast<unsigned long long>(totals_[1]),
                     static_cast<unsigned long long>(totals_[2]), static_cast<unsigned long long>(totals_[4]), static_cast<unsigned long long>(totals_[3]));
                 out.log.push_back(totals_[static_cast<size_t>(TraceCounter::off)] == 0 ? std::string(line)
                     : std::string(line) + " The grid by class: " + grid_breakdown(totals_) + ".");
