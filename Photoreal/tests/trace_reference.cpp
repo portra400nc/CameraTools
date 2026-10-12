@@ -2,20 +2,26 @@
 // (shaders/trace.hlsli compiled as C++ in core/kernel.cpp) and writes reference.f32 beside history.f32, with each pixel's
 // samples squared and summed in reference-squares.f32, for check_trace.py to compare.
 //
-//   trace_reference <trace folder> [scene folder]
+//   trace_reference <trace folder> [scene folder] [--leaf-cards <ps.dxbc>]
 //
 // The trace folder is what PhotorealSaveTrace wrote; the scene folder holds the trace-scene.bin trace.tsv names, by
-// default beside the trace folder. It builds the scene's BVH with core/bvh.cpp and checks its hash against the Deck's,
-// then gives every pixel the samples the Deck's history says it has, from the same sequence, with the constants the
-// Deck traced with and the scene's alpha tests, on all the Mac's cores. Then it renders the view's depth from the scene,
+// default beside the trace folder. It bakes the scene's alpha programs into masks as the add-on does
+// (core/alpha_bake.cpp), builds the scene's BVH with core/bvh.cpp and checks its hash against the Deck's, then gives
+// every pixel the samples the Deck's history says it has, from the same sequence, with the constants the Deck traced
+// with and the scene's alpha tests, on all the Mac's cores. --leaf-cards gives every vegetation and foliage card of a
+// scene without alpha tests the census program in ps.dxbc and leaf-shaped blobs about 43% opaque, as alpha_test.cpp's
+// fixture does, so the Mac's rays a second with and without alpha tests compare their cost; the BVH's hash then differs
+// from the Deck's and is not checked. Then it renders the view's depth from the scene,
 // a ray from the eye to every pixel with depth but grass, with the alpha tests and with whole cards, and reports how much
 // of it agrees with the depth buffer, as check_scene.py's check 2 judges a face's meshes. Prints PASS, FAIL and INFO
 // lines like the tests.
+#include "../core/alpha_bake.h"
 #include "../core/trace_files.h"
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstring>
 #include <cmath>
 #include <cstdio>
 #include <fstream>
@@ -40,12 +46,21 @@ namespace
 
 int main(int argc, char **argv)
 {
-    if (argc < 2)
+    std::vector<std::string> args(argv + 1, argv + argc);
+    std::string leaf_cards;
+    for (size_t i = 0; i + 1 < args.size(); i++)
+        if (args[i] == "--leaf-cards")
+        {
+            leaf_cards = args[i + 1];
+            args.erase(args.begin() + static_cast<std::ptrdiff_t>(i), args.begin() + static_cast<std::ptrdiff_t>(i) + 2);
+            break;
+        }
+    if (args.empty() || args[0].rfind("--", 0) == 0)
     {
-        std::fprintf(stderr, "usage: trace_reference <trace folder> [scene folder]\n");
+        std::fprintf(stderr, "usage: trace_reference <trace folder> [scene folder] [--leaf-cards <ps.dxbc>]\n");
         return 2;
     }
-    const fs::path folder = argv[1];
+    const fs::path folder = args[0];
     std::string why;
     const std::optional<TraceSave> save = read_trace_folder(folder, why);
     if (!save)
@@ -53,10 +68,10 @@ int main(int argc, char **argv)
         std::printf("FAIL %s: %s\n", folder.u8string().c_str(), why.c_str());
         return 1;
     }
-    const fs::path scene_folder = argc > 2 ? fs::path(argv[2]) : folder.parent_path() / save->scene;
+    const fs::path scene_folder = args.size() > 1 ? fs::path(args[1]) : folder.parent_path() / save->scene;
     std::ifstream file(scene_folder / "trace-scene.bin", std::ios::binary);
     const std::string bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    const std::optional<TraceSceneFile> scene = parse_trace_scene(bytes);
+    std::optional<TraceSceneFile> scene = parse_trace_scene(bytes);
     if (!scene)
     {
         std::printf("FAIL %s holds no trace-scene.bin\n", scene_folder.u8string().c_str());
@@ -68,15 +83,62 @@ int main(int argc, char **argv)
         same_reference &= std::fabs(scene->reference[k] - save->reference[k]) <= 1e-8 * std::max(1.0, std::fabs(scene->reference[k]));
     check("the scene's reference is the one the frame was traced with", same_reference);
 
+    if (!leaf_cards.empty() && scene->alpha.empty())
+    {
+        std::ifstream code_file(leaf_cards, std::ios::binary);
+        const std::string code((std::istreambuf_iterator<char>(code_file)), std::istreambuf_iterator<char>());
+        const AlphaAnalysis analysis = analyze_alpha(reinterpret_cast<const uint8_t *>(code.data()), code.size());
+        if (!analysis.program || analysis.program->attribute_floats() != 2)
+        {
+            std::printf("FAIL %s holds no alpha program of one UV\n", leaf_cards.c_str());
+            return 1;
+        }
+        // Its cutoff row's .y at 0.5, as 68b05754 reads cb2[14].y; the blobs of alpha_test.cpp's fixture.
+        AlphaBuffer buffer;
+        const float half = 0.5f;
+        uint32_t half_bits;
+        std::memcpy(&half_bits, &half, 4);
+        const uint32_t draw = buffer.add_draw(buffer.add_program(analysis.program), 0, 1 | 1 << 3, { 0, half_bits, 0, 0 });
+        std::vector<uint8_t> atlas(kAtlasTile * kAtlasTile);
+        for (uint32_t i = 0; i < atlas.size(); i++)
+            atlas[i] = ((i % kAtlasTile / 16) * 5 + (i / kAtlasTile / 16) * 3) % 7 < 3 ? 255 : 0;
+        const float uv[6] = { 0, 0, 1, 0, 0, 1 };
+        uint32_t cards = 0;
+        for (TraceTriangle &t : scene->triangles)
+            if (info_class(t.info) == TraceClass::vegetation || info_class(t.info) == TraceClass::foliage)
+            {
+                t.info = triangle_info(info_class(t.info), buffer.add_record(draw, uv, 2));
+                cards++;
+            }
+        scene->alpha = buffer.words(atlas);
+        std::printf("INFO --leaf-cards: %u vegetation and foliage cards alpha-tested by %s with leaf-shaped blobs\n", cards, leaf_cards.c_str());
+    }
+
     BvhOptions options;
     options.tasks = std::max(1u, std::thread::hardware_concurrency());
+    const size_t program_bytes = scene->alpha.size() * 4;
     auto start = std::chrono::steady_clock::now();
+    const AlphaMasks masks = scene->alpha.empty() ? AlphaMasks {} : bake_alpha(scene->alpha, scene->triangles, options.tasks);
+    const double bake = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    if (program_bytes != 0)
+    {
+        const AlphaBakeCounts &b = masks.counts;
+        std::printf("INFO %zu bytes of alpha programs baked in %.2f s into %zu bytes of masks: %u records and %u masks; triangles %llu exact, %llu approximate, "
+                    "%llu whole as they cannot be baked, %llu whole as their test keeps every point\n",
+            program_bytes, bake, masks.words.size() * 4, b.records, b.masks, static_cast<unsigned long long>(b.triangles[0]),
+            static_cast<unsigned long long>(b.triangles[1]), static_cast<unsigned long long>(b.triangles[2]), static_cast<unsigned long long>(b.always));
+    }
+    start = std::chrono::steady_clock::now();
     const Bvh bvh = build_bvh(scene->triangles, options);
     const double build = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     char line[256];
     std::snprintf(line, sizeof line, "the Mac's BVH of the %zu triangles, built in %.2f s, has the Deck's hash %016llx", scene->triangles.size(), build,
         static_cast<unsigned long long>(save->bvh_hash));
-    check(line, bvh.hash == save->bvh_hash);
+    if (leaf_cards.empty())
+        check(line, bvh.hash == save->bvh_hash);
+    else
+        std::printf("INFO the Mac's BVH of the %zu triangles with leaf cards, built in %.2f s, has its own hash %016llx\n", scene->triangles.size(), build,
+            static_cast<unsigned long long>(bvh.hash));
 
     TraceImage image;
     image.size = save->size;
@@ -87,8 +149,9 @@ int main(int argc, char **argv)
     std::vector<float> reference(size_t(width) * height * 4, 0.0f);
     // Each pixel's occlusion and sun samples squared and summed, so check_trace.py knows each pixel's sampling variance.
     std::vector<float> squares(size_t(width) * height * 2, 0.0f);
-    const std::vector<uint32_t> *alpha = scene->alpha.empty() ? nullptr : &scene->alpha;
-    std::printf("INFO the scene holds %s\n", alpha ? (std::to_string(scene->alpha.size() * 4) + " bytes of alpha tests").c_str() : "no alpha tests");
+    const std::vector<uint32_t> *alpha = masks.words.empty() ? nullptr : &masks.words;
+    if (!alpha)
+        std::printf("INFO the scene holds no alpha tests\n");
     std::atomic<uint32_t> next_row { 0 };
     std::atomic<uint64_t> rays { 0 }, guard { 0 }, overflow { 0 };
     start = std::chrono::steady_clock::now();
@@ -205,7 +268,8 @@ int main(int argc, char **argv)
                 "(stencil 128 and 144 %s, 136 and 137 %s); with whole cards: %s (%s, %s)\n",
         share(0, { 0, 1, 2 }).first.c_str(), share(0, { 0 }).first.c_str(), share(0, { 1 }).first.c_str(), share(1, { 0, 1, 2 }).first.c_str(),
         share(1, { 0 }).first.c_str(), share(1, { 1 }).first.c_str());
-    if (alpha)
+    // Leaf cards are not the game's leaves, which the depth buffer shows.
+    if (alpha && leaf_cards.empty())
         check("the alpha tests do not lower the view's depth agreement", share(0, { 0, 1, 2 }).second >= share(1, { 0, 1, 2 }).second);
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;

@@ -479,7 +479,7 @@ namespace photoreal
                 logged_pass_ = f.passes_after;
                 char line[400];
                 std::snprintf(line, sizeof line, "trace pass %u: %llu rays so far, %.2f Mrays/s, %u tiles a frame in submissions of %u (%.1f ms for the first %u "
-                    "of the last %u), %llu cut short by a cap (4,096 work, 32 alpha programs or 512 alpha instructions a ray), %llu stack overflows, consistency grid "
+                    "of the last %u), %llu cut short by a cap (4,096 work or 64 alpha tests a ray), %llu stack overflows, consistency grid "
                     "%llu off of %llu.", f.passes_after, static_cast<unsigned long long>(totals_[0]), mrays_, schedule_.batch, schedule_.chunk, ms, f.measured, f.tiles,
                     static_cast<unsigned long long>(totals_[1]),
                     static_cast<unsigned long long>(totals_[2]), static_cast<unsigned long long>(totals_[4]), static_cast<unsigned long long>(totals_[3]));

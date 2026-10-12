@@ -1,6 +1,7 @@
 // The shell: ReShade events in, FrameEvents to the tracker, plans to the GPU, reports to the status mailbox.
 // Everything that decides lives in core/; everything that draws lives in gpu.cpp.
 #include "photoreal.h"
+#include "core/alpha_bake.h"
 #include "core/compare.h"
 #include "core/plan.h"
 #include "core/png.h"
@@ -156,6 +157,8 @@ namespace photoreal
             Vec3d reference {};                     // the frame its triangles are relative to
             std::optional<Vec3> floating_origin;    // b1 row 10 when it was captured, or when it was first traced
             SceneBuilder::Counts counts;
+            AlphaBakeCounts bake;                   // how its alpha programs baked into masks
+            double bake_seconds = 0;
             double seconds = 0;                     // its BVH's build
             bool self_test = false;                 // the self-test scene, which the depth buffer never shows
         };
@@ -722,8 +725,23 @@ namespace photoreal
             std::shared_ptr<TraceBuild> trace;      // a PHOTOREAL_SCENE_TRACE capture's triangles, touched only by worker jobs
         };
 
-        // On the writer thread, after a traced scene's last face: writes its triangles and alpha buffer to trace-scene.bin
-        // in its folder, builds their BVH, and hands both to the render thread through trace_box. Never throws.
+        // How a traced scene's alpha programs baked into masks, for the log.
+        static std::string bake_summary(const TraceScene &scene)
+        {
+            const AlphaBakeCounts &b = scene.bake;
+            char seconds[32];
+            std::snprintf(seconds, sizeof seconds, "%.2f", scene.bake_seconds);
+            return "their programs baked into " + std::to_string(b.records) + " mask records and " + std::to_string(b.masks) + " masks in " + seconds + " s: "
+                + std::to_string(b.triangles[0]) + " exact, " + std::to_string(b.triangles[1]) + " approximate, " + std::to_string(b.triangles[2])
+                + " whole as they cannot be baked" + (b.why.empty() ? std::string() : " (first: " + b.why + ")") + ", " + std::to_string(b.always)
+                + " whole as their test keeps every point, " + std::to_string(b.never) + " discarded everywhere, " + std::to_string(b.past_max)
+                + " whole past the records' cap; draws " + std::to_string(b.draws[0]) + " exact, " + std::to_string(b.draws[1]) + " approximate, "
+                + std::to_string(b.draws[2]) + " with a whole triangle";
+        }
+
+        // On the writer thread, after a traced scene's last face: writes its triangles and alpha programs to
+        // trace-scene.bin in its folder, bakes the programs into the masks the trace kernel fetches (core/alpha_bake.h),
+        // builds the triangles' BVH, and hands both to the render thread through trace_box. Never throws.
         void build_trace(std::vector<TraceTriangle> triangles, std::vector<uint32_t> alpha, TraceScene scene, const fs::path &folder)
         {
             TraceBuilt built;
@@ -731,7 +749,14 @@ namespace photoreal
             {
                 write_file(folder / "trace-scene.bin", trace_scene_bytes(triangles, scene.reference, alpha));
                 if (!alpha.empty())
-                    built.alpha = std::make_shared<const std::vector<uint32_t>>(std::move(alpha));
+                {
+                    const auto baking = std::chrono::steady_clock::now();
+                    AlphaMasks masks = bake_alpha(alpha, triangles, BvhOptions {}.tasks);
+                    scene.bake = masks.counts;
+                    scene.bake_seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - baking).count();
+                    if (!masks.words.empty())
+                        built.alpha = std::make_shared<const std::vector<uint32_t>>(std::move(masks.words));
+                }
                 const auto start = std::chrono::steady_clock::now();
                 Bvh bvh = build_bvh(triangles, BvhOptions {});
                 scene.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
@@ -1293,7 +1318,7 @@ namespace photoreal
                     "replaced by a main draw's, " + std::to_string(c.pre_only) + " drawn by the prepass alone, " + std::to_string(c.dropped_class)
                     + " of grass and " + std::to_string(c.dropped_no_depth) + " of draws that write no depth left out, " + std::to_string(c.dropped_degenerate) + " degenerate, " + std::to_string(c.past_max)
                     + " farthest past the cap; " + std::to_string(c.alpha) + " alpha-tested, " + std::to_string(c.inherited) + " of them equal-depth copies with their prepass copy's test, "
-                    + std::to_string(c.alpha_past_max) + " whole past the alpha records' 64 MB), a BVH of "
+                    + std::to_string(c.alpha_past_max) + " whole past the alpha records' 64 MB; " + bake_summary(trace_scene) + "), a BVH of "
                     + std::to_string(trace_gpu.nodes()) + " nodes built in " + seconds + " s, hash " + hash + "; uploading " + megabytes(uint64_t(trace_gpu.nodes()) * sizeof(BvhNode) + uint64_t(trace_gpu.triangles())
                     * sizeof(BvhTriangle) + trace_gpu.alpha_bytes()) + " (" + megabytes(trace_gpu.alpha_bytes()) + " of alpha tests) a part of " + megabytes(kTraceUploadBytes)
                     + " each present. trace-scene.bin is in " + trace_scene.folder + ".");

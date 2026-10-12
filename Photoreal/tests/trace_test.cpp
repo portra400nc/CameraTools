@@ -4,7 +4,7 @@
 // the constants, one dispatch's work on the pixels of a camera looking down at a floor half under a roof, the
 // consistency grid's classes and reasons, and the grid of build 202's view on the Deck (fixtures/scene-221045-grid.bin). With an
 // output folder it also writes the synthetic traced frame run.sh hands to trace_reference and check_trace.py.
-#include "../core/alpha.h"
+#include "../core/alpha_bake.h"
 #include "../core/trace_files.h"
 #include "../photoreal.h"
 
@@ -130,11 +130,13 @@ namespace
             triangles.back().info = triangle_info(TraceClass::foliage, buffer.add_record(draw, uv_abc, 2));
             triangles.push_back(triangle(a, c, d));
             triangles.back().info = triangle_info(TraceClass::foliage, buffer.add_record(draw, uv_acd, 2));
-            const std::vector<uint32_t> alpha = buffer.words(atlas);
+            const std::vector<uint32_t> programs = buffer.words(atlas);
             const std::filesystem::path scene = out / "scene-trace-synthetic";
             std::filesystem::create_directories(scene);
-            const std::string bytes = trace_scene_bytes(triangles, reference, alpha);
+            const std::string bytes = trace_scene_bytes(triangles, reference, programs);
             std::ofstream(scene / "trace-scene.bin", std::ios::binary).write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+            // As the add-on does: the programs baked into masks, then the BVH.
+            const std::vector<uint32_t> alpha = bake_alpha(programs, triangles).words;
             const Bvh bvh = build_bvh(triangles);
             Written written;
 

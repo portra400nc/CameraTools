@@ -21,6 +21,7 @@ static thread_local std::vector<FixtureRay> *rays_out = nullptr;
     (rays_out ? rays_out->push_back(FixtureRay { { o.x, o.y, o.z }, { d.x, d.y, d.z }, t, (any) ? 1u : 0u, m }) : (void)0)
 #include "../core/kernel.cpp"
 
+#include "../core/alpha_bake.h"
 #include "../core/trace_files.h"
 
 #include <algorithm>
@@ -119,8 +120,10 @@ int main(int argc, char **argv)
             t.info = triangle_info(c, buffer.add_record(draw, uv, 2));
         }
     }
-    const std::vector<uint32_t> alpha = buffer.words(std::vector<uint8_t>(kAtlasTile * kAtlasTile, 0));
-    const Bvh bvh = build_bvh(scene->triangles);
+    // Baked into masks as the add-on does, which keeps the records' infos for the cards: the zero atlas against 0.5.
+    std::vector<TraceTriangle> baked = scene->triangles;
+    const std::vector<uint32_t> alpha = bake_alpha(buffer.words(std::vector<uint8_t>(kAtlasTile * kAtlasTile, 0)), baked).words;
+    const Bvh bvh = build_bvh(baked);
 
     TraceImage image;
     image.size = save->size;

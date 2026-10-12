@@ -1,18 +1,25 @@
-// The alpha test of the traced scene's alpha-tested triangles: core/alpha.h's programs, interpreted at a hit with the
-// game's own discard logic, its constants as the draw had them and its texture's alpha channel from the atlas. Shared by
-// shaders/bvh.hlsli and, compiled as C++ through core/hlsl.h, by core/kernel.cpp; it keeps to what core/hlsl.h supports.
+// The game's alpha tests as core/alpha.h's programs: interpreted at a point of an alpha-tested triangle with the game's own
+// discard logic, its constants as the draw had them and its texture's channel from the atlas. The trace kernel does not
+// run it: core/alpha_bake.cpp, which compiles it as C++ through core/hlsl.h, runs it when the scene is built to bake each
+// triangle's coverage mask and cutoff (shaders/alpha_mask.hlsli), and the tests run it as the reference. It keeps to what
+// core/hlsl.h supports and stays valid HLSL.
 //
 // The includer defines:
 //   uint alpha_word(uint index)            the alpha buffer's word (core/alpha.h's layout)
 //   uint4 alpha_row(uint index)            its four words from index
 //   ALPHA_LOAD(lane, r), ALPHA_STORE(lane, r, value)  the lane's register r of kAlphaRegisters, uint4 each
+// and may define ALPHA_SAMPLE(first, address, u, v), the sample of the mask whose first word is first, which is
+// mask_sample by default; the bake defines it to read the coordinate and choose the value.
+#include "alpha_mask.hlsli"
+#ifndef ALPHA_SAMPLE
+#define ALPHA_SAMPLE(first, address, u, v) mask_sample(first, address, u, v)
+#endif
 
 // 8 temporaries, then 3 of interpolated inputs, then the current instruction's 3 sources, which pass through registers so
 // the shader holds one copy of the source fetch and of the arithmetic.
 static const uint kAlphaRegisters = 14u;
 static const uint kAlphaInputs = 8u;
 static const uint kAlphaSources = 11u;
-static const uint kOpaqueRecord = 0xFFFFFFu;
 // The interpreter's cap: instructions of one program, core/alpha.h's kAlphaMaxCode. A program longer than this in the
 // buffer is not run and its hit counts whole; the others end within it, as their jumps only go forward.
 static const uint kAlphaCodeCap = 48u;
@@ -129,54 +136,6 @@ uint alpha_alu(uint op, uint a, uint b, uint c)
     return 0u;
 }
 
-// A texel coordinate of an atlas tile under a sampler's address mode (D3D11_TEXTURE_ADDRESS_MODE: 1 wrap, 2 mirror, 3
-// clamp, 4 border, 5 mirror once), or -1 outside a border.
-int alpha_address(int i, uint mode)
-{
-    if (mode == 1u)
-        return i & 255;
-    if (mode == 2u)
-    {
-        int m = i & 511;
-        return m < 256 ? m : 511 - m;
-    }
-    if (mode == 4u)
-        return i < 0 || i > 255 ? -1 : i;
-    if (mode == 5u)
-        return min(i < 0 ? -1 - i : i, 255);
-    return min(max(i, 0), 255);
-}
-
-float alpha_texel(uint atlas, uint tile, int x, int y)
-{
-    if (x < 0 || y < 0)
-        return 0.0f;
-    uint at = tile * 65536u + uint(y) * 256u + uint(x);
-    return float((alpha_word(atlas + at / 4u) >> ((at % 4u) * 8u)) & 255u) / 255.0f;
-}
-
-// The tile bilinear at (u, v), with the sampler's address modes in bits 0 to 2 and 3 to 5.
-float alpha_sample(uint atlas, uint tile, uint address, float u, float v)
-{
-    float x = min(max(u, -65536.0f), 65536.0f) * 256.0f - 0.5f;
-    float y = min(max(v, -65536.0f), 65536.0f) * 256.0f - 0.5f;
-    float x0 = floor(x);
-    float y0 = floor(y);
-    float fx = x - x0;
-    float fy = y - y0;
-    int ix = int(x0);
-    int iy = int(y0);
-    uint mu = address & 7u;
-    uint mv = (address >> 3) & 7u;
-    int xa = alpha_address(ix, mu);
-    int xb = alpha_address(ix + 1, mu);
-    int ya = alpha_address(iy, mv);
-    int yb = alpha_address(iy + 1, mv);
-    float top = lerp(alpha_texel(atlas, tile, xa, ya), alpha_texel(atlas, tile, xb, ya), fx);
-    float bottom = lerp(alpha_texel(atlas, tile, xa, yb), alpha_texel(atlas, tile, xb, yb), fx);
-    return lerp(top, bottom, fy);
-}
-
 // A source operand's four components, swizzled, its modifiers applied as floats or, for an operation on integers, as
 // integers. block is the draw's block, literals the program's literals.
 uint4 alpha_source(uint s, bool integer, uint block, uint rows, uint literals, uint lane)
@@ -218,8 +177,9 @@ uint4 alpha_source(uint s, bool integer, uint block, uint rows, uint literals, u
 }
 
 // The alpha test of a hit at barycentric (u, v) of the triangle whose record starts at word record of the records: it keeps
-// the hit unless a kept discard of its draw's pixel shader fires there. At most kAlphaCodeCap steps.
-AlphaRun alpha_test(uint record, float u, float v, uint lane)
+// the hit unless a kept discard of its draw's pixel shader fires there. At most kAlphaCodeCap steps. With through set, a
+// discard that fires clears keeps and the program runs on to its end, so the bake sees every sample it takes.
+AlphaRun alpha_test(uint record, float u, float v, uint lane, uint through)
 {
     uint4 header = alpha_row(0u);
     uint at = header.x + record;
@@ -259,6 +219,7 @@ AlphaRun alpha_test(uint record, float u, float v, uint lane)
 
     // pc only grows, so the loop runs at most count <= kAlphaCodeCap times.
     uint steps = 0u;
+    uint keeps = 1u;
     LOOP for (uint pc = 0u; pc < count; pc++)
     {
         steps++;
@@ -284,13 +245,17 @@ AlphaRun alpha_test(uint record, float u, float v, uint lane)
         if (op == kOpDiscardNz || op == kOpDiscardZ)
         {
             if ((a.x != 0u) == (op == kOpDiscardNz))
-                return alpha_run_of(0u, steps, 0u);
+            {
+                keeps = 0u;
+                if (through == 0u)
+                    return alpha_run_of(0u, steps, 0u);
+            }
             continue;
         }
         uint4 result = uint4(0u, 0u, 0u, 0u);
         if (op == kOpSample)
         {
-            uint value = asuint(alpha_sample(header.w, draw.y, draw.z, asfloat(a.x), asfloat(a.y)));
+            uint value = asuint(ALPHA_SAMPLE(header.w + draw.y * 16384u, draw.z, asfloat(a.x), asfloat(a.y)));
             result = uint4(value, value, value, value);
         }
         else
@@ -321,5 +286,5 @@ AlphaRun alpha_test(uint record, float u, float v, uint lane)
         ALPHA_STORE(lane, dst, uint4((mask & 1u) != 0u ? result.x : old.x, (mask & 2u) != 0u ? result.y : old.y, (mask & 4u) != 0u ? result.z : old.z,
             (mask & 8u) != 0u ? result.w : old.w));
     }
-    return alpha_run_of(1u, steps, 0u);
+    return alpha_run_of(keeps, steps, 0u);
 }

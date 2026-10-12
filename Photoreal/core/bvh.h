@@ -6,6 +6,7 @@
 #include "trace_scene.h"
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <vector>
 
@@ -65,8 +66,8 @@ namespace photoreal
 
     // Classes as bits 1 << TraceClass, for the casters a ray sees.
     constexpr uint32_t kAllClasses = (1u << static_cast<uint32_t>(TraceClass::count)) - 1;
-    // With the classes: a triangle with an alpha record counts only where its alpha test (core/alpha.h) keeps the hit.
-    // Without this bit, or without an alpha buffer, every triangle is whole.
+    // With the classes: a triangle with an alpha record counts only where its coverage mask (core/alpha_bake.h) keeps the
+    // hit. Without this bit, or without a mask buffer, every triangle is whole.
     constexpr uint32_t kAlphaTests = 0x80000000u;
 
     struct Hit
@@ -77,18 +78,19 @@ namespace photoreal
     };
 
     // What one ray's traversal did: nodes visited, whether its 24-entry stack overflowed and a far child was left out,
-    // whether it met a cap of shaders/bvh.hlsli's (its work, alpha programs or alpha instructions), its work (nodes,
-    // triangles tested and alpha instructions), and the alpha programs it ran and their instructions.
+    // whether it met a cap of shaders/bvh.hlsli's (its work or its alpha tests), its work (nodes, triangles tested and
+    // alpha tests), and its alpha tests, a mask fetch each.
     struct TraversalStats
     {
         uint32_t steps = 0;
         bool overflow = false;
         bool guard = false;
-        uint32_t work = 0, alpha_tests = 0, alpha_steps = 0;
+        uint32_t work = 0, alpha_tests = 0;
     };
 
     // The nearest hit and any hit beyond 1e-4 and before t_max, on triangles of the given classes, by the compute shader's
-    // traversal, with the alpha tests of alpha's buffer when classes has kAlphaTests. Never throws.
+    // traversal, with the alpha tests of alpha's mask buffer (core/alpha_bake.h) when classes has kAlphaTests. Never
+    // throws.
     std::optional<Hit> trace_nearest(const Bvh &bvh, const Vec3f &origin, const Vec3f &direction, float t_max, uint32_t classes = kAllClasses,
         TraversalStats *stats = nullptr, const std::vector<uint32_t> *alpha = nullptr);
     bool trace_any(const Bvh &bvh, const Vec3f &origin, const Vec3f &direction, float t_max, uint32_t classes = kAllClasses,
@@ -97,4 +99,7 @@ namespace photoreal
     // The nearest hit by testing every triangle with the same intersection and alpha test, for the tests.
     std::optional<Hit> brute_nearest(const Bvh &bvh, const Vec3f &origin, const Vec3f &direction, float t_max, uint32_t classes = kAllClasses,
         const std::vector<uint32_t> *alpha = nullptr);
+    // The same with a triangle's alpha test as keeps(its record, u, v) says, such as the program's own (alpha_keeps).
+    std::optional<Hit> brute_nearest(const Bvh &bvh, const Vec3f &origin, const Vec3f &direction, float t_max, uint32_t classes,
+        const std::function<bool(uint32_t, float, float)> &keeps);
 }

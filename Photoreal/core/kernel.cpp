@@ -1,8 +1,8 @@
 // The trace kernel's shared HLSL compiled as C++ through hlsl.h: shaders/bvh.hlsli's traversal behind core/bvh.h's
-// trace functions, and shaders/trace.hlsli's pixel behind core/trace.h's. The buffers and textures the shader loads from
-// are a Bvh's and a TraceImage's vectors here, its constants a thread's copy of TraceConstants, and its groupshared
-// stack a thread's own.
-#include "alpha.h"
+// trace functions, shaders/alpha_mask.hlsli's alpha test behind core/alpha_bake.h's alpha_mask_keeps, and
+// shaders/trace.hlsli's pixel behind core/trace.h's. The buffers and textures the shader loads from are a Bvh's and a
+// TraceImage's vectors here, its constants a thread's copy of TraceConstants, and its groupshared stack a thread's own.
+#include "alpha_bake.h"
 #include "bvh.h"
 #include "hlsl.h"
 #include "trace.h"
@@ -11,12 +11,10 @@ namespace photoreal::shader
 {
     namespace
     {
-        // The scene the current thread's rays traverse, its stack, its alpha buffer (empty: every triangle opaque) and the
-        // alpha interpreter's registers.
+        // The scene the current thread's rays traverse, its stack and its mask buffer (none: every triangle opaque).
         thread_local const Bvh *scene = nullptr;
         thread_local uint stack[24];
         thread_local const std::vector<uint32_t> *alpha = nullptr;
-        thread_local uint4 alpha_registers[14];
 
         uint alpha_word(uint index) { return alpha && index < alpha->size() ? (*alpha)[index] : 0u; }
         uint4 alpha_row(uint index) { return { alpha_word(index), alpha_word(index + 1), alpha_word(index + 2), alpha_word(index + 3) }; }
@@ -56,30 +54,14 @@ namespace photoreal::shader
 #define LOOP
 #define STACK_STORE(lane, slot, value) ((void)(lane), stack[(slot)] = (value))
 #define STACK_LOAD(lane, slot) ((void)(lane), stack[(slot)])
-#define ALPHA_STORE(lane, r, value) ((void)(lane), alpha_registers[(r)] = (value))
-#define ALPHA_LOAD(lane, r) ((void)(lane), alpha_registers[(r)])
 #include "../shaders/trace.hlsli"
-#undef ALPHA_LOAD
-#undef ALPHA_STORE
 #undef STACK_LOAD
 #undef STACK_STORE
 #undef LOOP
 
     static_assert(kStackSize == sizeof stack / sizeof stack[0] && kLeafLink == kLeafBit && kNoLink == kEmptyLink);
-    static_assert(kAlphaRegisters == sizeof alpha_registers / sizeof alpha_registers[0] && kAlphaInputs == kAlphaTemps && kOpaqueRecord == kOpaque
-        && kAlphaTests == photoreal::kAlphaTests);
-    static_assert(kOpMov == alpha_op::mov && kOpMovc == alpha_op::movc && kOpAdd == alpha_op::add && kOpMul == alpha_op::mul && kOpMad == alpha_op::mad
-        && kOpDiv == alpha_op::div && kOpMin == alpha_op::min && kOpMax == alpha_op::max && kOpDp2 == alpha_op::dp2 && kOpDp3 == alpha_op::dp3
-        && kOpDp4 == alpha_op::dp4 && kOpLt == alpha_op::lt && kOpGe == alpha_op::ge && kOpEq == alpha_op::eq && kOpNe == alpha_op::ne
-        && kOpFtoi == alpha_op::ftoi && kOpFtou == alpha_op::ftou && kOpRoundNe == alpha_op::round_ne && kOpRoundNi == alpha_op::round_ni
-        && kOpRoundPi == alpha_op::round_pi && kOpRoundZ == alpha_op::round_z && kOpFrc == alpha_op::frc && kOpRsq == alpha_op::rsq
-        && kOpSqrt == alpha_op::sqrt && kOpExp == alpha_op::exp && kOpLog == alpha_op::log && kOpRcp == alpha_op::rcp && kOpSample == alpha_op::sample
-        && kOpAnd == alpha_op::and_ && kOpOr == alpha_op::or_ && kOpXor == alpha_op::xor_ && kOpNot == alpha_op::not_ && kOpIadd == alpha_op::iadd
-        && kOpIeq == alpha_op::ieq && kOpIne == alpha_op::ine && kOpIlt == alpha_op::ilt && kOpIge == alpha_op::ige && kOpUlt == alpha_op::ult
-        && kOpUge == alpha_op::uge && kOpImin == alpha_op::imin && kOpImax == alpha_op::imax && kOpUmin == alpha_op::umin && kOpUmax == alpha_op::umax
-        && kOpIneg == alpha_op::ineg && kOpIshl == alpha_op::ishl && kOpIshr == alpha_op::ishr && kOpUshr == alpha_op::ushr && kOpItof == alpha_op::itof
-        && kOpUtof == alpha_op::utof && kOpIfNz == alpha_op::if_nz && kOpIfZ == alpha_op::if_z && kOpElse == alpha_op::else_
-        && kOpDiscardNz == alpha_op::discard_nz && kOpDiscardZ == alpha_op::discard_z);
+    static_assert(kOpaqueRecord == kOpaque && kAlphaTests == photoreal::kAlphaTests && kMaskHeaderWords == photoreal::kMaskHeaderWords
+        && kMaskRecordWords == photoreal::kMaskRecordWords && kMaskSide == kAtlasTile);
     static_assert(kTraceCounterCount == kTraceCounters && kGridCounters == static_cast<uint32_t>(TraceCounter::grid) && kGridSlots == photoreal::kGridSlots
         && kGridNoHit == static_cast<uint32_t>(GridSlot::no_hit) && kGridNearer == static_cast<uint32_t>(GridSlot::nearer)
         && kGridFarther == static_cast<uint32_t>(GridSlot::farther));
@@ -104,7 +86,7 @@ namespace photoreal::shader
             alpha = nullptr;
             scene = nullptr;
             if (stats)
-                *stats = { hit.steps, hit.overflow != 0, hit.guard != 0, hit.work, hit.alpha_tests, hit.alpha_steps };
+                *stats = { hit.steps, hit.overflow != 0, hit.guard != 0, hit.work, hit.alpha_tests };
             return hit;
         }
     }
@@ -128,20 +110,19 @@ namespace photoreal
     }
 
     std::optional<Hit> brute_nearest(const Bvh &bvh, const Vec3f &origin, const Vec3f &direction, float t_max, uint32_t classes,
-        const std::vector<uint32_t> *alpha)
+        const std::function<bool(uint32_t, float, float)> &keeps)
     {
         std::optional<Hit> best;
         float limit = t_max;
-        shader::scene = &bvh;
-        shader::alpha = alpha;
         for (uint32_t i = 0; i < bvh.triangles.size(); i++)
         {
+            shader::scene = &bvh;
             const shader::BvhTriangleData tri = shader::load_bvh_triangle(i);
+            shader::scene = nullptr;
             if ((classes >> (tri.info >> 24 & 15u) & 1u) == 0)
                 continue;
             const shader::float4 h = shader::intersect_triangle(tri, shader::vec(origin), shader::vec(direction), limit);
-            if (h.x < limit && alpha && (classes & kAlphaTests) != 0 && (tri.info & kOpaque) != kOpaque
-                && shader::alpha_test(tri.info & kOpaque, h.y, h.z, 0).keeps == 0)
+            if (h.x < limit && keeps && (classes & kAlphaTests) != 0 && (tri.info & kOpaque) != kOpaque && !keeps(tri.info & kOpaque, h.y, h.z))
                 continue;
             if (h.x < limit)
             {
@@ -149,15 +130,22 @@ namespace photoreal
                 best = Hit { h.x, i, h.y, h.z };
             }
         }
-        shader::alpha = nullptr;
-        shader::scene = nullptr;
         return best;
     }
 
-    bool alpha_keeps(const std::vector<uint32_t> &buffer, uint32_t record, float u, float v)
+    std::optional<Hit> brute_nearest(const Bvh &bvh, const Vec3f &origin, const Vec3f &direction, float t_max, uint32_t classes,
+        const std::vector<uint32_t> *alpha)
     {
-        shader::alpha = &buffer;
-        const bool keeps = shader::alpha_test(record, u, v, 0).keeps != 0;
+        if (!alpha)
+            return brute_nearest(bvh, origin, direction, t_max, classes, std::function<bool(uint32_t, float, float)> {});
+        return brute_nearest(bvh, origin, direction, t_max, classes,
+            [alpha](uint32_t record, float u, float v) { return alpha_mask_keeps(*alpha, record, u, v); });
+    }
+
+    bool alpha_mask_keeps(const std::vector<uint32_t> &masks, uint32_t record, float u, float v)
+    {
+        shader::alpha = &masks;
+        const bool keeps = shader::alpha_mask_keeps(record, u, v);
         shader::alpha = nullptr;
         return keeps;
     }

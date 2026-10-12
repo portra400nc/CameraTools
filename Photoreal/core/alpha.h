@@ -1,11 +1,12 @@
 // A pixel shader's alpha test as the path tracer runs it. Each discard of the shader's code (core/shex.h) is sliced back
 // to what it reads, through the instructions that compute its condition and the ifs that enclose them. A slice that
 // reads the pixel's screen position or an immediate constant buffer is screen-door dither and is dropped: the trace
-// treats it as passing. The other slices become one small program, which shaders/alpha.hlsli interprets at any hit with
-// the game's own semantics, its constants and texture as the draw had them. Pure C++17 like dxbc.h.
+// treats it as passing. The other slices become one small program with the game's own semantics, which shaders/alpha.hlsli
+// interprets with its constants and texture as the draw had them. core/alpha_bake.h runs it when the traced scene is built
+// to bake each triangle's coverage mask, which the trace kernel fetches. Pure C++17 like dxbc.h.
 //
-// The alpha buffer the trace reads holds the traced scene's programs, the draws' constants and texture tiles, and each
-// alpha-tested triangle's record. Its layout, in 32-bit words:
+// The alpha buffer a capture assembles, and trace-scene.bin holds, has the traced scene's programs, the draws' constants
+// and texture tiles, and each alpha-tested triangle's record. Its layout, in 32-bit words:
 //   header       4 words: where the records, programs, draws and atlas start
 //   programs     per program: its header (8 words: instructions | literals << 16, attribute floats | flat attributes << 16,
 //                the input map's 12 bytes, 3 words of 0), its instructions and its literals, 4 words each
@@ -120,8 +121,9 @@ namespace photoreal
     // among the program's. analyze_alpha keeps no program that fails it.
     std::string check_alpha_program(const AlphaProgram &program);
 
-    // shaders/alpha.hlsli compiled as C++ (core/kernel.cpp): whether the alpha test keeps a hit at barycentric u and v of
-    // the triangle whose record starts at word record of the records, in an alpha buffer of the layout above.
+    // shaders/alpha.hlsli compiled as C++ (core/alpha_bake.cpp): whether the program keeps a hit at barycentric u and v of
+    // the triangle whose record starts at word record of the records, in an alpha buffer of the layout above. The trace
+    // runs the masks core/alpha_bake.h bakes from it; this is their reference.
     bool alpha_keeps(const std::vector<uint32_t> &alpha, uint32_t record, float u, float v);
 
     // A triangle's info word holds its record's offset in bits 0 to 23, this for none: a whole triangle.

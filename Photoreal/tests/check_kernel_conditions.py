@@ -2,7 +2,7 @@
 
 HLSL evaluates both sides of &&, || and ?: (vkd3d, like fxc, compiles them without short-circuiting), while C++
 short-circuits them, so a call there runs on the GPU when the Mac's twin of the kernel skips it. Build 204's
-`h.x < hit.t && ... && !alpha_keeps(...)` (now alpha_test) ran an alpha program for every triangle the Deck's rays tested and hung its
+`h.x < hit.t && ... && !alpha_keeps(...)` (later alpha_test, since replaced by a mask fetch) ran an alpha program for every triangle the Deck's rays tested and hung its
 GPU, which the Mac could not see. A function is costly when its body holds a loop or calls a costly function.
 
     python3 check_kernel_conditions.py [shaders folder]
@@ -13,7 +13,7 @@ import pathlib
 import re
 import sys
 
-SHARED = ("trace.hlsli", "bvh.hlsli", "alpha.hlsli", "trace_cs.hlsl")
+SHARED = ("trace.hlsli", "bvh.hlsli", "alpha_mask.hlsli", "alpha.hlsli", "trace_cs.hlsl")
 DEFINITION = re.compile(r"^[A-Za-z_]\w*\s+([A-Za-z_]\w*)\s*\(", re.M)
 CONTROL = re.compile(r"^\s*(?:else\s+)?(?:if|while|for)\s*\(")
 
