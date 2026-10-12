@@ -1,6 +1,7 @@
 #include "alpha.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <map>
 #include <set>
@@ -747,11 +748,37 @@ namespace photoreal
         return {};
     }
 
+    std::optional<uint32_t> written_material(const Shex &shex)
+    {
+        std::optional<uint32_t> bits;
+        for (const ShexInstruction &in : shex.instructions)
+        {
+            if (in.declaration || in.operands.empty())
+                continue;
+            const ShexOperand &target = in.operands[0];
+            if (target.type != operand::output || target.dimension < 1 || target.index[0].value != 3 || (target.mask & 1) == 0)
+                continue;
+            if (in.opcode != opcode::mov || in.operands.size() < 2 || in.operands[1].type != operand::immediate32 || in.saturate()
+                || (bits && *bits != in.operands[1].value[0]))
+                return std::nullopt;
+            bits = in.operands[1].value[0];
+        }
+        if (!bits)
+            return std::nullopt;
+        float value;
+        std::memcpy(&value, &*bits, sizeof value);
+        if (!(value >= 0 && value <= 1))
+            return std::nullopt;
+        return static_cast<uint32_t>(std::lround(value * 255));
+    }
+
     AlphaAnalysis analyze_alpha(const uint8_t *bytes, size_t size)
     {
         AlphaAnalysis out;
         const std::optional<Shex> shex = decode_shex(bytes, size);
         std::optional<std::vector<SignatureElement>> inputs = parse_input_elements(bytes, size);
+        if (shex && shex->stage == ShaderStageKind::ps)
+            out.material = written_material(*shex);
         if (!shex || !inputs || shex->stage != ShaderStageKind::ps)
         {
             out.why = "decode";

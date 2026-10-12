@@ -78,6 +78,10 @@ namespace
 
 int main()
 {
+    check("the material id a shader writes as one literal: 2 for leaves (0a48f0bb), 3 for tall grass (836da523), 0 (ee0c3fbb), none "
+          "when computed (41581d1e) or not written (482d9846)", analyze("0a48f0bb29e3c15d.ps.dxbc").material == 2u
+        && analyze("836da523e2ec9ecb.ps.dxbc").material == 3u && analyze("ee0c3fbbf7ebfae7.ps.dxbc").material == 0u
+        && !analyze("41581d1e6aa3448f.ps.dxbc").material && !analyze("482d98462fb30496.ps.dxbc").material);
     {
         const AlphaAnalysis leaves = analyze("0a48f0bb29e3c15d.ps.dxbc");
         check("0a48f0bb (leaves, 136 and 137): one texture discard kept as a program of 13 instructions", kinds(leaves) == "texture" && leaves.program

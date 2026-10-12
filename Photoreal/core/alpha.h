@@ -109,7 +109,14 @@ namespace photoreal
         std::vector<DiscardKind> discards;              // each discard, in the code's order
         std::shared_ptr<const AlphaProgram> program;    // when a discard is kept and every kept one is supported
         std::string why;                                // the first unsupported discard's reason, as "loop" or "opcode gather4"
+        // The G-buffer material id the shader writes, when every write of SV_Target3.x is the same literal: round(l * 255).
+        // Empty when it computes the id, or writes none. Census captures 111824 and 214859 write 2 for leaves and 3 for tall
+        // grass this way.
+        std::optional<uint32_t> material;
     };
+
+    // The material id a decoded pixel shader writes to SV_Target3.x as one literal, as AlphaAnalysis::material.
+    std::optional<uint32_t> written_material(const Shex &shex);
 
     // A pixel shader's bytecode. A shader without discard, or whose discards are all dither, has no program and is opaque;
     // one that cannot be decoded has none either, with why "decode".

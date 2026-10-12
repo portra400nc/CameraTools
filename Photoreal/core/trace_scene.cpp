@@ -53,6 +53,8 @@ namespace photoreal
 
     std::optional<TraceClass> trace_class(const SceneDrawRecord &record)
     {
+        if (record.analysis && record.analysis->material == kTallGrassMaterial)
+            return std::nullopt;
         switch (draw_class(record))
         {
         case DrawClass::s128: case DrawClass::s144: return TraceClass::world;

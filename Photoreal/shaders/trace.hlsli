@@ -261,8 +261,10 @@ PixelTraceData trace_pixel_of(int2 pixel, float4 history, uint lane)
             r.history.y += h.prim != kNoHit ? 0.0f : 1.0f;
             r.history.w += 1.0f;
         }
-        else
+        else if (h.guard == 0u)
         {
+            // A ray its caps cut short says nothing about the scene, so it is left out of the grid, which would otherwise
+            // count it as meeting nothing and call the scene stale.
             r.tested = 1u;
             r.grid_class = grid_class_of(s);
             if (h.prim == kNoHit)

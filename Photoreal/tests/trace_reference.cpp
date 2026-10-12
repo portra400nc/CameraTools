@@ -47,17 +47,18 @@ namespace
 int main(int argc, char **argv)
 {
     std::vector<std::string> args(argv + 1, argv + argc);
-    std::string leaf_cards;
-    for (size_t i = 0; i + 1 < args.size(); i++)
-        if (args[i] == "--leaf-cards")
+    std::string leaf_cards, drop;
+    for (size_t i = 0; i + 1 < args.size();)
+        if (args[i] == "--leaf-cards" || args[i] == "--drop-class")
         {
-            leaf_cards = args[i + 1];
+            (args[i] == "--leaf-cards" ? leaf_cards : drop) = args[i + 1];
             args.erase(args.begin() + static_cast<std::ptrdiff_t>(i), args.begin() + static_cast<std::ptrdiff_t>(i) + 2);
-            break;
         }
+        else
+            i++;
     if (args.empty() || args[0].rfind("--", 0) == 0)
     {
-        std::fprintf(stderr, "usage: trace_reference <trace folder> [scene folder] [--leaf-cards <ps.dxbc>]\n");
+        std::fprintf(stderr, "usage: trace_reference <trace folder> [scene folder] [--leaf-cards <ps.dxbc>] [--drop-class <class>]\n");
         return 2;
     }
     const fs::path folder = args[0];
@@ -83,6 +84,22 @@ int main(int argc, char **argv)
         same_reference &= std::fabs(scene->reference[k] - save->reference[k]) <= 1e-8 * std::max(1.0, std::fabs(scene->reference[k]));
     check("the scene's reference is the one the frame was traced with", same_reference);
 
+    // A class left out of the scene, to measure what its triangles cost the traversal: casters bits skip a class at its
+    // leaves but still walk its nodes, while a scene without it does not.
+    if (!drop.empty())
+    {
+        const auto named = std::find(kTraceClassNames.begin(), kTraceClassNames.end(), drop);
+        if (named == kTraceClassNames.end())
+        {
+            std::printf("FAIL --drop-class %s names no class\n", drop.c_str());
+            return 1;
+        }
+        const TraceClass dropped = static_cast<TraceClass>(named - kTraceClassNames.begin());
+        const size_t before = scene->triangles.size();
+        scene->triangles.erase(std::remove_if(scene->triangles.begin(), scene->triangles.end(),
+            [dropped](const TraceTriangle &t) { return info_class(t.info) == dropped; }), scene->triangles.end());
+        std::printf("INFO --drop-class %s: %zu of %zu triangles left out\n", drop.c_str(), before - scene->triangles.size(), before);
+    }
     if (!leaf_cards.empty() && scene->alpha.empty())
     {
         std::ifstream code_file(leaf_cards, std::ios::binary);
@@ -134,7 +151,7 @@ int main(int argc, char **argv)
     char line[256];
     std::snprintf(line, sizeof line, "the Mac's BVH of the %zu triangles, built in %.2f s, has the Deck's hash %016llx", scene->triangles.size(), build,
         static_cast<unsigned long long>(save->bvh_hash));
-    if (leaf_cards.empty())
+    if (leaf_cards.empty() && drop.empty())
         check(line, bvh.hash == save->bvh_hash);
     else
         std::printf("INFO the Mac's BVH of the %zu triangles with leaf cards, built in %.2f s, has its own hash %016llx\n", scene->triangles.size(), build,

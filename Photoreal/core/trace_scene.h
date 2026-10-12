@@ -28,7 +28,12 @@ namespace photoreal
     };
     extern const std::array<const char *, static_cast<size_t>(TraceClass::count)> kTraceClassNames;
 
-    // The class a draw's triangles get, or empty for grass (stencil 129), which never casts, as for contact shadows.
+    // The G-buffer material id of tall grass, which the game draws as alpha-tested cards under the foliage stencil (137).
+    constexpr uint32_t kTallGrassMaterial = 3;
+
+    // The class a draw's triangles get, or empty for grass, which never casts, as for contact shadows: stencil 129, and
+    // tall grass, a draw whose pixel shader writes kTallGrassMaterial. A meadow's tall grass in build 207 put hundreds of
+    // thousands of cards around every ray that starts at the ground, so rays hit their work cap and a tile took 17 ms.
     std::optional<TraceClass> trace_class(const SceneDrawRecord &record);
 
     // Whether a draw leaves surfaces in the depth buffer: it writes depth, or it draws the prepass's surfaces again at

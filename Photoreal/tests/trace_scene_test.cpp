@@ -146,6 +146,17 @@ int main()
             && !leaves_depth(volume) && leaves_depth(draw("equal", 136)) && leaves_depth(draw("pre", 0)));
         check("the classes map from their stencils", trace_class(draw("main", 144)) == TraceClass::world
             && trace_class(draw("main", 200)) == TraceClass::other && trace_class(draw("pre", 0)) == TraceClass::other);
+        SceneDrawRecord tall = draw("main", 137), leaf = draw("main", 137);
+        AlphaAnalysis grass_shader, leaf_shader;
+        grass_shader.material = kTallGrassMaterial;
+        leaf_shader.material = 2;
+        tall.analysis = std::make_shared<const AlphaAnalysis>(grass_shader);
+        leaf.analysis = std::make_shared<const AlphaAnalysis>(leaf_shader);
+        SceneBuilder meadow;
+        meadow.add_draw(tall, { kA });
+        meadow.add_draw(leaf, { kB });
+        check("tall grass under the foliage stencil, a pixel shader writing material 3, is left out like stencil 129; leaves stay foliage",
+            !trace_class(tall) && trace_class(leaf) == TraceClass::foliage && meadow.counts().dropped_class == 1 && meadow.counts().unique == 1);
     }
     {
         SceneBuilder b;
