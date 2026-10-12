@@ -1,7 +1,7 @@
 // The traced scene: triangle keys on the 1 mm grid, which copy of a triangle is kept, grass left out, the cap on
 // triangles, a face's clip-space corners into the reference's frame, the self-test scene, trace-scene.bin, and the
 // counts of fixtures/scene-194351-near.bin, the triangles of build 199's scene capture within 10 m of its camera, which
-// make_trace_fixture.py wrote and counted.
+// make_trace_fixture.py wrote and counted; and the alpha records of alpha-tested triangles, and their buffer in the file.
 #include "../core/trace_scene.h"
 
 #include <cmath>
@@ -182,6 +182,46 @@ int main()
         check("trace-scene.bin holds the triangles and the reference, 32 + 40 bytes each", bytes.size() == 32 + 3 * 40 && back
             && back->reference == Vec3d { 1776.5, 0.25, -390.75 } && back->triangles.size() == 3 && back->triangles[1].corner == t[1].corner
             && back->triangles[1].info == t[1].info && !parse_trace_scene(bytes.substr(0, bytes.size() - 1)));
+    }
+    {
+        // Alpha tests: a prepass copy of kA with leaves' alpha test, a main copy of it that replaces it with another, a
+        // whole world triangle kB, and kC alpha-tested; each alpha triangle's corners hold (u, v) and the main copy's 10 more.
+        std::ifstream file("fixtures/68b05754fdce207c.ps.dxbc", std::ios::binary);
+        const std::vector<uint8_t> code((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        const AlphaAnalysis cutoff = analyze_alpha(code.data(), code.size());
+        const AlphaDraw pre_alpha { cutoff.program, 2, 1 | 1 << 3, { 1, 2, 3, 4 } }, main_alpha { cutoff.program, 5, 3 | 3 << 3, { 5, 6, 7, 8 } };
+        const float pre_uv[6] = { 0, 0, 1, 0, 0, 1 };
+        const float main_uv[12] = { 10, 10, 11, 10, 10, 11, 0, 0, 1, 0, 0, 1 };
+        SceneBuilder b;
+        b.add_draw(draw("pre", 0), { kA }, &pre_alpha, pre_uv);
+        b.add_draw(draw("main", 128), { kB });
+        b.add_draw(draw("main", 137), { kA, kC }, &main_alpha, main_uv);
+        b.set_atlas(std::vector<uint8_t>(kAtlasTile * kAtlasTile * 6, 7));
+        std::vector<uint32_t> alpha;
+        const std::vector<TraceTriangle> t = b.take(10, &alpha);
+        // The buffer: 4 header words, the program, one draw block (the main copy's: the prepass copy is no longer kept)
+        // with its row, then two records of 1 + 3 x 2 words, then 6 tiles.
+        const uint32_t program_words = static_cast<uint32_t>(cutoff.program->words().size());
+        check("the kept alpha triangles get records in the order they arrive, the replaced prepass copy none, the whole one none",
+            t.size() == 3 && b.counts().alpha == 2 && (t[0].info & kOpaque) == 0 && info_class(t[0].info) == TraceClass::foliage
+                && (t[1].info & kOpaque) == kOpaque && (t[2].info & kOpaque) == 7 && alpha.size() == 4 + program_words + 8 + 14 + 6 * 16384
+                && alpha[0] == 4 + program_words + 8 && alpha[1] == 4 && alpha[2] == 4 + program_words && alpha[3] == 4 + program_words + 8 + 14);
+        const uint32_t draws = alpha[2], records = alpha[0];
+        float first_u;
+        std::memcpy(&first_u, &alpha[records + 1], 4);
+        check("the main copy's block holds its tile, address modes and row, and its record its own corners", alpha[draws] == 0 && alpha[draws + 1] == 5
+            && alpha[draws + 2] == (3 | 3 << 3) && alpha[draws + 3] == 1 && alpha[draws + 4] == 5 && alpha[draws + 7] == 8 && alpha[records] == 0
+            && first_u == 10 && alpha[alpha[3]] == 0x07070707u);
+        SceneBuilder plain;
+        plain.add_draw(draw("main", 128), { kA });
+        std::vector<uint32_t> none = { 1 };
+        plain.take(10, &none);
+        check("a scene without alpha tests gives no alpha buffer", none.empty() && plain.counts().alpha == 0);
+        const std::string bytes = trace_scene_bytes(t, { 1, 2, 3 }, alpha);
+        const std::optional<TraceSceneFile> back = parse_trace_scene(bytes);
+        check("trace-scene.bin with an alpha buffer: its word count and words after the triangles, read back whole",
+            bytes.size() == 32 + 3 * 40 + 4 + alpha.size() * 4 && back && back->alpha == alpha && back->triangles[2].info == t[2].info
+                && !parse_trace_scene(bytes.substr(0, bytes.size() - 4)) && !parse_trace_scene(bytes.substr(0, 32 + 3 * 40 + 2)));
     }
     {
         // Values from make_trace_fixture.py's own deduplication of the same triangles.

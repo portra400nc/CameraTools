@@ -101,6 +101,7 @@ namespace photoreal
         row("trace.sun", t.sun ? "1" : "0");
         row("trace.characters", t.characters ? "1" : "0");
         row("trace.alpha_cards", t.alpha_cards ? "1" : "0");
+        row("trace.whole_cards", t.whole_cards ? "1" : "0");
         row("trace.ao_distance", number(t.ao_distance));
         row("trace.ao_strength", number(t.ao_strength));
         row("trace.sun_size", number(t.sun_size));

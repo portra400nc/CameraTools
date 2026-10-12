@@ -76,7 +76,7 @@ namespace photoreal
             classes |= bit(TraceClass::vegetation) | bit(TraceClass::foliage);
         if (settings.characters)
             classes |= bit(TraceClass::character);
-        return classes;
+        return settings.whole_cards ? classes : classes | kAlphaTests;
     }
 
     Vec3d camera_position(const Camera &camera)

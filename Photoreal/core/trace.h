@@ -16,7 +16,7 @@
 namespace photoreal
 {
     // The classes a ray sees with these settings, as bits 1 << TraceClass: the world and other classes always,
-    // vegetation and foliage with alpha cards, characters with characters.
+    // vegetation and foliage with alpha cards, characters with characters; and kAlphaTests unless whole cards.
     uint32_t caster_classes(const TraceSettings &settings);
 
     // shaders/trace_cs.hlsl's cbuffer Trace at b0, which apply_trace_ps.hlsl reads at b1: 160 bytes.

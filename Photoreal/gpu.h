@@ -24,7 +24,7 @@ namespace photoreal
     struct TraceSave;   // core/trace_files.h
 
     // Our shaders declare registers only inside these ranges, and StateGuard saves and restores exactly these.
-    constexpr UINT kSrvSlots = 8;       // t0..t7; the trace kernel uses t0..t5
+    constexpr UINT kSrvSlots = 8;       // t0..t7; the trace kernel uses t0..t6
     constexpr UINT kSamplerSlots = 4;   // s0..s3
     constexpr UINT kCbSlots = 5;        // b0..b4
     constexpr UINT kUavSlots = 2;       // u0..u1, compute only: the trace kernel's history and counters

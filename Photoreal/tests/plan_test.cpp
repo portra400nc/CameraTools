@@ -1065,11 +1065,11 @@ int main()
         raw.trace.outputs = 0;
         raw.trace.casters = 0xFFFFFFFFu;
         const TraceSettings all = parse_settings(raw).trace;
-        check("outputs 0 reads as both, and casters keep their known bits", all.ao && all.sun && all.characters && all.alpha_cards);
+        check("outputs 0 reads as both, and casters keep their known bits", all.ao && all.sun && all.characters && all.alpha_cards && all.whole_cards);
         raw.size = 172;     // a caller of version 7
         const TraceSettings before = parse_settings(raw).trace;
         check("a 172-byte struct keeps the trace off at 2 m, 0.0093, 64 and 32 samples and 20 ms, with characters and cards casting",
-            !before.enabled && before.ao && before.sun && before.characters && before.alpha_cards && before.ao_distance == 2.0f
+            !before.enabled && before.ao && before.sun && before.characters && before.alpha_cards && !before.whole_cards && before.ao_distance == 2.0f
             && before.ao_strength == 1.0f && before.sun_size == 0.0093f && before.sun_strength == 1.0f && before.ao_samples == 64
             && before.sun_samples == 32 && before.budget_ms == 20.0f);
         raw.size = 211;

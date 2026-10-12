@@ -1,6 +1,7 @@
 // The trace pass's D3D11 side. Render thread only, on the native immediate context like gpu.h.
 //
-// It holds the traced scene's BVH in two raw buffers, filled a part each present after the writer thread built it; the
+// It holds the traced scene's BVH in two raw buffers and its alpha buffer (core/alpha.h) in a third, filled a part each
+// present after the writer thread built them; the
 // per-pixel history (a structured buffer of float4 at the render size: occlusion sum, sun sum and their counts); the
 // kernel's counters; the Morton list of tiles; and per dispatch a set of timestamp queries and a CPU-readable copy of the
 // counters, read presents later without waiting, which set the next frame's tiles from the time budget. Every D3D11 call
@@ -46,10 +47,10 @@ namespace photoreal
         void release();                         // NONE: frees the scene, history and copies
         void stale(const std::string &why);     // STALE: stops tracing, keeps the buffers until the next scene or a release
 
-        // Starts uploading a built scene as generation: makes the compute shader the first time, the node and triangle
-        // buffers, and moves to UPLOADING. false, in FAILED with why, when one could not be made; buffer says whether it
-        // was a buffer, which a smaller scene may fit.
-        bool begin_upload(std::shared_ptr<const Bvh> bvh, uint64_t generation, bool &buffer);
+        // Starts uploading a built scene as generation: makes the compute shader the first time, the node, triangle and
+        // alpha buffers (16 bytes of zeros for a scene without alpha tests), and moves to UPLOADING. false, in FAILED with
+        // why, when one could not be made; buffer says whether it was a buffer, which a smaller scene may fit.
+        bool begin_upload(std::shared_ptr<const Bvh> bvh, std::shared_ptr<const std::vector<uint32_t>> alpha, uint64_t generation, bool &buffer);
         // Whether rays from the camera must meet the scene where the depth buffer does; off for the self-test scene, which
         // no frame shows and which would go stale after its first pass.
         void check_consistency(bool on) { check_consistency_ = on; }
@@ -61,6 +62,7 @@ namespace photoreal
         const std::string &why() const { return why_; }
         uint64_t generation() const { return generation_; }
         uint32_t triangles() const { return triangles_; }
+        uint64_t alpha_bytes() const { return alpha_bytes_; }
         uint32_t nodes() const { return node_count_; }
         uint64_t hash() const { return hash_; }
         uint32_t passes() const { return trace_passes(schedule_); }
@@ -130,9 +132,11 @@ namespace photoreal
         ComPtr<ID3D11DeviceContext1> context_;
         ComPtr<ID3D11ComputeShader> cs_;
         ComPtr<ID3D11Buffer> constants_;
-        ComPtr<ID3D11Buffer> node_buffer_, triangle_buffer_;
-        ComPtr<ID3D11ShaderResourceView> node_srv_, triangle_srv_;
+        ComPtr<ID3D11Buffer> node_buffer_, triangle_buffer_, alpha_buffer_;
+        ComPtr<ID3D11ShaderResourceView> node_srv_, triangle_srv_, alpha_srv_;
         std::shared_ptr<const Bvh> uploading_;
+        std::shared_ptr<const std::vector<uint32_t>> uploading_alpha_;
+        uint64_t alpha_bytes_ = 0;
         uint64_t uploaded_ = 0;
         uint32_t upload_presents_ = 0;
         ComPtr<ID3D11Buffer> tiles_;

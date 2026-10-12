@@ -246,7 +246,9 @@ enum
 enum
 {
     PHOTOREAL_TRACE_CAST_CHARACTERS = 1u << 0,  // characters (stencil 133 and 165), whose own pixels keep the game's values
-    PHOTOREAL_TRACE_CAST_ALPHA_CARDS = 1u << 2, // vegetation and foliage (136 and 137), as whole cards until alpha tests come
+    PHOTOREAL_TRACE_CAST_ALPHA_CARDS = 1u << 2, // vegetation and foliage (136 and 137)
+    PHOTOREAL_TRACE_CAST_WHOLE_CARDS = 1u << 3, // alpha-tested casters cast their whole triangles: the alpha tests off, as before
+                                                // T1b, for comparison
 };
 
 // The traced scene's state, values of PhotorealStatus.trace_state.

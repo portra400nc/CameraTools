@@ -94,9 +94,13 @@ namespace photoreal
     {
         node_buffer_.Reset();
         triangle_buffer_.Reset();
+        alpha_buffer_.Reset();
         node_srv_.Reset();
         triangle_srv_.Reset();
+        alpha_srv_.Reset();
         uploading_.reset();
+        uploading_alpha_.reset();
+        alpha_bytes_ = 0;
         uploaded_ = 0;
         upload_presents_ = 0;
         triangles_ = node_count_ = 0;
@@ -167,29 +171,37 @@ namespace photoreal
         return true;
     }
 
-    bool TraceGpu::begin_upload(std::shared_ptr<const Bvh> bvh, uint64_t generation, bool &buffer)
+    bool TraceGpu::begin_upload(std::shared_ptr<const Bvh> bvh, std::shared_ptr<const std::vector<uint32_t>> alpha, uint64_t generation, bool &buffer)
     {
         buffer = false;
         free_scene();
         if (!make_shader())
             return false;
         const uint64_t node_bytes = bvh->nodes.size() * sizeof(BvhNode), triangle_bytes = bvh->triangles.size() * sizeof(BvhTriangle);
-        if (node_bytes > (256ull << 20) || triangle_bytes > (256ull << 20))
+        const uint64_t alpha_bytes = alpha ? alpha->size() * 4 : 0;
+        if (node_bytes > (256ull << 20) || triangle_bytes > (256ull << 20) || alpha_bytes > (256ull << 20))
         {
             buffer = true;
-            fail("its buffers would pass 256 MB: " + megabytes(node_bytes) + " of nodes and " + megabytes(triangle_bytes) + " of triangles");
+            fail("its buffers would pass 256 MB: " + megabytes(node_bytes) + " of nodes, " + megabytes(triangle_bytes) + " of triangles and "
+                + megabytes(alpha_bytes) + " of alpha tests");
             return false;
         }
+        // A scene without alpha tests binds 16 bytes of zeros, which no triangle's record reads.
+        const uint32_t empty[4] = {};
         HRESULT hr = raw_buffer(device_.Get(), static_cast<UINT>(node_bytes), nullptr, node_buffer_, node_srv_);
         if (SUCCEEDED(hr))
             hr = raw_buffer(device_.Get(), static_cast<UINT>(triangle_bytes), nullptr, triangle_buffer_, triangle_srv_);
+        if (SUCCEEDED(hr))
+            hr = raw_buffer(device_.Get(), alpha_bytes != 0 ? static_cast<UINT>(alpha_bytes) : 16, alpha_bytes != 0 ? nullptr : empty, alpha_buffer_, alpha_srv_);
         if (FAILED(hr))
         {
             buffer = true;
-            fail("its buffers of " + megabytes(node_bytes) + " of nodes and " + megabytes(triangle_bytes) + " of triangles could not be made ("
-                + hresult_text("CreateBuffer", hr) + ")");
+            fail("its buffers of " + megabytes(node_bytes) + " of nodes, " + megabytes(triangle_bytes) + " of triangles and " + megabytes(alpha_bytes)
+                + " of alpha tests could not be made (" + hresult_text("CreateBuffer", hr) + ")");
             return false;
         }
+        uploading_alpha_ = alpha_bytes != 0 ? std::move(alpha) : nullptr;
+        alpha_bytes_ = alpha_bytes;
         uploading_ = std::move(bvh);
         generation_ = generation;
         triangles_ = static_cast<uint32_t>(uploading_->triangles.size());
@@ -205,23 +217,37 @@ namespace photoreal
         if (state_ != TraceState::uploading || !uploading_)
             return false;
         upload_presents_++;
-        const uint64_t node_bytes = uploading_->nodes.size() * sizeof(BvhNode);
-        const uint64_t total = node_bytes + uploading_->triangles.size() * sizeof(BvhTriangle);
+        // The nodes, then the triangles, then the alpha buffer, as one run of bytes.
+        const struct Part
+        {
+            ID3D11Buffer *buffer;
+            const uint8_t *data;
+            uint64_t bytes;
+        } parts[] = {
+            { node_buffer_.Get(), reinterpret_cast<const uint8_t *>(uploading_->nodes.data()), uploading_->nodes.size() * sizeof(BvhNode) },
+            { triangle_buffer_.Get(), reinterpret_cast<const uint8_t *>(uploading_->triangles.data()), uploading_->triangles.size() * sizeof(BvhTriangle) },
+            { alpha_buffer_.Get(), uploading_alpha_ ? reinterpret_cast<const uint8_t *>(uploading_alpha_->data()) : nullptr, alpha_bytes_ },
+        };
+        uint64_t total = 0;
+        for (const Part &part : parts)
+            total += part.bytes;
         const uint64_t end = std::min(total, uploaded_ + kTraceUploadBytes);
         // UpdateSubresource returns nothing; the buffers were made, and a box inside them cannot fail.
         while (uploaded_ < end)
         {
-            const bool nodes = uploaded_ < node_bytes;
-            const uint64_t base = nodes ? 0 : node_bytes;
-            const uint64_t stop = std::min(end, nodes ? node_bytes : total);
-            const auto *source = nodes ? reinterpret_cast<const uint8_t *>(uploading_->nodes.data()) : reinterpret_cast<const uint8_t *>(uploading_->triangles.data());
+            uint64_t base = 0;
+            const Part *part = parts;
+            while (uploaded_ >= base + part->bytes)
+                base += part++->bytes;
+            const uint64_t stop = std::min(end, base + part->bytes);
             const D3D11_BOX box = { static_cast<UINT>(uploaded_ - base), 0, 0, static_cast<UINT>(stop - base), 1, 1 };
-            context_->UpdateSubresource(nodes ? node_buffer_.Get() : triangle_buffer_.Get(), 0, &box, source + (uploaded_ - base), 0, 0);
+            context_->UpdateSubresource(part->buffer, 0, &box, part->data + (uploaded_ - base), 0, 0);
             uploaded_ = stop;
         }
         if (uploaded_ < total)
             return false;
         uploading_.reset();
+        uploading_alpha_.reset();
         state_ = TraceState::ready;
         key_.reset();
         schedule_ = {};
@@ -327,7 +353,7 @@ namespace photoreal
         const UINT zero[4] = {};
         c->ClearUnorderedAccessViewUint(counters_uav_.Get(), zero);
         ID3D11Buffer *const buffers[] = { constants_.Get() };
-        ID3D11ShaderResourceView *const srvs[] = { node_srv_.Get(), triangle_srv_.Get(), normals, depth, stencil, tiles_srv_.Get() };
+        ID3D11ShaderResourceView *const srvs[] = { node_srv_.Get(), triangle_srv_.Get(), normals, depth, stencil, tiles_srv_.Get(), alpha_srv_.Get() };
         ID3D11UnorderedAccessView *const uavs[] = { history_uav_.Get(), counters_uav_.Get() };
         c->CSSetShader(cs_.Get(), nullptr, 0);
         c->CSSetConstantBuffers(0, 1, buffers);

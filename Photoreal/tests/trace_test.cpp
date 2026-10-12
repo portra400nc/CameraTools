@@ -4,6 +4,7 @@
 // the constants, one dispatch's work on the pixels of a camera looking down at a floor half under a roof, the
 // consistency grid's classes and reasons, and the grid of build 202's view on the Deck (fixtures/scene-221045-grid.bin). With an
 // output folder it also writes the synthetic traced frame run.sh hands to trace_reference and check_trace.py.
+#include "../core/alpha.h"
 #include "../core/trace_files.h"
 #include "../photoreal.h"
 
@@ -67,10 +68,11 @@ namespace
         return v;
     }
 
-    // The synthetic traced frame: a courtyard of a floor and three walls 4 m high with a 1 m cube in it, 100 m east and
-    // 50 m south of the world's origin, seen from inside at 96x64 with the sun low over the open side. Its depth, normals
-    // and stencil are ray cast exactly, its history is this kernel's own over 6 passes, and a broken copy has a block of
-    // sun samples flipped, which check_trace.py must refuse.
+    // The synthetic traced frame: a courtyard of a floor and three walls 4 m high with a 1 m cube in it and a 2 m foliage
+    // card alpha-tested by the census shader 68b05754 with a checkerboard, 100 m east and 50 m south of the world's origin,
+    // seen from inside at 96x64 with the sun low over the open side. Its depth, normals and stencil are ray cast exactly,
+    // with the card's holes, its history is this kernel's own over 6 passes, and a broken copy has a block of sun samples
+    // flipped, which check_trace.py must refuse.
     namespace synthetic
     {
         constexpr uint32_t kWidth = 96, kHeight = 64;
@@ -88,9 +90,15 @@ namespace
             return { a[0] / l, a[1] / l, a[2] / l };
         }
 
-        // Writes scene-trace-synthetic/trace-scene.bin, trace-synthetic/ and trace-synthetic-broken/ into out. Returns the
-        // pixels the cube's shadow darkens, for a check.
-        uint32_t write(const std::filesystem::path &out)
+        struct Written
+        {
+            uint32_t shadowed = 0;  // pixels in full sun shadow
+            uint32_t card = 0;      // pixels that show the card
+            uint32_t holes = 0;     // pixels whose ray passes through a hole of the card, which it would meet whole
+        };
+
+        // Writes scene-trace-synthetic/trace-scene.bin, trace-synthetic/ and trace-synthetic-broken/ into out.
+        Written write(const std::filesystem::path &out)
         {
             const Vec3d reference = { 100, 0, -50 };
             std::vector<TraceTriangle> triangles;
@@ -104,11 +112,31 @@ namespace
             quad(triangles, { x0, 0, z0 }, { x0, 1, z0 }, { x0, 1, z1 }, { x0, 0, z1 });
             quad(triangles, { x1, 0, z0 }, { x1, 0, z1 }, { x1, 1, z1 }, { x1, 1, z0 });
             quad(triangles, { x0, 1, z0 }, { x1, 1, z0 }, { x1, 1, z1 }, { x0, 1, z1 });
+            // The card: t0.w of a 4x4 checkerboard against cb2[14].y = 0.5, its UV from its corners.
+            std::ifstream file("fixtures/68b05754fdce207c.ps.dxbc", std::ios::binary);
+            const std::vector<uint8_t> code((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+            const AlphaAnalysis cutoff = analyze_alpha(code.data(), code.size());
+            std::vector<uint8_t> atlas(kAtlasTile * kAtlasTile);
+            for (uint32_t i = 0; i < atlas.size(); i++)
+                atlas[i] = ((i % kAtlasTile / 64 + i / kAtlasTile / 64) % 2) ? 255 : 0;
+            AlphaBuffer buffer;
+            const float half = 0.5f;
+            uint32_t half_bits;
+            std::memcpy(&half_bits, &half, 4);
+            const uint32_t draw = buffer.add_draw(buffer.add_program(cutoff.program), 0, 3 | 3 << 3, { 0, half_bits, 0, 0 });
+            const Vec3f a = { -3, 0.2f, -1.5f }, b = { -1, 0.2f, -1.5f }, c = { -1, 2.2f, -1.5f }, d = { -3, 2.2f, -1.5f };
+            const float uv_abc[6] = { 0, 0, 1, 0, 1, 1 }, uv_acd[6] = { 0, 0, 1, 1, 0, 1 };
+            triangles.push_back(triangle(a, b, c));
+            triangles.back().info = triangle_info(TraceClass::foliage, buffer.add_record(draw, uv_abc, 2));
+            triangles.push_back(triangle(a, c, d));
+            triangles.back().info = triangle_info(TraceClass::foliage, buffer.add_record(draw, uv_acd, 2));
+            const std::vector<uint32_t> alpha = buffer.words(atlas);
             const std::filesystem::path scene = out / "scene-trace-synthetic";
             std::filesystem::create_directories(scene);
-            const std::string bytes = trace_scene_bytes(triangles, reference);
+            const std::string bytes = trace_scene_bytes(triangles, reference, alpha);
             std::ofstream(scene / "trace-scene.bin", std::ios::binary).write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
             const Bvh bvh = build_bvh(triangles);
+            Written written;
 
             // 1.6 m up and 4 m from the open side, looking toward -z and 15 degrees down, a 60-degree view.
             const Vec3 eye = { 0, 1.6f, 4 };
@@ -139,17 +167,21 @@ namespace
                 {
                     const float vx = float(((x + 0.5) / kWidth * 2 - 1) / fx), vy = float((1 - (y + 0.5) / kHeight * 2) / fy);
                     const Vec3 d = { right[0] * vx + up[0] * vy + forward[0], right[1] * vx + up[1] * vy + forward[1], right[2] * vx + up[2] * vy + forward[2] };
-                    const std::optional<Hit> hit = trace_nearest(bvh, eye, d, 1e5f);
+                    const std::optional<Hit> hit = trace_nearest(bvh, eye, d, 1e5f, kAllClasses | kAlphaTests, nullptr, &alpha);
+                    const std::optional<Hit> whole = trace_nearest(bvh, eye, d, 1e5f);
                     if (!hit)
                         continue;
                     const BvhTriangle &t = bvh.triangles[hit->triangle];
+                    const bool card = info_class(t.info) == TraceClass::foliage;
+                    written.card += card;
+                    written.holes += whole && info_class(bvh.triangles[whole->triangle].info) == TraceClass::foliage && !card;
                     Vec3 n = unit3(cross3({ t.e1[0], t.e1[1], t.e1[2] }, { t.e2[0], t.e2[1], t.e2[2] }));
                     if (dot(n, d) > 0)
                         n = { -n[0], -n[1], -n[2] };
                     const size_t at = size_t(y) * kWidth + x;
                     image.depth[at] = 0.1f / hit->t;
                     image.normals[at] = encode_normal(n);
-                    image.stencil[at] = 128;
+                    image.stencil[at] = card ? 137 : 128;
                 }
 
             TraceSettings settings;
@@ -165,7 +197,7 @@ namespace
                     for (uint32_t x = 0; x < kWidth; x++)
                     {
                         float *h = &save.history[(size_t(y) * kWidth + x) * 4];
-                        const PixelTrace r = trace_pixel(bvh, image, save.constants, x, y, { h[0], h[1], h[2], h[3] });
+                        const PixelTrace r = trace_pixel(bvh, image, save.constants, x, y, { h[0], h[1], h[2], h[3] }, &alpha);
                         std::copy(r.history.begin(), r.history.end(), h);
                     }
             save.depth = image.depth;
@@ -183,9 +215,8 @@ namespace
             save.nodes = static_cast<uint32_t>(bvh.nodes.size());
             save.passes = 6;
             write_trace_folder(out / "trace-synthetic", save);
-            uint32_t shadowed = 0;
             for (size_t i = 0; i < size_t(kWidth) * kHeight; i++)
-                shadowed += save.history[i * 4 + 3] > 0 && save.history[i * 4 + 1] == 0;
+                written.shadowed += save.history[i * 4 + 3] > 0 && save.history[i * 4 + 1] == 0;
             // A 24x24 block of the floor sees the sun where it did not and not where it did.
             for (uint32_t y = 36; y < 60; y++)
                 for (uint32_t x = 30; x < 54; x++)
@@ -194,7 +225,7 @@ namespace
                     h[1] = h[3] - h[1];
                 }
             write_trace_folder(out / "trace-synthetic-broken", save);
-            return shadowed;
+            return written;
         }
     }
 
@@ -305,9 +336,13 @@ int main(int argc, char **argv)
             && trace_reset(a, trace_key(1, { 64, 64 }, camera, { 0, 1, 2e-5f }, settings)) && trace_reset(a, trace_key(2, { 64, 64 }, camera, { 0, 1, 0 }, settings))
             && trace_reset(a, trace_key(1, { 64, 32 }, camera, { 0, 1, 0 }, settings)) && trace_reset(a, trace_key(1, { 64, 64 }, camera, { 0, 1, 0 }, other))
             && !trace_reset(a, trace_key(1, { 64, 64 }, camera, { 0, 1, 0 }, more)));
-        check("the classes a ray sees", caster_classes(settings) == 0x1F && caster_classes(other) == 0x0F);
+        check("the classes a ray sees, with the alpha tests", caster_classes(settings) == (0x1F | kAlphaTests) && caster_classes(other) == (0x0F | kAlphaTests));
         other.alpha_cards = false;
-        check("without cards and characters only the world and other", caster_classes(other) == 0x09);
+        check("without cards and characters only the world and other", caster_classes(other) == (0x09 | kAlphaTests));
+        TraceSettings whole = settings;
+        whole.whole_cards = true;
+        check("whole cards: the same classes without the alpha tests, and a change of it starts the samples again", caster_classes(whole) == 0x1F
+            && trace_reset(a, trace_key(1, { 64, 64 }, camera, { 0, 1, 0 }, whole)));
     }
     {
         const SunFacts facts = sun_facts(load_sun("fixtures/scene-194351-face-6-sun.bin"));
@@ -328,7 +363,7 @@ int main(int argc, char **argv)
         check("the constants: the eye relative to the reference, the sun's cone for 0.0093, the parameters and counts", c
             && near(c->eye_position[0], 0, 1e-6f) && near(c->eye_position[1], 1.5f, 1e-6f) && near(c->eye_position[2], 0, 1e-6f)
             && c->sun_cone[1] == 1.0f && near(c->sun_cone[3], 0.99998919f, 1e-7f) && c->trace_params[0] == 2.0f && c->trace_params[3] == 0.6f
-            && c->trace_counts[0] == 64 && c->trace_counts[1] == 32 && c->trace_counts[2] == 0x1F && c->trace_counts[3] == 3 && c->trace_tiles[3] == 9
+            && c->trace_counts[0] == 64 && c->trace_counts[1] == 32 && c->trace_counts[2] == (0x1F | kAlphaTests) && c->trace_counts[3] == 3 && c->trace_tiles[3] == 9
             && c->trace_render[0] == 8 && c->trace_render[2] == 0 && c->trace_render[3] == 16);
         // Clip (0.5, -0.5, 0.125, 1) is 2 m below the eye, half a distance right and half back: (1, 0, -1) in the world.
         const float clip[4] = { 0.5f, -0.5f, 0.125f, 1 };
@@ -491,11 +526,13 @@ int main(int argc, char **argv)
     }
     if (argc > 1)
     {
-        const uint32_t shadowed = synthetic::write(argv[1]);
-        std::printf("INFO the synthetic traced frame has %u pixels in full sun shadow\n", shadowed);
-        check("the synthetic traced frame is written, with sun shadows in it", std::filesystem::file_size(std::filesystem::path(argv[1]) / "trace-synthetic"
-            / "history.f32") == synthetic::kWidth * synthetic::kHeight * 16 && std::filesystem::exists(std::filesystem::path(argv[1]) / "scene-trace-synthetic"
-            / "trace-scene.bin") && shadowed > 100);
+        const synthetic::Written written = synthetic::write(argv[1]);
+        std::printf("INFO the synthetic traced frame has %u pixels in full sun shadow, %u of the card and %u through its holes\n", written.shadowed,
+            written.card, written.holes);
+        check("the synthetic traced frame is written, with sun shadows, the card and the wall through its holes in it",
+            std::filesystem::file_size(std::filesystem::path(argv[1]) / "trace-synthetic" / "history.f32") == synthetic::kWidth * synthetic::kHeight * 16
+                && std::filesystem::exists(std::filesystem::path(argv[1]) / "scene-trace-synthetic" / "trace-scene.bin") && written.shadowed > 100
+                && written.card > 50 && written.holes > 50);
     }
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;

@@ -110,7 +110,7 @@ namespace CameraToolsPhotoreal
 
     // PHOTOREAL_TRACE_CAST_* in photoreal.h: what casts in the traced scene besides the world.
     [Flags]
-    internal enum PhotorealTraceCasters : uint { None = 0, Characters = 1 << 0, AlphaCards = 1 << 2 }
+    internal enum PhotorealTraceCasters : uint { None = 0, Characters = 1 << 0, AlphaCards = 1 << 2, WholeCards = 1 << 3 }
 
     // PHOTOREAL_TRACE_STATE_* in photoreal.h, in order.
     internal enum PhotorealTraceState : uint { None, Building, Uploading, Ready, Stale, Failed }

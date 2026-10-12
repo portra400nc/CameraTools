@@ -174,6 +174,7 @@ namespace photoreal
         struct TraceBuilt
         {
             std::shared_ptr<const Bvh> bvh;         // empty when error says why
+            std::shared_ptr<const std::vector<uint32_t>> alpha;  // its alpha buffer, empty without alpha tests
             std::string error;
             TraceScene scene;
         };
@@ -721,14 +722,16 @@ namespace photoreal
             std::shared_ptr<TraceBuild> trace;      // a PHOTOREAL_SCENE_TRACE capture's triangles, touched only by worker jobs
         };
 
-        // On the writer thread, after a traced scene's last face: writes its triangles to trace-scene.bin in its folder,
-        // builds their BVH, and hands it to the render thread through trace_box. Never throws.
-        void build_trace(std::vector<TraceTriangle> triangles, TraceScene scene, const fs::path &folder)
+        // On the writer thread, after a traced scene's last face: writes its triangles and alpha buffer to trace-scene.bin
+        // in its folder, builds their BVH, and hands both to the render thread through trace_box. Never throws.
+        void build_trace(std::vector<TraceTriangle> triangles, std::vector<uint32_t> alpha, TraceScene scene, const fs::path &folder)
         {
             TraceBuilt built;
             try
             {
-                write_file(folder / "trace-scene.bin", trace_scene_bytes(triangles, scene.reference));
+                write_file(folder / "trace-scene.bin", trace_scene_bytes(triangles, scene.reference, alpha));
+                if (!alpha.empty())
+                    built.alpha = std::make_shared<const std::vector<uint32_t>>(std::move(alpha));
                 const auto start = std::chrono::steady_clock::now();
                 Bvh bvh = build_bvh(triangles, BvhOptions {});
                 scene.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
@@ -768,7 +771,7 @@ namespace photoreal
             worker.push([folder, scene, forward] {
                 std::error_code error;
                 fs::create_directories(folder, error);
-                build_trace(self_test_scene(forward), scene, folder);
+                build_trace(self_test_scene(forward), {}, scene, folder);
             });
         }
 
@@ -1052,9 +1055,10 @@ namespace photoreal
                     scene.reference = this_build->reference;
                     scene.floating_origin = this_build->floating_origin;
                     std::vector<TraceTriangle> triangles;
+                    std::vector<uint32_t> alpha;
                     try
                     {
-                        triangles = this_build->builder.take(cap);
+                        triangles = this_build->builder.take(cap, &alpha);
                     }
                     catch (const std::exception &e)
                     {
@@ -1064,7 +1068,7 @@ namespace photoreal
                         return;
                     }
                     scene.counts = this_build->builder.counts();
-                    build_trace(std::move(triangles), std::move(scene), folder);
+                    build_trace(std::move(triangles), std::move(alpha), std::move(scene), folder);
                 });
             }
             scene_gpu.end();
@@ -1178,7 +1182,10 @@ namespace photoreal
                         trace->reference = data.origin;
                         if (!trace->floating_origin && data.sun)
                             trace->floating_origin = sun_facts(*data.sun).floating_origin;
-                        add_face(trace->builder, data.camera, data.origin, data.records, data.clip);
+                        add_face(trace->builder, data.camera, data.origin, data.records, data.clip, data.attributes, data.constants);
+                        // Every face's read holds the atlas whole, so the last one's is the capture's.
+                        if (!data.atlas.empty())
+                            trace->builder.set_atlas(data.atlas);
                     }
                     catch (const std::exception &e)
                     {
@@ -1285,8 +1292,10 @@ namespace photoreal
                     + " captured, or of the self-test scene when none were (" + std::to_string(c.unique) + " unique on the 1 mm grid, " + std::to_string(c.replaced) + " prepass or equal-depth copies "
                     "replaced by a main draw's, " + std::to_string(c.pre_only) + " drawn by the prepass alone, " + std::to_string(c.dropped_class)
                     + " of grass and " + std::to_string(c.dropped_no_depth) + " of draws that write no depth left out, " + std::to_string(c.dropped_degenerate) + " degenerate, " + std::to_string(c.past_max)
-                    + " farthest past the cap), a BVH of " + std::to_string(trace_gpu.nodes()) + " nodes built in " + seconds + " s, hash " + hash + "; uploading " + megabytes(uint64_t(trace_gpu.nodes()) * sizeof(BvhNode) + uint64_t(trace_gpu.triangles())
-                    * sizeof(BvhTriangle)) + " a part of " + megabytes(kTraceUploadBytes) + " each present. trace-scene.bin is in " + trace_scene.folder + ".");
+                    + " farthest past the cap; " + std::to_string(c.alpha) + " alpha-tested, " + std::to_string(c.alpha_past_max) + " whole past the alpha records' 64 MB), a BVH of "
+                    + std::to_string(trace_gpu.nodes()) + " nodes built in " + seconds + " s, hash " + hash + "; uploading " + megabytes(uint64_t(trace_gpu.nodes()) * sizeof(BvhNode) + uint64_t(trace_gpu.triangles())
+                    * sizeof(BvhTriangle) + trace_gpu.alpha_bytes()) + " (" + megabytes(trace_gpu.alpha_bytes()) + " of alpha tests) a part of " + megabytes(kTraceUploadBytes)
+                    + " each present. trace-scene.bin is in " + trace_scene.folder + ".");
                 break;
             case TraceState::ready:
                 log(reshade::log::level::info, "the traced scene is ready after " + std::to_string(trace_gpu.upload_presents()) + " presents of upload, generation "
@@ -1317,7 +1326,7 @@ namespace photoreal
                     bool buffer = false;
                     trace_scene = built.scene;
                     trace_gpu.check_consistency(!trace_scene.self_test);
-                    if (!trace_gpu.begin_upload(built.bvh, ++trace_generations, buffer) && buffer)
+                    if (!trace_gpu.begin_upload(built.bvh, built.alpha, ++trace_generations, buffer) && buffer)
                     {
                         trace_max_triangles = std::max<uint64_t>(trace_max_triangles / 2, 1);
                         trace_gpu.fail(trace_gpu.why() + "; the next traced capture keeps its nearest " + std::to_string(trace_max_triangles) + " triangles");

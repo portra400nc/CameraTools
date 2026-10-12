@@ -319,6 +319,7 @@ namespace photoreal
             s.trace.sun = outputs == 0 || (outputs & PHOTOREAL_TRACE_SUN) != 0;
             s.trace.characters = (r.casters & PHOTOREAL_TRACE_CAST_CHARACTERS) != 0;
             s.trace.alpha_cards = (r.casters & PHOTOREAL_TRACE_CAST_ALPHA_CARDS) != 0;
+            s.trace.whole_cards = (r.casters & PHOTOREAL_TRACE_CAST_WHOLE_CARDS) != 0;
             s.trace.ao_distance = finite_or(r.ao_distance, trace_defaults.ao_distance, 0.1f, 20.0f);
             s.trace.ao_strength = finite_or(r.ao_strength, trace_defaults.ao_strength, 0.0f, 1.0f);
             s.trace.sun_size = finite_or(r.sun_size, trace_defaults.sun_size, 0.0f, 0.2f);

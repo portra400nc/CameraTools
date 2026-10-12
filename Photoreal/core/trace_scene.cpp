@@ -105,7 +105,8 @@ namespace photoreal
         }
     }
 
-    void SceneBuilder::add_draw(const SceneDrawRecord &draw, const std::vector<std::array<Vec3d, 3>> &triangles)
+    void SceneBuilder::add_draw(const SceneDrawRecord &draw, const std::vector<std::array<Vec3d, 3>> &triangles, const AlphaDraw *alpha,
+        const float *attributes)
     {
         counts_.in += triangles.size();
         if (!leaves_depth(draw))
@@ -121,8 +122,22 @@ namespace photoreal
         }
         const uint8_t r = rank(draw);
         const uint32_t info = triangle_info(*cls);
-        for (const std::array<Vec3d, 3> &corners : triangles)
+        // The draw's alpha test, kept once for all its triangles.
+        uint32_t alpha_draw = 0;
+        const uint32_t floats = alpha && alpha->program ? alpha->program->attribute_floats() : 0;
+        if (alpha && alpha->program && (attributes || floats == 0))
         {
+            alpha_draws_.push_back(*alpha);
+            alpha_draw = static_cast<uint32_t>(alpha_draws_.size());
+        }
+        for (size_t n = 0; n < triangles.size(); n++)
+        {
+            const std::array<Vec3d, 3> &corners = triangles[n];
+            const uint64_t at = attributes_.size();
+            const auto keep_attributes = [&] {
+                if (alpha_draw != 0)
+                    attributes_.insert(attributes_.end(), attributes + n * 3 * floats, attributes + (n + 1) * 3 * floats);
+            };
             const std::optional<TriangleKey> key = triangle_key(corners);
             if (!key)
             {
@@ -133,67 +148,121 @@ namespace photoreal
             if ((keys_.size() + 1) * 2 > slots_.size())
                 grow();
             const size_t mask = slots_.size() - 1;
-            size_t at = hash(*key) & mask;
-            while (slots_[at] != 0 && !(keys_[slots_[at] - 1] == *key))
-                at = (at + 1) & mask;
+            size_t slot = hash(*key) & mask;
+            while (slots_[slot] != 0 && !(keys_[slots_[slot] - 1] == *key))
+                slot = (slot + 1) & mask;
             TraceTriangle t;
             for (int c = 0; c < 3; c++)
                 for (int k = 0; k < 3; k++)
                     t.corner[c][k] = static_cast<float>(corners[c][k]);
             t.info = info;
-            if (slots_[at] == 0)
+            if (slots_[slot] == 0)
             {
-                slots_[at] = static_cast<uint32_t>(keys_.size() + 1);
+                slots_[slot] = static_cast<uint32_t>(keys_.size() + 1);
                 keys_.push_back(*key);
                 triangles_.push_back(t);
                 ranks_.push_back(r);
+                alpha_of_.push_back(alpha_draw);
+                attributes_at_.push_back(at);
+                keep_attributes();
                 counts_.unique++;
                 counts_.pre_only += r == 0;
                 continue;
             }
             // The faces arrive in capture order, so of two copies of one kind the kept one came first.
-            const uint32_t index = slots_[at] - 1;
+            const uint32_t index = slots_[slot] - 1;
             if (r <= ranks_[index])
                 continue;
             counts_.pre_only -= ranks_[index] == 0;
             triangles_[index] = t;
             ranks_[index] = r;
+            alpha_of_[index] = alpha_draw;
+            attributes_at_[index] = at;
+            keep_attributes();
             counts_.replaced++;
         }
     }
 
-    std::vector<TraceTriangle> SceneBuilder::take(uint64_t max_triangles)
+    std::vector<TraceTriangle> SceneBuilder::take(uint64_t max_triangles, std::vector<uint32_t> *alpha)
     {
         std::vector<TraceTriangle> out = std::move(triangles_);
         triangles_ = {};
         keys_ = {};
         ranks_ = {};
         slots_ = {};
+        // Each kept triangle's index among out, nearest first past max_triangles, ties by arrival, so the kept set does not
+        // depend on the sort's order.
+        std::vector<uint32_t> kept_index;
         if (out.size() <= max_triangles)
-            return out;
-        // Nearest first, ties by arrival, so the kept set does not depend on the sort's order.
-        std::vector<std::pair<double, uint32_t>> order(out.size());
-        for (uint32_t i = 0; i < out.size(); i++)
-            order[i] = { distance2(out[i]), i };
-        std::nth_element(order.begin(), order.begin() + static_cast<std::ptrdiff_t>(max_triangles), order.end());
-        order.resize(max_triangles);
-        std::sort(order.begin(), order.end(), [](const auto &a, const auto &b) { return a.second < b.second; });
+        {
+            kept_index.resize(out.size());
+            for (uint32_t i = 0; i < out.size(); i++)
+                kept_index[i] = i;
+        }
+        else
+        {
+            std::vector<std::pair<double, uint32_t>> order(out.size());
+            for (uint32_t i = 0; i < out.size(); i++)
+                order[i] = { distance2(out[i]), i };
+            std::nth_element(order.begin(), order.begin() + static_cast<std::ptrdiff_t>(max_triangles), order.end());
+            order.resize(max_triangles);
+            std::sort(order.begin(), order.end(), [](const auto &a, const auto &b) { return a.second < b.second; });
+            for (const auto &o : order)
+                kept_index.push_back(o.second);
+            counts_.past_max = out.size() - kept_index.size();
+        }
         std::vector<TraceTriangle> kept;
-        kept.reserve(order.size());
-        for (const auto &o : order)
-            kept.push_back(out[o.second]);
-        counts_.past_max = out.size() - kept.size();
+        kept.reserve(kept_index.size());
+        AlphaBuffer buffer;
+        std::vector<uint32_t> draw_offsets(alpha_draws_.size(), kNoRecord);
+        for (const uint32_t i : kept_index)
+        {
+            kept.push_back(out[i]);
+            if (!alpha || alpha_of_[i] == 0)
+                continue;
+            // A draw's block and its program go into the buffer at its first kept triangle.
+            const AlphaDraw &d = alpha_draws_[alpha_of_[i] - 1];
+            uint32_t &draw = draw_offsets[alpha_of_[i] - 1];
+            if (draw == kNoRecord)
+                draw = buffer.add_draw(buffer.add_program(d.program), d.tile, d.address, d.rows);
+            const uint32_t record = buffer.add_record(draw, attributes_.data() + attributes_at_[i], d.program->attribute_floats());
+            if (record == kNoRecord)
+            {
+                counts_.alpha_past_max++;
+                continue;
+            }
+            kept.back().info = triangle_info(info_class(kept.back().info), record);
+            counts_.alpha++;
+        }
+        if (alpha)
+            *alpha = counts_.alpha == 0 ? std::vector<uint32_t> {} : buffer.words(atlas_);
+        alpha_draws_ = {};
+        alpha_of_ = {};
+        attributes_at_ = {};
+        attributes_ = {};
+        atlas_ = {};
         return kept;
     }
 
     void add_face(SceneBuilder &builder, const SceneCamera &camera, const Vec3d &origin, const std::vector<SceneDrawRecord> &records,
-        const std::vector<float> &clip)
+        const std::vector<float> &clip, const std::vector<float> &attributes, const std::vector<uint32_t> &constants)
     {
         std::vector<std::array<Vec3d, 3>> triangles;
         for (const SceneDrawRecord &record : records)
         {
             if (!streamed(record) || record.written == 0)
                 continue;
+            // The draw's alpha test, when its program's inputs, attributes and rows all came back.
+            std::optional<AlphaDraw> alpha;
+            const AlphaProgram *program = record.alpha == DrawAlpha::program && record.analysis ? record.analysis->program.get() : nullptr;
+            const uint64_t floats = program ? program->attribute_floats() : 0;
+            if (program && record.stride == kCornerBytes + 4 * floats && record.first_attribute + record.written * 3 * floats <= attributes.size()
+                && record.alpha_constants + uint64_t(record.alpha_rows) * 4 <= constants.size())
+            {
+                alpha = AlphaDraw { record.analysis->program, record.alpha_tile, record.alpha_address,
+                    std::vector<uint32_t>(constants.begin() + static_cast<std::ptrdiff_t>(record.alpha_constants),
+                        constants.begin() + static_cast<std::ptrdiff_t>(record.alpha_constants + uint64_t(record.alpha_rows) * 4)) };
+            }
             triangles.clear();
             const size_t first = size_t(record.first_triangle) * 12;
             for (uint64_t t = 0; t < record.written && first + (t + 1) * 12 <= clip.size(); t++)
@@ -208,7 +277,7 @@ namespace photoreal
                         corners[k][i] = world ? (*world)[i] - origin[i] : NAN;
                 }
             }
-            builder.add_draw(record, triangles);
+            builder.add_draw(record, triangles, alpha ? &*alpha : nullptr, alpha ? attributes.data() + record.first_attribute : nullptr);
         }
     }
 
@@ -225,10 +294,10 @@ namespace photoreal
         return out;
     }
 
-    std::string trace_scene_bytes(const std::vector<TraceTriangle> &triangles, const Vec3d &reference)
+    std::string trace_scene_bytes(const std::vector<TraceTriangle> &triangles, const Vec3d &reference, const std::vector<uint32_t> &alpha)
     {
         std::string out = "PRTS";
-        out.reserve(4 + 4 + 24 + triangles.size() * 40);
+        out.reserve(4 + 4 + 24 + triangles.size() * 40 + (alpha.empty() ? 0 : 4 + alpha.size() * 4));
         put(out, static_cast<uint32_t>(triangles.size()));
         for (double v : reference)
             put(out, v);
@@ -239,6 +308,11 @@ namespace photoreal
                     put(out, v);
             put(out, t.info);
         }
+        if (!alpha.empty())
+        {
+            put(out, static_cast<uint32_t>(alpha.size()));
+            out.append(reinterpret_cast<const char *>(alpha.data()), alpha.size() * 4);
+        }
         return out;
     }
 
@@ -248,7 +322,12 @@ namespace photoreal
         if (bytes.size() < 32 || bytes.compare(0, 4, "PRTS") != 0)
             return std::nullopt;
         std::memcpy(&count, bytes.data() + 4, sizeof count);
-        if (bytes.size() != 32 + size_t(count) * 40)
+        const size_t triangles_end = 32 + size_t(count) * 40;
+        uint32_t words = 0;
+        if (bytes.size() > triangles_end && (bytes.size() < triangles_end + 4
+            || (std::memcpy(&words, bytes.data() + triangles_end, 4), bytes.size() != triangles_end + 4 + size_t(words) * 4) || words == 0))
+            return std::nullopt;
+        if (bytes.size() < triangles_end)
             return std::nullopt;
         TraceSceneFile file;
         std::memcpy(file.reference.data(), bytes.data() + 8, 24);
@@ -259,6 +338,9 @@ namespace photoreal
             std::memcpy(file.triangles[i].corner.data(), at, 36);
             std::memcpy(&file.triangles[i].info, at + 36, 4);
         }
+        file.alpha.resize(words);
+        if (words != 0)
+            std::memcpy(file.alpha.data(), bytes.data() + triangles_end + 4, size_t(words) * 4);
         return file;
     }
 }

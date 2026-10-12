@@ -140,7 +140,7 @@ namespace photoreal
                           "\twetness.darkening\twetness.puddles\tlight_shafts.enabled\tlight_shafts.strength\tlight_shafts.density"
                           "\tlight_shafts.height\tlight_shafts.anisotropy\tlight_shafts.distance\tlight_shafts.patchiness"
                           "\tlight_shafts.patch_size\tlight_shafts.ambient\tlight_shafts.steps\ttrace.enabled\ttrace.ao\ttrace.sun"
-                          "\ttrace.characters\ttrace.alpha_cards\ttrace.ao_distance\ttrace.ao_strength\ttrace.sun_size\ttrace.sun_strength"
+                          "\ttrace.characters\ttrace.alpha_cards\ttrace.whole_cards\ttrace.ao_distance\ttrace.ao_strength\ttrace.sun_size\ttrace.sun_strength"
                           "\ttrace.ao_samples\ttrace.sun_samples\ttrace.budget_ms\n";
         for (size_t i = 0; i < variants.size(); i++)
         {
@@ -165,7 +165,7 @@ namespace photoreal
                 + number(f.strength) + '\t' + number(f.density) + '\t' + number(f.height) + '\t' + number(f.anisotropy) + '\t'
                 + number(f.distance) + '\t' + number(f.patchiness) + '\t' + number(f.patch_size) + '\t' + number(f.ambient) + '\t'
                 + std::to_string(f.steps) + '\t' + (r.enabled ? "1" : "0") + '\t' + (r.ao ? "1" : "0") + '\t' + (r.sun ? "1" : "0") + '\t'
-                + (r.characters ? "1" : "0") + '\t' + (r.alpha_cards ? "1" : "0") + '\t' + number(r.ao_distance) + '\t' + number(r.ao_strength) + '\t'
+                + (r.characters ? "1" : "0") + '\t' + (r.alpha_cards ? "1" : "0") + '\t' + (r.whole_cards ? "1" : "0") + '\t' + number(r.ao_distance) + '\t' + number(r.ao_strength) + '\t'
                 + number(r.sun_size) + '\t' + number(r.sun_strength) + '\t' + std::to_string(r.ao_samples) + '\t' + std::to_string(r.sun_samples) + '\t'
                 + number(r.budget_ms) + '\n';
         }

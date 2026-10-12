@@ -102,6 +102,7 @@ namespace photoreal
         bool enabled = false;
         bool ao = true, sun = true;                 // PhotorealTrace.outputs
         bool characters = true, alpha_cards = true; // PhotorealTrace.casters
+        bool whole_cards = false;                   // PHOTOREAL_TRACE_CAST_WHOLE_CARDS: the alpha tests off
         float ao_distance = 2.0f;
         float ao_strength = 1.0f;
         float sun_size = 0.0093f;
