@@ -229,11 +229,13 @@ namespace photoreal
         "\ts129_tested\ts129_matched\ts129_in_front\ts129_behind\ts133_tested\ts133_matched\ts133_in_front\ts133_behind"
         "\ts136_tested\ts136_matched\ts136_in_front\ts136_behind\ts137_tested\ts137_matched\ts137_in_front\ts137_behind"
         "\ts144_tested\ts144_matched\ts144_in_front\ts144_behind\ts165_tested\ts165_matched\ts165_in_front\ts165_behind"
-        "\tother_tested\tother_matched\tother_in_front\tother_behind\toff_screen\torigin\tposition\tforward\tup\n";
+        "\tother_tested\tother_matched\tother_in_front\tother_behind\toff_screen\torigin\tposition\tforward\tup"
+        "\talpha_none\talpha_dither\talpha_program\talpha_unsupported\talpha_no-bytecode\talpha_class\talpha_tessellated\talpha_outputs"
+        "\talpha_constants\talpha_texture\talpha_atlas-full\talpha_stream\talpha_tiles\n";
 
     const char *const kDrawsHeader = "face\tdraw\tkind\tclass\tcall\tcount\tinstances\tfirst\tbase_vertex\tfirst_instance\targs_offset\ttopology"
         "\tvs\tds\tps\tstencil\tstencil_ref\tdepth_func\tdepth_write\texpected\twritten\tneeded\tfirst_triangle\tskip\tpoints\toffset\treserved\tcorners\tunwritten"
-        "\tt0\tt1\tt2\tt3\tt4\tt5\tt6\tt7\n";
+        "\tt0\tt1\tt2\tt3\tt4\tt5\tt6\tt7\tstride\talpha\talpha_discards\talpha_inputs\talpha_texture\talpha_channel\talpha_tile\talpha_why\n";
 
     const char *const kCameraHeader = "face\tsource\tb1_5\tb1_10\tb2_6\tb2_7\tb2_8\tb2_9\tb2_10\tb2_11\tb2_12\tb2_13\tb2_18\tb2_19\tb2_20"
         "\tclip_to_world\tworld_to_view\tview_to_clip\n";
@@ -264,8 +266,13 @@ namespace photoreal
         for (const DepthCounts &c : depth.classes)
             row += '\t' + std::to_string(c.tested) + '\t' + std::to_string(c.matched) + '\t' + std::to_string(c.in_front) + '\t' + std::to_string(c.behind);
         row += '\t' + std::to_string(depth.off_screen) + '\t' + vec(d.origin) + '\t' + vec(d.camera.position) + '\t' + vec(d.camera.basis[2]) + '\t'
-            + vec(d.camera.basis[1]) + '\n';
-        return row;
+            + vec(d.camera.basis[1]);
+        std::array<uint32_t, static_cast<size_t>(DrawAlpha::count)> alphas {};
+        for (const SceneDrawRecord &r : d.records)
+            alphas[static_cast<size_t>(r.alpha)]++;
+        for (uint32_t n : alphas)
+            row += '\t' + std::to_string(n);
+        return row + '\t' + std::to_string(d.atlas.size() / (kAtlasTile * kAtlasTile)) + '\n';
     }
 
     std::string draw_rows(uint32_t face, const std::vector<SceneDrawRecord> &records)
@@ -285,19 +292,27 @@ namespace photoreal
                 + (expected ? std::to_string(*expected) : "-") + '\t' + std::to_string(r.written) + '\t' + std::to_string(r.needed) + '\t'
                 + std::to_string(r.first_triangle) + '\t' + kDrawSkipNames[static_cast<size_t>(r.skip)] + '\t' + (r.points ? "1" : "0") + '\t'
                 + std::to_string(r.offset) + '\t' + std::to_string(r.reserved) + '\t' + std::to_string(r.corners) + '\t' + std::to_string(r.unwritten);
-            for (const Texture &t : r.ps_inputs)
-            {
+            const auto texture = [](const Texture &t) {
                 if (t.id == ResourceId {})
-                {
-                    out += "\t-";
-                    continue;
-                }
+                    return std::string("\t-");
                 char cell[64];
                 std::snprintf(cell, sizeof cell, "\t%llx:%u:%ux%u", static_cast<unsigned long long>(t.id), static_cast<uint32_t>(t.format), t.size.width,
                     t.size.height);
-                out += cell;
-            }
-            out += '\n';
+                return std::string(cell);
+            };
+            for (const Texture &t : r.ps_inputs)
+                out += texture(t);
+            std::string discards;
+            if (r.analysis)
+                for (DiscardKind k : r.analysis->discards)
+                    discards += (discards.empty() ? "" : ",") + std::string(kDiscardKindNames[static_cast<size_t>(k)]);
+            const AlphaProgram *program = r.analysis ? r.analysis->program.get() : nullptr;
+            const bool streams = r.alpha == DrawAlpha::program;
+            out += '\t' + std::to_string(r.stride) + '\t' + kDrawAlphaNames[static_cast<size_t>(r.alpha)] + '\t' + (discards.empty() ? "-" : discards) + '\t'
+                + (program ? program->describe() : "-") + (streams ? texture(r.alpha_texture) : "\t-") + '\t'
+                + (program && program->texture != kNoSlot ? std::string(1, "xyzw"[program->channel]) : "-") + '\t'
+                + (streams && r.alpha_tile != kNoTile ? std::to_string(r.alpha_tile) : "-") + '\t'
+                + (r.analysis && !r.analysis->why.empty() ? r.analysis->why : "-") + '\n';
         }
         return out;
     }

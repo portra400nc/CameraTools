@@ -15,12 +15,20 @@
 // triangle list's corners three by three, under DXVK and under D3D11 alike. A patch list cannot become points, so a
 // tessellated draw streams through a geometry shader that takes triangles and emits their corners as points: the
 // domain shader's own bytecode streamed a third of every tessellated draw's corners in build 202, and left them out.
+//
+// A draw whose pixel shader has an alpha program (core/alpha.h) streams the program's inputs after each corner's
+// position, and at its replay the constant rows the program reads are copied into a CPU-readable buffer, and the mip of
+// the texture it samples into a texture of ours, which shaders/alpha_bake_cs.hlsl bakes into the capture's alpha atlas at
+// the present that ends the frame.
 #pragma once
 
 #include "core/scene.h"
 #include "core/shaders.h"
 #include "gpu.h"
 
+#include <map>
+#include <memory>
+#include <tuple>
 #include <unordered_map>
 
 namespace photoreal
@@ -84,6 +92,9 @@ namespace photoreal
         std::string why;                        // failed only
         std::vector<SceneDrawRecord> records;   // with each draw's written and needed triangles
         std::vector<float> clip;                // the streamed draws' triangles, 12 floats each, in draw order
+        std::vector<float> attributes;          // the floats after each streamed corner's position, in the same order
+        std::vector<uint32_t> constants;        // the alpha programs' constant rows the frame's draws copied, 4 words a row
+        std::vector<uint8_t> atlas;             // the capture's alpha atlas so far, 65536 bytes a tile
         std::vector<float> depth;               // the main depth's reversed depth, top row first; empty when not copied
         Size render;                            // its size
         std::optional<RawFrame> picture;        // the back buffer before ReShade's effects, when it was 8-bit
@@ -122,11 +133,12 @@ namespace photoreal
         // passes on. A mirror that cannot be made leaves its copy out.
         void copy_gbuffer(const FrameMap &map);
 
-        // At the present that ends a captured frame: copies the stream-output buffer, the main depth and the back buffer
-        // into CPU-readable resources, and copy_gbuffer's mirrors when it copied this frame, and keeps the frame's
-        // records for read(). false when a copy of ours could not be made; the picture and the G-buffer copies are
-        // optional and their failure is not one.
-        bool copy_at_present(const std::optional<Texture> &depth, ID3D11Resource *back_buffer);
+        // At the present that ends a captured frame: bakes the textures the frame's alpha programs sample into the atlas,
+        // under a StateGuard whose finding goes to moved, then copies the stream-output buffer, the main depth, the back
+        // buffer and the atlas into CPU-readable resources, and copy_gbuffer's mirrors when it copied this frame, and keeps
+        // the frame's records for read(). false when a copy of ours could not be made; the picture and the G-buffer copies
+        // are optional and their failure is not one.
+        bool copy_at_present(const std::optional<Texture> &depth, ID3D11Resource *back_buffer, const char *&moved);
 
         // Reads the queries and maps the copies without waiting. not_ready while any is unfinished.
         SceneRead read();
@@ -149,9 +161,21 @@ namespace photoreal
             HRESULT result = S_OK;
         };
 
-        // The stream-output geometry shader of a shader's bytecode, by key, made the first time.
-        const CachedGs &geometry_shader(uint64_t key, const std::string &bytes);
+        // The stream-output geometry shader of a shader's bytecode with extra entries after the position, by key, made the
+        // first time.
+        const CachedGs &geometry_shader(uint64_t key, const std::string &bytes, const std::vector<SoEntry> &extra);
         bool make_buffers(uint64_t bytes);
+        // The draw's alpha test before its replay: its pixel shader's analysis, then for a program the check of its
+        // inputs against the vertex shader's outputs, the copy of its constant rows and its texture's tile. Sets the
+        // record's alpha fields and, with a program, its stride and the entries to stream after the position.
+        void prepare_alpha(SceneDrawRecord &r, const std::optional<ShaderCode> &ps, const std::optional<ShaderCode> &source, bool tessellated,
+            std::vector<SoEntry> &extra);
+        bool copy_constants(const AlphaProgram &program, SceneDrawRecord &r);
+        DrawAlpha copy_texture(const AlphaProgram &program, SceneDrawRecord &r);
+        // The alpha atlas, its CPU-readable twin, the constants' CPU-readable buffer and the bake shader, made at the first
+        // draw with a program. false when one could not be made.
+        bool make_alpha();
+        void bake(const char *&moved);
 
         ComPtr<ID3D11Device> device_;
         ComPtr<ID3D11DeviceContext1> context_;
@@ -183,5 +207,23 @@ namespace photoreal
         Readback normals_back_, mask_back_, irradiance_back_;
         bool gbuffer_back_ = false;
         uint32_t support_ = 0;
+        // Alpha tests: each pixel shader's analysis, kept for the device's life; for the capture, the atlas and its tiles by
+        // texture, view format and channel, the textures copied this frame for the bake, and the frame's constant rows.
+        std::unordered_map<uint64_t, std::shared_ptr<const AlphaAnalysis>> analyses_;
+        ComPtr<ID3D11Buffer> atlas_, atlas_staging_, constants_staging_, bake_constants_;
+        ComPtr<ID3D11UnorderedAccessView> atlas_uav_;
+        ComPtr<ID3D11ComputeShader> bake_cs_;
+        ComPtr<ID3D11SamplerState> bake_sampler_;
+        bool alpha_failed_ = false;                     // make_alpha failed for this capture
+        std::map<std::tuple<uintptr_t, uint32_t, uint32_t>, uint32_t> tiles_;
+        struct Bake
+        {
+            ComPtr<ID3D11ShaderResourceView> source;
+            uint32_t tile = 0, channel = 0;
+        };
+        std::vector<Bake> bakes_;
+        uint64_t constants_used_ = 0;                   // bytes of the frame being replayed
+        uint64_t copied_constants_ = 0;                 // bytes of the frame copy_at_present copied
+        uint32_t copied_tiles_ = 0;
     };
 }

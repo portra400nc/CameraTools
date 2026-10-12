@@ -58,6 +58,9 @@ namespace photoreal
         Size render;                        // the main depth's size
         std::vector<SceneDrawRecord> records;
         std::vector<float> clip;            // 12 floats a triangle, in draw order
+        std::vector<float> attributes;      // the alpha programs' streamed floats of each corner, in the same order
+        std::vector<uint32_t> constants;    // the alpha programs' constant rows the frame's draws copied, 4 words a row
+        std::vector<uint8_t> atlas;         // the capture's alpha atlas so far, 65536 bytes a tile
         std::vector<float> depth;           // render's reversed depth, top row first
         std::vector<uint8_t> rgb;           // the back buffer before ReShade's effects, 3 bytes a pixel, top row first
         Size picture;                       // its size

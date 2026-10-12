@@ -51,8 +51,8 @@ int main()
     const std::string ps = "pixel shader bytes";
     registry.add(0x6000, ShaderStage::pixel, ps.data(), ps.size());
     const auto pixel = registry.find(0x6000);
-    check("a pixel shader keeps its hash and no bytecode", pixel && pixel->stage == ShaderStage::pixel && pixel->hash == shader_hash(ps.data(), ps.size())
-        && !pixel->code && registry.bytes() == vs.size());
+    check("a pixel shader keeps its hash and its bytecode, for its alpha program", pixel && pixel->stage == ShaderStage::pixel
+        && pixel->hash == shader_hash(ps.data(), ps.size()) && pixel->code && *pixel->code == ps && registry.bytes() == vs.size() + ps.size());
     registry.remove(0x6000);
     check("and is removed like any other", !registry.find(0x6000) && registry.bytes() == vs.size());
     registry.remove(0x5000);

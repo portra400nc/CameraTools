@@ -29,7 +29,7 @@ RESHADE_HEADERS = [
 SOURCES = [
     "addon.cpp", "gpu.cpp", "scene_gpu.cpp", "trace_gpu.cpp", "core/recipe.cpp", "core/plan.cpp", "core/sun.cpp", "core/png.cpp", "core/compare.cpp",
     "core/accumulate.cpp", "core/dxbc.cpp", "core/shaders.cpp", "core/scene.cpp", "core/scene_files.cpp", "core/trace_scene.cpp",
-    "core/bvh.cpp", "core/kernel.cpp", "core/trace.cpp", "core/trace_files.cpp",
+    "core/bvh.cpp", "core/kernel.cpp", "core/trace.cpp", "core/trace_files.cpp", "core/shex.cpp", "core/alpha.cpp",
 ]
 # (symbol in photoreal_shaders.h, source in shaders/, profile)
 SHADERS = [
@@ -40,7 +40,7 @@ SHADERS = [
     ("kAccumulatePs", "accumulate_ps.hlsl", "ps_5_0"), ("kPresentPs", "present_ps.hlsl", "ps_5_0"), ("kWetnessPs", "wetness_ps.hlsl", "ps_5_0"),
     ("kShaftsPs", "shafts_ps.hlsl", "ps_5_0"), ("kLightShaftsPs", "light_shafts_ps.hlsl", "ps_5_0"),
     ("kApplyTracePs", "apply_trace_ps.hlsl", "ps_5_0"), ("kTraceCs", "trace_cs.hlsl", "cs_5_0"),
-    ("kStreamTrianglesGs", "stream_triangles_gs.hlsl", "gs_5_0"),
+    ("kStreamTrianglesGs", "stream_triangles_gs.hlsl", "gs_5_0"), ("kAlphaBakeCs", "alpha_bake_cs.hlsl", "cs_5_0"),
 ]
 WORKSPACE_VKD3D = Path(".work/build/reshade/vkd3d/vkd3d-compiler")
 DEPS = HERE / ".deps"

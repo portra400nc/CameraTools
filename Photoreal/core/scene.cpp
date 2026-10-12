@@ -71,6 +71,9 @@ namespace photoreal
     const std::array<const char *, static_cast<size_t>(DrawSkip::count)> kDrawSkipNames = {
         "-", "no-bytecode", "gs-bound", "no-position", "game-so", "query-pool", "gs-create-failed", "topology", "buffer-full",
     };
+    const std::array<const char *, static_cast<size_t>(DrawAlpha::count)> kDrawAlphaNames = {
+        "-", "dither", "program", "unsupported", "no-bytecode", "class", "tessellated", "outputs", "constants", "texture", "atlas-full", "stream",
+    };
     const std::array<const char *, static_cast<size_t>(DrawClass::count)> kDrawClassNames = {
         "pre", "s128", "s129", "s133", "s136", "s137", "s144", "s165", "other",
     };

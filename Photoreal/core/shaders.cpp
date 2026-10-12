@@ -15,11 +15,6 @@ namespace photoreal
         const uint64_t hash = shader_hash(code, size);
         std::lock_guard lock(mutex_);
         forget(handle);
-        if (stage == ShaderStage::pixel)
-        {
-            by_handle_[handle] = ShaderCode { stage, hash, nullptr };
-            return;
-        }
         Shared &shared = by_hash_[hash];
         if (!shared.code)
         {
@@ -41,11 +36,6 @@ namespace photoreal
         const auto it = by_handle_.find(handle);
         if (it == by_handle_.end())
             return;
-        if (!it->second.code)
-        {
-            by_handle_.erase(it);
-            return;
-        }
         const auto shared = by_hash_.find(it->second.hash);
         if (--shared->second.handles == 0)
         {

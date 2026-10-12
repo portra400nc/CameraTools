@@ -4,6 +4,7 @@
 // this says when and what, and core/scene_files.* writes the result.
 #pragma once
 
+#include "alpha.h"
 #include "plan.h"
 #include "sun.h"
 
@@ -116,6 +117,25 @@ namespace photoreal
     };
     extern const std::array<const char *, static_cast<size_t>(DrawSkip::count)> kDrawSkipNames;
 
+    // What became of a draw's alpha test for the traced scene (core/alpha.h). The names follow in kDrawAlphaNames.
+    enum class DrawAlpha : uint8_t
+    {
+        none,           // its pixel shader has no discard, or it has no pixel shader: its triangles are whole
+        dither,         // its discards are screen-door dither alone, which the trace treats as passing: whole
+        program,        // its alpha program streams its inputs, and its constants and texture are copied
+        unsupported,    // core/alpha.cpp could not make a program of a discard: whole; draws.tsv says why
+        no_bytecode,    // its pixel shader was created before the add-on loaded
+        character,      // a character, which casts whole, or grass, which the trace leaves out
+        tessellated,    // shaders/stream_triangles_gs.hlsl streams it, which carries the position alone
+        outputs,        // its vertex shader does not write an input the program reads
+        constants,      // a constant buffer row the program reads is not bound, or the frame's 4 MB of rows are full
+        texture,        // the texture it samples is not one 2D texture whose mip can be copied
+        atlas_full,     // the capture's 256 atlas tiles are taken
+        stream,         // the stream-output geometry shader with its inputs could not be made
+        count,
+    };
+    extern const std::array<const char *, static_cast<size_t>(DrawAlpha::count)> kDrawAlphaNames;
+
     // The material each draw's triangles get, by its stencil class, as the stencil debug view colors them: the depth
     // prepass (stencil off, depth write on), the census's stencil references, and any other.
     enum class DrawClass : uint8_t { pre, s128, s129, s133, s136, s137, s144, s165, other, count };
@@ -157,6 +177,15 @@ namespace photoreal
         uint64_t written = 0, needed = 0;   // triangles stream output wrote and would have needed
         uint64_t first_triangle = 0;        // where its triangles start in the captured stream
         uint64_t first_attribute = 0;       // where its corners' floats after the position start in StreamRead::attributes
+        // Its alpha test: what became of it, its pixel shader's analysis when the draw had one, and with a program the atlas
+        // tile and sampler address modes (D3D11_TEXTURE_ADDRESS_MODE, u in bits 0 to 2, v in 3 to 5) of its texture, the
+        // texture as the shader bound it, and where its constant rows (4 words each) start among the frame's.
+        DrawAlpha alpha = DrawAlpha::none;
+        std::shared_ptr<const AlphaAnalysis> analysis;
+        uint32_t alpha_tile = kNoTile, alpha_address = 0;
+        Texture alpha_texture {};
+        uint64_t alpha_constants = 0;       // in words
+        uint32_t alpha_rows = 0;
     };
 
     // "pre" for the depth prepass, "equal" for a draw on the prepass's depth, else "main".

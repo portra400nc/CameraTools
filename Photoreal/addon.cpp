@@ -1153,6 +1153,9 @@ namespace photoreal
             data.render = got.render;
             data.records = std::move(got.records);
             data.clip = std::move(got.clip);
+            data.attributes = std::move(got.attributes);
+            data.constants = std::move(got.constants);
+            data.atlas = std::move(got.atlas);
             data.depth = std::move(got.depth);
             data.overflowed = got.full;
             data.origin = *run.reference;
@@ -1214,7 +1217,11 @@ namespace photoreal
                 run.pushed = camera_known() ? std::optional<Camera>(camera) : std::nullopt;
                 run.sun.reset();
                 const resource back_buffer = chain->get_current_back_buffer();
-                if (!scene_gpu.copy_at_present(tracker.map()[Entry::depth], reinterpret_cast<ID3D11Resource *>(back_buffer.handle)))
+                const char *moved = nullptr;
+                const bool copied = scene_gpu.copy_at_present(tracker.map()[Entry::depth], reinterpret_cast<ID3D11Resource *>(back_buffer.handle), moved);
+                if (moved)
+                    trip(moved);
+                if (!copied)
                 {
                     end_scene_capture(std::string("the captured frame's depth could not be copied"));
                     return;

@@ -9,6 +9,7 @@
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -334,8 +335,21 @@ int main(int argc, char **argv)
     {
         check("draws.tsv: a direct draw with its arguments, expected and written triangles, its point replay at corner 30 with 6 reserved, written and none unwritten, and its first input, and a skipped indirect draw",
             draw_rows(0, records) == "0\t3\tmain\ts128\tindexed\t6\t1\t12\t-4\t0\t-\t4\t00000000000000ab\t-\t00000000000000cd\t1\t128\tless-equal\t0\t2\t2\t2\t0\t-"
-                                     "\t1\t30\t6\t6\t0\t1f00:28:1920x1200\t-\t-\t-\t-\t-\t-\t-\n"
-                                     "0\t4\tequal\ts137\tindirect-indexed\t-\t-\t-\t-\t-\t20\t4\t-\t-\t-\t1\t137\tequal\t0\t-\t0\t0\t0\tno-bytecode\t0\t0\t0\t0\t0\t-\t-\t-\t-\t-\t-\t-\t-\n");
+                                     "\t1\t30\t6\t6\t0\t1f00:28:1920x1200\t-\t-\t-\t-\t-\t-\t-\t16\t-\t-\t-\t-\t-\t-\t-\n"
+                                     "0\t4\tequal\ts137\tindirect-indexed\t-\t-\t-\t-\t-\t20\t4\t-\t-\t-\t1\t137\tequal\t0\t-\t0\t0\t0\tno-bytecode\t0\t0\t0\t0\t0\t-\t-\t-\t-\t-\t-\t-\t-"
+                                     "\t16\t-\t-\t-\t-\t-\t-\t-\n");
+        std::ifstream leaves("fixtures/0a48f0bb29e3c15d.ps.dxbc", std::ios::binary);
+        const std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(leaves)), std::istreambuf_iterator<char>());
+        SceneDrawRecord alpha = records[0];
+        alpha.analysis = std::make_shared<const AlphaAnalysis>(analyze_alpha(bytes.data(), bytes.size()));
+        alpha.alpha = DrawAlpha::program;
+        alpha.stride = 36;
+        alpha.alpha_tile = 3;
+        alpha.alpha_texture = { ResourceId(0x2f00), Format(71), { 512, 512 } };
+        const std::string alpha_row = draw_rows(0, { alpha });
+        check("draws.tsv: a draw with an alpha program, its 36-byte corners, its discard, inputs, texture, channel and tile",
+            alpha_row.substr(alpha_row.find("\t1f00:28:1920x1200")) == "\t1f00:28:1920x1200\t-\t-\t-\t-\t-\t-\t-\t36\tprogram\ttexture"
+                "\tTEXCOORD0.xy TEXCOORD1.w TEXCOORD2.w TEXCOORD3.w\t2f00:71:512x512\tz\t3\t-\n");
         SceneFaceData data;
         data.face = kFaceView;
         data.frame = 1234;
@@ -355,7 +369,7 @@ int main(int argc, char **argv)
         check("scene.tsv: the face, its frame and camera, 1 replayed and 1 skipped for no-bytecode, triangles, 6 corners matched at 10 m, and the camera",
             row == "6\tview\t1234\t2\tpushed\tsun constants unread\t320x200 found gbuffer\t4\t4\t2\t1\t1\t0\t0\t0\t0\t0\t0\t0\t2\t2\t0\t2\t4\t0\t0\t0\t0\t0"
                    "\t0\t0\t0\t0\t6\t6\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0"
-                   "\t0\t0.5,0,0\t0,0,0\t0,0,-1\t0,1,0\n");
+                   "\t0\t0.5,0,0\t0,0,0\t0,0,-1\t0,1,0\t2\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\t0\n");
         check("camera.tsv: no shadow-mask constants, then clip_to_world and the pushed matrices row by row",
             camera_row(data) == "6\tpushed\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\t1,0,0,0,0,1,0,0,0,0,0,-1,0,0,4,0\t1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1"
                                 "\t1,0,0,0,0,1,0,0,0,0,0,0.25,0,0,-1,0\n");
