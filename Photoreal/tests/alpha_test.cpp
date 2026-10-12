@@ -113,6 +113,40 @@ int main()
         const AlphaAnalysis prepass = analyze("482d98462fb30496.ps.dxbc");
         check("482d9846 (the depth prepass's leaves): the leaf test with the normal's fade, at cb0 and cb1", prepass.program
             && rows(*prepass.program) == "cb0[5+1] cb1[11+5]");
+        bool all_valid = true;
+        for (const AlphaAnalysis *a : { &leaves, &fade, &instanced, &culled, &grass, &facing, &cutoff, &prepass })
+            all_valid = all_valid && a->program && check_alpha_program(*a->program).empty();
+        check("every census program checks: forward jumps within it, registers, destinations and literals in range", all_valid);
+    }
+    {
+        // Programs the interpreter could not run within its caps, each refused with its reason: an if to itself, an if back,
+        // an else past the end, a jump on an add, an unknown operation, a destination past the temporaries, a register past
+        // the inputs, a literal the program lacks, and 49 instructions. A forward if to the end passes.
+        const auto make = [](std::vector<std::array<uint32_t, 4>> code, uint32_t literals = 0) {
+            AlphaProgram p;
+            p.code = std::move(code);
+            p.literals.resize(literals);
+            return p;
+        };
+        const auto op = [](uint32_t o, uint32_t target = 0, uint32_t dst = 0) { return o | dst << 8 | 15u << 12 | target << 20; };
+        const std::array<uint32_t, 4> add = { op(alpha_op::add), 0, 0, 0 }, discard = { op(alpha_op::discard_nz), 0, 0, 0 };
+        check("a program whose if jumps forward to its end passes", check_alpha_program(make({ { op(alpha_op::if_nz, 3), 0, 0, 0 }, add, discard })).empty());
+        const std::pair<const char *, AlphaProgram> broken[] = {
+            { "an if that jumps to itself", make({ add, { op(alpha_op::if_nz, 1), 0, 0, 0 }, discard }) },
+            { "an if that jumps back", make({ add, discard, { op(alpha_op::if_z, 0), 0, 0, 0 } }) },
+            { "an else past the end", make({ { op(alpha_op::else_, 4), 0, 0, 0 }, add, discard }) },
+            { "an add with a jump target", make({ { op(alpha_op::add, 2), 0, 0, 0 }, discard }) },
+            { "operation 50", make({ { op(50), 0, 0, 0 }, discard }) },
+            { "destination r8", make({ { op(alpha_op::mov, 0, 8), 0, 0, 0 }, discard }) },
+            { "register 11, a source register", make({ { op(alpha_op::mov), 11u << 18, 0, 0 }, discard }) },
+            { "literal 1 of 1", make({ { op(alpha_op::mov), 3u | 1u << 18, 0, 0 }, discard }, 1) },
+            { "49 instructions", make(std::vector<std::array<uint32_t, 4>>(49, add)) },
+        };
+        for (const auto &[what, program] : broken)
+        {
+            const std::string why = check_alpha_program(program);
+            check(std::string("refused: ") + what + " (" + why + ")", !why.empty());
+        }
     }
     {
         // 0a48f0bb's discard by hand: keep where t0.z(uv) + saturate(|cb1[5] - pos| / (cb3[11].y + 1e-4)) * cb3[11].z - cb3[15].w

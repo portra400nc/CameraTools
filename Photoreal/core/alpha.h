@@ -114,6 +114,12 @@ namespace photoreal
     // one that cannot be decoded has none either, with why "decode".
     AlphaAnalysis analyze_alpha(const uint8_t *code, size_t size);
 
+    // Why the interpreter could not run program within its caps, or empty when it can: 1 to kAlphaMaxCode instructions of
+    // known operations, each if's and else's jump forward past itself and at most to the end, so the interpreter runs at most
+    // one step an instruction; destinations among the temporaries, registers among the temporaries and inputs, and literals
+    // among the program's. analyze_alpha keeps no program that fails it.
+    std::string check_alpha_program(const AlphaProgram &program);
+
     // shaders/alpha.hlsli compiled as C++ (core/kernel.cpp): whether the alpha test keeps a hit at barycentric u and v of
     // the triangle whose record starts at word record of the records, in an alpha buffer of the layout above.
     bool alpha_keeps(const std::vector<uint32_t> &alpha, uint32_t record, float u, float v);

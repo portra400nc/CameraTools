@@ -712,6 +712,41 @@ namespace photoreal
         return out;
     }
 
+    std::string check_alpha_program(const AlphaProgram &p)
+    {
+        if (p.code.empty() || p.code.size() > kAlphaMaxCode)
+            return "instructions " + std::to_string(p.code.size()) + ", not 1 to 48";
+        if (p.literals.size() > kAlphaMaxLiterals)
+            return "more than 16 literals";
+        const uint32_t registers = kAlphaTemps + kAlphaInputFloats / 4;
+        for (uint32_t pc = 0; pc < p.code.size(); pc++)
+        {
+            const std::array<uint32_t, 4> &in = p.code[pc];
+            const uint32_t op = in[0] & 255, target = in[0] >> 20, at = pc;
+            const auto where = [at](const std::string &what) { return what + " at instruction " + std::to_string(at); };
+            const bool jump = op == alpha_op::if_nz || op == alpha_op::if_z || op == alpha_op::else_;
+            if (op > alpha_op::utof && !jump && op != alpha_op::discard_nz && op != alpha_op::discard_z)
+                return where("operation " + std::to_string(op));
+            if (jump && (target <= pc || target > p.code.size()))
+                return where("a jump to " + std::to_string(target) + ", not forward within the program");
+            if (!jump && target != 0)
+                return where("a jump target on an operation that does not jump");
+            if ((in[0] >> 8 & 15) >= kAlphaTemps)
+                return where("destination r" + std::to_string(in[0] >> 8 & 15));
+            for (int k = 1; k < 4; k++)
+            {
+                const uint32_t source = in[k], kind = source & 3, index = source >> 18;
+                if (kind == 0 && index >= registers)
+                    return where("register " + std::to_string(index));
+                if (kind == 2 && (source >> 12 & 15) >= registers)
+                    return where("an offset register " + std::to_string(source >> 12 & 15));
+                if (kind == 3 && index >= p.literals.size())
+                    return where("literal " + std::to_string(index));
+            }
+        }
+        return {};
+    }
+
     AlphaAnalysis analyze_alpha(const uint8_t *bytes, size_t size)
     {
         AlphaAnalysis out;
@@ -750,7 +785,10 @@ namespace photoreal
         try
         {
             std::optional<AlphaProgram> program = build(code, slice(code, kept), out.why);
-            if (program)
+            const std::string invalid = program ? check_alpha_program(*program) : std::string();
+            if (!invalid.empty())
+                out.why = "invalid program: " + invalid;
+            else if (program)
                 out.program = std::make_shared<const AlphaProgram>(std::move(*program));
         }
         catch (const std::out_of_range &)
