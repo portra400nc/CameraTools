@@ -147,6 +147,37 @@ namespace photoreal
         return g;
     }
 
+    GatherView gather_view(View view)
+    {
+        switch (view)
+        {
+        case View::bounce: return GatherView::bounce;
+        case View::sky_visibility: return GatherView::sky_visibility;
+        case View::sky_map: return GatherView::sky_map;
+        default: return GatherView::none;
+        }
+    }
+
+    uint32_t gather_filter_passes(const GatherSettings &settings, uint32_t samples)
+    {
+        return std::max<uint32_t>(settings.filter, samples < kGatherBlurBelow ? 1 : 0);
+    }
+
+    GatherApplyConstants gather_apply_constants(const GatherSettings &settings, const std::array<Vec3f, 9> &harmonics, GatherView view, uint32_t samples,
+        uint32_t step)
+    {
+        GatherApplyConstants c {};
+        c.apply[0] = settings.strength;
+        c.apply[1] = static_cast<float>(step);
+        c.modes[0] = static_cast<uint32_t>(settings.sky);
+        c.modes[1] = static_cast<uint32_t>(view);
+        c.modes[2] = samples < kGatherBlurBelow ? 1 : 0;
+        for (int i = 0; i < 9; i++)
+            for (int k = 0; k < 3; k++)
+                c.harmonics[i][k] = harmonics[i][k];
+        return c;
+    }
+
     std::vector<uint32_t> tile_order(Size render)
     {
         const uint32_t columns = (render.width + kTileSize - 1) / kTileSize, rows = (render.height + kTileSize - 1) / kTileSize;

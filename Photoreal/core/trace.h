@@ -57,6 +57,27 @@ namespace photoreal
     // hit_ambient; and the samples.
     GatherConstants gather_constants(const GatherSettings &settings, const SunLight &sun, const AmbientFit &ambient);
 
+    // shaders/gather.cbuffer.hlsli's GatherApply at b2, which the gather's draws read: 176 bytes.
+    struct GatherApplyConstants
+    {
+        float apply[4];             // strength, the filter's step in pixels, 0, 0
+        uint32_t modes[4];          // the sky mode, the view (GatherView), 1 while the pixels have under 16 samples, 0
+        float harmonics[9][4];      // rgb: the sky map's harmonics
+    };
+    static_assert(sizeof(GatherApplyConstants) == 176);
+
+    // What the gather's first draw writes for a view: shaders/gather.cbuffer.hlsli's kGatherView*.
+    enum class GatherView : uint8_t { none, bounce, sky_visibility, sky_map };
+    GatherView gather_view(View view);
+
+    // Below this many samples a pixel's gathered light is filtered at least once, as T1's apply draw blurs below 16.
+    constexpr uint32_t kGatherBlurBelow = 16;
+    // The filter's passes for the pixels' samples: the setting's, at least 1 below kGatherBlurBelow.
+    uint32_t gather_filter_passes(const GatherSettings &settings, uint32_t samples);
+
+    GatherApplyConstants gather_apply_constants(const GatherSettings &settings, const std::array<Vec3f, 9> &harmonics, GatherView view, uint32_t samples,
+        uint32_t step);
+
     constexpr uint32_t kTileSize = 64;      // pixels a side; 64 groups of 8x8 threads
     constexpr uint32_t kGridStride = 16;    // every 16th pixel each way shoots a ray from the camera to check the scene
     constexpr uint32_t kStartBatch = 1;     // tiles of the first frame, whose measured time sets the next ones'

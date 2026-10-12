@@ -7,6 +7,7 @@
 
 #include "core/accumulate.h"
 #include "core/compare.h"
+#include "core/light.h"
 #include "core/plan.h"
 
 #include <d3d11_1.h>
@@ -24,10 +25,10 @@ namespace photoreal
     struct TraceSave;   // core/trace_files.h
 
     // Our shaders declare registers only inside these ranges, and StateGuard saves and restores exactly these.
-    constexpr UINT kSrvSlots = 8;       // t0..t7; the trace kernel uses t0..t6
+    constexpr UINT kSrvSlots = 8;       // t0..t7; the trace kernel uses t0..t6, the gather kernel t0..t7
     constexpr UINT kSamplerSlots = 4;   // s0..s3
     constexpr UINT kCbSlots = 5;        // b0..b4
-    constexpr UINT kUavSlots = 2;       // u0..u1, compute only: the trace kernel's history and counters
+    constexpr UINT kUavSlots = 4;       // u0..u3, compute only: the trace kernels' history and counters, and the gather's two buffers
     constexpr UINT kSoSlots = D3D11_SO_BUFFER_SLOT_COUNT;
     constexpr UINT kClassInstances = 256;
 
@@ -227,6 +228,12 @@ namespace photoreal
         // waiting. Empty when neither has finished.
         std::optional<SunCbuffers> sun_constants(uint64_t frame);
 
+        // At the combine step's first draw, before it runs: copies row 0 of the draw's pixel shader constant buffers b0 and
+        // b3, the sun's color and shading direction (core/light.h), into frame's staging buffer, and keeps the four
+        // buffers' sizes. combine_constants reads the newest the GPU has finished, without waiting, as sun_constants does.
+        void gather_combine(uint64_t frame);
+        std::optional<CombineConstants> combine_constants(uint64_t frame);
+
         // The constants gather_sun staged at frame, read without waiting, for the scene capture, which reads its frame's two
         // presents later. Empty while the GPU has not finished the copy, or when frame's are no longer staged: the
         // shadow-mask draw did not match that frame, or a frame since took its stage. sun_staged says which.
@@ -304,19 +311,24 @@ namespace photoreal
         // history, normals, depth and stencil, and the game's mask and irradiance as found, are copied for trace.read_save,
         // with save's other fields, and saved says whether they were. Empty when a texture of ours failed or the trace
         // failed, which then says why.
-        std::optional<GameCall> run_trace(const FrameMap &map, const TraceFrame &frame, const TraceSettings &settings, const Camera &camera, bool flip,
-            bool view, const TraceSave *save, bool &saved, TraceGpu &trace);
+        // While frame gathers, the occlusion is the gather's: the apply draw writes only the sun, and the gather's draws
+        // (gather_average_ps.hlsl, gather_filter_ps.hlsl and apply_gather_ps.hlsl) write the irradiance, and for a gather
+        // view its picture into gather_view_. A save then also copies the view's albedo and what the draws wrote.
+        std::optional<GameCall> run_trace(const FrameMap &map, const TraceFrame &frame, const TraceSettings &settings, const GatherSettings &gather,
+            const Camera &camera, bool flip, View view, const TraceSave *save, bool &saved, TraceGpu &trace);
         // A save while the trace pass does not run, its scene STALE: mirrors in this frame's normals, depth, shadow mask and
         // diffuse irradiance, and copies them with the history as it was for trace.read_save. Copies only; no pipeline
         // state changes. false when a mirror or a copy could not be made, or the map lacks an entry.
         bool save_trace(const FrameMap &map, const TraceSave &save, TraceGpu &trace);
+        // At the bloom step, before any pass of ours: the HDR scene into the save the trace copied this frame.
+        void save_trace_hdr(const FrameMap &map, TraceGpu &trace);
 
         // At the pending view's snapshot step: copies the entry into pending. false when the copy could not be made.
         bool snapshot(const Texture &entry);
         // The same for the light-shafts view, from what run_light_shafts drew for it this frame.
         bool snapshot_light_shafts();
-        // The same for the trace view, from what run_trace drew for it this frame.
-        bool snapshot_trace();
+        // The same for the trace pass's views, from what run_trace drew for view this frame.
+        bool snapshot_trace(View view);
 
         // At reshade_present: draws shown over the back buffer through a mirror of it, with the view's name in the top-left
         // corner, then copies the mirror over it.
@@ -345,11 +357,13 @@ namespace photoreal
         ComPtr<ID3D11DeviceContext1> context_;
         ComPtr<ID3D11VertexShader> fullscreen_vs_;
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_,
-            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, apply_trace_ps_;
+            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
+            apply_gather_ps_;
         ComPtr<ID3D11SamplerState> point_, linear_, lit_compare_, wrap_;
         ComPtr<ID3D11Texture3D> lattice_;                   // noise_lattice(), R8_UNORM
         ComPtr<ID3D11ShaderResourceView> lattice_srv_;
         ComPtr<ID3D11Buffer> constants_;
+        ComPtr<ID3D11Buffer> gather_apply_;    // core/trace.h's GatherApplyConstants, at b2 for the gather's draws
         ComPtr<ID3D11Buffer> game_tonemap_;    // the game's tone map constants, copied in at each tonemap pass
         ComPtr<ID3D11Buffer> game_sun_[4];     // the game's b0 to b3 at its shadow-mask draw, bound at b1 to b4
         // Three, so a frame reads one of the two before it while it writes its own.
@@ -360,6 +374,16 @@ namespace photoreal
             bool pending = false;               // copied and not yet read
         };
         std::array<SunStage, 3> sun_stages_;
+        // The combine draw's row 0 of b0 and b3, 32 bytes, likewise, with the buffers' sizes.
+        struct CombineStage
+        {
+            ComPtr<ID3D11Buffer> buffer;        // CPU-readable
+            uint64_t frame = 0;
+            bool pending = false;
+            std::array<uint32_t, 4> bytes {};
+        };
+        std::array<CombineStage, 3> combine_stages_;
+        std::optional<CombineConstants> combine_;   // the newest read
         bool sun_ready_ = false;                // gather_sun copied the constants and the atlas this frame
         ComPtr<ID3D11BlendState> opaque_, additive_, no_write_;
         ComPtr<ID3D11DepthStencilState> no_depth_;
@@ -374,6 +398,10 @@ namespace photoreal
         Scratch shafts_meters_;     // half size, R16_FLOAT: the meters each ray marched
         Scratch shafts_view_;       // R16G16B16A16_FLOAT: the mist's in-scatter at full size, for the light-shafts view
         Scratch trace_view_;        // R8G8B8A8_UNORM: the trace's averages, for the trace view
+        // R16G16B16A16_FLOAT: the gather's averages (the bounce and the far term; the sky met and the occlusion), the
+        // filter's other pair, and the gather views' picture.
+        Scratch gather_bounce_, gather_sky_, gather_bounce_filtered_, gather_sky_filtered_, gather_view_;
+        bool gather_drawn_ = false;     // run_trace drew a gather view into gather_view_ this frame
         ComPtr<ID3D11Texture2D> depth_texel_;   // 1x1 R32G8X24_TYPELESS, CPU-readable
         bool depth_texel_pending_ = false;      // copied and not yet read
         Snapshot pending_, shown_;

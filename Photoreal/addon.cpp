@@ -3,6 +3,7 @@
 #include "photoreal.h"
 #include "core/alpha_bake.h"
 #include "core/compare.h"
+#include "core/light.h"
 #include "core/plan.h"
 #include "core/png.h"
 #include "core/scene_files.h"
@@ -141,6 +142,13 @@ namespace photoreal
         uint32_t camera_age = UINT32_MAX;
         bool scene_frame = false;           // the scene capture replays this frame's G-buffer draws
         bool scene_gbuffer = false;         // and copies its G-buffer at the combine step: the view face of a GBUFFER request
+        bool scene_light = false;           // and its albedo, stencil and HDR: every face of a LIGHT request
+        bool scene_first = false;           // the face is the capture's first, whose normals and irradiance the ambient fit takes
+        // The combine step's first draw's constants, the sun's color and shading direction: copied at that draw while the
+        // gather or a LIGHT capture wants them, and the newest read back.
+        bool combine_copied = false;
+        std::optional<CombineConstants> combine_read;
+        bool capture_light = false;         // a LIGHT scene capture runs
         SunParse sun_parse;                 // the newest constants read back, from one or two frames before
         SunCheck sun_frame = SunCheck::unread;  // this frame's verdict on them
         uint64_t frames = 0;
@@ -161,6 +169,8 @@ namespace photoreal
             double bake_seconds = 0;
             double seconds = 0;                     // its BVH's build
             bool self_test = false;                 // the self-test scene, which the depth buffer never shows
+            std::shared_ptr<const SceneLight> light;    // a PHOTOREAL_SCENE_LIGHT capture's
+            double light_seconds = 0;               // its bake
         };
         TraceScene trace_scene;
         TraceState trace_logged = TraceState::none; // the state the log last said
@@ -171,6 +181,8 @@ namespace photoreal
             SceneBuilder builder;
             Vec3d reference {};
             std::optional<Vec3> floating_origin;    // b1 row 10 of the first face with shadow-mask constants
+            bool light = false;                     // PHOTOREAL_SCENE_LIGHT: the faces' images, kept until the scene is built
+            LightInputs inputs;
         };
 
         // What the writer thread built, for the render thread to upload.
@@ -188,6 +200,9 @@ namespace photoreal
         uint64_t trace_max_triangles = 4000000;
         std::optional<TraceFrame> trace_frame;      // this frame's, from the combine step
         bool trace_traced = false;                  // the trace pass writes this frame
+        bool trace_wrote = false;                   // the trace pass wrote the last frame from its samples
+        bool gather_without_light = false;          // the gather is on over a scene captured without light
+        std::string gather_sun_source;              // where the gather's sun came from at the last frame, for the log
         std::string trace_sun_source = "none";      // where the trace's sun came from at the last frame, for the log
         std::optional<SunCbuffers> sun_bytes;       // the newest shadow-mask constants read back
         std::optional<Vec3> logged_origin;          // b1 row 10 as the log last said it
@@ -562,7 +577,34 @@ namespace photoreal
                 trace_scene.reference, toward, static_cast<uint32_t>(trace_gpu.generation()));
             if (!constants)
                 return;
-            trace_frame = trace_gpu.preview(trace_key(trace_gpu.generation(), map.render, camera, toward, settings.trace), settings.trace, *constants);
+            // The gather over a scene with light: the sun as the game shades with it now, and the ambient light the scene
+            // was built with.
+            gather_without_light = settings.gather.enabled && !trace_gpu.light();
+            std::optional<GatherConstants> gather;
+            if (settings.gather.enabled && trace_gpu.light())
+            {
+                const Vec3 pushed_color = { camera.sun_color[0], camera.sun_color[1], camera.sun_color[2] };
+                const Vec3 pushed_direction = { camera.toward_sun[0], camera.toward_sun[1], camera.toward_sun[2] };
+                const SunLight sun = sun_light(combine_read, source == "game" ? std::optional<Vec3>(toward) : std::nullopt, pushed_color, pushed_direction);
+                const std::string said = std::string(kLightSourceNames[static_cast<size_t>(sun.color_source)]) + kLightSourceNames[static_cast<size_t>(sun.shade_source)]
+                    + sun.why;
+                if (said != gather_sun_source)
+                {
+                    const double cosine = double(sun.shade[0]) * toward[0] + double(sun.shade[1]) * toward[1] + double(sun.shade[2]) * toward[2];
+                    char apart[64];
+                    std::snprintf(apart, sizeof apart, "%.2f degrees", std::acos(std::clamp(cosine, -1.0, 1.0)) * 57.29577951308232);
+                    log(reshade::log::level::info, "the gather's sun: its color " + vec_text(sun.color) + " from the " + (sun.color_source == LightSource::game
+                        ? std::string("game's combine constants") : "pushed camera") + ", its shading direction " + vec_text(sun.shade) + " from the "
+                        + (sun.shade_source == LightSource::game ? std::string("game's combine constants") : "pushed camera") + (sun.why.empty() ? "" : " (" + sun.why + ")")
+                        + ", " + apart + " from the shadows' " + vec_text(toward) + "; the pushed camera's color " + vec_text(pushed_color) + " and direction "
+                        + vec_text(pushed_direction) + ".");
+                    gather_sun_source = said;
+                }
+                gather = gather_constants(settings.gather, sun, trace_gpu.light()->ambient);
+            }
+            const GatherConstants *gathered = gather ? &*gather : nullptr;
+            trace_frame = trace_gpu.preview(trace_key(trace_gpu.generation(), map.render, camera, toward, settings.trace, gathered), settings.trace, *constants,
+                settings.gather, gathered);
             trace_traced = trace_frame->traced;
         }
 
@@ -585,6 +627,7 @@ namespace photoreal
             s.nodes = trace_gpu.nodes();
             s.mrays = trace_gpu.mrays();
             s.frame = frames;
+            s.gather = settings.gather;
             return s;
         }
 
@@ -597,13 +640,20 @@ namespace photoreal
             if (step == Step::combine)
             {
                 // Before any pass of ours writes the shadow mask or the irradiance.
-                if (scene_gbuffer)
-                    scene_gpu.copy_gbuffer(map);
+                if (scene_gbuffer || scene_light)
+                    scene_gpu.copy_gbuffer(map, { scene_gbuffer || (scene_light && scene_first), scene_gbuffer, scene_light });
                 prepare_trace(map);
                 // A save while the scene is stale, which the trace pass no longer runs for: this frame's images with the
                 // history as it was when the scene went stale.
                 if (trace_save_wanted.load() && !trace_gpu.saving() && trace_gpu.state() == TraceState::stale && gpu.save_trace(map, trace_save_meta(), trace_gpu))
                     trace_save_wanted = false;
+            }
+            // The HDR scene before any pass of ours: a LIGHT capture's face's, and a trace save's.
+            if (step == Step::bloom)
+            {
+                if (scene_light)
+                    scene_gpu.copy_hdr(map);
+                gpu.save_trace_hdr(map, trace_gpu);
             }
             const Plan p = plan(step, map, settings, inputs());
             report.note(p);
@@ -651,12 +701,16 @@ namespace photoreal
                         const std::optional<TraceSave> save = trace_save_wanted.load() && !trace_gpu.saving() ? std::optional(trace_save_meta()) : std::nullopt;
                         bool saved = false;
                         if (trace_frame)
-                            call = gpu.run_trace(map, *trace_frame, settings.trace, camera, settings.flip, report.view == View::trace, save ? &*save : nullptr,
+                            call = gpu.run_trace(map, *trace_frame, settings.trace, settings.gather, camera, settings.flip, report.view, save ? &*save : nullptr,
                                 saved, trace_gpu);
                         if (saved)
                             trace_save_wanted = false;
-                        report.trace_ao = std::min(trace_gpu.passes(), settings.trace.ao_samples);
+                        trace_wrote = call && trace_frame && trace_frame->traced;
+                        const bool gathering = trace_frame && trace_frame->gathering;
+                        report.trace_ao = gathering ? 0 : std::min(trace_gpu.passes(), settings.trace.ao_samples);
+                        report.trace_gather = gathering ? std::min(trace_gpu.passes(), settings.gather.samples) : 0;
                         report.trace_sun = std::min(trace_gpu.passes(), settings.trace.sun_samples);
+                        report.gather_without_light = gather_without_light;
                         break;
                     }
                     case PassId::count:
@@ -681,22 +735,38 @@ namespace photoreal
                 copy_depth_at_bloom(map);
             }
             const ViewSpec &view = kViews[static_cast<size_t>(report.view)];
-            if (report.note_view(step, map)
-                && !(view.from == PassId::light_shafts ? gpu.snapshot_light_shafts() : view.from == PassId::trace ? gpu.snapshot_trace() : gpu.snapshot(*map[view.entry])))
+            // A gather view shows only while the trace gathers.
+            const bool gather_shown = gather_view(report.view) == GatherView::none || (trace_frame && trace_frame->gathering);
+            if (report.note_view(step, map) && !gather_shown)
+            {
+                report.view_found = false;
+                gpu.note_view_why(gather_without_light ? "scene without light" : "gather off");
+            }
+            else if (report.view_found && view.snapshot_at == step
+                && !(view.from == PassId::light_shafts ? gpu.snapshot_light_shafts() : view.from == PassId::trace ? gpu.snapshot_trace(report.view) : gpu.snapshot(*map[view.entry])))
             {
                 report.view_found = false;
                 frame_error = PHOTOREAL_ERROR_TEXTURE;
             }
-            if (report.view != View::off && view.snapshot_at == step && !report.view_found)
+            else if (report.view != View::off && view.snapshot_at == step && !report.view_found)
                 gpu.note_view_why(view_missing_why(report));
             return skip;
         }
+
+        // The gather's sun comes from the combine step's first draw, and a LIGHT capture's scene keeps the newest.
+        bool wants_combine() { return (trace_tracing() && settings.gather.enabled) || capture_light; }
 
         bool feed(command_list *cmd_list, const FrameEvent &event)
         {
             if (cmd_list != immediate)
                 return false;
             const StepSet moments = tracker.feed(event);
+            // Before the draw runs, with its own constants bound: the first draw after the combine step's clear.
+            if (!combine_copied && std::holds_alternative<Draw>(event) && tracker.matched().has(Step::combine) && wants_combine() && gpu.ready())
+            {
+                gpu.gather_combine(frames);
+                combine_copied = true;
+            }
             if (moments.empty())
                 return false;
             bool skip = false;
@@ -972,7 +1042,7 @@ namespace photoreal
             const std::optional<CompareTick::Copy> next = compare_tick(c.present, count).copy;
             const Settings *variant = next ? &c.variants[next->variant].settings : nullptr;
             const bool traces = variant && variant->enabled && variant->trace.enabled && trace_gpu.state() == TraceState::ready;
-            const uint32_t target = variant ? std::max(variant->trace.ao_samples, variant->trace.sun_samples) : 0;
+            const uint32_t target = variant ? trace_target(variant->trace, variant->gather, variant->gather.enabled && trace_gpu.light() != nullptr) : 0;
             if (compare_waits(c.present, count, c.waited, traces && trace_gpu.passes() < target))
             {
                 c.waited++;
@@ -1041,6 +1111,8 @@ namespace photoreal
             if (request.trace)
             {
                 run.trace = std::make_shared<TraceBuild>();
+                run.trace->light = request.light;
+                capture_light = request.light;
                 trace_gpu.building();
             }
             scene = std::move(run);
@@ -1053,6 +1125,7 @@ namespace photoreal
         // is a reason.
         void end_scene_capture(const std::optional<std::string> &why)
         {
+            scene_light = scene_first = capture_light = false;
             SceneRun &run = *scene;
             if (why)
             {
@@ -1072,23 +1145,46 @@ namespace photoreal
                 trace_gpu.fail("the scene capture stopped: " + *why);
             else if (run.trace)
             {
-                // After the faces' jobs, so every face is in the builder.
+                // After the faces' jobs, so every face is in the builder. The light's inputs the render thread has: the
+                // newest combine constants, cascade 0's direction and the pushed camera's sun and sky.
                 const uint64_t cap = std::min<uint64_t>(run.schedule.request.max_triangles, trace_max_triangles);
-                worker.push([this_build = run.trace, folder = run.folder->path, cap] {
+                LightInputs light;
+                light.combine = combine_read;
+                if (sun_bytes)
+                    light.cascade = sun_facts(*sun_bytes).toward_sun;
+                light.pushed_sun_color = { camera.sun_color[0], camera.sun_color[1], camera.sun_color[2] };
+                light.pushed_sun_direction = { camera.toward_sun[0], camera.toward_sun[1], camera.toward_sun[2] };
+                light.pushed_sky = { camera.sky_color[0], camera.sky_color[1], camera.sky_color[2] };
+                worker.push([this_build = run.trace, folder = run.folder->path, cap, light] {
                     TraceScene scene;
                     scene.folder = folder.filename().u8string();
                     scene.reference = this_build->reference;
                     scene.floating_origin = this_build->floating_origin;
                     std::vector<TraceTriangle> triangles;
-                    std::vector<uint32_t> alpha;
+                    std::vector<uint32_t> alpha, materials;
                     try
                     {
-                        triangles = this_build->builder.take(cap, &alpha);
+                        triangles = this_build->builder.take(cap, &alpha, &materials);
+                        if (this_build->light)
+                        {
+                            // Before the alpha bake, which needs none of it; the faces' images go once the light is built.
+                            LightInputs inputs = std::move(this_build->inputs);
+                            inputs.combine = light.combine;
+                            inputs.cascade = light.cascade;
+                            inputs.pushed_sun_color = light.pushed_sun_color;
+                            inputs.pushed_sun_direction = light.pushed_sun_direction;
+                            inputs.pushed_sky = light.pushed_sky;
+                            const auto start = std::chrono::steady_clock::now();
+                            auto built = std::make_shared<SceneLight>(build_light(triangles, materials, inputs, scene.reference, BvhOptions {}.tasks));
+                            scene.light_seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+                            write_file(folder / "trace-light.bin", light_bytes(triangles, materials, *built, inputs.faces));
+                            scene.light = std::move(built);
+                        }
                     }
                     catch (const std::exception &e)
                     {
                         TraceBuilt failed;
-                        failed.error = std::string("its triangles could not be gathered: ") + e.what();
+                        failed.error = std::string("its triangles or their light could not be gathered: ") + e.what();
                         trace_box.put(failed);
                         return;
                     }
@@ -1193,6 +1289,13 @@ namespace photoreal
             data.normals = std::move(got.normals);
             data.mask = std::move(got.mask);
             data.irradiance = std::move(got.irradiance);
+            data.albedo = std::move(got.albedo);
+            data.hdr = std::move(got.hdr);
+            if (run.schedule.request.light)
+            {
+                const size_t pixels = size_t(got.render.width) * got.render.height;
+                data.light_why = data.albedo.size() != pixels * 4 ? "no albedo" : data.hdr.size() != pixels ? "no hdr" : data.stencil.size() != pixels ? "no stencil" : "";
+            }
             worker.push([folder = run.folder, request = run.schedule.request, data = std::move(data), picture = std::move(got.picture), trace = run.trace]() mutable {
                 if (picture)
                 {
@@ -1211,6 +1314,28 @@ namespace photoreal
                         // Every face's read holds the atlas whole, so the last one's is the capture's.
                         if (!data.atlas.empty())
                             trace->builder.set_atlas(data.atlas);
+                        // The light's images, at half size past kFullFacePixels; the first face's G-buffer for the ambient fit.
+                        if (trace->light)
+                        {
+                            if (std::optional<FaceImages> images = face_images(data.face, data.camera, data.render))
+                            {
+                                if (trace->inputs.faces.empty())
+                                {
+                                    trace->inputs.first_size = data.render;
+                                    trace->inputs.first_normals = data.normals;
+                                    trace->inputs.first_irradiance = data.irradiance;
+                                    trace->inputs.first_stencil = data.stencil;
+                                    trace->inputs.first_depth = data.depth;
+                                }
+                                images->depth = std::move(data.depth);
+                                images->albedo = std::move(data.albedo);
+                                images->stencil = std::move(data.stencil);
+                                images->hdr = std::move(data.hdr);
+                                if (uint64_t(data.render.width) * data.render.height > kFullFacePixels)
+                                    halve_face(*images);
+                                trace->inputs.faces.push_back(std::move(*images));
+                            }
+                        }
                     }
                     catch (const std::exception &e)
                     {
@@ -1240,6 +1365,8 @@ namespace photoreal
             scene_face = tick.publish_face;
             scene_frame = tick.capture_next_frame;
             scene_gbuffer = scene_frame && run.schedule.request.gbuffer && tick.publish_face == kFaceView;
+            scene_light = scene_frame && run.schedule.request.light;
+            scene_first = scene_frame && run.schedule.saved == 0;
             if (tick.copy_at_present)
             {
                 // The frame that just ended: its report, its camera, which the mailbox has not replaced yet, and its map.
@@ -1323,6 +1450,26 @@ namespace photoreal
                     + std::to_string(trace_gpu.nodes()) + " nodes built in " + seconds + " s, hash " + hash + "; uploading " + megabytes(uint64_t(trace_gpu.nodes()) * sizeof(BvhNode) + uint64_t(trace_gpu.triangles())
                     * sizeof(BvhTriangle) + trace_gpu.alpha_bytes()) + " (" + megabytes(trace_gpu.alpha_bytes()) + " of alpha tests) a part of " + megabytes(kTraceUploadBytes)
                     + " each present. trace-scene.bin is in " + trace_scene.folder + ".");
+                if (const SceneLight *light = trace_scene.light.get())
+                {
+                    const AlbedoCounts &a = light->albedo;
+                    const double area = a.area[0] + a.area[1] + a.area[2] + a.area[3];
+                    char line[640];
+                    std::snprintf(line, sizeof line, "the traced scene's light, built in %.2f s: albedo %llu direct, %llu covered, %llu by material, %llu by class "
+                        "(by area %.1f%%, %.1f%%, %.1f%%, %.1f%%); a sky map of %u real texels of %u%s; the ambient light %s (r2 %.4f %.4f %.4f over %u pixels: "
+                        "%.3f %.3f %.3f + n.y %.3f %.3f %.3f); the sun's color %s from the %s, shading direction %s from the %s%s, cascade 0's %s; "
+                        "trace-light.bin is in %s.", trace_scene.light_seconds, static_cast<unsigned long long>(a.triangles[0]),
+                        static_cast<unsigned long long>(a.triangles[1]), static_cast<unsigned long long>(a.triangles[2]), static_cast<unsigned long long>(a.triangles[3]),
+                        area > 0 ? 100 * a.area[0] / area : 0.0, area > 0 ? 100 * a.area[1] / area : 0.0, area > 0 ? 100 * a.area[2] / area : 0.0,
+                        area > 0 ? 100 * a.area[3] / area : 0.0, light->sky.real, kSkyMapSide * kSkyMapSide, light->sky.fallback ? ", fell back to the pushed sky" : "",
+                        light->ambient.kind == AmbientFit::Kind::fit ? "fit" : light->ambient.kind == AmbientFit::Kind::mean ? "the irradiance's mean" : "the pushed sky",
+                        light->ambient.r2[0], light->ambient.r2[1], light->ambient.r2[2], light->ambient.pixels, light->ambient.rows[0][0], light->ambient.rows[0][1],
+                        light->ambient.rows[0][2], light->ambient.rows[2][0], light->ambient.rows[2][1], light->ambient.rows[2][2], vec_text(light->sun.color).c_str(),
+                        light->sun.color_source == LightSource::game ? "combine constants" : "pushed camera", vec_text(light->sun.shade).c_str(),
+                        light->sun.shade_source == LightSource::game ? "combine constants" : "pushed camera",
+                        light->sun.why.empty() ? "" : (" (" + light->sun.why + ")").c_str(), vec_text(light->cascade).c_str(), trace_scene.folder.c_str());
+                    log(reshade::log::level::info, line);
+                }
                 break;
             case TraceState::ready:
                 log(reshade::log::level::info, "the traced scene is ready after " + std::to_string(trace_gpu.upload_presents()) + " presents of upload, generation "
@@ -1353,7 +1500,7 @@ namespace photoreal
                     bool buffer = false;
                     trace_scene = built.scene;
                     trace_gpu.check_consistency(!trace_scene.self_test);
-                    if (!trace_gpu.begin_upload(built.bvh, built.alpha, ++trace_generations, buffer) && buffer)
+                    if (!trace_gpu.begin_upload(built.bvh, built.alpha, trace_scene.light, ++trace_generations, buffer) && buffer)
                     {
                         trace_max_triangles = std::max<uint64_t>(trace_max_triangles / 2, 1);
                         trace_gpu.fail(trace_gpu.why() + "; the next traced capture keeps its nearest " + std::to_string(trace_max_triangles) + " triangles");
@@ -1363,6 +1510,8 @@ namespace photoreal
             log_trace_state();
             if (trace_gpu.state() == TraceState::uploading)
                 trace_gpu.upload_step();
+            if (wants_combine())
+                combine_read = gpu.combine_constants(frames);
             for (const std::string &line : trace_gpu.poll(settings.trace).log)
                 log(reshade::log::level::info, line);
             bool failed = false;
@@ -1426,6 +1575,10 @@ namespace photoreal
             s.trace_samples = trace_gpu.passes();
             s.trace_mrays_x100 = static_cast<uint32_t>(std::min(trace_gpu.mrays() * 100, 4e9));
             s.trace_generation = static_cast<uint32_t>(trace_gpu.generation());
+            s.trace_target = trace_gpu.target();
+            s.trace_converged = trace_gpu.state() == TraceState::ready && trace_wrote && trace_gpu.target() != 0 && trace_gpu.passes() >= trace_gpu.target();
+            s.trace_error_x10000 = static_cast<uint32_t>(std::min(trace_gpu.error() * 10000, 4e9));
+            s.trace_light = trace_gpu.light() ? trace_gpu.light()->flags() : 0;
             report.accumulated = accumulator.samples;
             published.line = describe(report);
             status_box.put(published);
@@ -1509,6 +1662,9 @@ namespace photoreal
             report.accumulate = arm ? accumulate.mode : AccumulateMode::off;
             trace_frame.reset();
             trace_traced = false;
+            if (!report.armed || !settings.trace.enabled)
+                trace_wrote = false;
+            combine_copied = false;
             armed.store(arm, std::memory_order_relaxed);
         }
 

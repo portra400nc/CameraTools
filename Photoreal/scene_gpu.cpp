@@ -226,17 +226,19 @@ namespace photoreal
         depth_size_ = {};
         picture_ = Staging {};
         picture_copied_ = false;
-        normals_ = mask_ = irradiance_ = stencil_ = Mirror {};
-        gbuffer_copied_ = gbuffer_back_ = false;
+        normals_ = mask_ = irradiance_ = stencil_ = albedo_ = hdr_ = Mirror {};
+        gbuffer_copied_ = gbuffer_back_ = hdr_copied_ = hdr_back_copied_ = false;
         normals_back_.reset();
         mask_back_.reset();
         irradiance_back_.reset();
         stencil_back_.reset();
+        albedo_back_.reset();
+        hdr_back_.reset();
     }
 
     void SceneGpu::begin_frame()
     {
-        gbuffer_copied_ = false;
+        gbuffer_copied_ = hdr_copied_ = false;
         records_.clear();
         replays_ = 0;
         // The constants start again with the frame's draws; the atlas's tiles, and the textures waiting for their bake,
@@ -704,23 +706,32 @@ namespace photoreal
         return stop;
     }
 
-    void SceneGpu::copy_gbuffer(const FrameMap &map)
+    void SceneGpu::copy_gbuffer(const FrameMap &map, GbufferCopies wanted)
     {
         // The main depth too, for its stencil plane, which later passes of the frame write over: copied at present, the
         // view face's stencil held only 0 and 1 in builds 203 to 208, while the trace's save, copied here, held the
         // G-buffer's classes.
-        const std::pair<Entry, Mirror *> copies[] = { { Entry::normals, &normals_ }, { Entry::shadow_mask, &mask_ }, { Entry::ambient_diffuse, &irradiance_ },
-            { Entry::depth, &stencil_ } };
-        for (const auto &[entry, mirror] : copies)
+        const std::tuple<Entry, Mirror *, bool> copies[] = { { Entry::normals, &normals_, wanted.normals_irradiance }, { Entry::shadow_mask, &mask_, wanted.mask },
+            { Entry::ambient_diffuse, &irradiance_, wanted.normals_irradiance }, { Entry::depth, &stencil_, true }, { Entry::albedo, &albedo_, wanted.albedo } };
+        for (const auto &[entry, mirror, want] : copies)
         {
             const std::optional<Texture> &texture = map[entry];
-            ID3D11Resource *game = texture ? reinterpret_cast<ID3D11Resource *>(static_cast<uint64_t>(texture->id)) : nullptr;
+            ID3D11Resource *game = want && texture ? reinterpret_cast<ID3D11Resource *>(static_cast<uint64_t>(texture->id)) : nullptr;
             if (game && mirror->sync(device_.Get(), game, static_cast<DXGI_FORMAT>(texture->format), false))
                 mirror->copy_from(context_.Get(), game);
             else
                 *mirror = Mirror {};
         }
         gbuffer_copied_ = true;
+    }
+
+    void SceneGpu::copy_hdr(const FrameMap &map)
+    {
+        const std::optional<Texture> &texture = map[Entry::hdr_scene];
+        ID3D11Resource *game = texture ? reinterpret_cast<ID3D11Resource *>(static_cast<uint64_t>(texture->id)) : nullptr;
+        hdr_copied_ = game && hdr_.sync(device_.Get(), game, static_cast<DXGI_FORMAT>(texture->format), false);
+        if (hdr_copied_)
+            hdr_.copy_from(context_.Get(), game);
     }
 
     void SceneGpu::bake(const char *&moved)
@@ -805,11 +816,12 @@ namespace photoreal
         {
             // A mirror that was not made gives no copy, and read() leaves that file out.
             for (const auto &[mirror, back] : { std::pair { &normals_, &normals_back_ }, std::pair { &mask_, &mask_back_ }, std::pair { &irradiance_, &irradiance_back_ },
-                     std::pair { &stencil_, &stencil_back_ } })
+                     std::pair { &stencil_, &stencil_back_ }, std::pair { &albedo_, &albedo_back_ } })
                 if (!mirror->texture() || !back->copy_from(device_.Get(), c, mirror->texture()))
                     back->reset();
         }
-        gbuffer_copied_ = false;
+        hdr_back_copied_ = hdr_copied_ && hdr_back_.copy_from(device_.Get(), c, hdr_.texture());
+        gbuffer_copied_ = hdr_copied_ = false;
         copied_frame_ = true;
         return true;
     }
@@ -864,7 +876,7 @@ namespace photoreal
         {
             std::vector<uint8_t> depth_stencil;
             for (const auto &[back, bytes] : { std::pair { &normals_back_, &out.normals }, std::pair { &mask_back_, &out.mask },
-                     std::pair { &irradiance_back_, &out.irradiance }, std::pair { &stencil_back_, &depth_stencil } })
+                     std::pair { &irradiance_back_, &out.irradiance }, std::pair { &stencil_back_, &depth_stencil }, std::pair { &albedo_back_, &out.albedo } })
             {
                 if (!back->copied())
                     continue;
@@ -878,6 +890,15 @@ namespace photoreal
             out.stencil.resize(depth_stencil.size() / 8);
             for (size_t i = 0; i < out.stencil.size(); i++)
                 out.stencil[i] = depth_stencil[i * 8 + 4];
+        }
+        if (hdr_back_copied_)
+        {
+            std::vector<uint8_t> bytes;
+            const Readback::Read r = hdr_back_.read(c, bytes);
+            if (r == Readback::Read::not_ready)
+                return SceneRead {};
+            out.hdr.resize(r == Readback::Read::ok ? bytes.size() / 4 : 0);
+            std::memcpy(out.hdr.data(), bytes.data(), out.hdr.size() * 4);
         }
         if (picture_copied_)
         {

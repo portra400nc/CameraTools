@@ -103,8 +103,10 @@ namespace photoreal
         uint32_t overran = 0;                   // draws that wrote past their reservation; their next one is larger
         uint32_t unwritten = 0;                 // draws whose reservation kept corners stream output never wrote
         // copy_gbuffer's, when it copied that frame at its combine step, at render, top row first: the stencil, and the
-        // normals, shadow mask and diffuse irradiance as stored; each empty when it was not copied.
-        std::vector<uint8_t> stencil, normals, mask, irradiance;
+        // normals, shadow mask and diffuse irradiance as stored, and the G-buffer albedo; each empty when it was not copied.
+        std::vector<uint8_t> stencil, normals, mask, irradiance, albedo;
+        // copy_hdr's, when it copied that frame at its bloom step: the HDR scene as stored, R11G11B10_FLOAT.
+        std::vector<uint32_t> hdr;
     };
 
     class SceneGpu
@@ -128,10 +130,18 @@ namespace photoreal
         // the capture must stop, such as stream output being unsupported, or empty.
         std::optional<std::string> replay(const ReplayCall &call, const ShaderRegistry &shaders, const char *&moved);
 
-        // At the combine step of a captured frame whose request keeps the G-buffer, before any pass of ours: copies the
-        // normals, the shadow mask, the diffuse irradiance and the main depth, for its stencil, which the frame map found
-        // into mirrors, which copy_at_present passes on. A mirror that cannot be made leaves its copy out.
-        void copy_gbuffer(const FrameMap &map);
+        // At the combine step of a captured frame whose request keeps the G-buffer or the light, before any pass of ours:
+        // copies the main depth, for its stencil, and what is asked of the normals and the diffuse irradiance (the view
+        // face of a GBUFFER request, the first face of a LIGHT one), the shadow mask (the view face of a GBUFFER request)
+        // and the G-buffer albedo (every face of a LIGHT request) into mirrors, which copy_at_present passes on. A mirror
+        // that cannot be made leaves its copy out.
+        struct GbufferCopies
+        {
+            bool normals_irradiance = false, mask = false, albedo = false;
+        };
+        void copy_gbuffer(const FrameMap &map, GbufferCopies copies);
+        // At the bloom step of a captured frame whose request keeps the light, before any pass of ours: the HDR scene.
+        void copy_hdr(const FrameMap &map);
 
         // At the present that ends a captured frame: bakes the textures the frame's alpha programs sample into the atlas,
         // under a StateGuard whose finding goes to moved, then copies the stream-output buffer, the main depth, the back
@@ -211,9 +221,10 @@ namespace photoreal
         Staging picture_;
         bool picture_copied_ = false;
         // copy_gbuffer's mirrors of the frame being replayed, and their copies at present.
-        Mirror normals_, mask_, irradiance_, stencil_;
-        bool gbuffer_copied_ = false;
-        Readback normals_back_, mask_back_, irradiance_back_, stencil_back_;
+        Mirror normals_, mask_, irradiance_, stencil_, albedo_, hdr_;
+        bool gbuffer_copied_ = false, hdr_copied_ = false;
+        Readback normals_back_, mask_back_, irradiance_back_, stencil_back_, albedo_back_, hdr_back_;
+        bool hdr_back_copied_ = false;
         bool gbuffer_back_ = false;
         uint32_t support_ = 0;
         // Alpha tests: each pixel shader's analysis, kept for the device's life; for the capture, the atlas and its tiles by
