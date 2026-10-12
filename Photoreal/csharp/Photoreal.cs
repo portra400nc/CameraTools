@@ -14,7 +14,7 @@ namespace CameraToolsPhotoreal
     internal enum PhotorealView : uint
     {
         Off, Normals, Albedo, Specular, MaterialId, Smoothness, Character, Depth, Stencil,
-        ShadowMask, QuarterShadow, AmbientDiffuse, AmbientSpecular, HdrScene, BloomFinal, SunAtlas, LightShafts, Trace, Count,
+        ShadowMask, QuarterShadow, AmbientDiffuse, AmbientSpecular, HdrScene, BloomFinal, SunAtlas, LightShafts, Trace, Bounce, SkyVisibility, SkyMap, Count,
     }
 
     // PHOTOREAL_ERROR_* in photoreal.h.
@@ -131,6 +131,25 @@ namespace CameraToolsPhotoreal
         public float BudgetMs;
     }
 
+    // PHOTOREAL_GATHER_SKY_* in photoreal.h, in order: how the gathered light meets the game's sky light.
+    internal enum PhotorealGatherSky : uint { Occlusion, Visibility, Weighted, Map }
+
+    // PHOTOREAL_TRACE_LIGHT_* in photoreal.h: what of the traced scene's light came from the game.
+    [Flags]
+    internal enum PhotorealTraceLight : uint { None = 0, Albedo = 1 << 0, Sky = 1 << 1, Sun = 1 << 2, Ambient = 1 << 3 }
+
+    // PhotorealGather in photoreal.h, field for field.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct PhotorealGather
+    {
+        public uint Enabled;
+        public uint Samples;
+        public PhotorealGatherSky Sky;
+        public uint Filter;
+        public float Strength;
+        public float HitAmbient;
+    }
+
     // PhotorealSettings in photoreal.h, field for field.
     [StructLayout(LayoutKind.Sequential)]
     internal struct PhotorealSettings
@@ -147,6 +166,7 @@ namespace CameraToolsPhotoreal
         public PhotorealWetness Wetness;
         public PhotorealLightShafts LightShafts;
         public PhotorealTrace Trace;
+        public PhotorealGather Gather;
 
         // The add-on's defaults: everything off, game targets upside down, and when switched on ambient level 0.6, AO
         // strength 0.5 at a 1 m radius, half that strength on grass, vegetation and foliage, full-strength contact
@@ -158,7 +178,8 @@ namespace CameraToolsPhotoreal
         // scatters sun light forward with anisotropy 0.6, is marched 150 m in 48 steps, lies in patches 6 m across at
         // patchiness 1, and takes the sky's light at 0.3, and a trace of occlusion within 2 m and sun shadows of the real
         // sun's size, both at full strength and cast by characters and cards too, to 64 and 32 samples a pixel within 20 ms a
-        // frame, applied with the ambient level.
+        // frame, applied with the ambient level, and when switched on a gather of one bounce, 128 samples a pixel, its sky
+        // light by visibility, filtered twice, at full strength, with half the game's ambient light on the surfaces it meets.
         public static PhotorealSettings Defaults => new()
         {
             Size = (uint)Marshal.SizeOf<PhotorealSettings>(),
@@ -178,6 +199,7 @@ namespace CameraToolsPhotoreal
                 Outputs = PhotorealTraceOutputs.Ao | PhotorealTraceOutputs.Sun, Casters = PhotorealTraceCasters.Characters | PhotorealTraceCasters.AlphaCards,
                 AoDistance = 2, AoStrength = 1, SunSize = 0.0093f, SunStrength = 1, AoSamples = 64, SunSamples = 32, BudgetMs = 20,
             },
+            Gather = new PhotorealGather { Samples = 128, Sky = PhotorealGatherSky.Visibility, Filter = 2, Strength = 1, HitAmbient = 0.5f },
         };
     }
 
@@ -213,7 +235,10 @@ namespace CameraToolsPhotoreal
 
     // PHOTOREAL_SCENE_* in photoreal.h. Trace with no faces traces the self-test scene; Release frees the traced scene.
     [Flags]
-    internal enum PhotorealSceneFlags : uint { None = 0, Raw = 1 << 0, Ply = 1 << 1, Trace = 1 << 2, NoMeshes = 1 << 3, GBuffer = 1 << 4, Release = 1 << 5 }
+    internal enum PhotorealSceneFlags : uint
+    {
+        None = 0, Raw = 1 << 0, Ply = 1 << 1, Trace = 1 << 2, NoMeshes = 1 << 3, GBuffer = 1 << 4, Release = 1 << 5, Light = 1 << 6,
+    }
 
     // PhotorealSceneRequest in photoreal.h, field for field. Zero fields read as the add-on's defaults: all seven faces
     // (with Trace, none: the self-test scene), 45 presents of settle and 4000000 triangles a face.
@@ -279,13 +304,17 @@ namespace CameraToolsPhotoreal
         public uint TraceSamples;   // full passes: samples every traced pixel has
         public uint TraceMraysX100; // rays a second, in millions times 100
         public uint TraceGeneration;
+        public uint TraceTarget;    // the samples every traced pixel gets
+        public uint TraceConverged; // 1 when every traced pixel has TraceTarget samples and the last frame was written from them
+        public uint TraceErrorX10000;   // the gathered light's mean relative standard error, times 10000
+        public PhotorealTraceLight TraceLight;
     }
 
     // The only class that knows CameraToolsPhotoreal.addon64.
     internal static class Photoreal
     {
         private const string ModuleName = "CameraToolsPhotoreal.addon64";
-        private const uint Version = 8;
+        private const uint Version = 9;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

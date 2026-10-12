@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define PHOTOREAL_VERSION 8
+#define PHOTOREAL_VERSION 9
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -506,7 +506,8 @@ PHOTOREAL_EXPORT void PhotorealGetStatus(PhotorealStatus *status);
 // Saves the next frame the trace pass writes into <ReShade base path>\Photoreal\trace-<YYYYMMDD-HHMMSS>\: its history,
 // depth, stencil and normals, the game's shadow mask and diffuse irradiance as the pass found them, the constants it
 // traced with, the shadow-mask constants and trace.tsv, which names the scene folder holding trace-scene.bin, for the
-// Mac's reference tracer. The constants are the last ones the trace uploaded, and trace.tsv says whether the scene was
+// Mac's reference tracer; the view's G-buffer albedo, its HDR scene before our passes and the irradiance the pass wrote;
+// and while it gathers, the gather's sums and constants. The constants are the last ones the trace uploaded, and trace.tsv says whether the scene was
 // ready or stale, and why. While the scene is stale the save takes the next frame's images and the history as it was
 // when it went stale. Returns 1 when accepted, and 0 while the scene is neither ready nor stale, before a ready scene's
 // first full pass, or while a save waits; a save that sees no traced frame within 300 presents is given up, which
