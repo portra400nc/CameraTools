@@ -164,6 +164,14 @@ namespace photoreal
         // The stream-output geometry shader of a shader's bytecode with extra entries after the position, by key, made the
         // first time.
         const CachedGs &geometry_shader(uint64_t key, const std::string &bytes, const std::vector<SoEntry> &extra);
+        // The entries after the position and the corner size a source shader's first replay streamed with, by its hash:
+        // every later replay of that shader uses them too.
+        struct StreamLayoutOf
+        {
+            std::vector<SoEntry> extra;
+            uint32_t stride = 0;
+        };
+        static bool same_entries(const std::vector<SoEntry> &a, const std::vector<SoEntry> &b);
         bool make_buffers(uint64_t bytes);
         // The draw's alpha test before its replay: its pixel shader's analysis, then for a program the check of its
         // inputs against the vertex shader's outputs, the copy of its constant rows and its texture's tile. Sets the
@@ -182,6 +190,7 @@ namespace photoreal
         ComPtr<ID3D11BlendState> no_write_;
         ComPtr<ID3D11DepthStencilState> no_depth_;
         std::unordered_map<uint64_t, CachedGs> gs_cache_;
+        std::unordered_map<uint64_t, StreamLayoutOf> layouts_;
         ComPtr<ID3D11Buffer> so_buffer_, so_staging_;
         ComPtr<ID3D11Buffer> marker_;                   // filled with kUnwrittenBits, the source begin_frame clears from
         uint64_t buffer_bytes_ = 0;

@@ -252,6 +252,13 @@ namespace photoreal
         }
     }
 
+    bool SceneGpu::same_entries(const std::vector<SoEntry> &a, const std::vector<SoEntry> &b)
+    {
+        return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](const SoEntry &x, const SoEntry &y) {
+            return x.semantic == y.semantic && x.index == y.index && x.start == y.start && x.count == y.count && x.slot == y.slot;
+        });
+    }
+
     const SceneGpu::CachedGs &SceneGpu::geometry_shader(uint64_t key, const std::string &bytes, const std::vector<SoEntry> &extra)
     {
         // The key of a declaration with extra entries mixes them in, so each set of inputs has its own shader.
@@ -588,14 +595,29 @@ namespace photoreal
         prepare_alpha(r, ps_code, source, ds != nullptr, extra);
         // The key of our own shader: a census hash is FNV-1a of bytecode, never 0.
         static const std::string triangles_gs(reinterpret_cast<const char *>(kStreamTrianglesGs), sizeof kStreamTrianglesGs);
+        // One stream layout per source shader, the first a capture made for it: build 207's equal-depth vegetation draws
+        // asked for the position alone after their prepass draws had streamed the same vertex shader with an alpha
+        // program's inputs, and their data came back in the prepass's layout, read as garbage. A later draw therefore
+        // streams with the first layout and is read with it; one whose own program wants other inputs casts whole.
+        const auto first = ds ? layouts_.end() : layouts_.find(source->hash);
+        if (first != layouts_.end() && !same_entries(first->second.extra, extra))
+        {
+            if (!extra.empty())
+                r.alpha = DrawAlpha::stream;
+            extra = first->second.extra;
+            r.stride = first->second.stride;
+        }
         const CachedGs *found = ds ? &geometry_shader(0, triangles_gs, {}) : &geometry_shader(source->hash, *source->code, extra);
-        if (!extra.empty() && found->skip != DrawSkip::none)
+        if (!extra.empty() && found->skip != DrawSkip::none && first == layouts_.end())
         {
             // Without its alpha program's inputs, the draw still streams its triangles, whole.
             r.alpha = DrawAlpha::stream;
             r.stride = kCornerBytes;
+            extra.clear();
             found = &geometry_shader(source->hash, *source->code, {});
         }
+        if (!ds && found->skip == DrawSkip::none)
+            layouts_.try_emplace(source->hash, StreamLayoutOf { extra, r.stride });
         const CachedGs &so_gs = *found;
         if (so_gs.result == DXGI_ERROR_INVALID_CALL && !ds)
         {
