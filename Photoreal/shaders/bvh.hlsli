@@ -105,9 +105,15 @@ BvhHit visit_leaf(BvhHit hit, uint link, float3 origin, float3 direction, bool a
         if (((mask >> ((tri.info >> 24) & 15u)) & 1u) == 0u)
             continue;
         float4 h = intersect_triangle(tri, origin, direction, hit.t);
-        if (h.x < hit.t && (mask & kAlphaTests) != 0u && (tri.info & kOpaqueRecord) != kOpaqueRecord && !alpha_keeps(tri.info & kOpaqueRecord, h.y, h.z, lane))
+        if (!(h.x < hit.t))
             continue;
-        if (h.x < hit.t)
+        // HLSL evaluates both sides of && and ||, so a call in a condition would run for every triangle tested: the alpha
+        // program runs only inside the ifs that ask for it (build 204 ran it on every triangle and hung the Deck's GPU).
+        if ((mask & kAlphaTests) != 0u && (tri.info & kOpaqueRecord) != kOpaqueRecord)
+        {
+            if (!alpha_keeps(tri.info & kOpaqueRecord, h.y, h.z, lane))
+                continue;
+        }
         {
             hit.t = h.x;
             hit.prim = first + i;

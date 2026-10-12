@@ -13,6 +13,7 @@ for test in *_test.cpp; do
     "$out/${test%.cpp}" "$out"
 done
 python3 check_png.py "$out/roundtrip.png"
+python3 check_kernel_conditions.py ../shaders
 python3 check_scene.py "$out/scene-synthetic"
 # The synthetic traced frame trace_test wrote: traced again by the reference tracer, which check_trace.py must find equal,
 # and a copy with a block of sun samples flipped, which it must refuse.
