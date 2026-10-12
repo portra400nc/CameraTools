@@ -2,7 +2,7 @@
 // (shaders/trace.hlsli compiled as C++ in core/kernel.cpp) and writes reference.f32 beside history.f32, with each pixel's
 // samples squared and summed in reference-squares.f32, for check_trace.py to compare.
 //
-//   trace_reference <trace folder> [scene folder] [--leaf-cards <ps.dxbc>]
+//   trace_reference <trace folder> [scene folder] [--leaf-cards <ps.dxbc>] [--drop-class <class>] [--drop-near <meters>]
 //
 // The trace folder is what PhotorealSaveTrace wrote; the scene folder holds the trace-scene.bin trace.tsv names, by
 // default beside the trace folder. It bakes the scene's alpha programs into masks as the add-on does
@@ -11,10 +11,17 @@
 // with and the scene's alpha tests, on all the Mac's cores. --leaf-cards gives every vegetation and foliage card of a
 // scene without alpha tests the census program in ps.dxbc and leaf-shaped blobs about 43% opaque, as alpha_test.cpp's
 // fixture does, so the Mac's rays a second with and without alpha tests compare their cost; the BVH's hash then differs
-// from the Deck's and is not checked. Then it renders the view's depth from the scene,
-// a ray from the eye to every pixel with depth but grass, with the alpha tests and with whole cards, and reports how much
-// of it agrees with the depth buffer, as check_scene.py's check 2 judges a face's meshes. Prints PASS, FAIL and INFO
-// lines like the tests.
+// from the Deck's and is not checked. --drop-class leaves a class out of the scene, to measure what its triangles cost the
+// traversal. --drop-near leaves out every triangle with a corner within that distance of the scene's reference, the
+// capture's camera: the scenes of builds 205 to 207 hold their equal-depth draws misread, fans from one real corner
+// to two beside the camera (README, "Misread equal-depth draws"), which the scene build now leaves out, so
+// --drop-near 0.5 traces such a scene as it would be built today. Neither scene is the Deck's, so the hash is not
+// checked and check_trace.py's comparison with the Deck's history means nothing. It fails when more than 0.1% of the rays
+// were cut short by a cap. Then it renders the view's depth from the scene, a ray from the eye to every pixel with depth
+// but grass, with the alpha tests and with whole cards, and reports how much of it agrees with the depth buffer, as
+// check_scene.py's check 2 judges a face's meshes, and how many of those rays a cap cut short, which says the scene
+// holds something no scene should: a ray cut short stops wherever its work ran out. Prints PASS, FAIL and INFO lines
+// like the tests.
 #include "../core/alpha_bake.h"
 #include "../core/trace_files.h"
 
@@ -24,6 +31,7 @@
 #include <cstring>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <iterator>
 #include <string>
@@ -47,18 +55,19 @@ namespace
 int main(int argc, char **argv)
 {
     std::vector<std::string> args(argv + 1, argv + argc);
-    std::string leaf_cards, drop;
+    std::string leaf_cards, drop, drop_near;
     for (size_t i = 0; i + 1 < args.size();)
-        if (args[i] == "--leaf-cards" || args[i] == "--drop-class")
+        if (args[i] == "--leaf-cards" || args[i] == "--drop-class" || args[i] == "--drop-near")
         {
-            (args[i] == "--leaf-cards" ? leaf_cards : drop) = args[i + 1];
+            (args[i] == "--leaf-cards" ? leaf_cards : args[i] == "--drop-class" ? drop : drop_near) = args[i + 1];
             args.erase(args.begin() + static_cast<std::ptrdiff_t>(i), args.begin() + static_cast<std::ptrdiff_t>(i) + 2);
         }
         else
             i++;
-    if (args.empty() || args[0].rfind("--", 0) == 0)
+    const float radius = drop_near.empty() ? 0.0f : std::strtof(drop_near.c_str(), nullptr);
+    if (args.empty() || args[0].rfind("--", 0) == 0 || (!drop_near.empty() && !(radius > 0)))
     {
-        std::fprintf(stderr, "usage: trace_reference <trace folder> [scene folder] [--leaf-cards <ps.dxbc>] [--drop-class <class>]\n");
+        std::fprintf(stderr, "usage: trace_reference <trace folder> [scene folder] [--leaf-cards <ps.dxbc>] [--drop-class <class>] [--drop-near <meters>]\n");
         return 2;
     }
     const fs::path folder = args[0];
@@ -99,6 +108,14 @@ int main(int argc, char **argv)
         scene->triangles.erase(std::remove_if(scene->triangles.begin(), scene->triangles.end(),
             [dropped](const TraceTriangle &t) { return info_class(t.info) == dropped; }), scene->triangles.end());
         std::printf("INFO --drop-class %s: %zu of %zu triangles left out\n", drop.c_str(), before - scene->triangles.size(), before);
+    }
+    if (radius > 0)
+    {
+        const size_t before = scene->triangles.size();
+        scene->triangles.erase(std::remove_if(scene->triangles.begin(), scene->triangles.end(), [radius](const TraceTriangle &t) {
+            return std::any_of(t.corner.begin(), t.corner.end(), [radius](const Vec3f &c) { return std::hypot(c[0], c[1], c[2]) < radius; });
+        }), scene->triangles.end());
+        std::printf("INFO --drop-near %g: %zu of %zu triangles left out\n", radius, before - scene->triangles.size(), before);
     }
     if (!leaf_cards.empty() && scene->alpha.empty())
     {
@@ -151,11 +168,12 @@ int main(int argc, char **argv)
     char line[256];
     std::snprintf(line, sizeof line, "the Mac's BVH of the %zu triangles, built in %.2f s, has the Deck's hash %016llx", scene->triangles.size(), build,
         static_cast<unsigned long long>(save->bvh_hash));
-    if (leaf_cards.empty() && drop.empty())
+    const bool decks_scene = leaf_cards.empty() && drop.empty() && drop_near.empty();
+    if (decks_scene)
         check(line, bvh.hash == save->bvh_hash);
     else
-        std::printf("INFO the Mac's BVH of the %zu triangles with leaf cards, built in %.2f s, has its own hash %016llx\n", scene->triangles.size(), build,
-            static_cast<unsigned long long>(bvh.hash));
+        std::printf("INFO the Mac's BVH of the %zu triangles, not the Deck's scene, built in %.2f s, has its own hash %016llx\n", scene->triangles.size(),
+            build, static_cast<unsigned long long>(bvh.hash));
 
     TraceImage image;
     image.size = save->size;
@@ -214,6 +232,10 @@ int main(int argc, char **argv)
     std::printf("INFO traced %llu rays in %.1f s on %u threads (%.2f Mrays/s); %llu cut short by a cap, %llu stack overflows\n",
         static_cast<unsigned long long>(rays.load()), seconds, options.tasks, rays.load() / std::max(seconds, 1e-9) / 1e6,
         static_cast<unsigned long long>(guard.load()), static_cast<unsigned long long>(overflow.load()));
+    // A ray its caps cut short stops wherever its work ran out: a scene that does that to more than a stray ray holds
+    // something no scene should, as build 207's meadow did.
+    std::snprintf(line, sizeof line, "at most 0.1%% of the rays were cut short by a cap (%.3f%%)", 100.0 * guard.load() / std::max<uint64_t>(rays.load(), 1));
+    check(line, guard.load() * 1000 <= rays.load());
     std::ofstream out(folder / "reference.f32", std::ios::binary | std::ios::trunc);
     out.write(reinterpret_cast<const char *>(reference.data()), static_cast<std::streamsize>(reference.size() * sizeof(float)));
     std::ofstream out_squares(folder / "reference-squares.f32", std::ios::binary | std::ios::trunc);
@@ -225,12 +247,12 @@ int main(int argc, char **argv)
     const TraceConstants &c = save->constants;
     const Vec3f eye = { c.eye_position[0], c.eye_position[1], c.eye_position[2] };
     // Agreeing pixels with the alpha tests and with whole cards, and pixels, for stencil 128 and 144, 136 and 137, and the rest.
-    std::atomic<uint64_t> agree[2][3] {}, pixels[3] {};
+    std::atomic<uint64_t> agree[2][3] {}, pixels[3] {}, cut_short { 0 };
     next_row = 0;
     threads.clear();
     for (uint32_t t = 0; t < options.tasks; t++)
         threads.emplace_back([&] {
-            uint64_t my_agree[2][3] {}, my_pixels[3] {};
+            uint64_t my_agree[2][3] {}, my_pixels[3] {}, my_cut_short = 0;
             for (uint32_t y; (y = next_row++) < height;)
                 for (uint32_t x = 0; x < width; x++)
                 {
@@ -256,11 +278,14 @@ int main(int argc, char **argv)
                     my_pixels[group]++;
                     for (int tested = 0; tested < 2; tested++)
                     {
+                        TraversalStats stats;
                         const std::optional<Hit> hit = trace_nearest(bvh, eye, direction, distance * 1.5f + 1, tested == 0 ? kAllClasses | kAlphaTests : kAllClasses,
-                            nullptr, alpha);
+                            &stats, alpha);
                         my_agree[tested][group] += hit && std::fabs(hit->t - distance) <= 0.02f * distance;
+                        my_cut_short += tested == 0 && stats.guard;
                     }
                 }
+            cut_short += my_cut_short;
             for (int g = 0; g < 3; g++)
             {
                 pixels[g] += my_pixels[g];
@@ -285,6 +310,10 @@ int main(int argc, char **argv)
                 "(stencil 128 and 144 %s, 136 and 137 %s); with whole cards: %s (%s, %s)\n",
         share(0, { 0, 1, 2 }).first.c_str(), share(0, { 0 }).first.c_str(), share(0, { 1 }).first.c_str(), share(1, { 0, 1, 2 }).first.c_str(),
         share(1, { 0 }).first.c_str(), share(1, { 1 }).first.c_str());
+    const uint64_t view_rays = pixels[0] + pixels[1] + pixels[2];
+    std::snprintf(line, sizeof line, "at most 0.1%% of the view's rays with the alpha tests were cut short by a cap (%llu of %llu)",
+        static_cast<unsigned long long>(cut_short.load()), static_cast<unsigned long long>(view_rays));
+    check(line, cut_short.load() * 1000 <= view_rays);
     // Leaf cards are not the game's leaves, which the depth buffer shows.
     if (alpha && leaf_cards.empty())
         check("the alpha tests do not lower the view's depth agreement", share(0, { 0, 1, 2 }).second >= share(1, { 0, 1, 2 }).second);
