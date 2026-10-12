@@ -846,7 +846,7 @@ namespace photoreal
 
         // PHOTOREAL_SCENE_TRACE with no faces: the self-test scene around the pushed camera, horizontal toward its forward,
         // traced like a captured one, with its trace-scene.bin in a scene folder of its own.
-        void begin_self_test()
+        void begin_self_test(bool light)
         {
             if (!camera_known())
             {
@@ -863,11 +863,24 @@ namespace photoreal
             const double length = std::sqrt(forward[0] * forward[0] + forward[2] * forward[2]);
             forward = length > 1e-6 ? Vec3d { forward[0] / length, 0, forward[2] / length } : Vec3d { 0, 0, 1 };
             trace_gpu.building();
-            log(reshade::log::level::info, "tracing the self-test scene around the camera; its triangles go to " + folder.u8string() + ".");
-            worker.push([folder, scene, forward] {
+            log(reshade::log::level::info, "tracing the self-test scene around the camera" + std::string(light ? ", with its light," : "") + "; its triangles go to "
+                + folder.u8string() + ".");
+            LightInputs inputs;
+            inputs.combine = combine_read;
+            if (sun_bytes)
+                inputs.cascade = sun_facts(*sun_bytes).toward_sun;
+            inputs.pushed_sun_color = { camera.sun_color[0], camera.sun_color[1], camera.sun_color[2] };
+            inputs.pushed_sun_direction = { camera.toward_sun[0], camera.toward_sun[1], camera.toward_sun[2] };
+            worker.push([folder, scene, forward, light, inputs]() mutable {
                 std::error_code error;
                 fs::create_directories(folder, error);
-                build_trace(self_test_scene(forward), {}, scene, folder);
+                std::vector<TraceTriangle> triangles = self_test_scene(forward);
+                if (light)
+                {
+                    scene.light = std::make_shared<SceneLight>(self_test_light(triangles, inputs));
+                    write_file(folder / "trace-light.bin", light_bytes(triangles, std::vector<uint32_t>(triangles.size(), 0), *scene.light, {}));
+                }
+                build_trace(std::move(triangles), {}, scene, folder);
             });
         }
 
@@ -1113,7 +1126,7 @@ namespace photoreal
             }
             if (request.self_test())
             {
-                begin_self_test();
+                begin_self_test(request.light);
                 return;
             }
             auto folder = std::make_shared<SceneFolder>();

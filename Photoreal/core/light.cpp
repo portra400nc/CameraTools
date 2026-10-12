@@ -774,6 +774,30 @@ namespace photoreal
         return light;
     }
 
+    SceneLight self_test_light(std::vector<TraceTriangle> &triangles, const LightInputs &inputs)
+    {
+        static const Vec3f kAlbedos[] = { { 0.5f, 0.5f, 0.5f }, { 0.8f, 0.25f, 0.2f }, { 0.2f, 0.7f, 0.25f } };
+        for (size_t i = 0; i < triangles.size(); i++)
+            triangles[i].light = pack_light(kAlbedos[std::min<size_t>(i, 2)], AlbedoSource::direct);
+        SceneLight light;
+        light.albedo = count_albedo(triangles);
+        light.sky.texels.resize(size_t(kSkyMapSide) * kSkyMapSide * 4);
+        for (size_t i = 0; i < light.sky.texels.size(); i += 4)
+        {
+            for (int k = 0; k < 3; k++)
+                light.sky.texels[i + k] = kSelfTestSky[k];
+            light.sky.texels[i + 3] = 1;
+        }
+        light.sky.real = kSkyMapSide * kSkyMapSide;
+        set_harmonics(light.sky);
+        light.ambient.rows[0] = kSelfTestSky;
+        light.ambient.kind = AmbientFit::Kind::mean;
+        light.sun = sun_light(inputs.combine, inputs.cascade, inputs.pushed_sun_color, inputs.pushed_sun_direction);
+        if (inputs.cascade)
+            light.cascade = *inputs.cascade;
+        return light;
+    }
+
     uint32_t SceneLight::flags() const
     {
         return (albedo.triangles[static_cast<size_t>(AlbedoSource::direct)] + albedo.triangles[static_cast<size_t>(AlbedoSource::covered)] != 0 ? kLightAlbedo : 0)

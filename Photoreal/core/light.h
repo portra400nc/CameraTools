@@ -198,6 +198,13 @@ namespace photoreal
     SceneLight build_light(std::vector<TraceTriangle> &triangles, const std::vector<uint32_t> &materials, const LightInputs &inputs, const Vec3d &reference,
         uint32_t tasks);
 
+    // The self-test scene's light (core/trace_scene.h's self_test_scene, its roof, wall and plate in that order): fixed
+    // albedos, the roof a middle gray, the wall red and the plate green; a sky of kSelfTestSky in every texel, real, and
+    // an ambient light of that color; and the sun from the inputs as for a capture. So a self-test save's gather has
+    // literal inputs, which the Mac traces from its trace-light.bin.
+    constexpr Vec3f kSelfTestSky = { 0.4f, 0.6f, 1.0f };
+    SceneLight self_test_light(std::vector<TraceTriangle> &triangles, const LightInputs &inputs);
+
     // trace-light.bin, beside trace-scene.bin: b"PRTL", a uint32 count, each triangle's light word and material in
     // trace-scene.bin's order, the sky map's side and its float4 texels, its count of real texels and 1 when it fell
     // back, its 9 harmonics, the ambient fit's 4 rows, r2, pixels and kind, the sun's color, its shading direction,

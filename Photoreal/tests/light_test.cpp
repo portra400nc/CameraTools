@@ -653,6 +653,16 @@ int main(int argc, char **argv)
         light.albedo = count_albedo(triangles);
         check("the scene's light flags: albedo, sky, the ambient fit, not the sun with a pushed direction",
             light.flags() == (kLightAlbedo | kLightSky | kLightAmbient));
+        std::vector<TraceTriangle> self = self_test_scene({ 0, 0, 1 });
+        LightInputs pushed;
+        pushed.pushed_sun_color = { 1, 2, 3 };
+        pushed.pushed_sun_direction = { 0, 1, 0 };
+        const SceneLight test = self_test_light(self, pushed);
+        check("the self-test scene's light: a gray roof, a red wall, a green plate, its sky (0.4, 0.6, 1) in every texel and harmonic, the pushed sun",
+            light_albedo(self[0].light)[0] == light_albedo(pack_light({ 0.5f, 0.5f, 0.5f }, AlbedoSource::direct))[0] && light_albedo(self[1].light)[0] > 0.6f
+                && light_albedo(self[2].light)[1] > 0.6f && test.sky.real == kSkyMapSide * kSkyMapSide && test.sky.texels[5] == 0.6f
+                && near(sky_irradiance(test.sky, { 0, 1, 0 }), kSelfTestSky, 2e-3f) && test.ambient.rows[0] == kSelfTestSky && test.sun.color == Vec3 { 1, 2, 3 }
+                && test.flags() == (kLightAlbedo | kLightSky));
     }
     if (argc > 1)
     {
