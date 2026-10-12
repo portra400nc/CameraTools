@@ -375,6 +375,13 @@ int main()
         check("layout: 3,000 corners past the buffer's end are skipped as buffer-full, and the 300 after them still fit",
             !placed[3] && frame[3].skip == DrawSkip::buffer_full && placed[4] && frame[4].offset == 98316 && layout.used == 98616
                 && layout.wanted == 101616);
+        StreamLayout wide;
+        wide.capacity = 100;
+        SceneDrawRecord alpha = call(ReplayKind::indexed, 6, 1, true), after = call(ReplayKind::indexed, 3, 1, true);
+        alpha.stride = 36;
+        check("layout: 6 corners of 36 bytes, a position and 5 floats of an alpha program, take 14 units of 16 bytes, and the next draw starts after them",
+            place_draw(wide, alpha, hints) && place_draw(wide, after, hints) && alpha.offset == 0 && alpha.reserved == 6 && after.offset == 14
+                && wide.used == 17);
         hints[reserve_key(frame[1])] = 75776;
         hints[reserve_key(frame[2])] = 1024;
         SceneDrawRecord other_slot = frame[1];
@@ -440,6 +447,50 @@ int main()
         check("unpack: first triangles count only streamed draws, a skipped draw included",
             records[0].first_triangle == 0 && records[1].first_triangle == 0 && records[2].first_triangle == 1 && records[3].first_triangle == 1
                 && records[4].first_triangle == 3 && records[5].first_triangle == 5 && records[0].written == 20000);
+    }
+
+    {
+        // A draw of 24 bytes a corner, its position and two floats (u, v), with 2 triangles at unit 2 of a buffer of 16 units
+        // cleared to the marker, its third corner's floats left as the marker: only the positions decide what is written.
+        std::vector<float> buffer(16 * 4);
+        for (size_t i = 0; i < buffer.size(); i++)
+            std::memcpy(&buffer[i], &kUnwrittenBits, sizeof(float));
+        float *base = &buffer[2 * 4];
+        for (uint64_t corner = 0; corner < 6; corner++)
+        {
+            const float c[6] = { float(corner), 1, 2, 3, corner * 0.1f, corner * 0.2f };
+            std::memcpy(base + corner * 6, c, corner == 2 ? 16 : sizeof c);
+        }
+        SceneDrawRecord r;
+        r.kind = ReplayKind::indexed;
+        r.count = 6;
+        r.instances = 1;
+        r.topology = 4;
+        r.points = true;
+        r.stride = 24;
+        r.offset = 2;
+        r.reserved = 6;
+        r.corners = r.corners_needed = 6;
+        SceneDrawRecord before = r;
+        before.stride = 16;
+        before.offset = 0;
+        before.reserved = before.corners = before.corners_needed = 0;
+        std::vector<SceneDrawRecord> records = { before, r };
+        ReserveHints hints;
+        const StreamRead read = unpack_stream(records, buffer.data(), 16, hints);
+        std::vector<float> clip, attributes;
+        for (uint64_t corner = 0; corner < 6; corner++)
+        {
+            const float p[4] = { float(corner), 1, 2, 3 };
+            clip.insert(clip.end(), p, p + 4);
+            attributes.push_back(corner * 0.1f);
+            attributes.push_back(corner * 0.2f);
+        }
+        std::memcpy(&attributes[4], &kUnwrittenBits, 4);
+        std::memcpy(&attributes[5], &kUnwrittenBits, 4);
+        check("unpack at 24 bytes a corner: positions to clip, the two floats after each to attributes, the marker checked on positions only",
+            streamed(records[1]) && records[1].written == 2 && records[1].unwritten == 0 && read.clip == clip && read.attributes.size() == 12
+                && std::memcmp(read.attributes.data(), attributes.data(), 48) == 0 && records[1].first_attribute == 0 && records[1].first_triangle == 0);
     }
 
     {

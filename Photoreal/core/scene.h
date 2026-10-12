@@ -121,6 +121,10 @@ namespace photoreal
     enum class DrawClass : uint8_t { pre, s128, s129, s133, s136, s137, s144, s165, other, count };
     extern const std::array<const char *, static_cast<size_t>(DrawClass::count)> kDrawClassNames;
 
+    // A stream-output corner: one SV_Position, a float4; a draw with an alpha program streams more after it. The
+    // stream-output buffer's offsets count in these.
+    constexpr uint32_t kCornerBytes = 16;
+
     // One G-buffer draw of a captured frame.
     struct SceneDrawRecord
     {
@@ -144,11 +148,15 @@ namespace photoreal
         // Replayed as a point list, one corner per stream-output primitive, so every corner of every triangle is written;
         // false for a tessellated draw, whose triangles shaders/stream_triangles_gs.hlsl streams as three points each.
         bool points = false;
-        uint64_t offset = 0, reserved = 0;  // where in the stream-output buffer its replay wrote and the room it had, in corners
+        // Bytes a streamed corner: its SV_Position, then the inputs of its pixel shader's alpha program (core/alpha.h).
+        uint32_t stride = kCornerBytes;
+        // Where in the stream-output buffer its replay wrote, in units of kCornerBytes, and the room it had, in corners.
+        uint64_t offset = 0, reserved = 0;
         uint64_t corners = 0, corners_needed = 0;   // corners its query says it wrote and would have needed
         uint64_t unwritten = 0;             // of its written corners, those still holding the clear marker after the frame
         uint64_t written = 0, needed = 0;   // triangles stream output wrote and would have needed
         uint64_t first_triangle = 0;        // where its triangles start in the captured stream
+        uint64_t first_attribute = 0;       // where its corners' floats after the position start in StreamRead::attributes
     };
 
     // "pre" for the depth prepass, "equal" for a draw on the prepass's depth, else "main".
@@ -158,8 +166,6 @@ namespace photoreal
     // tessellated and other draws, whose triangles only the GPU knows.
     std::optional<uint64_t> expected_triangles(const SceneDrawRecord &record);
 
-    // A stream-output corner: one SV_Position, a float4.
-    constexpr uint64_t kCornerBytes = 16;
     // The value the stream-output buffer is cleared to before a captured frame, in each of a corner's four lanes: a NaN
     // no vertex shader writes. Zero would not do, since shaders cull a vertex by writing a zero position.
     constexpr uint32_t kUnwrittenBits = 0x7FA5C0DEu;
@@ -178,17 +184,17 @@ namespace photoreal
     // kUnknownCorners and its hint.
     uint64_t corners_to_reserve(const SceneDrawRecord &record, const ReserveHints &hints);
 
-    // The stream-output buffer of one captured frame, filled front to back in draw order, in corners.
+    // The stream-output buffer of one captured frame, filled front to back in draw order, in units of kCornerBytes.
     struct StreamLayout
     {
-        uint64_t capacity = 0;  // the buffer's corners
+        uint64_t capacity = 0;  // the buffer's units
         uint64_t used = 0;      // reserved so far
         uint64_t wanted = 0;    // reserved so far had every draw fit
     };
 
-    // Reserves the record's corners at layout.used and sets its offset and reserved. Every replay gets its own byte
-    // offset, so each draw's corners are read from where it wrote them, never from where the previous draw ended. false,
-    // with the skip buffer_full, when they do not fit; wanted then says how large the buffer should be.
+    // Reserves the record's corners, at its stride, at layout.used and sets its offset and reserved. Every replay gets its
+    // own byte offset, so each draw's corners are read from where it wrote them, never from where the previous draw ended.
+    // false, with the skip buffer_full, when they do not fit; wanted then says how large the buffer should be.
     bool place_draw(StreamLayout &layout, SceneDrawRecord &record, const ReserveHints &hints);
 
     // A replayed draw whose query says it needed more corners than it had room for. Its corners past the reservation
@@ -209,13 +215,15 @@ namespace photoreal
     struct StreamRead
     {
         std::vector<float> clip;        // 12 floats a triangle, the streamed draws' in draw order
+        std::vector<float> attributes;  // the floats each streamed corner holds after its position, in the same order
         uint32_t overran = 0;           // draws that overran their reservation; their hints grew
         uint32_t unwritten = 0;         // draws with corners stream output never wrote
     };
 
     // After the queries set each replayed record's corners and corners_needed: counts its unwritten corners in its
-    // reservation of buffer (capacity corners), sets its written, needed and first_triangle, raises the hint of a draw that
-    // overran to 1.25 times what it needed, and gathers the streamed draws' triangles.
+    // reservation of buffer (capacity units of kCornerBytes), each corner's position only, sets its written, needed,
+    // first_triangle and first_attribute, raises the hint of a draw that overran to 1.25 times what it needed, and gathers
+    // the streamed draws' triangles and their corners' other floats.
     StreamRead unpack_stream(std::vector<SceneDrawRecord> &records, const float *buffer, uint64_t capacity, ReserveHints &hints);
 
     struct DepthCounts

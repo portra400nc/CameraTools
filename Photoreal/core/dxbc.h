@@ -62,4 +62,11 @@ namespace photoreal
     // bytes a vertex. The match is by system value, never by register. Empty when there is none, as for a vertex shader
     // that feeds a hull shader.
     std::optional<SoDeclaration> so_declaration(const OutputSignature &signature);
+
+    // The position's declaration followed by extra, each after the one before in slot 0, the stride their sum: what the
+    // scene capture streams for a draw whose pixel shader has an alpha program (core/alpha.h). Each extra entry must name an
+    // element of the signature, by semantic (case-insensitive, as D3D11 links stages) and index, whose components cover
+    // start to start + count - 1 counted from the element's first, as DXVK reads an entry. Otherwise empty, with missing
+    // naming the entry, such as "TEXCOORD4.w": DXVK skips an entry it cannot find, and its stride would hold garbage.
+    std::optional<SoDeclaration> so_declaration(const OutputSignature &signature, const std::vector<SoEntry> &extra, std::string &missing);
 }

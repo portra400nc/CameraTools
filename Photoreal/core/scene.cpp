@@ -333,15 +333,16 @@ namespace photoreal
     bool place_draw(StreamLayout &layout, SceneDrawRecord &r, const ReserveHints &hints)
     {
         const uint64_t corners = corners_to_reserve(r, hints);
-        layout.wanted += corners;
-        if (corners > layout.capacity - std::min(layout.used, layout.capacity))
+        const uint64_t units = (corners * r.stride + kCornerBytes - 1) / kCornerBytes;
+        layout.wanted += units;
+        if (units > layout.capacity - std::min(layout.used, layout.capacity))
         {
             r.skip = DrawSkip::buffer_full;
             return false;
         }
         r.offset = layout.used;
         r.reserved = corners;
-        layout.used += corners;
+        layout.used += units;
         return true;
     }
 
@@ -371,6 +372,7 @@ namespace photoreal
         for (SceneDrawRecord &r : records)
         {
             r.first_triangle = out.clip.size() / 12;
+            r.first_attribute = out.attributes.size();
             if (r.skip != DrawSkip::none)
                 continue;
             r.written = triangles_in(r, r.corners);
@@ -382,12 +384,13 @@ namespace photoreal
                 out.overran++;
             }
             // Only the corners inside its reservation are its own: past it, the next draw may have written over them.
+            const uint64_t floats = std::max<uint32_t>(r.stride, kCornerBytes) / 4;
             const uint64_t begin = std::min(r.offset, capacity);
-            const uint64_t kept = std::min({ r.corners, r.reserved, capacity - begin });
+            const uint64_t kept = std::min({ r.corners, r.reserved, (capacity - begin) * 4 / floats });
             const float *corners = buffer + begin * 4;
             r.unwritten = 0;
             for (uint64_t i = 0; i < kept; i++)
-                r.unwritten += std::memcmp(corners + i * 4, marker, sizeof marker) == 0;
+                r.unwritten += std::memcmp(corners + i * floats, marker, sizeof marker) == 0;
             out.unwritten += r.unwritten != 0;
             if (!streamed(r))
                 continue;
@@ -395,7 +398,12 @@ namespace photoreal
             for (uint64_t start = 0; start < kept; start += block)
             {
                 const uint64_t whole = std::min(block, kept - start) / 3 * 3;
-                out.clip.insert(out.clip.end(), corners + start * 4, corners + (start + whole) * 4);
+                for (uint64_t i = start; i < start + whole; i++)
+                {
+                    const float *corner = corners + i * floats;
+                    out.clip.insert(out.clip.end(), corner, corner + 4);
+                    out.attributes.insert(out.attributes.end(), corner + 4, corner + floats);
+                }
             }
         }
         return out;

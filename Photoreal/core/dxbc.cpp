@@ -1,5 +1,7 @@
 #include "dxbc.h"
 
+#include <algorithm>
+#include <cctype>
 #include <cstring>
 
 namespace photoreal
@@ -163,6 +165,41 @@ namespace photoreal
             return std::nullopt;
         }
         return std::nullopt;
+    }
+
+    std::optional<SoDeclaration> so_declaration(const OutputSignature &signature, const std::vector<SoEntry> &extra, std::string &missing)
+    {
+        std::optional<SoDeclaration> out = so_declaration(signature);
+        if (!out)
+        {
+            missing = "SV_Position";
+            return std::nullopt;
+        }
+        const auto same = [](const std::string &a, const std::string &b) {
+            return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](char x, char y) { return std::tolower(x) == std::tolower(y); });
+        };
+        for (const SoEntry &entry : extra)
+        {
+            const auto element = std::find_if(signature.elements.begin(), signature.elements.end(), [&](const SignatureElement &e) {
+                if (!same(e.semantic, entry.semantic) || e.index != entry.index || entry.count == 0 || e.mask == 0)
+                    return false;
+                uint32_t first = 0;
+                while ((e.mask >> first & 1u) == 0)
+                    first++;
+                for (uint32_t c = first + entry.start; c < first + entry.start + entry.count; c++)
+                    if (c > 3 || (e.mask >> c & 1u) == 0)
+                        return false;
+                return true;
+            });
+            if (element == signature.elements.end())
+            {
+                missing = entry.semantic + std::to_string(entry.index) + '.' + std::string("xyzw").substr(std::min<size_t>(entry.start, 3), entry.count);
+                return std::nullopt;
+            }
+            out->entries.push_back({ entry.semantic, entry.index, entry.start, entry.count, 0 });
+            out->stride += 4u * entry.count;
+        }
+        return out;
     }
 
     std::optional<SoDeclaration> so_declaration(const OutputSignature &signature)

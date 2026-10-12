@@ -90,6 +90,17 @@ int main()
         moved.elements[3].reg = 2;
         const auto by_name = so_declaration(moved);
         check("the position is found by its system value wherever its register is", by_name && same(*by_name, "SV_POSITION", 16));
+        std::string missing;
+        const auto alpha = so_declaration(*vs, { { "TEXCOORD", 0, 0, 2, 0 }, { "texcoord", 4, 0, 1, 0 }, { "TEXCOORD", 1, 3, 1, 0 } }, missing);
+        check("an alpha program's inputs after the position: TEXCOORD0.xy, TEXCOORD4 packed in o1.w from its own component 0, and TEXCOORD1.w, "
+              "found by semantic in any case, 32 bytes a vertex",
+            alpha && alpha->entries.size() == 4 && alpha->stride == 32 && alpha->entries[2].semantic == "texcoord" && alpha->entries[2].index == 4
+                && alpha->entries[2].start == 0 && alpha->entries[2].count == 1 && alpha->entries[3].start == 3 && missing.empty());
+        check("TEXCOORD4's second component, which it does not have, is missing by name",
+            !so_declaration(*vs, { { "TEXCOORD", 4, 1, 1, 0 } }, missing) && missing == "TEXCOORD4.y");
+        check("so is an element the vertex shader does not write, and the position of the shader that feeds the hull shader",
+            !so_declaration(*vs, { { "TEXCOORD", 9, 0, 1, 0 } }, missing) && missing == "TEXCOORD9.x" && !so_declaration(*feed, {}, missing)
+                && missing == "SV_Position");
     }
     {
         bool all = true;
