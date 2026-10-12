@@ -95,7 +95,7 @@ namespace photoreal
         Flicker flicker {};
         Size size {};
         // The trace pass of a variant that traces a ready scene: its full passes at the saved frame and the samples it asks
-        // for (the larger of the occlusion and sun samples), else empty; the presents it waited before its first copy, and
+        // for (trace_target in core/trace.h), else empty; the presents it waited before its first copy, and
         // whether it stopped waiting at kTraceWaitPresents.
         std::optional<uint32_t> trace_samples, trace_target;
         uint32_t trace_wait = 0;

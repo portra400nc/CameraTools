@@ -1,7 +1,8 @@
-// The trace kernel's shared HLSL compiled as C++ through hlsl.h: shaders/bvh.hlsli's traversal behind core/bvh.h's
+// The trace kernels' shared HLSL compiled as C++ through hlsl.h: shaders/bvh.hlsli's traversal behind core/bvh.h's
 // trace functions, shaders/alpha_mask.hlsli's alpha test behind core/alpha_bake.h's alpha_mask_keeps, and
-// shaders/trace.hlsli's pixel behind core/trace.h's. The buffers and textures the shader loads from are a Bvh's and a
-// TraceImage's vectors here, its constants a thread's copy of TraceConstants, and its groupshared stack a thread's own.
+// shaders/trace.hlsli's and shaders/gather.hlsli's pixels behind core/trace.h's. The buffers and textures the shaders load
+// from are a Bvh's, a TraceImage's and a sky map's vectors here, their constants a thread's copy of TraceConstants and
+// GatherConstants, and their groupshared stack a thread's own.
 #include "alpha_bake.h"
 #include "bvh.h"
 #include "hlsl.h"
@@ -38,6 +39,17 @@ namespace photoreal::shader
         thread_local float4 clip_rows[4];
         thread_local float4 eye_position, sun_cone, trace_params;
         thread_local uint4 trace_counts, trace_tiles, trace_render;
+        thread_local float4 gather_sun, gather_shade, gather_ambient[4];
+        thread_local uint4 gather_counts;
+        thread_local const std::vector<float> *sky_texels = nullptr;
+
+        uint4 sky_row(uint index)
+        {
+            uint4 r;
+            if (sky_texels && size_t(index) * 4 + 4 <= sky_texels->size())
+                std::memcpy(&r, &(*sky_texels)[size_t(index) * 4], sizeof r);
+            return r;
+        }
 
         size_t texel(int2 pixel) { return size_t(pixel.y) * image->size.width + size_t(pixel.x); }
         float load_depth(int2 pixel) { return image->depth[texel(pixel)]; }
@@ -55,6 +67,9 @@ namespace photoreal::shader
 #define STACK_STORE(lane, slot, value) ((void)(lane), stack[(slot)] = (value))
 #define STACK_LOAD(lane, slot) ((void)(lane), stack[(slot)])
 #include "../shaders/trace.hlsli"
+#define XYZ(v) float3((v).x, (v).y, (v).z)
+#include "../shaders/gather.hlsli"
+#undef XYZ
 #undef STACK_LOAD
 #undef STACK_STORE
 #undef LOOP
@@ -65,6 +80,9 @@ namespace photoreal::shader
     static_assert(kTraceCounterCount == kTraceCounters && kGridCounters == static_cast<uint32_t>(TraceCounter::grid) && kGridSlots == photoreal::kGridSlots
         && kGridNoHit == static_cast<uint32_t>(GridSlot::no_hit) && kGridNearer == static_cast<uint32_t>(GridSlot::nearer)
         && kGridFarther == static_cast<uint32_t>(GridSlot::farther));
+    static_assert(kGatherCounterCount == kGatherCounters && kGatherSourceCounters == static_cast<uint32_t>(GatherCounter::direct)
+        && kGatherDeviationCounter == static_cast<uint32_t>(GatherCounter::deviation) && kGatherMeanCounter == static_cast<uint32_t>(GatherCounter::mean)
+        && kSkySide == kSkyMapSide && (4096u >> kNoiseShift) == kNoiseUnits);
 
     namespace
     {
@@ -185,6 +203,66 @@ namespace photoreal
         }
         return out;
     }
+
+    GatherPixel gather_pixel(const Bvh &bvh, const TraceImage &frame, const TraceConstants &constants, const GatherConstants &gather,
+        const std::vector<float> &sky, uint32_t x, uint32_t y, const std::array<float, 4> &history, const std::array<float, 4> &hit,
+        const std::array<float, 4> &sky_sums, const std::vector<uint32_t> *alpha)
+    {
+        using namespace shader;
+        for (int i = 0; i < 4; i++)
+        {
+            shader::clip_rows[i] = row(constants.clip_rows[i]);
+            shader::gather_ambient[i] = row(gather.ambient[i]);
+        }
+        shader::eye_position = row(constants.eye_position);
+        shader::sun_cone = row(constants.sun_cone);
+        shader::trace_params = row(constants.trace_params);
+        shader::trace_counts = row(constants.trace_counts);
+        if (!alpha)
+            shader::trace_counts.z &= ~photoreal::kAlphaTests;
+        shader::trace_tiles = row(constants.trace_tiles);
+        shader::trace_render = row(constants.trace_render);
+        shader::gather_sun = row(gather.sun);
+        shader::gather_shade = row(gather.shade);
+        shader::gather_counts = row(gather.counts);
+        shader::image = &frame;
+        shader::scene = &bvh;
+        shader::alpha = alpha;
+        shader::sky_texels = &sky;
+        const float4 h(history[0], history[1], history[2], history[3]);
+        const GatherData r = gather_next_of(int2(int(x), int(y)), h, 0);
+        GatherPixel out;
+        out.history = history;
+        out.hit = hit;
+        out.sky = sky_sums;
+        if (r.world != 0)
+        {
+            const GatherSums g = gather_add_of(h, float4(hit[0], hit[1], hit[2], hit[3]), float4(sky_sums[0], sky_sums[1], sky_sums[2], sky_sums[3]), r);
+            out.world = true;
+            out.history = { g.history.x, g.history.y, g.history.z, g.history.w };
+            out.hit = { g.hit.x, g.hit.y, g.hit.z, g.hit.w };
+            out.sky = { g.sky.x, g.sky.y, g.sky.z, g.sky.w };
+            out.light = { r.light.x, r.light.y, r.light.z, r.light.w };
+            out.occlusion = r.occlusion;
+            out.lit = r.lit != 0;
+            out.counters[static_cast<size_t>(GatherCounter::rays)] = r.rays;
+            out.counters[static_cast<size_t>(GatherCounter::guard)] = r.guard;
+            out.counters[static_cast<size_t>(GatherCounter::overflow)] = r.overflow;
+            if (r.light.w < 1.5f)
+                out.counters[static_cast<size_t>(GatherCounter::direct) + r.source] = 1;
+            out.counters[static_cast<size_t>(GatherCounter::deviation)] = g.deviation;
+            out.counters[static_cast<size_t>(GatherCounter::mean)] = g.mean;
+        }
+        shader::sky_texels = nullptr;
+        shader::alpha = nullptr;
+        shader::scene = nullptr;
+        shader::image = nullptr;
+        return out;
+    }
+
+    uint32_t sky_texel(const Vec3 &d) { return shader::sky_texel_of({ d[0], d[1], d[2] }); }
+
+    Vec3 kernel_albedo(uint32_t light) { return shader::vec(shader::albedo_of(light)); }
 
     uint32_t pixel_seed(uint32_t x, uint32_t y, uint32_t generation) { return shader::pixel_seed_of(shader::int2(int(x), int(y)), generation); }
 

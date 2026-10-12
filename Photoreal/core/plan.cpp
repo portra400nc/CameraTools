@@ -37,20 +37,22 @@ namespace photoreal
         static_assert(PHOTOREAL_VIEW_COUNT == static_cast<int>(View::count) && PHOTOREAL_VIEW_STENCIL == static_cast<int>(View::stencil)
             && PHOTOREAL_VIEW_HDR_SCENE == static_cast<int>(View::hdr_scene) && PHOTOREAL_VIEW_BLOOM_FINAL == static_cast<int>(View::bloom_final)
             && PHOTOREAL_VIEW_SUN_ATLAS == static_cast<int>(View::sun_atlas) && PHOTOREAL_VIEW_LIGHT_SHAFTS == static_cast<int>(View::light_shafts)
-            && PHOTOREAL_VIEW_TRACE == static_cast<int>(View::trace));
+            && PHOTOREAL_VIEW_TRACE == static_cast<int>(View::trace) && PHOTOREAL_VIEW_SKY_MAP == static_cast<int>(View::sky_map));
+        static_assert(PHOTOREAL_GATHER_SKY_MAP == static_cast<int>(GatherSky::map) && PHOTOREAL_GATHER_SKY_COUNT == static_cast<int>(GatherSky::count));
 
         const char *const kErrorNames[] = { "none", "not-d3d11", "shader", "texture", "state" };
         static_assert(PHOTOREAL_ERROR_STATE == 4);
         // Callers built before foliage_ao_strength send 32 bytes, those before contact shadows 36, those before their
         // foliage_strength 52, those before atmosphere 56, those before tonemap 76, those before sun shadows 100, those
-        // before light shafts 132, those before the trace 172. Version 6 dropped the leaves blocks, which moved wetness from 128 to 116, so a binding of
-        // version 5 must not call PhotorealApply; csharp/Photoreal.cs checks the version and marshals 172.
+        // before light shafts 132, those before the trace 172, those before the gather 212. Version 6 dropped the leaves blocks, which moved wetness from 128 to 116, so a binding of
+        // version 5 must not call PhotorealApply; csharp/Photoreal.cs checks the version and marshals 236.
         static_assert(offsetof(PhotorealSettings, ambient) + offsetof(PhotorealAmbient, foliage_ao_strength) == 32
             && offsetof(PhotorealSettings, contact_shadows) == 36
             && offsetof(PhotorealSettings, contact_shadows) + offsetof(PhotorealContactShadows, foliage_strength) == 52
             && offsetof(PhotorealSettings, atmosphere) == 56 && offsetof(PhotorealSettings, tonemap) == 76
             && offsetof(PhotorealSettings, sun_shadows) == 100 && offsetof(PhotorealSettings, wetness) == 116
-            && offsetof(PhotorealSettings, light_shafts) == 132 && offsetof(PhotorealSettings, trace) == 172 && sizeof(PhotorealSettings) == 212);
+            && offsetof(PhotorealSettings, light_shafts) == 132 && offsetof(PhotorealSettings, trace) == 172 && offsetof(PhotorealSettings, gather) == 212
+            && sizeof(PhotorealSettings) == 236);
         static_assert(sizeof(PhotorealCamera) == 48 * sizeof(float));
         static_assert(PHOTOREAL_ACCUMULATE_PRESENT == static_cast<int>(AccumulateMode::present)
             && PHOTOREAL_ACCUMULATE_COUNT == static_cast<int>(AccumulateMode::count));
@@ -127,7 +129,13 @@ namespace photoreal
         { View::light_shafts, "light-shafts", Entry::hdr_scene, Step::bloom, Decode::hdr, PassId::light_shafts },
         // The trace pass's history as averages, which the pass draws for this view at the combine step.
         { View::trace, "trace", Entry::depth, Step::combine, Decode::rgb, PassId::trace },
+        // The gather's sums, which the pass draws for these views at the combine step.
+        { View::bounce, "bounce", Entry::depth, Step::combine, Decode::hdr, PassId::trace },
+        { View::sky_visibility, "sky-visibility", Entry::depth, Step::combine, Decode::rgb, PassId::trace },
+        { View::sky_map, "sky-map", Entry::depth, Step::combine, Decode::hdr, PassId::trace },
     } };
+
+    const std::array<const char *, static_cast<size_t>(GatherSky::count)> kGatherSkyNames = { "occlusion", "visibility", "weighted", "map" };
 
     const std::array<const char *, static_cast<size_t>(TraceState::count)> kTraceStateNames = { "none", "building", "uploading", "ready", "stale",
         "failed" };
@@ -327,6 +335,17 @@ namespace photoreal
             s.trace.ao_samples = std::clamp<uint32_t>(r.ao_samples, 1, 4096);
             s.trace.sun_samples = std::clamp<uint32_t>(r.sun_samples, 1, 4096);
             s.trace.budget_ms = finite_or(r.budget_ms, trace_defaults.budget_ms, 2.0f, 200.0f);
+        }
+        const GatherSettings gather_defaults;
+        const PhotorealGather &g = raw.gather;
+        if (knows(offsetof(PhotorealSettings, gather), sizeof g))
+        {
+            s.gather.enabled = g.enabled != 0;
+            s.gather.samples = std::clamp<uint32_t>(g.samples, 1, 4096);
+            s.gather.sky = g.sky < static_cast<uint32_t>(GatherSky::count) ? static_cast<GatherSky>(g.sky) : gather_defaults.sky;
+            s.gather.filter = std::min<uint32_t>(g.filter, 2);
+            s.gather.strength = finite_or(g.strength, gather_defaults.strength, 0.0f, 4.0f);
+            s.gather.hit_ambient = finite_or(g.hit_ambient, gather_defaults.hit_ambient, 0.0f, 1.0f);
         }
         return s;
     }
@@ -592,7 +611,8 @@ namespace photoreal
                     const Step at = report.fell_back.has(spec.at) ? kRecipe[static_cast<size_t>(spec.at)].fallback : spec.at;
                     line += std::string(" ") + spec.name + "@" + kRecipe[static_cast<size_t>(at)].name;
                     if (spec.id == PassId::trace)
-                        line += " (" + std::to_string(report.trace_ao) + " ao, " + std::to_string(report.trace_sun) + " sun)";
+                        line += " (" + (report.trace_gather != 0 ? std::to_string(report.trace_gather) + " gather, " : std::to_string(report.trace_ao) + " ao, ")
+                            + std::to_string(report.trace_sun) + " sun)";
                 }
             }
             if (!report.replaced.empty())
@@ -609,6 +629,8 @@ namespace photoreal
                 const std::string reasons = skip_text(report.why[static_cast<size_t>(spec.id)], spec.id);
                 line += std::string("; skipped ") + spec.name + ":" + (reasons.empty() ? "" : " " + reasons);
             }
+            if (report.gather_without_light && report.ran.has(PassId::trace))
+                line += "; skipped gather: scene without light";
             if (report.view != View::off)
             {
                 const ViewSpec &spec = kViews[static_cast<size_t>(report.view)];

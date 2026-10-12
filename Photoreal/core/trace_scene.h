@@ -6,6 +6,7 @@
 #include "scene.h"
 
 #include <array>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -50,6 +51,7 @@ namespace photoreal
     {
         std::array<Vec3f, 3> corner {};     // meters, relative to the scene's reference, in Unity's world axes
         uint32_t info = triangle_info(TraceClass::world);
+        uint32_t light = 0;                 // core/light.h's light word, its albedo and where that came from; 0 until baked
     };
 
     // A triangle's corners on a 1 mm grid, each coordinate rounded half up, sorted lexicographically, so the same triangle
@@ -82,8 +84,10 @@ namespace photoreal
     // a vertex shader the prepass had streamed with an alpha program's inputs came back in the prepass's layout, 48
     // bytes a corner read as 16, so each triangle was one real corner and two of its inputs read as positions, which
     // land beside the camera: 30,498 such fans in build 207's meadow, which every ray near the camera had to test
-    // (README, "Misread equal-depth draws"). Open addressing over the keys, about 90 bytes per unique triangle, and a
-    // kept triangle with an alpha test its corners' streamed floats.
+    // (README, "Misread equal-depth draws"). Each kept triangle also takes its draw's material, a number for the draw's
+    // pixel shader and the textures at its t0 to t7, which the albedo bake (core/light.h) falls back on for a triangle
+    // no face shows; the copy that stays brings its own. Open addressing over the keys, about 94 bytes per unique
+    // triangle, and a kept triangle with an alpha test its corners' streamed floats.
     class SceneBuilder
     {
     public:
@@ -113,8 +117,9 @@ namespace photoreal
 
         // The kept triangles in the order they arrived. Past max_triangles, those whose centroid lies farthest from the
         // reference are left out. With alpha, the kept triangles' alpha records go into it, as core/alpha.h lays an alpha
-        // buffer out, and each triangle's info names its record; it stays empty when none has one. Empties the builder.
-        std::vector<TraceTriangle> take(uint64_t max_triangles, std::vector<uint32_t> *alpha = nullptr);
+        // buffer out, and each triangle's info names its record; it stays empty when none has one. With materials, each
+        // kept triangle's material goes into it, from 0 in the order the materials first arrived. Empties the builder.
+        std::vector<TraceTriangle> take(uint64_t max_triangles, std::vector<uint32_t> *alpha = nullptr, std::vector<uint32_t> *materials = nullptr);
 
     private:
         void grow();
@@ -122,6 +127,8 @@ namespace photoreal
         std::vector<TriangleKey> keys_;
         std::vector<TraceTriangle> triangles_;
         std::vector<uint8_t> ranks_;            // 0 prepass, 1 equal, 2 main
+        std::vector<uint32_t> materials_;       // each kept triangle's material
+        std::map<std::array<uint64_t, 9>, uint32_t> material_ids_;  // a draw's pixel shader and its t0 to t7, to its material
         std::vector<uint32_t> slots_;           // an index into keys_ plus 1, 0 for an empty slot
         std::vector<AlphaDraw> alpha_draws_;
         std::vector<uint32_t> alpha_of_;        // each kept triangle's alpha draw plus 1, 0 for a whole triangle

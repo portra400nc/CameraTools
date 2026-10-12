@@ -18,7 +18,8 @@ namespace photoreal
     enum class View : uint8_t
     {
         off, normals, albedo, specular, material_id, smoothness, character, depth, stencil,
-        shadow_mask, quarter_shadow, ambient_diffuse, ambient_specular, hdr_scene, bloom_final, sun_atlas, light_shafts, trace, count,
+        shadow_mask, quarter_shadow, ambient_diffuse, ambient_specular, hdr_scene, bloom_final, sun_atlas, light_shafts, trace, bounce, sky_visibility,
+        sky_map, count,
     };
 
     // How the view shader turns an entry into a picture. One value per branch of shaders/view_ps.hlsl.
@@ -112,6 +113,20 @@ namespace photoreal
         float budget_ms = 20.0f;
     };
 
+    enum class GatherSky : uint8_t { occlusion, visibility, weighted, map, count };   // PHOTOREAL_GATHER_SKY_*
+    extern const std::array<const char *, static_cast<size_t>(GatherSky::count)> kGatherSkyNames;
+
+    // PhotorealGather's.
+    struct GatherSettings
+    {
+        bool enabled = false;
+        uint32_t samples = 128;
+        GatherSky sky = GatherSky::visibility;
+        uint32_t filter = 2;
+        float strength = 1.0f;
+        float hit_ambient = 0.5f;
+    };
+
     // The domain form of PhotorealSettings. Built only by parse_settings, so every value in it is in range.
     struct Settings
     {
@@ -126,6 +141,7 @@ namespace photoreal
         WetnessSettings wetness;
         LightShaftSettings light_shafts;
         TraceSettings trace;
+        GatherSettings gather;
     };
 
     // Honors size (fields past it keep their defaults), maps an unknown view to off and an unknown curve to the game's,
@@ -339,6 +355,8 @@ namespace photoreal
         PassSet skipped;
         PassSet replaced;       // wanted, but the trace pass wrote their output
         uint32_t trace_ao = 0, trace_sun = 0;   // the samples each traced pixel has, once the trace pass ran
+        uint32_t trace_gather = 0;              // the gather's, while it runs; then trace_ao is unused
+        bool gather_without_light = false;      // the gather is on over a scene captured without PHOTOREAL_SCENE_LIGHT
         std::array<SkipReason, static_cast<size_t>(PassId::count)> why {};
         EntrySet missing;
         View view = View::off;  // the view this frame wanted
@@ -376,7 +394,8 @@ namespace photoreal
     std::string view_missing_why(const FrameReport &report);
 
     // "1152x720 found gbuffer ... tonemap; ran ambient@combine; view normals", or "...; ran trace@combine (64 ao, 32 sun);
-    // replaced sun-shadows contact-shadows ambient" once the trace pass writes the frame, where a pass whose step fell back names
+    // replaced sun-shadows contact-shadows ambient" once the trace pass writes the frame, "(128 gather, 32 sun)" while it
+    // gathers, and "; skipped gather: scene without light" while the gather is on over a scene without light, where a pass whose step fell back names
     // the fallback ("found ... combine tonemap ...; ran light-shafts@tonemap"), or
     // "found nothing; skipped ambient: missing normals depth ambient-diffuse", or "...; skipped trace: scene building", or
     // "off; comparing 2/5", or

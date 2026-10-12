@@ -29,13 +29,15 @@ namespace photoreal
     constexpr uint32_t kMaxLeaf = 16;
     constexpr uint32_t kMaxBvhTriangles = 1u << 27;
 
-    // 48 bytes, as shaders/bvh.hlsli loads it: the first corner and the info word, then the two edges from it.
+    // 48 bytes, as shaders/bvh.hlsli loads it: the first corner and the info word, then the two edges from it, and
+    // after the first edge the light word (core/light.h), which shaders/gather.hlsli reads at a hit and which is 0 in
+    // a scene without light, so such a scene's bytes and hash are as they were before it.
     struct BvhTriangle
     {
         float v0[3];
         uint32_t info;
         float e1[3];
-        uint32_t pad0;
+        uint32_t light;
         float e2[3];
         uint32_t pad1;
     };

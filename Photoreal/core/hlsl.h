@@ -1,6 +1,6 @@
-// Just enough of HLSL in C++ to compile the trace kernel's shared files, shaders/bvh.hlsli, shaders/alpha.hlsli and
-// shaders/trace.hlsli, so
-// the tests and the Mac's reference tracer run the compute shader's own arithmetic in float. Only core/kernel.cpp
+// Just enough of HLSL in C++ to compile the trace kernels' shared files, shaders/bvh.hlsli, shaders/alpha.hlsli,
+// shaders/trace_common.hlsli, shaders/trace.hlsli and shaders/gather.hlsli, so the tests and the Mac's reference tracer
+// run the compute shaders' own arithmetic in float. Only core/kernel.cpp
 // includes it. The shared files keep to what this supports: vectors with x, y, z and w members but no swizzles, no out
 // parameters, f-suffixed float literals, and LOOP and UNROLL for HLSL's [loop] and [unroll].
 #pragma once
@@ -63,6 +63,7 @@ namespace photoreal::shader
     inline float3 operator/(float3 a, float s) { return { a.x / s, a.y / s, a.z / s }; }
     inline float3 operator-(float3 a) { return { -a.x, -a.y, -a.z }; }
     inline float2 operator*(float2 a, float s) { return { a.x * s, a.y * s }; }
+    inline float4 operator+(float4 a, float4 b) { return { a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w }; }
 
     inline float dot(float3 a, float3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
     inline float dot(float4 a, float4 b) { return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w; }

@@ -42,6 +42,11 @@ enum
     PHOTOREAL_VIEW_LIGHT_SHAFTS,    // not an entry: the light the light-shaft pass's mist scatters, drawn by the pass for it
     PHOTOREAL_VIEW_TRACE,           // not an entry: the trace pass's averages, occlusion red and sun green, blue where a pixel
                                     // has no sample yet; drawn by the pass for it
+    PHOTOREAL_VIEW_BOUNCE,          // not an entry: the gathered bounce light, unfiltered, tone mapped; drawn by the trace pass
+    PHOTOREAL_VIEW_SKY_VISIBILITY,  // not an entry: the share of the gather's rays that met the sky, gray, blue where a pixel has
+                                    // no sample; drawn by the trace pass
+    PHOTOREAL_VIEW_SKY_MAP,         // not an entry: the traced scene's sky map stretched over the screen, filled texels dimmed by
+                                    // half; drawn by the trace pass
     PHOTOREAL_VIEW_COUNT,
 };
 
@@ -251,6 +256,28 @@ enum
                                                 // T1b, for comparison
 };
 
+// How the gathered light meets the game's sky light, values of PhotorealGather.sky. With vis the share of a pixel's gather
+// rays that met the sky, occ its traced occlusion within trace.ao_distance, B the light its rays met on surfaces and K
+// the sky they met, the irradiance on world pixels becomes:
+enum
+{
+    PHOTOREAL_GATHER_SKY_OCCLUSION = 0, // level x game x lerp(1, occ, trace.ao_strength) + strength x B: T1's occlusion with the
+                                        // bounce on top, as screen-space GI does it
+    PHOTOREAL_GATHER_SKY_VISIBILITY,    // level x game x lerp(1, vis, trace.ao_strength) + strength x B: each direction counts once
+    PHOTOREAL_GATHER_SKY_WEIGHTED,      // as VISIBILITY, with vis weighted by how bright the sky it met is against the sky map's mean
+    PHOTOREAL_GATHER_SKY_MAP,           // level x K + strength x B: the sky map replaces the game's irradiance
+    PHOTOREAL_GATHER_SKY_COUNT,
+};
+
+// What of the traced scene's light came from the game and not from a fallback, as bits of PhotorealStatus.trace_light.
+enum
+{
+    PHOTOREAL_TRACE_LIGHT_ALBEDO = 1u << 0,     // a face's G-buffer gave triangles their albedo
+    PHOTOREAL_TRACE_LIGHT_SKY = 1u << 1,        // the faces' sky made the sky map
+    PHOTOREAL_TRACE_LIGHT_SUN = 1u << 2,        // the sun's color and shading direction are the game's combine constants
+    PHOTOREAL_TRACE_LIGHT_AMBIENT = 1u << 3,    // the ambient light at a hit is a fit of the game's irradiance
+};
+
 // The traced scene's state, values of PhotorealStatus.trace_state.
 enum
 {
@@ -287,6 +314,20 @@ typedef struct PhotorealTrace
     float budget_ms;            // GPU time per frame for tracing, measured with timestamp queries; default 20, clamped to 2..200
 } PhotorealTrace;
 
+// One bounce of diffuse light: each world pixel gathers the light of the surfaces and the sky its hemisphere sees, by rays
+// to any distance, and from each hit that faces the sun one more ray toward it. Needs trace.enabled and a scene captured
+// with PHOTOREAL_SCENE_LIGHT; over a scene without, the trace pass runs as without this block. While on, the gather's rays
+// give the occlusion too, and trace.ao_samples is unused. The last block of PhotorealSettings.
+typedef struct PhotorealGather
+{
+    uint32_t enabled;           // default 0
+    uint32_t samples;           // gather samples a pixel, then it stops; default 128, clamped to 1..4096
+    uint32_t sky;               // PHOTOREAL_GATHER_SKY_*; default VISIBILITY; unknown values read as the default
+    uint32_t filter;            // 0 none, 1 one edge-aware 5x5 pass of the far light, 2 two; default 2, clamped to 0..2
+    float strength;             // multiplies the bounce; default 1, clamped to 0..4
+    float hit_ambient;          // the share of the game's ambient light a hit surface gets; default 0.5, clamped to 0..1
+} PhotorealGather;
+
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller
 // knows, and fields past it keep their defaults.
 typedef struct PhotorealSettings
@@ -304,6 +345,7 @@ typedef struct PhotorealSettings
     PhotorealWetness wetness;
     PhotorealLightShafts light_shafts;
     PhotorealTrace trace;
+    PhotorealGather gather;
 } PhotorealSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and
@@ -352,6 +394,9 @@ enum
     PHOTOREAL_SCENE_GBUFFER = 1u << 4,      // the view face also writes its normals and stencil, and the game's shadow mask and
                                             // diffuse irradiance as the combine step found them, before any pass of ours
     PHOTOREAL_SCENE_RELEASE = 1u << 5,      // capture nothing and free the traced scene; faces and the other flags are ignored
+    PHOTOREAL_SCENE_LIGHT = 1u << 6,        // with TRACE: each face also copies its G-buffer albedo, stencil and HDR scene, and the
+                                            // traced scene gets its triangles' albedo, a sky map, the game's ambient light and
+                                            // sun, for PhotorealGather; with GBUFFER, each face writes those copies too
 };
 
 // A scene capture: the geometry of every G-buffer draw, replayed with stream output, in world space, from each face.
@@ -425,6 +470,10 @@ typedef struct PhotorealStatus
     uint32_t trace_samples;     // full passes since the samples last started: samples every traced pixel has
     uint32_t trace_mrays_x100;  // the last measured rays a second, in millions times 100
     uint32_t trace_generation;  // the scene's, one more for each scene uploaded since the add-on loaded
+    uint32_t trace_target;      // the samples every traced pixel gets: with the gather, the larger of its samples and the sun's
+    uint32_t trace_converged;   // 1 when every traced pixel has trace_target samples and the last frame was written from them
+    uint32_t trace_error_x10000;    // the gathered light's mean relative standard error at the last full pass, times 10000
+    uint32_t trace_light;       // PHOTOREAL_TRACE_LIGHT_* of the traced scene
 } PhotorealStatus;
 
 PHOTOREAL_EXPORT uint32_t PhotorealVersion(void);

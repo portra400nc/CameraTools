@@ -11,12 +11,14 @@ namespace photoreal
     namespace
     {
         static_assert(PHOTOREAL_COMPARE_MAX == kCompareMax && sizeof(PhotorealVariant) == 32 + sizeof(PhotorealSettings));
-        static_assert(sizeof(PhotorealSettings) == 212, "settings_tsv writes every field: give a new one a column");
+        static_assert(sizeof(PhotorealSettings) == 236, "settings_tsv writes every field: give a new one a column");
         // compare_remaining took the padding at the end, so a caller built before it still sends 72 bytes. The accumulator's
         // three fields follow, and the scene capture's three took the 4 bytes of padding after them and one more row, so a
-        // caller of version 6 sends 88 and gets scene_face in its padding. The trace's five follow them.
+        // caller of version 6 sends 88 and gets scene_face in its padding. The trace's five follow them, and the gather's four
+        // follow those, the first in the 4 bytes of padding a caller of version 8 has.
         static_assert(offsetof(PhotorealStatus, compare_remaining) == 68 && offsetof(PhotorealStatus, accum_generation) == 80
-            && offsetof(PhotorealStatus, scene_face) == 84 && offsetof(PhotorealStatus, trace_state) == 96 && sizeof(PhotorealStatus) == 120);
+            && offsetof(PhotorealStatus, scene_face) == 84 && offsetof(PhotorealStatus, trace_state) == 96 && offsetof(PhotorealStatus, trace_target) == 116
+            && sizeof(PhotorealStatus) == 136);
 
         constexpr uint32_t kPeriod = kSettlePresents + 2;
 
@@ -141,7 +143,8 @@ namespace photoreal
                           "\tlight_shafts.height\tlight_shafts.anisotropy\tlight_shafts.distance\tlight_shafts.patchiness"
                           "\tlight_shafts.patch_size\tlight_shafts.ambient\tlight_shafts.steps\ttrace.enabled\ttrace.ao\ttrace.sun"
                           "\ttrace.characters\ttrace.alpha_cards\ttrace.whole_cards\ttrace.ao_distance\ttrace.ao_strength\ttrace.sun_size\ttrace.sun_strength"
-                          "\ttrace.ao_samples\ttrace.sun_samples\ttrace.budget_ms\n";
+                          "\ttrace.ao_samples\ttrace.sun_samples\ttrace.budget_ms\tgather.enabled\tgather.samples\tgather.sky\tgather.filter"
+                          "\tgather.strength\tgather.hit_ambient\n";
         for (size_t i = 0; i < variants.size(); i++)
         {
             const Settings &s = variants[i].settings;
@@ -153,6 +156,7 @@ namespace photoreal
             const WetnessSettings &w = s.wetness;
             const LightShaftSettings &f = s.light_shafts;
             const TraceSettings &r = s.trace;
+            const GatherSettings &g = s.gather;
             out += std::to_string(i) + '\t' + variants[i].name + '\t' + (s.enabled ? "1" : "0") + '\t' + kViews[static_cast<size_t>(s.view)].name
                 + '\t' + (s.flip ? "1" : "0") + '\t' + (a.enabled ? "1" : "0") + '\t' + number(a.level) + '\t' + number(a.ao_strength) + '\t'
                 + number(a.ao_radius) + '\t' + number(a.foliage_ao_strength) + '\t' + (c.enabled ? "1" : "0") + '\t' + number(c.length) + '\t'
@@ -167,7 +171,8 @@ namespace photoreal
                 + std::to_string(f.steps) + '\t' + (r.enabled ? "1" : "0") + '\t' + (r.ao ? "1" : "0") + '\t' + (r.sun ? "1" : "0") + '\t'
                 + (r.characters ? "1" : "0") + '\t' + (r.alpha_cards ? "1" : "0") + '\t' + (r.whole_cards ? "1" : "0") + '\t' + number(r.ao_distance) + '\t' + number(r.ao_strength) + '\t'
                 + number(r.sun_size) + '\t' + number(r.sun_strength) + '\t' + std::to_string(r.ao_samples) + '\t' + std::to_string(r.sun_samples) + '\t'
-                + number(r.budget_ms) + '\n';
+                + number(r.budget_ms) + '\t' + (g.enabled ? "1" : "0") + '\t' + std::to_string(g.samples) + '\t' + kGatherSkyNames[static_cast<size_t>(g.sky)]
+                + '\t' + std::to_string(g.filter) + '\t' + number(g.strength) + '\t' + number(g.hit_ambient) + '\n';
         }
         return out;
     }

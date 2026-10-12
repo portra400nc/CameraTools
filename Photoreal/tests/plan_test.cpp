@@ -722,7 +722,7 @@ int main()
         check("a label stops at 32 glyphs", encode_label(std::string(40, 'z')).length == 32);
     }
     {
-        FrameReport report = FrameReport::start(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, 0, 1, {}, {}, {}, {}, {}, {}, {}, {} }));
+        FrameReport report = FrameReport::start(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, 0, 1, {}, {}, {}, {}, {}, {}, {}, {}, {} }));
         check("disabled: describe says off", describe(report) == "off");
         report.error = PHOTOREAL_ERROR_SHADER;
         check("disabled by an error: describe says which", describe(report) == "off; error shader");
@@ -1050,6 +1050,30 @@ int main()
                 && text(view_label(off.view, off.view_found, view_missing_why(off))) == "TRACE: OFF");
         check("a found view, and a game entry's view, have no reason", view_missing_why(view).empty()
             && view_missing_why(run_frame(rows = walk, view_only(PHOTOREAL_VIEW_SHADOW_MASK), kCamera)).empty());
+        rows = walk;
+        FrameReport gathered = run_frame(rows, trace_on(0), Inputs { true, SunCheck::ok, TraceState::ready, true });
+        gathered.trace_gather = 128;
+        gathered.trace_sun = 32;
+        check("while it gathers, the trace names its gather samples in place of its occlusion samples",
+            describe(gathered) == std::string(kAllSteps) + "; ran trace@combine (128 gather, 32 sun); replaced sun-shadows contact-shadows ambient");
+        rows = walk;
+        FrameReport unlit = run_frame(rows, trace_on(0), Inputs { true, SunCheck::ok, TraceState::ready, true });
+        unlit.trace_ao = 64;
+        unlit.trace_sun = 32;
+        unlit.gather_without_light = true;
+        check("the gather over a scene captured without light says so after the trace's outputs, which run as before",
+            describe(unlit) == std::string(kAllSteps) + "; ran trace@combine (64 ao, 32 sun); replaced sun-shadows contact-shadows ambient; skipped gather: scene without light");
+        for (const auto &[view, name] : { std::pair { PHOTOREAL_VIEW_BOUNCE, "bounce" }, std::pair { PHOTOREAL_VIEW_SKY_VISIBILITY, "sky-visibility" },
+                 std::pair { PHOTOREAL_VIEW_SKY_MAP, "sky-map" } })
+        {
+            rows = walk;
+            std::vector<Step> copied;
+            const FrameReport shown = run_frame(rows, trace_on(0, view), Inputs { true, SunCheck::ok, TraceState::ready, false }, &copied);
+            check((std::string("the ") + name + " view is the trace pass's own, copied at the combine step").c_str(), copied == std::vector<Step> { Step::combine }
+                && shown.view_shown() == static_cast<View>(view) && kViews[view].name == std::string(name) && kViews[view].from == PassId::trace);
+        }
+        check("the bounce and sky-map views are tone mapped, the sky visibility shown as it is", kViews[PHOTOREAL_VIEW_BOUNCE].decode == Decode::hdr
+            && kViews[PHOTOREAL_VIEW_SKY_MAP].decode == Decode::hdr && kViews[PHOTOREAL_VIEW_SKY_VISIBILITY].decode == Decode::rgb);
         check("only sun shadows, contact shadows and ambient are replaced, each by its output", replaced_by_trace(PassId::sun_shadows, alone.trace)
             && replaced_by_trace(PassId::ambient, alone.trace) && !replaced_by_trace(PassId::atmosphere, alone.trace)
             && !replaced_by_trace(PassId::ambient, trace_on(PHOTOREAL_TRACE_SUN).trace));
@@ -1089,6 +1113,28 @@ int main()
         check("the trace clamps: distance 100 to 20, strengths 2 to 1, sun size 1 to 0.2, 10000 samples to 4096, 1000 ms to 200",
             high.ao_distance == 20.0f && high.ao_strength == 1.0f && high.sun_size == 0.2f && high.sun_strength == 1.0f && high.ao_samples == 4096
             && high.sun_samples == 4096 && high.budget_ms == 200.0f);
+    }
+    {
+        PhotorealSettings raw = raw_settings();
+        raw.gather = { 1, 256, PHOTOREAL_GATHER_SKY_MAP, 1, 2, 0.25f };
+        const GatherSettings whole = parse_settings(raw).gather;
+        check("a whole 236-byte struct reads the gather: on, 256 samples, the sky map, one filter pass, strength 2, a quarter of the ambient light",
+            sizeof raw == 236 && whole.enabled && whole.samples == 256 && whole.sky == GatherSky::map && whole.filter == 1 && whole.strength == 2.0f
+                && whole.hit_ambient == 0.25f);
+        raw.size = 212;     // a caller of version 8
+        const GatherSettings before = parse_settings(raw).gather;
+        check("a 212-byte struct keeps the gather off at 128 samples, visibility, two filter passes, strength 1 and half the ambient light",
+            !before.enabled && before.samples == 128 && before.sky == GatherSky::visibility && before.filter == 2 && before.strength == 1.0f
+                && before.hit_ambient == 0.5f && parse_settings(raw).trace.enabled == parse_settings(raw_settings()).trace.enabled);
+        raw.size = sizeof raw;
+        raw.gather = { 1, 0, 9, 7, NAN, -1 };
+        const GatherSettings odd = parse_settings(raw).gather;
+        check("the gather clamps: 0 samples to 1, an unknown sky to visibility, filter 7 to 2, a NaN strength to 1, hit_ambient -1 to 0",
+            odd.samples == 1 && odd.sky == GatherSky::visibility && odd.filter == 2 && odd.strength == 1.0f && odd.hit_ambient == 0.0f);
+        raw.gather = { 1, 100000, 0, 0, 100, 5 };
+        const GatherSettings high = parse_settings(raw).gather;
+        check("and 100000 samples to 4096, strength 100 to 4, hit_ambient 5 to 1, the occlusion sky and no filter kept", high.samples == 4096
+            && high.strength == 4.0f && high.hit_ambient == 1.0f && high.sky == GatherSky::occlusion && high.filter == 0);
     }
     {
         PhotorealCamera raw {};
@@ -1139,7 +1185,7 @@ int main()
     }
     {
         check("disabled settings want no step", wanted_steps(view_only(PHOTOREAL_VIEW_HDR_SCENE)).bits != 0
-            && wanted_steps(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, PHOTOREAL_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 8 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 2 } })).empty());
+            && wanted_steps(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, PHOTOREAL_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 8 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 2 }, { 1, 1, 1, 1, 1, 1 } })).empty());
     }
     {
         // Unity's GL.GetGPUProjectionMatrix for a 60 degree, 16:10 camera with near 0.1 and far 1000, reversed Z.

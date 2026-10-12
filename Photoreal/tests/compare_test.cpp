@@ -33,6 +33,7 @@ namespace
         v.settings.sun_shadows = { 0, 0.03f, 0.02f, 1 };
         v.settings.wetness = { 0, 0, 0.35f, 0.3f };
         v.settings.trace = { 0, 0, PHOTOREAL_TRACE_CAST_CHARACTERS | PHOTOREAL_TRACE_CAST_ALPHA_CARDS, 2, 1, 0.0093f, 1, 64, 32, 20 };
+        v.settings.gather = { 0, 128, PHOTOREAL_GATHER_SKY_VISIBILITY, 2, 1, 0.5f };
         v.settings.light_shafts = { 0, 1, 0.01f, 10, 0.6f, 150, 0.5f, 6, 1, 48 };
         return v;
     }
@@ -144,6 +145,7 @@ int main()
         raw[1].settings.wetness = { 1, 0.75f, 0.5f, 0.6f };
         raw[1].settings.light_shafts = { 1, 2, 0.02f, 25, 0.8f, 300, 0.25f, 12, 0.5f, 96 };
         raw[1].settings.trace = { 1, PHOTOREAL_TRACE_SUN, PHOTOREAL_TRACE_CAST_ALPHA_CARDS, 5, 0.5f, 0.03f, 0.75f, 16, 8, 30 };
+        raw[1].settings.gather = { 1, 256, PHOTOREAL_GATHER_SKY_WEIGHTED, 1, 2, 0.25f };
         check("settings.tsv writes every parsed field, one row per variant", settings_tsv(*parse_variants(raw, 2))
             == "index\tname\tenabled\tview\tflip\tambient.enabled\tambient.level\tambient.ao_strength\tambient.ao_radius"
                "\tambient.foliage_ao_strength\tcontact_shadows.enabled\tcontact_shadows.length\tcontact_shadows.strength"
@@ -155,13 +157,14 @@ int main()
                "\tlight_shafts.height\tlight_shafts.anisotropy\tlight_shafts.distance\tlight_shafts.patchiness"
                "\tlight_shafts.patch_size\tlight_shafts.ambient\tlight_shafts.steps\ttrace.enabled\ttrace.ao\ttrace.sun"
                "\ttrace.characters\ttrace.alpha_cards\ttrace.whole_cards\ttrace.ao_distance\ttrace.ao_strength\ttrace.sun_size\ttrace.sun_strength"
-               "\ttrace.ao_samples\ttrace.sun_samples\ttrace.budget_ms\n"
+               "\ttrace.ao_samples\ttrace.sun_samples\ttrace.budget_ms\tgather.enabled\tgather.samples\tgather.sky\tgather.filter"
+               "\tgather.strength\tgather.hit_ambient\n"
                "0\toff\t0\toff\t1\t1\t0.6\t0.5\t1\t0.5\t0\t0.6\t1\t0.25\t0\t0\t0.000325\t0.02\t1\t0.7\t0\t0\tgame\t1\t1\t1"
                "\t0\t0.03\t0.02\t1\t0\t0\t0.35\t0.3\t0\t1\t0.01\t10\t0.6\t150\t0.5\t6\t1\t48"
-               "\t0\t1\t1\t1\t1\t0\t2\t1\t0.0093\t1\t64\t32\t20\n"
+               "\t0\t1\t1\t1\t1\t0\t2\t1\t0.0093\t1\t64\t32\t20\t0\t128\tvisibility\t2\t1\t0.5\n"
                "1\tshadows\t1\tshadow-mask\t1\t1\t0.6\t0.5\t1\t0.5\t1\t1.2\t0.7\t0.3\t0.4\t1\t0.001\t0.05\t2\t0.5\t1\t0.5\tagx\t1.5\t0.9\t1.2"
                "\t1\t0.05\t0.1\t0.8\t1\t0.75\t0.5\t0.6\t1\t2\t0.02\t25\t0.8\t300\t0.25\t12\t0.5\t96"
-               "\t1\t0\t1\t0\t1\t0\t5\t0.5\t0.03\t0.75\t16\t8\t30\n");
+               "\t1\t0\t1\t0\t1\t0\t5\t0.5\t0.03\t0.75\t16\t8\t30\t1\t256\tweighted\t1\t2\t0.25\n");
     }
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;

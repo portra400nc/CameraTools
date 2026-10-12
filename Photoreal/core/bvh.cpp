@@ -283,6 +283,7 @@ namespace photoreal
                 out.e2[k] = t.corner[2][k] - t.corner[0][k];
             }
             out.info = t.info;
+            out.light = t.light;
         }
         Box all;
         all.add(b.bounds(0, n));

@@ -1,4 +1,4 @@
-"""Checks that the trace kernel's shared HLSL calls no costly function inside &&, || or ?:.
+"""Checks that the trace kernels' shared HLSL calls no costly function inside &&, || or ?:.
 
 HLSL evaluates both sides of &&, || and ?: (vkd3d, like fxc, compiles them without short-circuiting), while C++
 short-circuits them, so a call there runs on the GPU when the Mac's twin of the kernel skips it. Build 204's
@@ -13,7 +13,7 @@ import pathlib
 import re
 import sys
 
-SHARED = ("trace.hlsli", "bvh.hlsli", "alpha_mask.hlsli", "alpha.hlsli", "trace_cs.hlsl")
+SHARED = ("trace_common.hlsli", "trace.hlsli", "gather.hlsli", "bvh.hlsli", "alpha_mask.hlsli", "alpha.hlsli", "trace_cs.hlsl", "gather_cs.hlsl")
 DEFINITION = re.compile(r"^[A-Za-z_]\w*\s+([A-Za-z_]\w*)\s*\(", re.M)
 CONTROL = re.compile(r"^\s*(?:else\s+)?(?:if|while|for)\s*\(")
 
@@ -89,8 +89,9 @@ def main():
         print(("PASS " if ok else "FAIL ") + name)
         failures += 0 if ok else 1
 
-    check("the kernel's costly functions are found: alpha_test, visit_leaf, trace_bvh and trace_pixel_of among %d" % len(costly),
-          {"alpha_test", "visit_leaf", "trace_bvh", "trace_pixel_of"} <= costly and "box_entry" not in costly)
+    check("the kernels' costly functions are found: alpha_test, visit_leaf, trace_bvh, trace_pixel_of, gather_pixel_of and gather_next_of among %d"
+          % len(costly), {"alpha_test", "visit_leaf", "trace_bvh", "trace_pixel_of", "gather_pixel_of", "gather_next_of"} <= costly
+          and not {"box_entry", "sky_at", "gather_add_of"} & costly)
     # Build 204's line, with the interpreter under its present name.
     old = "if (h.x < hit.t && (mask & kAlphaTests) != 0u && (tri.info & kOpaqueRecord) != kOpaqueRecord && " \
           "alpha_test(tri.info & kOpaqueRecord, h.y, h.z, lane).keeps == 0u)\n    continue;"

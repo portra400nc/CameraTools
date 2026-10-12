@@ -130,6 +130,23 @@ namespace photoreal
         return c;
     }
 
+    GatherConstants gather_constants(const GatherSettings &settings, const SunLight &sun, const AmbientFit &ambient)
+    {
+        GatherConstants g {};
+        const double length = std::sqrt(double(sun.shade[0]) * sun.shade[0] + double(sun.shade[1]) * sun.shade[1] + double(sun.shade[2]) * sun.shade[2]);
+        if (std::isfinite(length) && length > 0)
+            for (int k = 0; k < 3; k++)
+            {
+                g.sun[k] = sun.color[k];
+                g.shade[k] = static_cast<float>(sun.shade[k] / length);
+            }
+        for (int r = 0; r < 4; r++)
+            for (int k = 0; k < 3; k++)
+                g.ambient[r][k] = ambient.rows[r][k] * settings.hit_ambient;
+        g.counts[0] = settings.samples;
+        return g;
+    }
+
     std::vector<uint32_t> tile_order(Size render)
     {
         const uint32_t columns = (render.width + kTileSize - 1) / kTileSize, rows = (render.height + kTileSize - 1) / kTileSize;
@@ -183,7 +200,8 @@ namespace photoreal
         return static_cast<uint32_t>(std::clamp(std::floor(wanted), 1.0, double(kMaxChunkTiles)));
     }
 
-    TraceKey trace_key(uint64_t generation, Size render, const Camera &camera, const Vec3 &toward_sun, const TraceSettings &settings)
+    TraceKey trace_key(uint64_t generation, Size render, const Camera &camera, const Vec3 &toward_sun, const TraceSettings &settings,
+        const GatherConstants *gather)
     {
         TraceKey k;
         k.generation = generation;
@@ -194,13 +212,28 @@ namespace photoreal
         k.ao_distance = settings.ao_distance;
         k.sun_size = settings.sun_size;
         k.casters = caster_classes(settings);
+        if (gather)
+        {
+            k.gather = true;
+            for (int i = 0; i < 3; i++)
+            {
+                k.light[i] = gather->sun[i];
+                k.light[3 + i] = gather->shade[i];
+                for (int r = 0; r < 4; r++)
+                    k.light[6 + r * 3 + i] = gather->ambient[r][i];
+            }
+        }
         return k;
     }
 
     bool trace_reset(const TraceKey &a, const TraceKey &b)
     {
-        if (a.generation != b.generation || a.render != b.render || a.ao_distance != b.ao_distance || a.sun_size != b.sun_size || a.casters != b.casters)
+        if (a.generation != b.generation || a.render != b.render || a.ao_distance != b.ao_distance || a.sun_size != b.sun_size || a.casters != b.casters
+            || a.gather != b.gather)
             return true;
+        for (size_t i = 0; i < a.light.size(); i++)
+            if (!(std::fabs(a.light[i] - b.light[i]) <= 1e-5f))
+                return true;
         if (matrix_moved(a.world_to_view, b.world_to_view) || matrix_moved(a.view_to_clip, b.view_to_clip))
             return true;
         for (int k = 0; k < 3; k++)
@@ -243,6 +276,21 @@ namespace photoreal
                     + std::to_string(at(GridSlot::farther)) + " farther)";
         }
         return out;
+    }
+
+    uint32_t trace_target(const TraceSettings &trace, const GatherSettings &gather, bool gathering)
+    {
+        return std::max(gathering ? gather.samples : trace.ao_samples, trace.sun_samples);
+    }
+
+    bool trace_kernel_runs(uint32_t passes_before, uint32_t sun_samples)
+    {
+        return passes_before < sun_samples || passes_before % kTraceGridPasses == 0;
+    }
+
+    double gather_error(uint64_t deviation, uint64_t mean, uint32_t samples)
+    {
+        return mean == 0 || samples == 0 ? 0 : 1.25 * double(deviation) / (double(mean) * std::sqrt(double(samples)));
     }
 
     bool consistency_stale(uint64_t tested, uint64_t off)

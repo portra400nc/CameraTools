@@ -5,6 +5,7 @@
 #pragma once
 
 #include "bvh.h"
+#include "light.h"
 #include "plan.h"
 #include "sun.h"
 
@@ -40,6 +41,21 @@ namespace photoreal
 
     // The camera's position in the world, from its world_to_view, in double.
     Vec3d camera_position(const Camera &camera);
+
+    // shaders/gather_cs.hlsl's cbuffer Gather at b1, which apply_gather_ps.hlsl reads too: 112 bytes.
+    struct GatherConstants
+    {
+        float sun[4];               // rgb: the sun's color, what a white surface facing it shows
+        float shade[4];             // xyz: toward the sun as the game shades with it, unit length
+        float ambient[4][4];        // rgb: the ambient light at a hit of normal n, rows[0] + rows[1] n.x + rows[2] n.y + rows[3] n.z,
+                                    // the game's times hit_ambient
+        uint32_t counts[4];         // samples a pixel, then 0, 0, 0
+    };
+    static_assert(sizeof(GatherConstants) == 112);
+
+    // The gather's constants: the sun's color and shading direction, zero with no sun; the ambient fit's rows times
+    // hit_ambient; and the samples.
+    GatherConstants gather_constants(const GatherSettings &settings, const SunLight &sun, const AmbientFit &ambient);
 
     constexpr uint32_t kTileSize = 64;      // pixels a side; 64 groups of 8x8 threads
     constexpr uint32_t kGridStride = 16;    // every 16th pixel each way shoots a ray from the camera to check the scene
@@ -96,12 +112,27 @@ namespace photoreal
         Vec3 toward_sun {};
         float ao_distance = 0, sun_size = 0;
         uint32_t casters = 0;
+        // With the gather on: its sun color and shading direction, and its ambient rows times hit_ambient; all 0 while off.
+        bool gather = false;
+        std::array<float, 20> light {};
     };
-    TraceKey trace_key(uint64_t generation, Size render, const Camera &camera, const Vec3 &toward_sun, const TraceSettings &settings);
+    // gather is null while the gather is off, or its scene has no light.
+    TraceKey trace_key(uint64_t generation, Size render, const Camera &camera, const Vec3 &toward_sun, const TraceSettings &settings,
+        const GatherConstants *gather = nullptr);
 
-    // A new generation, render size, ao distance, sun size or casters; a camera matrix element differing by more than 1e-6
-    // of the matrix's largest; or the sun's direction differing by more than 1e-5 in a component.
+    // A new generation, render size, ao distance, sun size or casters, or the gather switched on or off; a camera matrix
+    // element differing by more than 1e-6 of the matrix's largest; or the sun's direction, or a value of the gather's light,
+    // differing by more than 1e-5.
     bool trace_reset(const TraceKey &before, const TraceKey &now);
+
+    // The samples every traced pixel gets: with the gather, the larger of its samples and the sun's, else the larger of
+    // the occlusion's and the sun's.
+    uint32_t trace_target(const TraceSettings &trace, const GatherSettings &gather, bool gathering);
+
+    // Whether a frame whose tiles start at pass passes_before dispatches the trace kernel beside the gather kernel: while
+    // the sun has samples to take, then every kTraceGridPasses passes for the consistency grid alone.
+    constexpr uint32_t kTraceGridPasses = 8;
+    bool trace_kernel_runs(uint32_t passes_before, uint32_t sun_samples);
 
     // What the trace reads from the game's shadow-mask constants without parse_sun_shadows' checks, which refused the
     // Deck's cascades in build 198: the direction toward the sun, cascade 0's depth gradient normalized (b3 rows 15 to
@@ -133,7 +164,21 @@ namespace photoreal
     {
         return static_cast<uint32_t>(TraceCounter::grid) + static_cast<uint32_t>(c) * kGridSlots + static_cast<uint32_t>(s);
     }
-    using TraceCounts = std::array<uint64_t, kTraceCounters>;
+    // What the gather kernel adds into the same buffer after them, in this order: rays, guard stops, stack overflows, hits
+    // by core/light.h's AlbedoSource, and the sums of each sample's distance from its pixel's mean and of that mean, in
+    // luminance, in 1 / kNoiseUnits.
+    enum class GatherCounter : uint8_t { rays, guard, overflow, direct, covered, material, class_mean, deviation, mean, count };
+    constexpr uint32_t kGatherCounters = static_cast<uint32_t>(GatherCounter::count);
+    constexpr uint32_t kAllCounters = kTraceCounters + kGatherCounters;
+    constexpr uint32_t gather_counter(GatherCounter c) { return kTraceCounters + static_cast<uint32_t>(c); }
+    // The noise sums in the buffer count in 1 / kNoiseUnits; the kernel's per-pixel values in 1 / 4096.
+    constexpr double kNoiseUnits = 16;
+    using TraceCounts = std::array<uint64_t, kAllCounters>;
+
+    // The mean relative standard error of the gathered light, from a full pass's noise sums: 1.25 times the deviations'
+    // sum over the means' sum, over the square root of the samples (mean absolute deviation is 0.8 standard deviations
+    // for normal noise). 0 when the means are.
+    double gather_error(uint64_t deviation, uint64_t mean, uint32_t samples);
 
     // The grid's rays by class and reason for the log: "stencil 128 0 of 4061 off, stencil 144 2025 of 2316 off (0 met
     // nothing, 0 nearer, 2025 farther), other 0 of 0 off", the reasons only where some are off.
@@ -167,6 +212,28 @@ namespace photoreal
     // axis whose half angle has cosine cos_max.
     uint32_t pixel_seed(uint32_t x, uint32_t y, uint32_t generation);
     std::array<float, 2> sequence_point(uint32_t seed, uint32_t salt, uint32_t index);
+
+    // One pixel's work in one gather dispatch, as shaders/gather_cs.hlsl does it: on a world pixel with fewer than
+    // gather.counts[0] samples, the next sample, added to history's occlusion sum and count and to hit or sky, the sums of
+    // shaders/gather_cs.hlsl's two buffers. sky is core/light.h's SkyMap::texels. The sample's own light and the counters
+    // the kernel's group adds are in sample and counters, the noise sums in 1 / 4096.
+    struct GatherPixel
+    {
+        std::array<float, 4> history {}, hit {}, sky {};
+        bool world = false;
+        std::array<float, 4> light {};  // the sample's light, w 1 for a hit and 2 for the sky
+        float occlusion = 1;            // its occlusion sample
+        bool lit = false;               // the sun reached its hit
+        std::array<uint32_t, kGatherCounters> counters {};
+    };
+    GatherPixel gather_pixel(const Bvh &bvh, const TraceImage &image, const TraceConstants &constants, const GatherConstants &gather,
+        const std::vector<float> &sky, uint32_t x, uint32_t y, const std::array<float, 4> &history, const std::array<float, 4> &hit,
+        const std::array<float, 4> &sky_sums, const std::vector<uint32_t> *alpha = nullptr);
+
+    // shaders/gather.hlsli's sky_texel_of: the sky map's texel a direction reads.
+    uint32_t sky_texel(const Vec3 &direction);
+    // Its albedo_of: a light word's albedo, as the kernel reads it.
+    Vec3 kernel_albedo(uint32_t light);
     Vec3 cosine_direction(const Vec3 &normal, const std::array<float, 2> &u);
     Vec3 cone_direction(const Vec3 &axis, float cos_max, const std::array<float, 2> &u);
 }

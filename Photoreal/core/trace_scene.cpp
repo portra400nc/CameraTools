@@ -124,6 +124,10 @@ namespace photoreal
         }
         const uint8_t r = rank(draw);
         const uint32_t info = triangle_info(*cls);
+        std::array<uint64_t, 9> surface = { draw.ps };
+        for (size_t slot = 0; slot < draw.ps_inputs.size(); slot++)
+            surface[1 + slot] = static_cast<uint64_t>(draw.ps_inputs[slot].id);
+        const uint32_t material = material_ids_.try_emplace(surface, static_cast<uint32_t>(material_ids_.size())).first->second;
         // The draw's alpha test, kept once for all its triangles.
         uint32_t alpha_draw = 0;
         const uint32_t floats = alpha && alpha->program ? alpha->program->attribute_floats() : 0;
@@ -171,6 +175,7 @@ namespace photoreal
                 keys_.push_back(*key);
                 triangles_.push_back(t);
                 ranks_.push_back(r);
+                materials_.push_back(material);
                 alpha_of_.push_back(alpha_draw);
                 attributes_at_.push_back(at);
                 keep_attributes();
@@ -185,6 +190,8 @@ namespace photoreal
             counts_.pre_only -= ranks_[index] == 0;
             counts_.replaced++;
             ranks_[index] = r;
+            // The copy that stays is the one whose pixel shader wrote the G-buffer's albedo.
+            materials_[index] = material;
             if (r == 1 && alpha_draw == 0 && alpha_of_[index] != 0)
             {
                 // An equal-depth draw draws only where the prepass's alpha test kept depth, so its copy keeps that test,
@@ -201,7 +208,7 @@ namespace photoreal
         }
     }
 
-    std::vector<TraceTriangle> SceneBuilder::take(uint64_t max_triangles, std::vector<uint32_t> *alpha)
+    std::vector<TraceTriangle> SceneBuilder::take(uint64_t max_triangles, std::vector<uint32_t> *alpha, std::vector<uint32_t> *materials)
     {
         std::vector<TraceTriangle> out = std::move(triangles_);
         triangles_ = {};
@@ -233,9 +240,13 @@ namespace photoreal
         kept.reserve(kept_index.size());
         AlphaBuffer buffer;
         std::vector<uint32_t> draw_offsets(alpha_draws_.size(), kNoRecord);
+        if (materials)
+            materials->clear();
         for (const uint32_t i : kept_index)
         {
             kept.push_back(out[i]);
+            if (materials)
+                materials->push_back(materials_[i]);
             if (!alpha || alpha_of_[i] == 0)
                 continue;
             // A draw's block and its program go into the buffer at its first kept triangle.
@@ -254,6 +265,8 @@ namespace photoreal
         }
         if (alpha)
             *alpha = counts_.alpha == 0 ? std::vector<uint32_t> {} : buffer.words(atlas_);
+        materials_ = {};
+        material_ids_ = {};
         alpha_draws_ = {};
         alpha_of_ = {};
         attributes_at_ = {};
