@@ -1,6 +1,6 @@
 // The Mac's reference tracer: traces a saved frame again with the compute shader's own rays and traversal
-// (shaders/trace.hlsli compiled as C++ in core/kernel.cpp) and writes reference.f32 beside history.f32, for
-// check_trace.py to compare.
+// (shaders/trace.hlsli compiled as C++ in core/kernel.cpp) and writes reference.f32 beside history.f32, with each pixel's
+// samples squared and summed in reference-squares.f32, for check_trace.py to compare.
 //
 //   trace_reference <trace folder> [scene folder]
 //
@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <fstream>
 #include <iterator>
@@ -58,7 +59,11 @@ int main(int argc, char **argv)
         std::printf("FAIL %s holds no trace-scene.bin\n", scene_folder.u8string().c_str());
         return 1;
     }
-    check("the scene's reference is the one the frame was traced with", scene->reference == save->reference);
+    // Within trace.tsv's digits: 17 since T1b, 9 before, so a 9-digit reference rounds at 5e-9 of its value.
+    bool same_reference = true;
+    for (int k = 0; k < 3; k++)
+        same_reference &= std::fabs(scene->reference[k] - save->reference[k]) <= 1e-8 * std::max(1.0, std::fabs(scene->reference[k]));
+    check("the scene's reference is the one the frame was traced with", same_reference);
 
     BvhOptions options;
     options.tasks = std::max(1u, std::thread::hardware_concurrency());
@@ -77,6 +82,8 @@ int main(int argc, char **argv)
     image.stencil = save->stencil;
     const uint32_t width = save->size.width, height = save->size.height;
     std::vector<float> reference(size_t(width) * height * 4, 0.0f);
+    // Each pixel's occlusion and sun samples squared and summed, so check_trace.py knows each pixel's sampling variance.
+    std::vector<float> squares(size_t(width) * height * 2, 0.0f);
     std::atomic<uint32_t> next_row { 0 };
     std::atomic<uint64_t> rays { 0 }, guard { 0 }, overflow { 0 };
     start = std::chrono::steady_clock::now();
@@ -94,17 +101,23 @@ int main(int argc, char **argv)
                     constants.trace_counts[1] = static_cast<uint32_t>(save->history[at + 3]);
                     constants.trace_render[3] = 0;
                     std::array<float, 4> h {};
+                    double square[2] = {};
                     for (uint32_t k = std::max(constants.trace_counts[0], constants.trace_counts[1]); k > 0; k--)
                     {
                         const PixelTrace r = trace_pixel(bvh, image, constants, x, y, h);
                         if (!r.world)
                             break;
+                        for (int i = 0; i < 2; i++)
+                            if (r.history[2 + i] > h[2 + i])
+                                square[i] += double(r.history[i] - h[i]) * (r.history[i] - h[i]);
                         h = r.history;
                         my_rays += r.counters[static_cast<size_t>(TraceCounter::rays)];
                         my_guard += r.counters[static_cast<size_t>(TraceCounter::guard)];
                         my_overflow += r.counters[static_cast<size_t>(TraceCounter::overflow)];
                     }
                     std::copy(h.begin(), h.end(), reference.begin() + static_cast<std::ptrdiff_t>(at));
+                    squares[at / 2] = static_cast<float>(square[0]);
+                    squares[at / 2 + 1] = static_cast<float>(square[1]);
                 }
             rays += my_rays;
             guard += my_guard;
@@ -118,7 +131,9 @@ int main(int argc, char **argv)
         static_cast<unsigned long long>(guard.load()), static_cast<unsigned long long>(overflow.load()));
     std::ofstream out(folder / "reference.f32", std::ios::binary | std::ios::trunc);
     out.write(reinterpret_cast<const char *>(reference.data()), static_cast<std::streamsize>(reference.size() * sizeof(float)));
-    check("reference.f32 is written beside history.f32", static_cast<bool>(out));
+    std::ofstream out_squares(folder / "reference-squares.f32", std::ios::binary | std::ios::trunc);
+    out_squares.write(reinterpret_cast<const char *>(squares.data()), static_cast<std::streamsize>(squares.size() * sizeof(float)));
+    check("reference.f32 and reference-squares.f32 are written beside history.f32", static_cast<bool>(out) && static_cast<bool>(out_squares));
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;
 }

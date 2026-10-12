@@ -3,15 +3,20 @@
 
 python3 check_trace.py <trace folder>
 
-Run trace_reference on the folder first: it writes reference.f32, the same rays traced on the Mac with the compute
-shader's own code. Then this compares, on every world pixel with samples:
+Run trace_reference on the folder first: it writes reference.f32, the same pixels traced on the Mac with the compute
+shader's own code, and reference-squares.f32, each pixel's samples squared and summed. The GPU's float rounding turns some
+of the Deck's rays a little off the Mac's, so the two are independent estimates of each pixel's occlusion and sun, and the
+checks are statistical. On every world pixel with samples:
 
 1. The samples: the Deck's counts and the reference's are the same.
-2. The occlusion and sun averages agree within 0.02 on at least 99% of the pixels, since the rays are the same and only
-   the order and rounding of float operations differ.
-3. No 16x16 tile's mean difference passes 0.005.
+2. Each pixel's averages differ by at most 5 standard errors on all but 0.1% of the pixels, with each pixel's variance
+   taken as p(1 - p) of the pooled average p of both, which bounds the variance of samples between 0 and 1.
+3. Each 32x32 tile's mean difference is within 5 standard errors plus 0.002, with each pixel's variance from the
+   reference's own samples, at least p(1 - p) / (2n + 1).
+4. The mean difference over the whole frame is within 5 standard errors plus 0.0005.
 
-It writes check-trace.png: the Deck's occlusion and sun averages, the reference's, and their difference times 10, a row
+A logic error that changes what a pixel's rays meet moves whole tiles or many pixels by far more than their noise, which
+2 to 4 catch; the noise of independent rays does not. It writes check-trace.png: the Deck's occlusion and sun averages, the reference's, and their difference times 10, a row
 each. When the folder holds the game's shadow mask and the shadow-mask constants, it reports as information how often the
 game's mask and the traced sun disagree within the game's shadow distance and cascades: game shadowed and traced lit
 means a caster the scene lacks. It also reports how the traced occlusion follows the game's diffuse irradiance.
@@ -51,16 +56,41 @@ def averages(history, which):
         return np.where(count > 0, history[..., which] / np.maximum(count, 1), np.nan)
 
 
-def tile_means(difference, valid, size=16):
-    h, w = difference.shape
+def tile_sums(values, valid, size):
+    h, w = values.shape
     ph, pw = (h + size - 1) // size * size, (w + size - 1) // size * size
-    d = np.zeros((ph, pw))
-    v = np.zeros((ph, pw))
-    d[:h, :w] = np.where(valid, difference, 0)
-    v[:h, :w] = valid
-    sums = d.reshape(ph // size, size, pw // size, size).sum(axis=(1, 3))
-    counts = v.reshape(ph // size, size, pw // size, size).sum(axis=(1, 3))
-    return sums[counts > 0] / counts[counts > 0]
+    padded = np.zeros((ph, pw))
+    padded[:h, :w] = np.where(valid, values, 0)
+    return padded.reshape(ph // size, size, pw // size, size).sum(axis=(1, 3))
+
+
+def sampling_checks(name, deck, mine, squares, valid):
+    """Checks 2 to 4 for one kind of ray: deck and mine are (sum, count) images, squares the reference's squared samples."""
+    n_deck, n_mine = np.maximum(deck[1], 1), np.maximum(mine[1], 1)
+    mean_mine = mine[0] / n_mine
+    difference = deck[0] / n_deck - mean_mine
+    pooled = (deck[0] + mine[0] + 0.5) / (deck[1] + mine[1] + 1)
+    bound = pooled * (1 - pooled)
+    z = difference / np.sqrt(bound * (1 / n_deck + 1 / n_mine))
+    outliers = (np.abs(z[valid]) > 5).mean()
+    report("PASS" if outliers <= 0.001 else "FAIL", f"2 {name}: {outliers:.5f} of {valid.sum()} pixels differ by more than 5 standard errors "
+                                                    f"(need at most 0.001; largest {np.abs(z[valid]).max():.1f})")
+    variance = np.maximum(squares / n_mine - mean_mine ** 2, bound / (2 * n_mine + 1))
+    error2 = variance * (1 / n_deck + 1 / n_mine)
+    counts = tile_sums(np.ones_like(difference), valid, 32)
+    full = counts >= 256
+    tile_mean = tile_sums(difference, valid, 32)[full] / counts[full]
+    tile_error = np.sqrt(tile_sums(error2, valid, 32)[full]) / counts[full]
+    excess = np.abs(tile_mean) - (5 * tile_error + 0.002)
+    worst = int(np.argmax(excess)) if len(excess) else 0
+    report("PASS" if not len(excess) or excess.max() <= 0 else "FAIL",
+           f"3 {name}: every 32x32 tile's mean difference is within 5 standard errors plus 0.002 ({full.sum()} tiles; the one nearest to or past its bound: "
+           f"{tile_mean[worst] if len(excess) else 0:+.5f} against {5 * tile_error[worst] + 0.002 if len(excess) else 0:.5f})")
+    mean = difference[valid].mean()
+    error = np.sqrt(error2[valid].sum()) / valid.sum()
+    report("PASS" if abs(mean) <= 5 * error + 0.0005 else "FAIL",
+           f"4 {name}: the frame's mean difference {mean:+.6f} is within 5 standard errors plus 0.0005 ({5 * error + 0.0005:.6f})")
+    return np.abs(difference)
 
 
 def gray(image):
@@ -162,18 +192,20 @@ def main(folder):
     same_counts = (history[..., 2:4] == reference[..., 2:4]).all(axis=-1)
     report("PASS" if same_counts[world].all() else "FAIL",
            f"1 the reference gave {same_counts[world].mean() if world.any() else 1:.6f} of the world pixels the Deck's sample counts ({traced.sum()} traced)")
+    squares_path = os.path.join(folder, "reference-squares.f32")
+    if not os.path.exists(squares_path):
+        report("FAIL", f"{folder} has no reference-squares.f32: run this build's trace_reference on it")
+        return 1
+    squares = np.fromfile(squares_path, np.float32).reshape(h, w, 2).astype(np.float64)
     rows = []
     for which, name in ((0, "occlusion"), (1, "sun")):
         deck, mine = averages(history, which), averages(reference, which)
         valid = world & ~np.isnan(deck) & ~np.isnan(mine)
-        difference = np.abs(deck - mine)
         if valid.sum() == 0:
             report("FAIL", f"2 {name}: no world pixel has samples")
             continue
-        within = (difference[valid] <= 0.02).mean()
-        report("PASS" if within >= 0.99 else "FAIL", f"2 {name}: the averages agree within 0.02 on {within:.4f} of {valid.sum()} pixels (need 0.99)")
-        worst = tile_means(difference, valid).max()
-        report("PASS" if worst <= 0.005 else "FAIL", f"3 {name}: the largest 16x16 tile's mean difference is {worst:.5f} (need 0.005)")
+        h64, r64 = history.astype(np.float64), reference.astype(np.float64)
+        difference = sampling_checks(name, (h64[..., which], h64[..., 2 + which]), (r64[..., which], r64[..., 2 + which]), squares[..., which], valid)
         rows.append(np.concatenate([gray(np.where(world, deck, np.nan)), gray(np.where(world, mine, np.nan)), red(np.where(valid, difference, 0))], axis=1))
     if len(rows) == 2:
         write_png(os.path.join(folder, "check-trace.png"), np.concatenate(rows, axis=0))

@@ -29,10 +29,10 @@ namespace photoreal
                 failed.push_back(name);
         }
 
-        std::string number(double v)
+        std::string number(double v, int digits = 9)
         {
             char text[40];
-            std::snprintf(text, sizeof text, "%.9g", v + 0.0);
+            std::snprintf(text, sizeof text, "%.*g", digits, v + 0.0);
             return text;
         }
 
@@ -88,7 +88,8 @@ namespace photoreal
         for (uint32_t i = 0; i < kTraceCounters; i++)
             row(kCounterNames[i], std::to_string(s.counters[i]));
         row("mrays", number(s.mrays));
-        row("reference", list(s.reference.data(), 3));
+        // Every digit of the double, so the Mac reads back the reference the scene's trace-scene.bin holds.
+        row("reference", number(s.reference[0], 17) + "," + number(s.reference[1], 17) + "," + number(s.reference[2], 17));
         row("floating_origin", s.floating_origin ? list(s.floating_origin->data(), 3) : "-");
         row("sun_source", s.sun_source);
         row("toward_sun", list(s.constants.sun_cone, 3));
