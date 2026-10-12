@@ -7,6 +7,8 @@
 //   uint4 triangle_row(uint index, uint row)       a triangle's 16-byte row 0 to 2
 //   STACK_STORE(lane, slot, value), STACK_LOAD(lane, slot)  the ray's stack, kStackSize entries per lane
 //   LOOP                                           [loop] in HLSL
+//   what shaders/alpha.hlsli needs: the alpha buffer and the interpreter's registers
+#include "alpha.hlsli"
 
 static const uint kStackSize = 24u;
 static const uint kMaxSteps = 4096u;
@@ -16,6 +18,8 @@ static const uint kNoHit = 0xFFFFFFFFu;
 static const float kMiss = 3.0e38f;
 // Hits nearer than this along the ray are the surface the ray leaves.
 static const float kTMin = 1.0e-4f;
+// In a ray's class mask: run the alpha test of a triangle that has one; without it, every triangle is its whole self.
+static const uint kAlphaTests = 0x80000000u;
 
 struct BvhHit
 {
@@ -89,8 +93,9 @@ float4 intersect_triangle(BvhTriangleData tri, float3 origin, float3 direction, 
     return miss;
 }
 
-// The triangles of a leaf, of the classes in mask (bits 1 << class), against the hit so far.
-BvhHit visit_leaf(BvhHit hit, uint link, float3 origin, float3 direction, bool any_hit, uint mask)
+// The triangles of a leaf, of the classes in mask (bits 1 << class), against the hit so far. A nearer hit on a triangle with
+// an alpha record counts only where its alpha test keeps it, when mask asks for the test.
+BvhHit visit_leaf(BvhHit hit, uint link, float3 origin, float3 direction, bool any_hit, uint mask, uint lane)
 {
     uint first = (link & 0x7FFFFFFFu) >> 4;
     uint count = (link & 15u) + 1u;
@@ -100,6 +105,8 @@ BvhHit visit_leaf(BvhHit hit, uint link, float3 origin, float3 direction, bool a
         if (((mask >> ((tri.info >> 24) & 15u)) & 1u) == 0u)
             continue;
         float4 h = intersect_triangle(tri, origin, direction, hit.t);
+        if (h.x < hit.t && (mask & kAlphaTests) != 0u && (tri.info & kOpaqueRecord) != kOpaqueRecord && !alpha_keeps(tri.info & kOpaqueRecord, h.y, h.z, lane))
+            continue;
         if (h.x < hit.t)
         {
             hit.t = h.x;
@@ -114,7 +121,7 @@ BvhHit visit_leaf(BvhHit hit, uint link, float3 origin, float3 direction, bool a
 }
 
 // Depth first, the nearer internal child first, leaves as soon as their node is visited. any_hit stops at the first hit
-// on a triangle of mask; otherwise the nearest is found, and boxes beyond it are left out.
+// on a triangle of mask; otherwise the nearest is found, and boxes beyond it are left out. mask may ask for the alpha test.
 BvhHit trace_bvh(float3 origin, float3 direction, float t_max, bool any_hit, uint mask, uint lane)
 {
     BvhHit hit;
@@ -151,7 +158,7 @@ BvhHit trace_bvh(float3 origin, float3 direction, float t_max, bool any_hit, uin
         {
             uint link = c == 0u ? link0 : link1;
             if ((c == 0u ? t0 : t1) != kMiss && (link & kLeafLink) != 0u && !(any_hit && hit.prim != kNoHit))
-                hit = visit_leaf(hit, link, origin, direction, any_hit, mask);
+                hit = visit_leaf(hit, link, origin, direction, any_hit, mask, lane);
         }
         if (any_hit && hit.prim != kNoHit)
             break;

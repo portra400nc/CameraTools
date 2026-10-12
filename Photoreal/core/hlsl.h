@@ -1,4 +1,5 @@
-// Just enough of HLSL in C++ to compile the trace kernel's shared files, shaders/bvh.hlsli and shaders/trace.hlsli, so
+// Just enough of HLSL in C++ to compile the trace kernel's shared files, shaders/bvh.hlsli, shaders/alpha.hlsli and
+// shaders/trace.hlsli, so
 // the tests and the Mac's reference tracer run the compute shader's own arithmetic in float. Only core/kernel.cpp
 // includes it. The shared files keep to what this supports: vectors with x, y, z and w members but no swizzles, no out
 // parameters, f-suffixed float literals, and LOOP and UNROLL for HLSL's [loop] and [unroll].
@@ -83,6 +84,12 @@ namespace photoreal::shader
     inline float sin(float x) { return std::sin(x); }
     inline float cos(float x) { return std::cos(x); }
     inline float floor(float x) { return std::floor(x); }
+    inline float ceil(float x) { return std::ceil(x); }
+    inline float trunc(float x) { return std::trunc(x); }
+    // HLSL's round rounds halves to even, as round_ne does: the default rounding mode's nearbyint.
+    inline float round(float x) { return std::nearbyint(x); }
+    inline float exp2(float x) { return std::exp2(x); }
+    inline float log2(float x) { return std::log2(x); }
     inline float asfloat(uint u)
     {
         float f;
@@ -95,4 +102,6 @@ namespace photoreal::shader
         std::memcpy(&u, &f, sizeof u);
         return u;
     }
+    inline uint asuint(int i) { return static_cast<uint>(i); }
+    inline int asint(uint u) { return static_cast<int>(u); }
 }

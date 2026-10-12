@@ -1,7 +1,8 @@
 // The trace pass's kernel: one thread per pixel in 8x8 groups, 64 groups to a 64x64 tile, each group's tile from
 // tile_list at trace_tiles.x + SV_GroupID.y, wrapping at trace_tiles.y. Each traced pixel adds one sample of each of
 // its rays to its history (trace.hlsli), and each group adds its rays, guard stops, stack overflows and consistency
-// checks, by stencil class and reason, into counters. Registers stay inside gpu.h's ranges: t0-t5, u0-u1, b0.
+// checks, by stencil class and reason, into counters. A triangle with an alpha record counts only where its alpha test
+// (alpha.hlsli) keeps the hit, when the caster classes ask for it. Registers stay inside gpu.h's ranges: t0-t6, u0-u1, b0.
 
 cbuffer Trace : register(b0)
 {
@@ -20,20 +21,27 @@ Texture2D<float4> normals : register(t2);       // mirror of G-buffer rt0, world
 Texture2D<float> depth : register(t3);          // mirror of the main depth, reversed Z
 Texture2D<uint2> stencil : register(t4);        // same mirror; stencil in .g
 ByteAddressBuffer tile_list : register(t5);     // core/trace.h's tile_order, x | y << 16
+ByteAddressBuffer alpha : register(t6);         // core/alpha.h's alpha buffer: programs, draws' constants, records and atlas
 RWStructuredBuffer<float4> history : register(u0);  // per pixel, row by row: occlusion sum, sun sum, their counts
 RWStructuredBuffer<uint> counters : register(u1);   // core/trace.h's TraceCounter order
 
 groupshared uint stack_lds[64 * 24];
+// The alpha interpreter's registers, in group-shared memory: indexed by the program, they would be scratch memory on RADV.
+groupshared uint4 alpha_lds[64 * 14];
 
 uint4 node_row(uint node, uint row) { return nodes.Load4(node * 64u + row * 16u); }
 uint4 triangle_row(uint index, uint row) { return triangles.Load4(index * 48u + row * 16u); }
 float load_depth(int2 pixel) { return depth.Load(int3(pixel, 0)); }
 float3 load_normal(int2 pixel) { return normals.Load(int3(pixel, 0)).xyz * 2.0f - 1.0f; }
 uint load_stencil(int2 pixel) { return stencil.Load(int3(pixel, 0)).g; }
+uint alpha_word(uint index) { return alpha.Load(index * 4u); }
+uint4 alpha_row(uint index) { return alpha.Load4(index * 4u); }
 
 #define LOOP [loop]
 #define STACK_STORE(lane, slot, value) stack_lds[(lane) * 24u + (slot)] = (value)
 #define STACK_LOAD(lane, slot) stack_lds[(lane) * 24u + (slot)]
+#define ALPHA_STORE(lane, r, value) alpha_lds[(lane) * 14u + (r)] = (value)
+#define ALPHA_LOAD(lane, r) alpha_lds[(lane) * 14u + (r)]
 #include "trace.hlsli"
 
 groupshared uint group_counts[kTraceCounterCount];

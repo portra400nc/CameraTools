@@ -35,9 +35,10 @@ namespace photoreal
     // character (stencil 38, depth test ALWAYS) and 5,556 triangles of the character's overlays.
     bool leaves_depth(const SceneDrawRecord &record);
 
-    // A triangle's info word: bits 0 to 23 its alpha record, all set while every caster is opaque; bits 24 to 27 its class.
+    // A triangle's info word: bits 0 to 23 its alpha record (core/alpha.h), all set for a whole triangle; bits 24 to 27 its
+    // class.
     constexpr uint32_t kOpaque = 0xFFFFFFu;
-    constexpr uint32_t triangle_info(TraceClass c) { return kOpaque | static_cast<uint32_t>(c) << 24; }
+    constexpr uint32_t triangle_info(TraceClass c, uint32_t record = kOpaque) { return (record & kOpaque) | static_cast<uint32_t>(c) << 24; }
     constexpr TraceClass info_class(uint32_t info) { return static_cast<TraceClass>(info >> 24 & 0xFu); }
 
     struct TraceTriangle

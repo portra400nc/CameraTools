@@ -137,7 +137,8 @@ namespace photoreal
 
     // One pixel's work in one dispatch, as the compute shader does it: on a world pixel with depth, one occlusion ray when
     // it has fewer than ao_samples, one sun ray when it has fewer than sun_samples, each the next of its own sequence, and
-    // on the consistency grid one ray from the camera. history is (occlusion sum, sun sum, occlusion count, sun count).
+    // on the consistency grid one ray from the camera. history is (occlusion sum, sun sum, occlusion count, sun count). The
+    // alpha tests run with alpha's buffer when the constants' classes ask for them; without one every triangle is whole.
     struct PixelTrace
     {
         std::array<float, 4> history {};
@@ -145,7 +146,7 @@ namespace photoreal
         std::array<uint32_t, kTraceCounters> counters {};
     };
     PixelTrace trace_pixel(const Bvh &bvh, const TraceImage &image, const TraceConstants &constants, uint32_t x, uint32_t y,
-        const std::array<float, 4> &history);
+        const std::array<float, 4> &history, const std::vector<uint32_t> *alpha = nullptr);
 
     // shaders/trace.hlsli's ray generator, compiled as C++: the pixel's seed, the index-th point of its R2 sequence for
     // salt (0 occlusion, 1 sun), a cosine-weighted direction around a unit normal, and a direction in the cone around a unit

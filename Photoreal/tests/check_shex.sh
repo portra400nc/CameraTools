@@ -1,7 +1,8 @@
 #!/bin/sh
 # Decodes every shader of FrameCensus captures with core/shex.cpp and compares each instruction's name with vkd3d's
 # disassembly the census wrote beside it (asm/<hash>.<stage>.asm), its resource, precise and indexable qualifiers left
-# out. Not part of run.sh, since the captures live in .work.
+# out. Then it prints core/alpha.cpp's analysis of every pixel shader with a discard: each discard's kind, and the
+# program or why there is none. Not part of run.sh, since the captures live in .work.
 #
 #   tests/check_shex.sh [capture folder]...
 #
@@ -39,3 +40,10 @@ for line in open(sys.argv[1]):
 print(f"{'PASS' if differ == 0 else 'FAIL'} {shaders - differ} of {shaders} shaders decode to vkd3d's {instructions} instruction names")
 sys.exit(1 if differ else 0)
 PY
+status=$?
+for capture in "$@"; do
+    "$out/shex_census" alpha "$capture"/shaders/*.ps.dxbc
+done | sed 's|^.*/shaders/||' | sort -u -t "$(printf '\t')" -k1,1 > "$out/alpha.txt"
+cat "$out/alpha.txt"
+echo "INFO $(wc -l < "$out/alpha.txt" | tr -d ' ') pixel shaders with a discard: $(grep -c "	program" "$out/alpha.txt") with a program, $(grep -c "	opaque" "$out/alpha.txt") dither only, $(grep -c "	unsupported" "$out/alpha.txt") unsupported"
+exit $status

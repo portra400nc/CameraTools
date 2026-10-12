@@ -244,7 +244,7 @@ PixelTraceData trace_pixel_of(int2 pixel, float4 history, uint lane)
             o = eye;
             d = -view;
             t_max = dist * 1.5f + 1.0f;
-            classes = kSolidClasses;
+            classes = kSolidClasses | (mask & kAlphaTests);
         }
         BvhHit h = trace_bvh(o, d, t_max, any_hit, classes, lane);
         r.rays++;
