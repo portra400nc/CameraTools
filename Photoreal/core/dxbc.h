@@ -19,7 +19,8 @@ namespace photoreal
         std::string semantic;       // as the compiler wrote it, such as "SV_POSITION"
         uint32_t index = 0;         // the semantic index
         uint32_t system_value = 0;  // D3D_NAME: 1 for SV_Position, 0 for none
-        uint32_t reg = 0;           // the output register; elements may share one, each in its own components
+        uint32_t component_type = 0;    // D3D_REGISTER_COMPONENT_TYPE: 1 uint32, 2 sint32, 3 float32
+        uint32_t reg = 0;           // the register; elements may share one, each in its own components
         uint8_t mask = 0;           // the components the element takes, x = 1 to w = 8
         uint8_t stream = 0;         // the geometry shader's stream, 0 for every other stage
     };
@@ -34,6 +35,9 @@ namespace photoreal
     // minimum precision) or OSG5 (28-byte, a geometry shader's with streams) chunk. Every offset is checked against
     // size, and any that falls outside it, a bad magic, or a missing chunk gives empty.
     std::optional<OutputSignature> parse_output_signature(const uint8_t *code, size_t size);
+
+    // The same for the container's ISGN (24-byte elements) or ISG1 (32-byte) chunk: the inputs a pixel shader reads.
+    std::optional<std::vector<SignatureElement>> parse_input_elements(const uint8_t *code, size_t size);
 
     // The tessellator domain a hull or domain shader declares (dcl_tessellator_domain in its SHEX or SHDR chunk). Empty
     // when the container is broken or declares none, as for every other stage.

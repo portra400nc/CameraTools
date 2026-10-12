@@ -35,71 +35,90 @@ namespace photoreal
         };
     }
 
+    namespace
+    {
+        // The stage and the chosen signature chunk's elements: the output's OSGN, OSG1 or OSG5, or the input's ISGN or ISG1.
+        std::optional<OutputSignature> parse_signature(const uint8_t *code, size_t size, bool input)
+        {
+            uint32_t total = 0, count = 0;
+            if (code == nullptr || size < kHeader || std::memcmp(code, "DXBC", 4) != 0 || !read32(code, size, 24, total) || total > size
+                || total < kHeader || !read32(code, size, 28, count) || count > (total - kHeader) / 4)
+                return std::nullopt;
+            size = total;
+
+            std::optional<ShaderStageKind> stage;
+            std::optional<Chunk> signature;
+            Layout layout { 24, false };
+            for (uint32_t i = 0; i < count; i++)
+            {
+                uint32_t offset = 0, chunk_size = 0;
+                if (!read32(code, size, kHeader + 4 * i, offset) || !read32(code, size, size_t(offset) + 4, chunk_size)
+                    || size_t(offset) + 8 + chunk_size > size)
+                    return std::nullopt;
+                const char *fourcc = reinterpret_cast<const char *>(code + offset);
+                const Chunk chunk { size_t(offset) + 8, chunk_size };
+                if (std::memcmp(fourcc, "SHEX", 4) == 0 || std::memcmp(fourcc, "SHDR", 4) == 0)
+                {
+                    uint32_t version = 0;
+                    if (!read32(code, chunk.body + chunk.size, chunk.body, version) || version >> 16 > static_cast<uint32_t>(ShaderStageKind::cs))
+                        return std::nullopt;
+                    stage = static_cast<ShaderStageKind>(version >> 16);
+                }
+                else if (std::memcmp(fourcc, input ? "ISGN" : "OSGN", 4) == 0)
+                    signature = chunk, layout = { 24, false };
+                else if (std::memcmp(fourcc, input ? "ISG1" : "OSG1", 4) == 0)
+                    signature = chunk, layout = { 32, true };
+                else if (!input && std::memcmp(fourcc, "OSG5", 4) == 0)
+                    signature = chunk, layout = { 28, true };
+            }
+            if (!stage || !signature)
+                return std::nullopt;
+
+            // From here on, offsets are within the signature chunk's body.
+            const uint8_t *body = code + signature->body;
+            const size_t body_size = signature->size;
+            uint32_t elements = 0;
+            if (body_size < kSignatureHeader || !read32(body, body_size, 0, elements) || elements > (body_size - kSignatureHeader) / layout.stride)
+                return std::nullopt;
+            OutputSignature out;
+            out.stage = *stage;
+            for (uint32_t i = 0; i < elements; i++)
+            {
+                const size_t at = kSignatureHeader + i * layout.stride, fields = at + (layout.stream ? 4 : 0);
+                uint32_t stream = 0, name = 0, index = 0, system_value = 0, component_type = 0, reg = 0;
+                if ((layout.stream && !read32(body, body_size, at, stream)) || !read32(body, body_size, fields, name)
+                    || !read32(body, body_size, fields + 4, index) || !read32(body, body_size, fields + 8, system_value)
+                    || !read32(body, body_size, fields + 12, component_type) || !read32(body, body_size, fields + 16, reg) || fields + 21 > body_size
+                    || name >= body_size)
+                    return std::nullopt;
+                const void *end = std::memchr(body + name, '\0', body_size - name);
+                if (end == nullptr)
+                    return std::nullopt;
+                SignatureElement e;
+                e.semantic.assign(reinterpret_cast<const char *>(body + name), static_cast<const uint8_t *>(end) - (body + name));
+                e.index = index;
+                e.system_value = system_value;
+                e.component_type = component_type;
+                e.reg = reg;
+                e.mask = body[fields + 20];
+                e.stream = static_cast<uint8_t>(stream);
+                out.elements.push_back(std::move(e));
+            }
+            return out;
+        }
+    }
+
     std::optional<OutputSignature> parse_output_signature(const uint8_t *code, size_t size)
     {
-        uint32_t total = 0, count = 0;
-        if (code == nullptr || size < kHeader || std::memcmp(code, "DXBC", 4) != 0 || !read32(code, size, 24, total) || total > size
-            || total < kHeader || !read32(code, size, 28, count) || count > (total - kHeader) / 4)
-            return std::nullopt;
-        size = total;
+        return parse_signature(code, size, false);
+    }
 
-        std::optional<ShaderStageKind> stage;
-        std::optional<Chunk> signature;
-        Layout layout { 24, false };
-        for (uint32_t i = 0; i < count; i++)
-        {
-            uint32_t offset = 0, chunk_size = 0;
-            if (!read32(code, size, kHeader + 4 * i, offset) || !read32(code, size, size_t(offset) + 4, chunk_size)
-                || size_t(offset) + 8 + chunk_size > size)
-                return std::nullopt;
-            const char *fourcc = reinterpret_cast<const char *>(code + offset);
-            const Chunk chunk { size_t(offset) + 8, chunk_size };
-            if (std::memcmp(fourcc, "SHEX", 4) == 0 || std::memcmp(fourcc, "SHDR", 4) == 0)
-            {
-                uint32_t version = 0;
-                if (!read32(code, chunk.body + chunk.size, chunk.body, version) || version >> 16 > static_cast<uint32_t>(ShaderStageKind::cs))
-                    return std::nullopt;
-                stage = static_cast<ShaderStageKind>(version >> 16);
-            }
-            else if (std::memcmp(fourcc, "OSGN", 4) == 0)
-                signature = chunk, layout = { 24, false };
-            else if (std::memcmp(fourcc, "OSG1", 4) == 0)
-                signature = chunk, layout = { 32, true };
-            else if (std::memcmp(fourcc, "OSG5", 4) == 0)
-                signature = chunk, layout = { 28, true };
-        }
-        if (!stage || !signature)
+    std::optional<std::vector<SignatureElement>> parse_input_elements(const uint8_t *code, size_t size)
+    {
+        std::optional<OutputSignature> signature = parse_signature(code, size, true);
+        if (!signature)
             return std::nullopt;
-
-        // From here on, offsets are within the signature chunk's body.
-        const uint8_t *body = code + signature->body;
-        const size_t body_size = signature->size;
-        uint32_t elements = 0;
-        if (body_size < kSignatureHeader || !read32(body, body_size, 0, elements) || elements > (body_size - kSignatureHeader) / layout.stride)
-            return std::nullopt;
-        OutputSignature out;
-        out.stage = *stage;
-        for (uint32_t i = 0; i < elements; i++)
-        {
-            const size_t at = kSignatureHeader + i * layout.stride, fields = at + (layout.stream ? 4 : 0);
-            uint32_t stream = 0, name = 0, index = 0, system_value = 0, reg = 0;
-            if ((layout.stream && !read32(body, body_size, at, stream)) || !read32(body, body_size, fields, name)
-                || !read32(body, body_size, fields + 4, index) || !read32(body, body_size, fields + 8, system_value)
-                || !read32(body, body_size, fields + 16, reg) || fields + 21 > body_size || name >= body_size)
-                return std::nullopt;
-            const void *end = std::memchr(body + name, '\0', body_size - name);
-            if (end == nullptr)
-                return std::nullopt;
-            SignatureElement e;
-            e.semantic.assign(reinterpret_cast<const char *>(body + name), static_cast<const uint8_t *>(end) - (body + name));
-            e.index = index;
-            e.system_value = system_value;
-            e.reg = reg;
-            e.mask = body[fields + 20];
-            e.stream = static_cast<uint8_t>(stream);
-            out.elements.push_back(std::move(e));
-        }
-        return out;
+        return std::move(signature->elements);
     }
 
     std::optional<TessellatorDomain> tessellator_domain(const uint8_t *code, size_t size)
