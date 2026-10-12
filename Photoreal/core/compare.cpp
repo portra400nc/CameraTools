@@ -68,6 +68,12 @@ namespace photoreal
         return tick;
     }
 
+    bool compare_waits(uint32_t present, uint32_t count, uint32_t waited, bool short_of_samples)
+    {
+        const CompareTick tick = compare_tick(present, count);
+        return tick.copy && tick.copy->frame == 0 && short_of_samples && waited < kTraceWaitPresents;
+    }
+
     std::vector<uint8_t> to_rgb(const RawFrame &frame)
     {
         const size_t pixels = size_t(frame.size.width) * frame.size.height;
@@ -113,11 +119,13 @@ namespace photoreal
 
     std::string compare_tsv(const std::vector<CompareRow> &rows)
     {
-        std::string out = "index\tname\tstatus\tflicker\tflicker_max\tflicker_mean\twidth\theight\n";
+        const auto optional = [](const std::optional<uint32_t> &v) { return v ? std::to_string(*v) : std::string("-"); };
+        std::string out = "index\tname\tstatus\tflicker\tflicker_max\tflicker_mean\twidth\theight\ttrace_samples\ttrace_target\ttrace_wait\ttrace_timeout\n";
         for (const CompareRow &r : rows)
             out += std::to_string(r.index) + '\t' + r.name + '\t' + r.line + '\t' + format("%.6f", r.flicker.changed) + '\t'
                 + std::to_string(r.flicker.max) + '\t' + format("%.3f", r.flicker.mean) + '\t' + std::to_string(r.size.width) + '\t'
-                + std::to_string(r.size.height) + '\n';
+                + std::to_string(r.size.height) + '\t' + optional(r.trace_samples) + '\t' + optional(r.trace_target) + '\t'
+                + std::to_string(r.trace_wait) + '\t' + (r.trace_timeout ? "1" : "0") + '\n';
         return out;
     }
 

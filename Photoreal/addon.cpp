@@ -343,6 +343,8 @@ namespace photoreal
             std::vector<std::string> lines;     // describe() at each variant's second copy
             uint32_t read = 0;                  // variants read back and handed to the worker
             std::shared_ptr<CompareFiles> files;
+            uint32_t waited = 0;                // presents the variant about to be copied waited for its trace's samples
+            std::vector<CompareRow> trace;      // each copied variant's trace fields, at its second copy
         };
 
         std::optional<Capture> capture;
@@ -872,7 +874,7 @@ namespace photoreal
             log(reshade::log::level::info, "comparing " + std::to_string(variants.size()) + " settings variants into " + files->folder.u8string() + ".");
             worker.push([files, text = settings_tsv(variants)] { write_file(files->folder / "settings.tsv", text); });
             compare_count = static_cast<uint32_t>(variants.size());
-            capture = Capture { std::move(variants), settings, 0, std::nullopt, {}, 0, files };
+            capture = Capture { std::move(variants), settings, 0, std::nullopt, {}, 0, files, 0, {} };
         }
 
         // Reads the next variant's two copies and hands them to the worker, which saves the PNG and rewrites
@@ -884,9 +886,16 @@ namespace photoreal
             if (!first || !second || first->size != second->size)
                 return false;
             const uint32_t index = c.read++;
-            worker.push([files = c.files, index, name = c.variants[index].name, line = c.lines[index], first = std::move(*first), second = std::move(*second)] {
+            worker.push([files = c.files, index, name = c.variants[index].name, line = c.lines[index], trace = c.trace[index], first = std::move(*first),
+                            second = std::move(*second)] {
                 const std::vector<uint8_t> a = to_rgb(first), b = to_rgb(second);
-                files->rows.push_back({ index, name, line, flicker(a, b), second.size });
+                CompareRow row = trace;
+                row.index = index;
+                row.name = name;
+                row.line = line;
+                row.flicker = flicker(a, b);
+                row.size = second.size;
+                files->rows.push_back(row);
                 write_file(files->folder / png_name(index, name), encode_png(b.data(), second.size.width, second.size.height));
                 write_file(files->folder / "compare.tsv", compare_tsv(files->rows));
                 compare_remaining--;
@@ -930,14 +939,36 @@ namespace photoreal
                 if (!report.found.has(Step::gbuffer) || !report.found.has(Step::combine))
                     return "the frame had no G-buffer or combine step";
             }
-            const CompareTick tick = compare_tick(c.present++, static_cast<uint32_t>(c.variants.size()));
+            const uint32_t count = static_cast<uint32_t>(c.variants.size());
+            // A variant that traces is copied once its trace has every sample it asks for, or after kTraceWaitPresents.
+            const std::optional<CompareTick::Copy> next = compare_tick(c.present, count).copy;
+            const Settings *variant = next ? &c.variants[next->variant].settings : nullptr;
+            const bool traces = variant && variant->enabled && variant->trace.enabled && trace_gpu.state() == TraceState::ready;
+            const uint32_t target = variant ? std::max(variant->trace.ao_samples, variant->trace.sun_samples) : 0;
+            if (compare_waits(c.present, count, c.waited, traces && trace_gpu.passes() < target))
+            {
+                c.waited++;
+                return {};
+            }
+            const CompareTick tick = compare_tick(c.present++, count);
             if (tick.copy)
             {
                 const resource back_buffer = chain->get_current_back_buffer();
                 if (!gpu.copy_back_buffer(reinterpret_cast<ID3D11Resource *>(back_buffer.handle), tick.copy->frame))
                     return "the back buffer is not 8-bit RGBA or BGRA, or its copy failed";
                 if (tick.copy->frame == 1)
+                {
                     c.lines.push_back(describe(report));
+                    CompareRow &row = c.trace.emplace_back();
+                    if (traces)
+                    {
+                        row.trace_samples = trace_gpu.passes();
+                        row.trace_target = target;
+                    }
+                    row.trace_wait = c.waited;
+                    row.trace_timeout = traces && c.waited >= kTraceWaitPresents && trace_gpu.passes() < target;
+                    c.waited = 0;
+                }
             }
             if (tick.read && !read_variant())
                 return "the back buffer copies could not be read, or changed size";

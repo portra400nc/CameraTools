@@ -50,6 +50,16 @@ namespace photoreal
 
     CompareTick compare_tick(uint32_t present, uint32_t count);
 
+    // Presents a variant waits at most for the trace pass to reach its samples, about a minute at 30 fps: build 203 traced
+    // 64 passes in about 12 s.
+    constexpr uint32_t kTraceWaitPresents = 1800;
+
+    // Whether the capture holds at present, as compare_tick counts presents, instead of ticking: present is a variant's
+    // first copy, the variant traces and its trace has fewer samples than it asks for (short), and it has waited fewer than
+    // kTraceWaitPresents presents. A variant that changes the trace's settings starts its samples again, and without the
+    // wait it would be saved with 1 to 5 of them. The shell counts waited and does not advance present while it holds.
+    bool compare_waits(uint32_t present, uint32_t count, uint32_t waited, bool short_of_samples);
+
     enum class PixelOrder : uint8_t { rgba, bgra };
 
     // A back buffer as read back: rows of 4 bytes a pixel with no padding, top row first.
@@ -79,11 +89,17 @@ namespace photoreal
 
     struct CompareRow
     {
-        uint32_t index;
+        uint32_t index = 0;
         std::string name;
         std::string line;   // describe() for the variant's second frame
-        Flicker flicker;
-        Size size;
+        Flicker flicker {};
+        Size size {};
+        // The trace pass of a variant that traces a ready scene: its full passes at the saved frame and the samples it asks
+        // for (the larger of the occlusion and sun samples), else empty; the presents it waited before its first copy, and
+        // whether it stopped waiting at kTraceWaitPresents.
+        std::optional<uint32_t> trace_samples, trace_target;
+        uint32_t trace_wait = 0;
+        bool trace_timeout = false;
     };
 
     // compare.tsv and settings.tsv, each with its header line.

@@ -64,6 +64,13 @@ int main()
             ticks == std::vector<std::string> { "apply 0", "-", "-", "-", "-", "copy 0.0", "copy 0.1 apply 1", "-", "read 0", "-", "-",
                 "copy 1.0", "copy 1.1 restore", "-", "read 1 done", "-" });
         check("sixteen variants end at present 98", text(compare_tick(96, 16)) == "copy 15.1 restore" && text(compare_tick(98, 16)) == "read 15 done");
+        std::vector<uint32_t> waits;
+        for (uint32_t present = 0; present < 16; present++)
+            if (compare_waits(present, 2, 0, true))
+                waits.push_back(present);
+        check("a variant short of trace samples waits only at its first copy, presents 5 and 11 of two variants", waits == std::vector<uint32_t> { 5, 11 });
+        check("and not once it has its samples or has waited 1800 presents", !compare_waits(5, 2, 0, false) && compare_waits(5, 2, 1799, true)
+            && !compare_waits(5, 2, 1800, true));
     }
     {
         PhotorealVariant raw[] = { variant("off", 0), variant("ambient on/2", 1), variant("", 1) };
@@ -106,12 +113,26 @@ int main()
     }
     {
         check("PNG names are the two-digit index and the name", png_name(3, "ambient") == "03-ambient.png" && png_name(15, "x") == "15-x.png");
-        const std::vector<CompareRow> rows = { { 0, "off", "off; comparing 0/2", { 0, 0, 0 }, { 1280, 800 } },
-            { 1, "ambient", "1152x720 found gbuffer; ran ambient@combine", { 0.0123456, 40, 0.5 }, { 1280, 800 } } };
-        check("compare.tsv has a header and one row per variant", compare_tsv(rows)
-            == "index\tname\tstatus\tflicker\tflicker_max\tflicker_mean\twidth\theight\n"
-               "0\toff\toff; comparing 0/2\t0.000000\t0\t0.000\t1280\t800\n"
-               "1\tambient\t1152x720 found gbuffer; ran ambient@combine\t0.012346\t40\t0.500\t1280\t800\n");
+        const auto row = [](uint32_t index, const char *name, const char *line, Flicker f) {
+            CompareRow r;
+            r.index = index;
+            r.name = name;
+            r.line = line;
+            r.flicker = f;
+            r.size = { 1280, 800 };
+            return r;
+        };
+        std::vector<CompareRow> rows = { row(0, "off", "off; comparing 0/2", { 0, 0, 0 }),
+            row(1, "ambient", "1152x720 found gbuffer; ran ambient@combine", { 0.0123456, 40, 0.5 }),
+            row(2, "traced", "1152x720 found gbuffer; ran trace@combine (64 ao, 32 sun)", { 0, 0, 0 }) };
+        rows[2].trace_samples = 64;
+        rows[2].trace_target = 64;
+        rows[2].trace_wait = 412;
+        check("compare.tsv has a header and one row per variant, with the trace's samples and wait", compare_tsv(rows)
+            == "index\tname\tstatus\tflicker\tflicker_max\tflicker_mean\twidth\theight\ttrace_samples\ttrace_target\ttrace_wait\ttrace_timeout\n"
+               "0\toff\toff; comparing 0/2\t0.000000\t0\t0.000\t1280\t800\t-\t-\t0\t0\n"
+               "1\tambient\t1152x720 found gbuffer; ran ambient@combine\t0.012346\t40\t0.500\t1280\t800\t-\t-\t0\t0\n"
+               "2\ttraced\t1152x720 found gbuffer; ran trace@combine (64 ao, 32 sun)\t0.000000\t0\t0.000\t1280\t800\t64\t64\t412\t0\n");
     }
     {
         PhotorealVariant raw[] = { variant("off", 0), variant("shadows", 1) };
