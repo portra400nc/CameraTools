@@ -160,6 +160,13 @@ namespace photoreal
             t.info = info;
             if (slots_[slot] == 0)
             {
+                // An equal-depth draw passes its depth test only on a surface an earlier draw laid down: without a twin
+                // it leaves nothing in the depth buffer.
+                if (r == 1)
+                {
+                    counts_.dropped_equal_alone++;
+                    continue;
+                }
                 slots_[slot] = static_cast<uint32_t>(keys_.size() + 1);
                 keys_.push_back(*key);
                 triangles_.push_back(t);

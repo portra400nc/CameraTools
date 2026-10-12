@@ -87,6 +87,9 @@ def main(folder, out, radius):
             dropped_degenerate += 1
             continue
         if k not in stored:
+            # An equal-depth copy only replaces an earlier copy.
+            if kind == 1:
+                continue
             stored[k] = kind
         elif kind > stored[k]:
             stored[k] = kind

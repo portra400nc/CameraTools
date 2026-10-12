@@ -1,8 +1,13 @@
 // The traced scene: triangle keys on the 1 mm grid, which copy of a triangle is kept, grass left out, the cap on
 // triangles, a face's clip-space corners into the reference's frame, the self-test scene, trace-scene.bin, and the
 // counts of fixtures/scene-194351-near.bin, the triangles of build 199's scene capture within 10 m of its camera, which
-// make_trace_fixture.py wrote and counted; and the alpha records of alpha-tested triangles, and their buffer in the file.
+// make_trace_fixture.py wrote and counted; the alpha records of alpha-tested triangles, and their buffer in the file;
+// and fixtures/scene-161003-meadow-rays.bin, rays of build 207's meadow frame that met their work cap with the triangles
+// they cross, which make_meadow_fixture.cpp cut: the equal-depth copies without a twin are left out, and no ray meets a cap.
+#include "../core/bvh.h"
 #include "../core/trace_scene.h"
+
+#include <algorithm>
 
 #include <cmath>
 #include <cstdio>
@@ -63,16 +68,15 @@ namespace
         uint8_t face, kind, cls;
     };
 
-    // fixtures/scene-194351-near.bin: b"PTF1", a uint32 count, then 40-byte records (nine float32, face, kind, class, 0).
-    std::vector<FixtureTriangle> load_fixture(const std::string &path)
+    // A uint32 count at offset, then 40-byte records (nine float32, face, kind, class, 0).
+    std::vector<FixtureTriangle> load_triangles(const std::string &bytes, size_t offset)
     {
-        const std::string bytes = slurp(path);
         uint32_t count = 0;
-        std::memcpy(&count, bytes.data() + 4, 4);
+        std::memcpy(&count, bytes.data() + offset, 4);
         std::vector<FixtureTriangle> out(count);
         for (uint32_t i = 0; i < count; i++)
         {
-            const char *at = bytes.data() + 8 + size_t(i) * 40;
+            const char *at = bytes.data() + offset + 4 + size_t(i) * 40;
             float f[9];
             std::memcpy(f, at, sizeof f);
             for (int c = 0; c < 3; c++)
@@ -83,6 +87,29 @@ namespace
         }
         return out;
     }
+
+    // fixtures/scene-194351-near.bin: b"PTF1", then the triangles.
+    std::vector<FixtureTriangle> load_fixture(const std::string &path) { return load_triangles(slurp(path), 4); }
+
+    struct FixtureRay
+    {
+        Vec3f origin, direction;
+        float t_max;
+        uint32_t any_hit, classes;
+    };
+
+    // fixtures/scene-161003-meadow-rays.bin: b"PMF1", a uint32 ray count, 36 bytes a ray, then the triangles.
+    void load_meadow(const std::string &path, std::vector<FixtureRay> &rays, std::vector<FixtureTriangle> &triangles)
+    {
+        const std::string bytes = slurp(path);
+        uint32_t count = 0;
+        std::memcpy(&count, bytes.data() + 4, 4);
+        rays.resize(count);
+        for (uint32_t i = 0; i < count; i++)
+            std::memcpy(&rays[i], bytes.data() + 8 + size_t(i) * 36, 36);
+        triangles = load_triangles(bytes, 8 + size_t(count) * 36);
+    }
+    static_assert(sizeof(FixtureRay) == 36);
 
     // The record make_trace_fixture.py's kind and class stand for.
     SceneDrawRecord fixture_draw(uint8_t kind, uint8_t cls)
@@ -141,9 +168,22 @@ int main()
         SceneBuilder none;
         none.add_draw(volume, { kA });
         none.add_draw(overlay, { kB });
+        none.add_draw(draw("pre", 0), { kC });
         none.add_draw(draw("equal", 137), { kC });
         check("draws that write no depth cast nothing, but an equal-depth draw does", none.counts().dropped_no_depth == 2 && none.counts().unique == 1
-            && !leaves_depth(volume) && leaves_depth(draw("equal", 136)) && leaves_depth(draw("pre", 0)));
+            && none.counts().replaced == 1 && info_class(none.take(10)[0].info) == TraceClass::foliage && !leaves_depth(volume)
+            && leaves_depth(draw("equal", 136)) && leaves_depth(draw("pre", 0)));
+        // An EQUAL depth test passes only on a surface an earlier draw laid down.
+        SceneBuilder alone;
+        alone.add_draw(draw("equal", 136), { kA });
+        alone.add_draw(draw("main", 128), { kB });
+        alone.add_draw(draw("equal", 136), { kB, kC });
+        alone.add_draw(draw("pre", 0), { kA });
+        const SceneBuilder::Counts lone = alone.counts();
+        const std::vector<TraceTriangle> left = alone.take(10);
+        check("an equal-depth copy with no earlier twin is left out, whatever comes later, and one of a main copy changes nothing",
+            lone.in == 5 && lone.dropped_equal_alone == 2 && lone.unique == 2 && lone.replaced == 0 && lone.pre_only == 1 && left.size() == 2
+                && info_class(left[0].info) == TraceClass::world && info_class(left[1].info) == TraceClass::other);
         check("the classes map from their stencils", trace_class(draw("main", 144)) == TraceClass::world
             && trace_class(draw("main", 200)) == TraceClass::other && trace_class(draw("pre", 0)) == TraceClass::other);
         SceneDrawRecord tall = draw("main", 137), leaf = draw("main", 137);
@@ -297,6 +337,56 @@ int main()
             static_cast<unsigned long long>(c.unique), static_cast<unsigned long long>(c.replaced), static_cast<unsigned long long>(c.pre_only));
         check("the fixture's counts match make_trace_fixture.py's", c.in == 48894 && c.dropped_class == 5158 && c.dropped_degenerate == 392
             && c.unique == 14165 && c.replaced == 539 && c.pre_only == 1346);
+    }
+    {
+        // Build 207's meadow (scene-20261012-161003, frame trace-20261012-161041): the 24 occlusion rays of one tile that
+        // did the most work, and the triangles along them. Every equal-depth draw of that capture came back in its
+        // prepass draw's layout, so its triangles are fans from one real corner to two misread ones beside the camera.
+        std::vector<FixtureRay> rays;
+        std::vector<FixtureTriangle> fixture;
+        load_meadow("fixtures/scene-161003-meadow-rays.bin", rays, fixture);
+        // What the rays do in the scene a builder makes of the triangles, with the equal-depth copies as kind says.
+        struct Run
+        {
+            SceneBuilder::Counts counts;
+            size_t triangles = 0;
+            uint32_t capped = 0, most_work = 0, hits = 0;
+            bool as_brute = true;
+        };
+        const auto run = [&](const char *equal_as) {
+            static const uint32_t kStencils[] = { 0, 128, 129, 133, 136, 137, 144, 165, 200 };
+            static const char *const kKinds[] = { "pre", "equal", "main" };
+            SceneBuilder b;
+            for (const FixtureTriangle &t : fixture)
+                b.add_draw(draw(t.kind == 1 ? equal_as : kKinds[t.kind], kStencils[t.cls]), { t.corners });
+            Run out;
+            out.counts = b.counts();
+            const std::vector<TraceTriangle> scene = b.take(1u << 20);
+            out.triangles = scene.size();
+            const Bvh bvh = build_bvh(scene);
+            for (const FixtureRay &r : rays)
+            {
+                TraversalStats stats;
+                const std::optional<Hit> hit = trace_nearest(bvh, r.origin, r.direction, r.t_max, r.classes, &stats);
+                const std::optional<Hit> brute = brute_nearest(bvh, r.origin, r.direction, r.t_max, r.classes);
+                out.capped += stats.guard;
+                out.most_work = std::max(out.most_work, stats.work);
+                out.hits += hit.has_value();
+                out.as_brute &= hit.has_value() == brute.has_value() && (!hit || (hit->triangle == brute->triangle && hit->t == brute->t));
+            }
+            return out;
+        };
+        const Run kept = run("main"), fixed = run("equal");
+        std::printf("INFO meadow fixture: %zu rays, %zu triangles; with the equal-depth copies kept %zu triangles, %u rays capped, most work %u; "
+                    "left out %llu, %zu triangles, %u rays capped, most work %u, %u hits\n",
+            rays.size(), fixture.size(), kept.triangles, kept.capped, kept.most_work, static_cast<unsigned long long>(fixed.counts.dropped_equal_alone),
+            fixed.triangles, fixed.capped, fixed.most_work, fixed.hits);
+        check("the meadow fixture's rays all meet their work cap when the equal-depth copies without a twin are kept, as build 207 kept them",
+            rays.size() == 24 && fixture.size() == 7262 && kept.triangles == 7262 && kept.capped == 24);
+        check("the scene build leaves the meadow fixture's 7,046 equal-depth copies without a twin out", fixed.counts.in == 7262
+            && fixed.counts.dropped_equal_alone == 7046 && fixed.counts.unique == 216 && fixed.triangles == 216);
+        check("then no ray of the fixture meets a cap, none does more than 100 work, and each meets what testing every triangle meets",
+            fixed.capped == 0 && fixed.most_work <= 100 && fixed.as_brute);
     }
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;

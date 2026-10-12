@@ -32,8 +32,7 @@ namespace photoreal
     constexpr uint32_t kTallGrassMaterial = 3;
 
     // The class a draw's triangles get, or empty for grass, which never casts, as for contact shadows: stencil 129, and
-    // tall grass, a draw whose pixel shader writes kTallGrassMaterial. A meadow's tall grass in build 207 put hundreds of
-    // thousands of cards around every ray that starts at the ground, so rays hit their work cap and a tile took 17 ms.
+    // tall grass, a draw whose pixel shader writes kTallGrassMaterial.
     std::optional<TraceClass> trace_class(const SceneDrawRecord &record);
 
     // Whether a draw leaves surfaces in the depth buffer: it writes depth, or it draws the prepass's surfaces again at
@@ -77,9 +76,14 @@ namespace photoreal
     // Collects the faces' triangles in the order they arrive (the view first, then the cube faces; draws in order) and
     // keeps one of each key: of a main, an equal-depth and a prepass draw's copy the main one, else the first. An
     // equal-depth copy without an alpha test keeps the alpha test of the prepass copy it replaces: Genshin's vegetation
-    // draws its prepass alpha-tested and its G-buffer at EQUAL depth with shaders that do not discard. Open
-    // addressing over the keys, about 90 bytes per unique triangle, and a kept triangle with an alpha test its corners'
-    // streamed floats.
+    // draws its prepass alpha-tested and its G-buffer at EQUAL depth with shaders that do not discard. An equal-depth
+    // copy only ever replaces a copy: its depth test passes only on a surface an earlier draw laid down, so one without
+    // an earlier twin leaves nothing in the depth buffer and is left out. In builds 205 to 207 the equal-depth draws of
+    // a vertex shader the prepass had streamed with an alpha program's inputs came back in the prepass's layout, 48
+    // bytes a corner read as 16, so each triangle was one real corner and two of its inputs read as positions, which
+    // land beside the camera: 30,498 such fans in build 207's meadow, which every ray near the camera had to test
+    // (README, "Misread equal-depth draws"). Open addressing over the keys, about 90 bytes per unique triangle, and a
+    // kept triangle with an alpha test its corners' streamed floats.
     class SceneBuilder
     {
     public:
@@ -91,6 +95,7 @@ namespace photoreal
             uint64_t dropped_class = 0;         // grass
             uint64_t dropped_no_depth = 0;      // draws that leave no surface in the depth buffer
             uint64_t dropped_degenerate = 0;    // a corner at infinity, out of range, or merged with another on the grid
+            uint64_t dropped_equal_alone = 0;   // equal-depth copies with no earlier copy to replace
             uint64_t pre_only = 0;              // kept triangles only the depth prepass drew
             uint64_t past_max = 0;              // left out by take, the farthest first
             uint64_t inherited = 0;             // equal-depth copies that kept the alpha test of the prepass copy they replaced
