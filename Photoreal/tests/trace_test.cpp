@@ -318,6 +318,19 @@ int main(int argc, char **argv)
         check("the budget: 4 tiles in 10 ms of 20 doubles, 8 in 40 of 20 halves, at most twice the batch and at most every tile, "
               "at least 1, and twice with no measure", next_batch(4, 10, 20, 100) == 8 && next_batch(8, 40, 20, 100) == 4 && next_batch(4, 1, 20, 100) == 8
             && next_batch(60, 10, 20, 100) == 100 && next_batch(1, 100, 20, 50) == 1 && next_batch(4, 0, 20, 100) == 8 && next_batch(6, 15, 20, 100) == 8);
+        TraceSchedule first;
+        first.tiles = 570;
+        const std::optional<TraceDispatch> one = trace_next(first, 64);
+        check("a new scene's first frame traces 1 tile, so its measured time sets the next frames' before any frame traces more",
+            one && one->first == 0 && one->count == 1 && next_batch(first.batch, 0.5, 20, 570) == 2);
+        const auto chunks = [](TraceDispatch d, uint32_t tiles) {
+            std::string out;
+            for (const TraceDispatch &c : trace_chunks(d, tiles))
+                out += std::to_string(c.first) + "+" + std::to_string(c.count) + " ";
+            return out;
+        };
+        check("a frame's tiles go to the GPU 2 at a time, wrapping: 7 from 566 of 570 as 566+2 568+2 0+2 2+1, 1 as 1, none as none",
+            chunks({ 566, 7 }, 570) == "566+2 568+2 0+2 2+1 " && chunks({ 3, 1 }, 570) == "3+1 " && chunks({ 0, 0 }, 570).empty() && kMaxDispatchTiles == 2);
     }
     {
         const Camera camera = looking_down();

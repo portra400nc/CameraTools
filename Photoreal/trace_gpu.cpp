@@ -314,21 +314,26 @@ namespace photoreal
         key_ = frame.key;
         schedule_ = frame.schedule;
 
-        TraceConstants constants = frame.constants;
-        constants.trace_tiles[0] = frame.dispatch ? frame.dispatch->first : 0;
-        constants.trace_tiles[1] = tile_count_;
-        D3D11_MAPPED_SUBRESOURCE mapped;
-        HRESULT hr = c->Map(constants_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
-        if (FAILED(hr))
-        {
-            fail("the trace's constants could not be written (" + hresult_text("Map", hr) + ")");
-            return false;
-        }
-        std::memcpy(mapped.pData, &constants, sizeof constants);
-        c->Unmap(constants_.Get(), 0);
-        uploaded_constants_ = constants;
-        if (!frame.dispatch)
+        // The constants with a dispatch's first tile, at b0 for the kernel and b1 for the apply draw.
+        const auto upload = [&](uint32_t first) {
+            TraceConstants constants = frame.constants;
+            constants.trace_tiles[0] = first;
+            constants.trace_tiles[1] = tile_count_;
+            D3D11_MAPPED_SUBRESOURCE mapped;
+            const HRESULT result = c->Map(constants_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+            if (FAILED(result))
+            {
+                fail("the trace's constants could not be written (" + hresult_text("Map", result) + ")");
+                return false;
+            }
+            std::memcpy(mapped.pData, &constants, sizeof constants);
+            c->Unmap(constants_.Get(), 0);
+            uploaded_constants_ = constants;
             return true;
+        };
+        if (!frame.dispatch)
+            return upload(0);
+        HRESULT hr = S_OK;
 
         // The oldest set of queries, unread for four frames, is given up.
         Flight &flight = flights_[next_flight_];
@@ -361,7 +366,17 @@ namespace photoreal
         c->CSSetUnorderedAccessViews(0, static_cast<UINT>(std::size(uavs)), uavs, nullptr);
         c->Begin(flight.disjoint.Get());
         c->End(flight.begin.Get());
-        c->Dispatch(kGroupsPerTile, frame.dispatch->count, 1);
+        // Each part goes to the GPU on its own, so no one submission holds more than kMaxDispatchTiles tiles of the trace,
+        // nor the game's work before it.
+        bool uploaded = true;
+        for (const TraceDispatch &part : trace_chunks(*frame.dispatch, tile_count_))
+        {
+            uploaded = upload(part.first);
+            if (!uploaded)
+                break;
+            c->Flush();
+            c->Dispatch(kGroupsPerTile, part.count, 1);
+        }
         c->End(flight.end.Get());
         c->End(flight.disjoint.Get());
         // Unbound before the apply draw reads the history as a shader resource.
@@ -369,6 +384,8 @@ namespace photoreal
         ID3D11UnorderedAccessView *const no_uavs[std::size(uavs)] = {};
         c->CSSetShaderResources(0, static_cast<UINT>(std::size(no_srvs)), no_srvs);
         c->CSSetUnorderedAccessViews(0, static_cast<UINT>(std::size(no_uavs)), no_uavs, nullptr);
+        if (!uploaded)
+            return false;
         c->CopyResource(flight.counters.Get(), counters_.Get());
         flight.pending = true;
         flight.tiles = frame.dispatch->count;

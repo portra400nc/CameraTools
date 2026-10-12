@@ -43,7 +43,11 @@ namespace photoreal
 
     constexpr uint32_t kTileSize = 64;      // pixels a side; 64 groups of 8x8 threads
     constexpr uint32_t kGridStride = 16;    // every 16th pixel each way shoots a ray from the camera to check the scene
-    constexpr uint32_t kStartBatch = 4;     // tiles of the first frame
+    constexpr uint32_t kStartBatch = 1;     // tiles of the first frame, whose measured time sets the next ones'
+    // Tiles of one GPU submission. A tile's 4,096 pixels shoot at most 3 rays each, and a ray at its caps of shaders/bvh.hlsli
+    // costs about 16 us of the Deck's GPU at worst (README, "Tracing"), so a tile takes at most about 0.2 s and a submission
+    // about 0.4 s, well inside the GPU driver's timeout whatever the scene.
+    constexpr uint32_t kMaxDispatchTiles = 2;
 
     // The render size's tiles in Morton order, each x | y << 16, so a frame's tiles lie together.
     std::vector<uint32_t> tile_order(Size render);
@@ -68,6 +72,10 @@ namespace photoreal
     // This frame's tiles, and the schedule after them; empty once every pixel has samples samples (the larger of the
     // occlusion and sun samples).
     std::optional<TraceDispatch> trace_next(TraceSchedule &schedule, uint32_t samples);
+
+    // A frame's tiles as the dispatches that trace them, each at most kMaxDispatchTiles from where the last stopped,
+    // wrapping at tiles.
+    std::vector<TraceDispatch> trace_chunks(const TraceDispatch &frame, uint32_t tiles);
 
     // The next frame's tiles from a dispatch of batch tiles that took measured_ms: batch * budget_ms / measured_ms,
     // at most twice batch, so a cheap frame of sky tiles cannot make the next one long, and from 1 to all tiles.
