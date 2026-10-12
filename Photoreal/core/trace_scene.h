@@ -70,7 +70,9 @@ namespace photoreal
     };
 
     // Collects the faces' triangles in the order they arrive (the view first, then the cube faces; draws in order) and
-    // keeps one of each key: of a main, an equal-depth and a prepass draw's copy the main one, else the first. Open
+    // keeps one of each key: of a main, an equal-depth and a prepass draw's copy the main one, else the first. An
+    // equal-depth copy without an alpha test keeps the alpha test of the prepass copy it replaces: Genshin's vegetation
+    // draws its prepass alpha-tested and its G-buffer at EQUAL depth with shaders that do not discard. Open
     // addressing over the keys, about 90 bytes per unique triangle, and a kept triangle with an alpha test its corners'
     // streamed floats.
     class SceneBuilder
@@ -86,6 +88,7 @@ namespace photoreal
             uint64_t dropped_degenerate = 0;    // a corner at infinity, out of range, or merged with another on the grid
             uint64_t pre_only = 0;              // kept triangles only the depth prepass drew
             uint64_t past_max = 0;              // left out by take, the farthest first
+            uint64_t inherited = 0;             // equal-depth copies that kept the alpha test of the prepass copy they replaced
             uint64_t alpha = 0;                 // kept with an alpha record
             uint64_t alpha_past_max = 0;        // kept whole because the records would pass 64 MB
         };

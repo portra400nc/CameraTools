@@ -1292,7 +1292,8 @@ namespace photoreal
                     + " captured, or of the self-test scene when none were (" + std::to_string(c.unique) + " unique on the 1 mm grid, " + std::to_string(c.replaced) + " prepass or equal-depth copies "
                     "replaced by a main draw's, " + std::to_string(c.pre_only) + " drawn by the prepass alone, " + std::to_string(c.dropped_class)
                     + " of grass and " + std::to_string(c.dropped_no_depth) + " of draws that write no depth left out, " + std::to_string(c.dropped_degenerate) + " degenerate, " + std::to_string(c.past_max)
-                    + " farthest past the cap; " + std::to_string(c.alpha) + " alpha-tested, " + std::to_string(c.alpha_past_max) + " whole past the alpha records' 64 MB), a BVH of "
+                    + " farthest past the cap; " + std::to_string(c.alpha) + " alpha-tested, " + std::to_string(c.inherited) + " of them equal-depth copies with their prepass copy's test, "
+                    + std::to_string(c.alpha_past_max) + " whole past the alpha records' 64 MB), a BVH of "
                     + std::to_string(trace_gpu.nodes()) + " nodes built in " + seconds + " s, hash " + hash + "; uploading " + megabytes(uint64_t(trace_gpu.nodes()) * sizeof(BvhNode) + uint64_t(trace_gpu.triangles())
                     * sizeof(BvhTriangle) + trace_gpu.alpha_bytes()) + " (" + megabytes(trace_gpu.alpha_bytes()) + " of alpha tests) a part of " + megabytes(kTraceUploadBytes)
                     + " each present. trace-scene.bin is in " + trace_scene.folder + ".");

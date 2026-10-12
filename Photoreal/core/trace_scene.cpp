@@ -174,12 +174,21 @@ namespace photoreal
             if (r <= ranks_[index])
                 continue;
             counts_.pre_only -= ranks_[index] == 0;
-            triangles_[index] = t;
+            counts_.replaced++;
             ranks_[index] = r;
+            if (r == 1 && alpha_draw == 0 && alpha_of_[index] != 0)
+            {
+                // An equal-depth draw draws only where the prepass's alpha test kept depth, so its copy keeps that test,
+                // and the corners in the order the test's floats follow.
+                t.corner = triangles_[index].corner;
+                triangles_[index] = t;
+                counts_.inherited++;
+                continue;
+            }
+            triangles_[index] = t;
             alpha_of_[index] = alpha_draw;
             attributes_at_[index] = at;
             keep_attributes();
-            counts_.replaced++;
         }
     }
 

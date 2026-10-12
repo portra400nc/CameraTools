@@ -212,6 +212,16 @@ int main()
         check("the main copy's block holds its tile, address modes and row, and its record its own corners", alpha[draws] == 0 && alpha[draws + 1] == 5
             && alpha[draws + 2] == (3 | 3 << 3) && alpha[draws + 3] == 1 && alpha[draws + 4] == 5 && alpha[draws + 7] == 8 && alpha[records] == 0
             && first_u == 10 && alpha[alpha[3]] == 0x07070707u);
+        SceneBuilder equal;
+        equal.add_draw(draw("pre", 0), { kA }, &pre_alpha, pre_uv);
+        equal.add_draw(draw("equal", 136), { { kA[1], kA[2], kA[0] } });
+        std::vector<uint32_t> inherited;
+        const std::vector<TraceTriangle> e = equal.take(10, &inherited);
+        float u1;
+        std::memcpy(&u1, &inherited[inherited[0] + 1 + 2], 4);
+        check("an equal-depth copy without an alpha test keeps the prepass copy's, its class its own and its corners the prepass's order",
+            e.size() == 1 && info_class(e[0].info) == TraceClass::vegetation && (e[0].info & kOpaque) == 0 && equal.counts().inherited == 1
+                && e[0].corner[0] == Vec3f { 0, 0, 0 } && inherited[inherited[2] + 1] == 2 && u1 == 1);
         SceneBuilder plain;
         plain.add_draw(draw("main", 128), { kA });
         std::vector<uint32_t> none = { 1 };
