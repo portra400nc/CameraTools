@@ -2,7 +2,8 @@
 # Decodes every shader of FrameCensus captures with core/shex.cpp and compares each instruction's name with vkd3d's
 # disassembly the census wrote beside it (asm/<hash>.<stage>.asm), its resource, precise and indexable qualifiers left
 # out. Then it prints core/alpha.cpp's analysis of every pixel shader with a discard: each discard's kind, and the
-# program or why there is none. Not part of run.sh, since the captures live in .work.
+# program or why there is none, with how core/alpha_bake.cpp's mask bake holds it. Not part of run.sh, since the
+# captures live in .work.
 #
 #   tests/check_shex.sh [capture folder]...
 #
@@ -46,4 +47,5 @@ for capture in "$@"; do
 done | sed 's|^.*/shaders/||' | sort -u -t "$(printf '\t')" -k1,1 > "$out/alpha.txt"
 cat "$out/alpha.txt"
 echo "INFO $(wc -l < "$out/alpha.txt" | tr -d ' ') pixel shaders with a discard: $(grep -c "	program" "$out/alpha.txt") with a program, $(grep -c "	opaque" "$out/alpha.txt") dither only, $(grep -c "	unsupported" "$out/alpha.txt") unsupported"
+echo "INFO their programs' mask bake: $(grep -c "bake exact" "$out/alpha.txt") exact, $(grep -c "bake approximate" "$out/alpha.txt") approximate"
 exit $status

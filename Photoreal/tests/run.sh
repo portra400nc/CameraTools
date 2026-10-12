@@ -2,9 +2,11 @@
 # Builds and runs the Photoreal core's tests, which replay recorded census frames through the frame recipe, with any
 # C++17 compiler, then decodes the PNG encoder's output with Python's zlib, checks the synthetic scene folder
 # scene_files_test writes with check_scene.py, which needs numpy, and the synthetic traced frame trace_test writes with
-# trace_reference and check_trace.py. No game, no ReShade, no D3D11. When it finds build
-# 199's whole deduplicated scene (PHOTOREAL_TRACE_DATA, or .work/photoreal/tracer/scene-194351-tris.bin in a folder
-# above this one), it also runs check_bvh.sh on it.
+# trace_reference and check_trace.py. No game, no ReShade, no D3D11. With vkd3d-compiler (PHOTOREAL_VKD3D_COMPILER, or
+# the melonloader workspace's .work/build/reshade/vkd3d/vkd3d-compiler in a folder above this one), check_kernel_size.py
+# holds the compiled trace kernel to build 203's size. When it finds build 199's whole deduplicated scene
+# (PHOTOREAL_TRACE_DATA, or .work/photoreal/tracer/scene-194351-tris.bin in a folder above this one), it also runs
+# check_bvh.sh on it.
 set -e
 cd "$(dirname "$0")"
 out=$(mktemp -d)
@@ -14,6 +16,22 @@ for test in *_test.cpp; do
 done
 python3 check_png.py "$out/roundtrip.png"
 python3 check_kernel_conditions.py ../shaders
+vkd3d=${PHOTOREAL_VKD3D_COMPILER:-}
+if [ -z "$vkd3d" ]; then
+    dir=$(pwd)
+    while [ "$dir" != "/" ]; do
+        if [ -x "$dir/.work/build/reshade/vkd3d/vkd3d-compiler" ]; then
+            vkd3d="$dir/.work/build/reshade/vkd3d/vkd3d-compiler"
+            break
+        fi
+        dir=$(dirname "$dir")
+    done
+fi
+if [ -n "$vkd3d" ]; then
+    python3 check_kernel_size.py "$vkd3d" ../shaders
+else
+    echo "SKIP check_kernel_size.py: no vkd3d-compiler (set PHOTOREAL_VKD3D_COMPILER to run it)"
+fi
 python3 check_scene.py "$out/scene-synthetic"
 # The synthetic traced frame trace_test wrote: traced again by the reference tracer, which check_trace.py must find equal,
 # and a copy with a block of sun samples flipped, which it must refuse.
