@@ -226,11 +226,12 @@ namespace photoreal
         depth_size_ = {};
         picture_ = Staging {};
         picture_copied_ = false;
-        normals_ = mask_ = irradiance_ = Mirror {};
+        normals_ = mask_ = irradiance_ = stencil_ = Mirror {};
         gbuffer_copied_ = gbuffer_back_ = false;
         normals_back_.reset();
         mask_back_.reset();
         irradiance_back_.reset();
+        stencil_back_.reset();
     }
 
     void SceneGpu::begin_frame()
@@ -705,7 +706,11 @@ namespace photoreal
 
     void SceneGpu::copy_gbuffer(const FrameMap &map)
     {
-        const std::pair<Entry, Mirror *> copies[] = { { Entry::normals, &normals_ }, { Entry::shadow_mask, &mask_ }, { Entry::ambient_diffuse, &irradiance_ } };
+        // The main depth too, for its stencil plane, which later passes of the frame write over: copied at present, the
+        // view face's stencil held only 0 and 1 in builds 203 to 208, while the trace's save, copied here, held the
+        // G-buffer's classes.
+        const std::pair<Entry, Mirror *> copies[] = { { Entry::normals, &normals_ }, { Entry::shadow_mask, &mask_ }, { Entry::ambient_diffuse, &irradiance_ },
+            { Entry::depth, &stencil_ } };
         for (const auto &[entry, mirror] : copies)
         {
             const std::optional<Texture> &texture = map[entry];
@@ -799,7 +804,8 @@ namespace photoreal
         if (gbuffer_copied_)
         {
             // A mirror that was not made gives no copy, and read() leaves that file out.
-            for (const auto &[mirror, back] : { std::pair { &normals_, &normals_back_ }, std::pair { &mask_, &mask_back_ }, std::pair { &irradiance_, &irradiance_back_ } })
+            for (const auto &[mirror, back] : { std::pair { &normals_, &normals_back_ }, std::pair { &mask_, &mask_back_ }, std::pair { &irradiance_, &irradiance_back_ },
+                     std::pair { &stencil_, &stencil_back_ } })
                 if (!mirror->texture() || !back->copy_from(device_.Get(), c, mirror->texture()))
                     back->reset();
         }
@@ -844,24 +850,21 @@ namespace photoreal
                 out.why = "the depth copy could not be read (" + hresult("Map", hr) + ")";
                 return out;
             }
-            // 8 bytes a texel: the float depth, then the stencil and padding.
+            // 8 bytes a texel: the float depth, then the stencil and padding. The stencil is not taken from here: by the
+            // present the game's later passes have written over it.
             out.depth.resize(size_t(depth_size_.width) * depth_size_.height);
-            if (gbuffer_back_)
-                out.stencil.resize(out.depth.size());
             for (uint32_t y = 0; y < depth_size_.height; y++)
                 for (uint32_t x = 0; x < depth_size_.width; x++)
-                {
-                    const uint8_t *texel = static_cast<const uint8_t *>(mapped.pData) + size_t(y) * mapped.RowPitch + x * 8;
-                    std::memcpy(&out.depth[size_t(y) * depth_size_.width + x], texel, sizeof(float));
-                    if (gbuffer_back_)
-                        out.stencil[size_t(y) * depth_size_.width + x] = texel[4];
-                }
+                    std::memcpy(&out.depth[size_t(y) * depth_size_.width + x],
+                        static_cast<const uint8_t *>(mapped.pData) + size_t(y) * mapped.RowPitch + x * 8, sizeof(float));
             c->Unmap(depth_staging_.Get(), 0);
             out.render = depth_size_;
         }
         if (gbuffer_back_)
+        {
+            std::vector<uint8_t> depth_stencil;
             for (const auto &[back, bytes] : { std::pair { &normals_back_, &out.normals }, std::pair { &mask_back_, &out.mask },
-                     std::pair { &irradiance_back_, &out.irradiance } })
+                     std::pair { &irradiance_back_, &out.irradiance }, std::pair { &stencil_back_, &depth_stencil } })
             {
                 if (!back->copied())
                     continue;
@@ -871,6 +874,11 @@ namespace photoreal
                 if (r == Readback::Read::failed)
                     bytes->clear();
             }
+            // The combine step's depth copy, 8 bytes a texel like the one above: its stencil is the G-buffer's.
+            out.stencil.resize(depth_stencil.size() / 8);
+            for (size_t i = 0; i < out.stencil.size(); i++)
+                out.stencil[i] = depth_stencil[i * 8 + 4];
+        }
         if (picture_copied_)
         {
             out.picture = picture_.read(c, D3D11_MAP_FLAG_DO_NOT_WAIT);
