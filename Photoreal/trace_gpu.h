@@ -14,6 +14,7 @@
 #include "core/trace_files.h"
 #include "gpu.h"
 
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <string>
@@ -107,7 +108,8 @@ namespace photoreal
 
         // At present: what the finished dispatches measured, read without waiting. The next frame's tiles follow
         // settings.budget_ms; their counters add up since the samples last started; and at each completed pass the
-        // consistency grid of that pass may make the scene STALE. log holds lines for ReShade.log.
+        // consistency grid of that pass may make the scene STALE. log holds lines for ReShade.log: each logged pass says
+        // how long the passes since the last one took, over how many frames, and each kernel's GPU time a tile.
         struct Poll
         {
             std::vector<std::string> log;
@@ -139,7 +141,7 @@ namespace photoreal
         // One dispatch's measurements in flight.
         struct Flight
         {
-            ComPtr<ID3D11Query> disjoint, begin, end;
+            ComPtr<ID3D11Query> disjoint, begin, middle, end;    // middle: between the trace kernel's dispatch and the gather's
             ComPtr<ID3D11Buffer> counters;      // CPU-readable copy of counters_
             bool pending = false;
             uint32_t tiles = 0;                 // the frame's
@@ -212,5 +214,26 @@ namespace photoreal
         uint32_t noise_pass_ = 0;
         double error_ = 0;
         std::unique_ptr<PendingSave> save_;
+
+        // Where the time goes, for the log. Since the last logged pass: the presents whose frame traced tiles and those
+        // that traced none, with their wall time; the tiles that went out; and the first submissions' tiles with each
+        // kernel's GPU time. After the last pass, the first kSettledFrames frames' time is logged once: the game's frame
+        // with the trace's draws and without its rays.
+        struct Pace
+        {
+            double traced_ms = 0, idle_ms = 0;
+            uint32_t traced = 0, idle = 0;
+            uint64_t tiles = 0, measured_tiles = 0;
+            double trace_ms = 0, gather_ms = 0;
+        };
+        static constexpr uint32_t kSettledFrames = 30;
+        std::string pace_text(uint32_t from_pass, uint32_t to_pass) const;
+        Pace pace_;
+        std::chrono::steady_clock::time_point polled_at_ {};
+        bool polled_ = false;
+        bool dispatched_ = false;               // tiles went out since the last present
+        bool settled_logged_ = false;
+        double settled_ms_ = 0;
+        uint32_t settled_frames_ = 0;
     };
 }

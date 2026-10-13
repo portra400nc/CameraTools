@@ -378,6 +378,10 @@ namespace photoreal
             noise_deviation_ = noise_mean_ = 0;
             noise_pass_ = 0;
             error_ = 0;
+            pace_ = {};
+            settled_logged_ = false;
+            settled_ms_ = 0;
+            settled_frames_ = 0;
             // What these samples started with: every later frame's key is held against it, and its constants are theirs.
             key_ = frame.key;
             started_constants_ = frame.constants;
@@ -417,6 +421,8 @@ namespace photoreal
             hr = device_->CreateQuery(&disjoint, flight.disjoint.ReleaseAndGetAddressOf());
             if (SUCCEEDED(hr))
                 hr = device_->CreateQuery(&stamp, flight.begin.ReleaseAndGetAddressOf());
+            if (SUCCEEDED(hr))
+                hr = device_->CreateQuery(&stamp, flight.middle.ReleaseAndGetAddressOf());
             if (SUCCEEDED(hr))
                 hr = device_->CreateQuery(&stamp, flight.end.ReleaseAndGetAddressOf());
             if (SUCCEEDED(hr))
@@ -473,6 +479,8 @@ namespace photoreal
                 c->CSSetShader(cs_.Get(), nullptr, 0);
                 c->Dispatch(kGroupsPerTile, parts[i].count, 1);
             }
+            if (i == 0)
+                c->End(flight.middle.Get());
             if (frame.gathering)
             {
                 c->CSSetShader(gather_cs_.Get(), nullptr, 0);
@@ -491,6 +499,8 @@ namespace photoreal
         if (!uploaded)
             return false;
         c->CopyResource(flight.counters.Get(), counters_.Get());
+        dispatched_ = true;
+        pace_.tiles += frame.dispatch->count;
         flight.pending = true;
         flight.tiles = frame.dispatch->count;
         flight.measured = parts.empty() ? 0 : parts[0].count;
@@ -500,19 +510,58 @@ namespace photoreal
         return true;
     }
 
+    std::string TraceGpu::pace_text(uint32_t from_pass, uint32_t to_pass) const
+    {
+        const Pace &p = pace_;
+        const uint32_t frames = p.traced + p.idle;
+        const double per_tile = p.measured_tiles != 0 ? 1.0 / double(p.measured_tiles) : 0;
+        char line[400];
+        std::snprintf(line, sizeof line, " Passes %u to %u took %.1f s over %u frames, %u of them tracing %.1f tiles and %.1f ms each and the others %.1f ms "
+            "each; the kernels' GPU time was %.3f ms a tile for the trace and %.3f for the gather, %.1f s of it.", from_pass + 1, to_pass,
+            (p.traced_ms + p.idle_ms) / 1000.0, frames, p.traced, p.traced != 0 ? double(p.tiles) / p.traced : 0.0, p.traced != 0 ? p.traced_ms / p.traced : 0.0,
+            p.idle != 0 ? p.idle_ms / p.idle : 0.0, p.trace_ms * per_tile, p.gather_ms * per_tile, (p.trace_ms + p.gather_ms) * per_tile * double(p.tiles) / 1000.0);
+        return line;
+    }
+
     TraceGpu::Poll TraceGpu::poll(const TraceSettings &settings)
     {
         Poll out;
+        // This present's frame: its wall time goes to the frames that traced or to the others.
+        const auto now = std::chrono::steady_clock::now();
+        if (polled_)
+        {
+            const double frame_ms = std::chrono::duration<double, std::milli>(now - polled_at_).count();
+            (dispatched_ ? pace_.traced_ms : pace_.idle_ms) += frame_ms;
+            (dispatched_ ? pace_.traced : pace_.idle)++;
+            // Once every pixel has its samples the frame costs the game's work and the trace's draws alone.
+            if (state_ == TraceState::ready && !dispatched_ && target_ != 0 && passes() >= target_ && !settled_logged_)
+            {
+                settled_ms_ += frame_ms;
+                if (++settled_frames_ == kSettledFrames)
+                {
+                    char line[200];
+                    std::snprintf(line, sizeof line, "the %u frames after the trace's last pass took %.1f ms each: the game's frame with the trace's draws and "
+                        "without its rays.", kSettledFrames, settled_ms_ / kSettledFrames);
+                    out.log.push_back(line);
+                    settled_logged_ = true;
+                }
+            }
+        }
+        polled_at_ = now;
+        polled_ = true;
+        dispatched_ = false;
         for (size_t i = 0; i < flights_.size(); i++)
         {
             Flight &f = flights_[(next_flight_ + i) % flights_.size()];
             if (!f.pending)
                 continue;
             D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint;
-            UINT64 begin = 0, end = 0;
+            UINT64 begin = 0, middle = 0, end = 0;
             HRESULT hr = context_->GetData(f.disjoint.Get(), &disjoint, sizeof disjoint, D3D11_ASYNC_GETDATA_DONOTFLUSH);
             if (hr == S_OK)
                 hr = context_->GetData(f.begin.Get(), &begin, sizeof begin, D3D11_ASYNC_GETDATA_DONOTFLUSH);
+            if (hr == S_OK)
+                hr = context_->GetData(f.middle.Get(), &middle, sizeof middle, D3D11_ASYNC_GETDATA_DONOTFLUSH);
             if (hr == S_OK)
                 hr = context_->GetData(f.end.Get(), &end, sizeof end, D3D11_ASYNC_GETDATA_DONOTFLUSH);
             if (hr == S_FALSE)
@@ -538,6 +587,12 @@ namespace photoreal
             }
             if (f.epoch != epoch_ || state_ != TraceState::ready)
                 continue;
+            if (ms > 0 && middle >= begin && end >= middle)
+            {
+                pace_.measured_tiles += f.measured;
+                pace_.trace_ms += double(middle - begin) * 1000.0 / double(disjoint.Frequency);
+                pace_.gather_ms += double(end - middle) * 1000.0 / double(disjoint.Frequency);
+            }
             for (uint32_t k = 0; k < kAllCounters; k++)
                 totals_[k] += counts[k];
             const uint32_t rays = counts[static_cast<size_t>(TraceCounter::rays)] + counts[gather_counter(GatherCounter::rays)];
@@ -583,6 +638,8 @@ namespace photoreal
             const uint32_t target = target_ != 0 ? target_ : std::max(settings.ao_samples, settings.sun_samples);
             if (f.passes_after > logged_pass_ && (power_of_two(f.passes_after) || f.passes_after >= target))
             {
+                const std::string pace = pace_text(logged_pass_, f.passes_after);
+                pace_ = {};
                 logged_pass_ = f.passes_after;
                 char line[400];
                 std::snprintf(line, sizeof line, "trace pass %u: %llu rays so far, %.2f Mrays/s, %u tiles a frame in submissions of %u (%.1f ms for the first %u "
@@ -603,7 +660,7 @@ namespace photoreal
                         hits, at(GatherCounter::direct), at(GatherCounter::covered), at(GatherCounter::material), at(GatherCounter::class_mean), error_);
                     text += gathered;
                 }
-                out.log.push_back(text);
+                out.log.push_back(text + pace);
             }
         }
         return out;
