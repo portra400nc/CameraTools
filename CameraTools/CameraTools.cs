@@ -37,6 +37,7 @@ namespace CameraTools
         {
             Controls.Load();
             Graphics.Load();
+            EnhancementsControl.Load();
             CameraPaths.Load();
             Lights.Load();
             Poses.Load();
@@ -130,6 +131,7 @@ namespace CameraTools
             PathPlayback.Update();
             ReShade.Update();
             CameraToolsEnhancements.Enhancements.Update();
+            EnhancementsControl.Update();
             EnhancementsScene.Update(freecamActive);
             DepthOfField.Update();
 

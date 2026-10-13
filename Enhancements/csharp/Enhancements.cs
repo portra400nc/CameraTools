@@ -376,9 +376,19 @@ namespace CameraToolsEnhancements
         private static AddOn addOn;
         // A loaded module that is not an add-on of this version, so it is reported once and not tried again.
         private static IntPtr rejected;
+        // The version of a loaded add-on that is too old or too new, or null.
+        private static uint? rejectedVersion;
         private static float nextLook;
 
         public static bool Connected => addOn != null;
+
+        // Why the add-on cannot be used, for a heading, or null while it can.
+        public static string Missing => addOn != null ? null
+            : rejectedVersion is uint found ? $"Add-on {found} loaded, {Version} needed"
+            : "Add-on not found";
+
+        // Rises with every connection. An add-on that ReShade loaded again has forgotten what the last one was told.
+        public static int Connections { get; private set; }
 
         // Pushes the whole desired state. Returns its generation, which Status.SettingsApplied reaches once a frame used
         // it, or 0 while the add-on is not loaded.
@@ -519,7 +529,7 @@ namespace CameraToolsEnhancements
 
         // ReShade unloads its add-ons with the last device and loads them again with the next, so the module is looked up
         // every second even while connected: a module that left or moved must not be called through the old pointers.
-        // A new connection has forgotten the settings, so the caller applies them again when Connected turns true.
+        // A new connection has forgotten the settings, so the caller applies them again when Connections rises.
         public static void Update()
         {
             float now = Time.unscaledTime;
@@ -535,6 +545,7 @@ namespace CameraToolsEnhancements
                     MelonLogger.Msg($"Enhancements: {ModuleName} was unloaded.");
                 addOn = null;
                 rejected = IntPtr.Zero;
+                rejectedVersion = null;
                 if (module != IntPtr.Zero)
                     Connect(module);
             }
@@ -557,6 +568,7 @@ namespace CameraToolsEnhancements
             uint found = version();
             if (found != Version)
             {
+                rejectedVersion = found;
                 MelonLogger.Warning($"Enhancements: {ModuleName} is version {found}, and this binding needs version {Version}; update both together.");
                 return;
             }
@@ -576,6 +588,7 @@ namespace CameraToolsEnhancements
             }
             rejected = IntPtr.Zero;
             addOn = new AddOn(module, apply, setCamera, getStatus, describe, compare, setAccumulate, depthAt, captureScene, saveTrace, setShot);
+            Connections++;
             MelonLogger.Msg($"Enhancements: connected to {ModuleName} version {found}.");
         }
 
