@@ -99,6 +99,8 @@ namespace
             uint32_t card = 0;      // pixels that show the card
             uint32_t holes = 0;     // pixels whose ray passes through a hole of the card, which it would meet whole
             uint32_t gathered_hits = 0; // pixels of the gathering save whose rays met a surface
+            bool light_hashed = false;  // the light words change the BVH's hash
+            uint32_t one_sided = 0;     // pixels whose first 8 gather samples met a sun-lit surface and whose next 8 did not, or the reverse
         };
 
         // Writes scene-trace-synthetic/trace-scene.bin, trace-synthetic/ and trace-synthetic-broken/ into out.
@@ -232,14 +234,18 @@ namespace
                 }
             write_trace_folder(out / "trace-synthetic-broken", save);
 
-            // The gathering save: the triangles' light words, the sky map and the gather's constants into trace-light.bin
-            // beside trace-scene.bin, then both kernels as the add-on dispatches them.
+            // The gathering save, of a scene folder of its own, built as the add-on builds a scene with light: the triangles'
+            // light words go into them before their BVH is built, so its hash covers them; trace-scene.bin holds the
+            // triangles without, and trace-light.bin the words, the sky map and the light. Then both kernels as the add-on
+            // dispatches them.
             std::vector<TraceTriangle> worded = triangles;
             for (size_t i = 0; i < worded.size(); i++)
                 worded[i].light = pack_light({ 0.2f + 0.07f * (i % 9), 0.5f, 0.8f - 0.06f * (i % 11) }, AlbedoSource::direct);
-            Bvh lit = bvh;
-            for (size_t i = 0; i < lit.triangles.size(); i++)
-                lit.triangles[i].light = worded[lit.source[i]].light;
+            const Bvh lit = build_bvh(worded);
+            written.light_hashed = lit.hash != bvh.hash;
+            const std::filesystem::path light_scene = out / "scene-trace-synthetic-light";
+            std::filesystem::create_directories(light_scene);
+            std::ofstream(light_scene / "trace-scene.bin", std::ios::binary).write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
             const auto sky_of = [](bool turned) {
                 SceneLight light;
                 light.sky.texels.resize(size_t(kSkyMapSide) * kSkyMapSide * 4);
@@ -262,24 +268,26 @@ namespace
             light.ambient.rows = { { { 0.3f, 0.3f, 0.3f }, { 0, 0, 0 }, { 0.1f, 0.1f, 0.1f }, { 0, 0, 0 } } };
             light.ambient.kind = AmbientFit::Kind::fit;
             const std::string light_file = light_bytes(worded, std::vector<uint32_t>(worded.size(), 0), light, {});
-            std::ofstream(scene / "trace-light.bin", std::ios::binary).write(light_file.data(), static_cast<std::streamsize>(light_file.size()));
+            std::ofstream(light_scene / "trace-light.bin", std::ios::binary).write(light_file.data(), static_cast<std::streamsize>(light_file.size()));
             GatherSettings gather;
             gather.enabled = true;
             gather.samples = 8;
             gather.hit_ambient = 1;
             TraceSave gathered = save;
+            gathered.scene = "scene-trace-synthetic-light";
+            gathered.bvh_hash = lit.hash;
             gathered.gathering = true;
             gathered.gather = gather;
             gathered.gather_constants = gather_constants(gather, light.sun, light.ambient);
             gathered.target = trace_target(settings, gather, true);
             gathered.passes = 8;
-            const auto dispatch = [&](const std::vector<float> &sky, TraceSave &into) {
+            const auto dispatch = [&](const std::vector<float> &sky, TraceSave &into, uint32_t passes) {
                 into.history.assign(size_t(kWidth) * kHeight * 4, 0);
                 into.gather_hit.assign(into.history.size(), 0);
                 into.gather_sky.assign(into.history.size(), 0);
                 TraceConstants constants = into.constants;
                 constants.trace_counts[0] = 0;
-                for (uint32_t pass = 0; pass < 8; pass++)
+                for (uint32_t pass = 0; pass < passes; pass++)
                     for (uint32_t y = 0; y < kHeight; y++)
                         for (uint32_t x = 0; x < kWidth; x++)
                         {
@@ -297,8 +305,25 @@ namespace
                         }
             };
             gathered.constants.trace_counts[0] = 0;
-            dispatch(light.sky.texels, gathered);
+            dispatch(light.sky.texels, gathered, 8);
             write_trace_folder(out / "trace-synthetic-gather", gathered);
+            // A copy gathered from each pixel's next 8 samples in place of its first 8: the same light estimated from other
+            // rays, as the Deck's is wherever its rounding turns a ray off the Mac's, which check_trace.py must find in
+            // agreement. A pixel then has hits, or hits the sun lights, on one side only.
+            TraceSave other = gathered, longer = gathered;
+            longer.gather_constants.counts[0] = 16;
+            dispatch(light.sky.texels, longer, 16);
+            for (size_t i = 0; i < other.history.size(); i += 4)
+            {
+                other.history[i] = longer.history[i] - gathered.history[i];
+                for (size_t k = 0; k < 4; k++)
+                {
+                    other.gather_hit[i + k] = longer.gather_hit[i + k] - gathered.gather_hit[i + k];
+                    other.gather_sky[i + k] = longer.gather_sky[i + k] - gathered.gather_sky[i + k];
+                }
+                written.one_sided += (gathered.gather_hit[i + 3] > 0) != (other.gather_hit[i + 3] > 0);
+            }
+            write_trace_folder(out / "trace-synthetic-gather-other", other);
             for (uint32_t i = 0; i < size_t(kWidth) * kHeight; i++)
                 written.gathered_hits += gathered.gather_hit[i * 4] > 0;
             TraceSave doubled = gathered, dropped = gathered, turned = gathered;
@@ -312,7 +337,7 @@ namespace
                 }
             write_trace_folder(out / "trace-synthetic-gather-bounce-doubled", doubled);
             write_trace_folder(out / "trace-synthetic-gather-misses-dropped", dropped);
-            dispatch(sky_of(true).sky.texels, turned);
+            dispatch(sky_of(true).sky.texels, turned, 8);
             write_trace_folder(out / "trace-synthetic-gather-sky-turned", turned);
             return written;
         }
@@ -640,7 +665,10 @@ int main(int argc, char **argv)
         const synthetic::Written written = synthetic::write(argv[1]);
         std::printf("INFO the synthetic traced frame has %u pixels in full sun shadow, %u of the card and %u through its holes\n", written.shadowed,
             written.card, written.holes);
-        check("the synthetic gathering save is written, its pixels' rays meeting surfaces", written.gathered_hits > 2000
+        std::printf("INFO the synthetic gathering save: %u pixels whose rays met a surface; %u whose first 8 samples met a sun-lit surface and whose next 8 "
+                    "did not, or the reverse\n", written.gathered_hits, written.one_sided);
+        check("the synthetic gathering save is written, its pixels' rays meeting surfaces, its scene's hash covering its light words, and its next 8 "
+              "samples lighting other pixels by the sun than its first 8", written.gathered_hits > 2000 && written.light_hashed && written.one_sided > 100
             && std::filesystem::file_size(std::filesystem::path(argv[1]) / "trace-synthetic-gather" / "gather-hit.f32") == synthetic::kWidth * synthetic::kHeight * 16);
         check("the synthetic traced frame is written, with sun shadows, the card and the wall through its holes in it",
             std::filesystem::file_size(std::filesystem::path(argv[1]) / "trace-synthetic" / "history.f32") == synthetic::kWidth * synthetic::kHeight * 16

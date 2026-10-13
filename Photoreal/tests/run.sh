@@ -48,6 +48,10 @@ echo "PASS check_trace.py refuses a trace whose sun samples differ from the refe
 # broken copies it must refuse: a block's bounce doubled, a block's misses dropped, and the sky gathered turned a quarter.
 "$out/trace_reference" "$out/trace-synthetic-gather"
 python3 check_trace.py "$out/trace-synthetic-gather"
+# The same light gathered from each pixel's next 8 samples: other rays, as the Deck's are where its rounding turns one, which
+# check_trace.py must find in agreement, though pixels have hits, or hits the sun lights, on one side only.
+"$out/trace_reference" "$out/trace-synthetic-gather-other"
+python3 check_trace.py "$out/trace-synthetic-gather-other"
 for broken in bounce-doubled misses-dropped sky-turned; do
     "$out/trace_reference" "$out/trace-synthetic-gather-$broken" > "$out/broken-$broken.txt"
     if python3 check_trace.py "$out/trace-synthetic-gather-$broken" >> "$out/broken-$broken.txt" 2>&1; then

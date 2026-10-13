@@ -20,8 +20,16 @@ A logic error that changes what a pixel's rays meet moves whole tiles or many pi
 
 When the folder holds the gather's sums and trace_reference wrote its own (reference-gather-hit.f32 and the rest), checks
 2 to 4 run for three more: the hits' luminance, the sky's luminance and the misses, each over the gather's samples. The
-misses lie between 0 and 1 like the occlusion; the luminances do not, so each pixel's variance is the reference's own
-sample variance, at least its second moment over its samples, which is what one sample in n differing would give. It writes check-trace.png: the Deck's occlusion and sun averages, the reference's, and their difference times 10, a row
+misses lie between 0 and 1 like the occlusion. The luminances do not, so each pixel's variance is pooled from both sides'
+samples as their second moment less their mean squared: the Mac's squares are the reference's own, and the Deck's, which
+saved sums alone, are taken at their least. A hit the sun lights is many times as bright as one in shade and rare on most
+pixels, so the least keeps the two apart: the Deck's sum is split between its sun-lit hits, which it counted, and its
+others by the Mac's mean of a hit in shade on that pixel, and each group's values are taken alike. The reference's own
+variance alone, which this check used before, is zero on a pixel whose Mac samples met no surface, or none in the sun,
+and the Deck's one such hit there read as an error without bound: on build 209's saves that was 0.6% of the pixels at 128
+samples and 4.4% at 16, every one of them brighter on the Deck.
+
+It writes check-trace.png: the Deck's occlusion and sun averages, the reference's, and their difference times 10, a row
 each. When the folder holds the game's shadow mask and the shadow-mask constants, it reports as information how often the
 game's mask and the traced sun disagree within the game's shadow distance and cascades: game shadowed and traced lit
 means a caster the scene lacks. It also reports how the traced occlusion follows the game's diffuse irradiance.
@@ -69,24 +77,33 @@ def tile_sums(values, valid, size):
     return padded.reshape(ph // size, size, pw // size, size).sum(axis=(1, 3))
 
 
-def sampling_checks(name, deck, mine, squares, valid, bounded=True):
+def least_squares(total, count):
+    """The least a sum of count squares can be when their values sum to total: all alike."""
+    return np.where(count > 0, total ** 2 / np.maximum(count, 1), 0.0)
+
+
+def sampling_checks(name, deck, mine, squares, valid, deck_squares=None):
     """Checks 2 to 4 for one kind of ray: deck and mine are (sum, count) images, squares the reference's squared samples.
-    bounded: the samples lie between 0 and 1, so p(1 - p) of the pooled average bounds their variance; else the variance
-    is the reference's own, at least its second moment over its samples."""
+    Each pixel's variance is pooled from both sides, as both sample one distribution when the Deck is right. Without
+    deck_squares the samples lie between 0 and 1, and p(1 - p) of the pooled average bounds it. With it, the least the
+    Deck's squared samples can sum to, the variance is the pooled second moment less the pooled mean squared."""
     n_deck, n_mine = np.maximum(deck[1], 1), np.maximum(mine[1], 1)
     mean_mine = mine[0] / n_mine
     difference = deck[0] / n_deck - mean_mine
-    if bounded:
+    if deck_squares is None:
         pooled = (deck[0] + mine[0] + 0.5) / (deck[1] + mine[1] + 1)
         bound = pooled * (1 - pooled)
     else:
-        second = squares / n_mine
-        bound = np.maximum(second - mean_mine ** 2, second / n_mine)
+        pooled = (deck[0] + mine[0]) / (n_deck + n_mine)
+        bound = np.maximum((deck_squares + squares) / (n_deck + n_mine) - pooled ** 2, 0)
     with np.errstate(invalid="ignore", divide="ignore"):
         z = np.nan_to_num(difference / np.sqrt(bound * (1 / n_deck + 1 / n_mine)), nan=0.0, posinf=1e9, neginf=-1e9)
     outliers = (np.abs(z[valid]) > 5).mean()
+    # A pixel whose samples are all alike on both sides has no variance, and any difference there is past every bound.
+    flat = np.abs(z[valid]) >= 1e9
     report("PASS" if outliers <= 0.001 else "FAIL", f"2 {name}: {outliers:.5f} of {valid.sum()} pixels differ by more than 5 standard errors "
-                                                    f"(need at most 0.001; largest {np.abs(z[valid]).max():.1f})")
+                                                    f"(need at most 0.001; largest {np.abs(z[valid])[~flat].max(initial=0):.1f}"
+                                                    + (f"; {flat.sum()} of them have no variance on either side and differ" if flat.any() else "") + ")")
     variance = np.maximum(squares / n_mine - mean_mine ** 2, bound / (2 * n_mine + 1))
     error2 = variance * (1 / n_deck + 1 / n_mine)
     counts = tile_sums(np.ones_like(difference), valid, 32)
@@ -200,7 +217,7 @@ def gather_checks(folder, h, w, history, world):
         report("FAIL", f"{folder} gathered, but has no reference-gather-hit.f32: run this build's trace_reference on it")
         return
     hit, sky, my_hit, my_sky = (np.fromfile(path, np.float32).reshape(h, w, 4).astype(np.float64) for path in paths[:4])
-    squares = np.fromfile(paths[4], np.float32).reshape(h, w, 2).astype(np.float64)
+    squares = np.fromfile(paths[4], np.float32).reshape(h, w, 3).astype(np.float64)
     reference = np.fromfile(os.path.join(folder, "reference.f32"), np.float32).reshape(h, w, 4).astype(np.float64)
     samples, my_samples = history[..., 2].astype(np.float64), reference[..., 2]
     valid = world & (samples > 0) & (my_samples > 0)
@@ -211,8 +228,18 @@ def gather_checks(folder, h, w, history, world):
                    f"(the Mac's {(my_sky[..., 3][valid] / my_samples[valid]).mean():.4f}), bounce luminance {(luminance(hit)[valid] / samples[valid]).mean():.5f} "
                    f"(the Mac's {(luminance(my_hit)[valid] / my_samples[valid]).mean():.5f})")
     sampling_checks("misses", (sky[..., 3], samples), (my_sky[..., 3], my_samples), my_sky[..., 3], valid)
-    sampling_checks("hit luminance", (luminance(hit), samples), (luminance(my_hit), my_samples), squares[..., 0], valid, bounded=False)
-    sampling_checks("sky luminance", (luminance(sky), samples), (luminance(my_sky), my_samples), squares[..., 1], valid, bounded=False)
+    # The Deck saved sums, not squares, so its squares are taken at their least. A hit the sun lights is many times a hit
+    # in shade and rare on most pixels, so its hits are two groups, by the count of sun-lit hits it saved: its sum is split
+    # between them by the Mac's mean of a hit in shade on that pixel, and each group's values are taken alike.
+    hits, lit, my_shade = samples - sky[..., 3], hit[..., 3], my_samples - my_sky[..., 3] - my_hit[..., 3]
+    shade, total = np.maximum(hits - lit, 0), luminance(hit)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        shade_sum = np.where(my_shade > 0, np.minimum(total, shade * squares[..., 2] / np.maximum(my_shade, 1)), total * shade / np.maximum(hits, 1))
+    shade_sum = np.where(lit > 0, shade_sum, total)
+    sampling_checks("hit luminance", (total, samples), (luminance(my_hit), my_samples), squares[..., 0], valid,
+                    least_squares(shade_sum, shade) + least_squares(total - shade_sum, lit))
+    sampling_checks("sky luminance", (luminance(sky), samples), (luminance(my_sky), my_samples), squares[..., 1], valid,
+                    least_squares(luminance(sky), sky[..., 3]))
 
 
 def main(folder):

@@ -7,7 +7,8 @@
 // A save that gathered is traced as the add-on traced it: the trace kernel for the sun alone, and the gather kernel for
 // the occlusion and the gathered light, with the gather's constants it saved and the light of the scene folder's
 // trace-light.bin. Then reference-gather-hit.f32 and reference-gather-sky.f32 hold the Mac's gather sums, and
-// reference-gather-squares.f32 each pixel's hits' and skies' luminances squared and summed. --gather does the same for a
+// reference-gather-squares.f32 three floats a pixel: its hits' and its skies' luminances squared and summed, and the
+// luminance of its hits the sun did not light, summed. --gather does the same for a
 // save of T1, before the gather existed, whose occlusion samples are the gather's first samples, ray for ray: its light
 // stands in where the save and the scene lack it (the scene's own trace-light.bin when it has one; else the albedo bake's
 // sources from the faces' depth, with any surface within 1.5 m in front of a sample covering it, and the census's albedos
@@ -112,6 +113,15 @@ int main(int argc, char **argv)
         same_reference &= std::fabs(scene->reference[k] - save->reference[k]) <= 1e-8 * std::max(1.0, std::fabs(scene->reference[k]));
     check("the scene's reference is the one the frame was traced with", same_reference);
 
+    // The scene's light, when it was captured with one. The add-on bakes each triangle's light word into the triangles
+    // before it builds their BVH, so the Deck's hash covers the words: they go in here, before the build, too.
+    std::optional<LightFile> light = parse_light(scene_light::slurp(scene_folder / "trace-light.bin"));
+    if (light && light->words.size() != scene->triangles.size())
+        light.reset();
+    if (light)
+        for (size_t i = 0; i < scene->triangles.size(); i++)
+            scene->triangles[i].light = light->words[i];
+
     // A class left out of the scene, to measure what its triangles cost the traversal: casters bits skip a class at its
     // leaves but still walk its nodes, while a scene without it does not.
     if (!drop.empty())
@@ -201,28 +211,22 @@ int main(int argc, char **argv)
     image.stencil = save->stencil;
     const uint32_t width = save->size.width, height = save->size.height;
 
-    // The gather's light: its constants, the scene's sky map and each triangle's light word, set into the BVH's triangles
-    // after its hash was checked, as a scene captured without light has them 0.
+    // The gather's light: its constants and the scene's sky map; the triangles' light words are in the BVH already, but
+    // for a scene captured without light, whose stand-ins go into a copy of it.
     const bool gathering = save->gathering || want_gather;
     GatherConstants gather = save->gather_constants;
     std::vector<float> sky;
     std::array<uint64_t, 4> hits_by_source {};
-    Bvh lit = gathering ? bvh : Bvh {};
+    Bvh lit_copy;
     if (gathering)
     {
-        const std::string light_file = scene_light::slurp(scene_folder / "trace-light.bin");
-        std::optional<LightFile> light = parse_light(light_file);
-        if (light && light->words.size() != scene->triangles.size())
-            light.reset();
         if (save->gathering && !light)
         {
             std::printf("FAIL the save gathered, but %s holds no trace-light.bin of its %zu triangles\n", scene_folder.u8string().c_str(), scene->triangles.size());
             return 1;
         }
-        std::vector<uint32_t> words;
         if (light)
         {
-            words = light->words;
             sky = light->light.sky.texels;
             std::printf("INFO the light of %s's trace-light.bin: %u real sky texels%s, the ambient %s, the sun's color %s and direction %s\n",
                 scene_folder.u8string().c_str(), light->light.sky.real, light->light.sky.fallback ? " (it fell back)" : "",
@@ -241,6 +245,7 @@ int main(int argc, char **argv)
                 f.albedo.assign(f.depth.size() * 4, 128);
                 f.stencil.assign(f.depth.size(), 136);
             }
+            std::vector<uint32_t> words;
             std::vector<TraceTriangle> triangles = scene->triangles;
             const auto start_bake = std::chrono::steady_clock::now();
             const AlbedoCounts counts = bake_albedo(triangles, {}, bake, scene->reference, options.tasks);
@@ -279,15 +284,18 @@ int main(int argc, char **argv)
             std::printf("STANDIN the ambient fit of the save's own irradiance (%s, r2 %.4f %.4f %.4f), hit_ambient 0.5, the sun's color census 111824's "
                         "along the pushed camera's sun (%.4f, %.4f, %.4f)\n", fit.kind == AmbientFit::Kind::fit ? "fit" : "mean", fit.r2[0], fit.r2[1], fit.r2[2],
                 sun.shade[0], sun.shade[1], sun.shade[2]);
+            lit_copy = bvh;
+            for (size_t i = 0; i < lit_copy.triangles.size(); i++)
+                lit_copy.triangles[i].light = words[lit_copy.source[i]];
         }
-        for (size_t i = 0; i < lit.triangles.size(); i++)
-            lit.triangles[i].light = words[lit.source[i]];
     }
+    const Bvh &lit = lit_copy.triangles.empty() ? bvh : lit_copy;
     std::vector<float> reference(size_t(width) * height * 4, 0.0f);
     // Each pixel's occlusion and sun samples squared and summed, so check_trace.py knows each pixel's sampling variance.
     std::vector<float> squares(size_t(width) * height * 2, 0.0f);
-    // The gather's sums, and each pixel's hits' and skies' luminances squared and summed.
-    std::vector<float> gather_hit(gathering ? size_t(width) * height * 4 : 0), gather_sky(gather_hit.size()), gather_squares(gathering ? size_t(width) * height * 2 : 0);
+    // The gather's sums, and for each pixel its hits' and skies' luminances squared and summed, and the luminance of the
+    // hits the sun did not light summed: check_trace.py splits the Deck's sum between its sun-lit hits and the others by it.
+    std::vector<float> gather_hit(gathering ? size_t(width) * height * 4 : 0), gather_sky(gather_hit.size()), gather_squares(gathering ? size_t(width) * height * 3 : 0);
     std::atomic<uint64_t> gather_rays { 0 }, gather_guard { 0 }, gather_overflow { 0 };
     const std::vector<uint32_t> *alpha = masks.words.empty() ? nullptr : &masks.words;
     if (!alpha)
@@ -316,7 +324,7 @@ int main(int argc, char **argv)
                         GatherConstants mine = gather;
                         mine.counts[0] = static_cast<uint32_t>(save->history[at + 2]);
                         std::array<float, 4> h {}, hit {}, sky_sum {};
-                        double occlusion2 = 0, hit2 = 0, sky2 = 0;
+                        double occlusion2 = 0, hit2 = 0, sky2 = 0, unlit = 0;
                         for (uint32_t k = mine.counts[0]; k > 0; k--)
                         {
                             const GatherPixel g = gather_pixel(lit, image, constants, mine, sky, x, y, h, hit, sky_sum, alpha);
@@ -325,6 +333,8 @@ int main(int argc, char **argv)
                             const double l = 0.2126 * g.light[0] + 0.7152 * g.light[1] + 0.0722 * g.light[2];
                             occlusion2 += double(g.occlusion) * g.occlusion;
                             (g.light[3] < 1.5f ? hit2 : sky2) += l * l;
+                            if (g.light[3] < 1.5f && !g.lit)
+                                unlit += l;
                             h = g.history;
                             hit = g.hit;
                             sky_sum = g.sky;
@@ -339,8 +349,9 @@ int main(int argc, char **argv)
                         squares[at / 2] = static_cast<float>(occlusion2);
                         std::copy(hit.begin(), hit.end(), gather_hit.begin() + static_cast<std::ptrdiff_t>(at));
                         std::copy(sky_sum.begin(), sky_sum.end(), gather_sky.begin() + static_cast<std::ptrdiff_t>(at));
-                        gather_squares[at / 2] = static_cast<float>(hit2);
-                        gather_squares[at / 2 + 1] = static_cast<float>(sky2);
+                        gather_squares[at / 4 * 3] = static_cast<float>(hit2);
+                        gather_squares[at / 4 * 3 + 1] = static_cast<float>(sky2);
+                        gather_squares[at / 4 * 3 + 2] = static_cast<float>(unlit);
                     }
                     std::array<float, 4> h = { reference[at], 0, reference[at + 2], 0 };
                     double square[2] = { squares[at / 2], 0 };
