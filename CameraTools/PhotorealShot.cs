@@ -13,15 +13,15 @@ namespace CameraTools
     // TracedShot holds its decisions.
     internal static class PhotorealShot
     {
-        // iMMERSE Pro's RTGI, which the traced bounce light stands in for: the techniques of MartysMods_RTGI_DIFFUSE.fx and
-        // MartysMods_RTGI_SPECULAR.fx, by the names those files give them.
+        // iMMERSE Pro's diffuse RTGI, which the traced bounce light stands in for: the technique of MartysMods_RTGI_DIFFUSE.fx,
+        // by the name that file gives it. Its specular RTGI (MartysMods_RTGI_SPECULAR.fx) stays on: the trace has no
+        // reflections to put in its place yet.
         private static readonly EffectName[] Rtgi =
         {
             new("MartysMods_RTGI_DIFFUSE.fx", "MartysMods_NEWGI_Diffuse"),
-            new("MartysMods_RTGI_SPECULAR.fx", "MartysMods_SPECGI_Specular"),
         };
 
-        private static readonly string[] RtgiNames = { "RTGI diffuse", "RTGI specular" };
+        private static readonly string[] RtgiNames = { "RTGI diffuse" };
 
         // A shot from the moment it holds the world.
         private sealed class Run
