@@ -363,6 +363,10 @@ namespace photoreal
             uint32_t read = 0;                  // variants read back and handed to the worker
             std::shared_ptr<CompareFiles> files;
             uint32_t waited = 0;                // presents the variant about to be copied waited for its trace's samples
+            // The trace's passes when that wait began, its passes at the last present, and the presents waited when the
+            // newest of them came in: the pace trace_wait_limit sets the wait's limit by.
+            std::optional<uint32_t> wait_first;
+            uint32_t wait_passes = 0, wait_pass_presents = 0;
             std::vector<CompareRow> trace;      // each copied variant's trace fields, at its second copy
             std::vector<bool> views;            // whether each copied variant's view was copied too
         };
@@ -986,7 +990,7 @@ namespace photoreal
             log(reshade::log::level::info, "comparing " + std::to_string(variants.size()) + " settings variants into " + files->folder.u8string() + ".");
             worker.push([files, text = settings_tsv(variants)] { write_file(files->folder / "settings.tsv", text); });
             compare_count = static_cast<uint32_t>(variants.size());
-            capture = Capture { std::move(variants), settings, 0, std::nullopt, {}, 0, files, 0, {}, {} };
+            capture = Capture { std::move(variants), settings, 0, std::nullopt, {}, 0, files, 0, std::nullopt, 0, 0, {}, {} };
         }
 
         // Reads the next variant's two copies and hands them to the worker, which saves the PNG and rewrites
@@ -1066,7 +1070,19 @@ namespace photoreal
             const Settings *variant = next ? &c.variants[next->variant].settings : nullptr;
             const bool traces = variant && variant->enabled && variant->trace.enabled && trace_gpu.state() == TraceState::ready;
             const uint32_t target = variant ? trace_target(variant->trace, variant->gather, variant->gather.enabled && trace_gpu.light() != nullptr) : 0;
-            if (compare_waits(c.present, count, c.waited, traces && trace_gpu.passes() < target))
+            // The wait's limit follows the pace of the trace's passes, so a slow trace is waited for while it advances. A
+            // variant whose samples start again during the wait starts its pace again too.
+            const uint32_t passes = trace_gpu.passes();
+            if (!c.wait_first || passes < c.wait_passes)
+            {
+                c.wait_first = passes;
+                c.wait_pass_presents = c.waited;
+            }
+            else if (passes > c.wait_passes)
+                c.wait_pass_presents = c.waited;
+            c.wait_passes = passes;
+            const uint32_t limit = trace_wait_limit(*c.wait_first, passes, c.wait_pass_presents, target);
+            if (compare_waits(c.present, count, c.waited, traces && passes < target, limit))
             {
                 c.waited++;
                 return {};
@@ -1096,8 +1112,9 @@ namespace photoreal
                         row.trace_target = target;
                     }
                     row.trace_wait = c.waited;
-                    row.trace_timeout = traces && c.waited >= kTraceWaitPresents && trace_gpu.passes() < target;
+                    row.trace_timeout = traces && c.waited >= limit && passes < target;
                     c.waited = 0;
+                    c.wait_first.reset();
                 }
             }
             if (tick.read && !read_variant())

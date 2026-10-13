@@ -2,6 +2,7 @@
 #include "../photoreal.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -70,10 +71,19 @@ namespace photoreal
         return tick;
     }
 
-    bool compare_waits(uint32_t present, uint32_t count, uint32_t waited, bool short_of_samples)
+    uint32_t trace_wait_limit(uint32_t first, uint32_t passes, uint32_t pass_presents, uint32_t target)
+    {
+        if (passes <= first || passes >= target)
+            return kTraceWaitPresents;
+        const double pace = double(pass_presents) / (passes - first);
+        const double limit = pass_presents + std::ceil(2.0 * pace * (target - passes));
+        return static_cast<uint32_t>(std::clamp(limit, double(kTraceWaitPresents), double(kTraceWaitMost)));
+    }
+
+    bool compare_waits(uint32_t present, uint32_t count, uint32_t waited, bool short_of_samples, uint32_t limit)
     {
         const CompareTick tick = compare_tick(present, count);
-        return tick.copy && tick.copy->frame == 0 && short_of_samples && waited < kTraceWaitPresents;
+        return tick.copy && tick.copy->frame == 0 && short_of_samples && waited < limit;
     }
 
     std::vector<uint8_t> to_rgb(const RawFrame &frame)
@@ -123,8 +133,13 @@ namespace photoreal
     {
         const auto optional = [](const std::optional<uint32_t> &v) { return v ? std::to_string(*v) : std::string("-"); };
         std::string out = "index\tname\tstatus\tflicker\tflicker_max\tflicker_mean\twidth\theight\ttrace_samples\ttrace_target\ttrace_wait\ttrace_timeout\n";
+        // A variant saved short of its samples says so in its status, as its picture is not what its settings give.
+        const auto gave_up = [&optional](const CompareRow &r) {
+            return r.trace_timeout ? "; gave up waiting for the trace at " + optional(r.trace_samples) + " of " + optional(r.trace_target) + " samples after "
+                + std::to_string(r.trace_wait) + " presents" : std::string();
+        };
         for (const CompareRow &r : rows)
-            out += std::to_string(r.index) + '\t' + r.name + '\t' + r.line + '\t' + format("%.6f", r.flicker.changed) + '\t'
+            out += std::to_string(r.index) + '\t' + r.name + '\t' + r.line + gave_up(r) + '\t' + format("%.6f", r.flicker.changed) + '\t'
                 + std::to_string(r.flicker.max) + '\t' + format("%.3f", r.flicker.mean) + '\t' + std::to_string(r.size.width) + '\t'
                 + std::to_string(r.size.height) + '\t' + optional(r.trace_samples) + '\t' + optional(r.trace_target) + '\t'
                 + std::to_string(r.trace_wait) + '\t' + (r.trace_timeout ? "1" : "0") + '\n';

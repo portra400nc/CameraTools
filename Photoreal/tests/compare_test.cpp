@@ -72,6 +72,12 @@ int main()
         check("a variant short of trace samples waits only at its first copy, presents 5 and 11 of two variants", waits == std::vector<uint32_t> { 5, 11 });
         check("and not once it has its samples or has waited 1800 presents", !compare_waits(5, 2, 0, false) && compare_waits(5, 2, 1799, true)
             && !compare_waits(5, 2, 1800, true));
+        check("the wait's limit follows the trace's pace: 1800 presents before a pass comes in; build 209's 94 of 128 passes in 1800 presents get "
+              "3103, where the old limit cut them off; 30 of 64 passes in 300 presents keep 1800; a pace of 500 presents a pass stops at 36000; and "
+              "64 passes on top of 64 at 20 presents each, 10 of them in, get 200 + 2160",
+            trace_wait_limit(0, 0, 0, 128) == 1800 && trace_wait_limit(0, 94, 1800, 128) == 3103 && compare_waits(5, 2, 1800, true, 3103)
+            && !compare_waits(5, 2, 3103, true, 3103) && trace_wait_limit(0, 30, 300, 64) == 1800 && trace_wait_limit(0, 4, 2000, 128) == kTraceWaitMost
+            && trace_wait_limit(64, 64, 0, 128) == 1800 && trace_wait_limit(64, 74, 200, 128) == 2360 && trace_wait_limit(0, 128, 2451, 128) == 1800);
     }
     {
         PhotorealVariant raw[] = { variant("off", 0), variant("ambient on/2", 1), variant("", 1) };
@@ -129,6 +135,13 @@ int main()
         rows[2].trace_samples = 64;
         rows[2].trace_target = 64;
         rows[2].trace_wait = 412;
+        std::vector<CompareRow> slow = { rows[2] };
+        slow[0].trace_samples = 94;
+        slow[0].trace_target = 128;
+        slow[0].trace_wait = 3103;
+        slow[0].trace_timeout = true;
+        check("a variant saved short of its samples says so in its status", compare_tsv(slow).find("ran trace@combine (64 ao, 32 sun); gave up waiting for the "
+            "trace at 94 of 128 samples after 3103 presents\t0.000000\t0\t0.000\t1280\t800\t94\t128\t3103\t1\n") != std::string::npos);
         check("compare.tsv has a header and one row per variant, with the trace's samples and wait", compare_tsv(rows)
             == "index\tname\tstatus\tflicker\tflicker_max\tflicker_mean\twidth\theight\ttrace_samples\ttrace_target\ttrace_wait\ttrace_timeout\n"
                "0\toff\toff; comparing 0/2\t0.000000\t0\t0.000\t1280\t800\t-\t-\t0\t0\n"
