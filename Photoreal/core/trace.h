@@ -141,11 +141,33 @@ namespace photoreal
     TraceKey trace_key(uint64_t generation, Size render, const Camera &camera, const Vec3 &toward_sun, const TraceSettings &settings,
         const GatherConstants *gather = nullptr);
 
-    // A new generation, render size, ao distance, sun size or casters, or the gather switched on or off; a camera matrix
-    // element differing by more than 1e-6 of the matrix's largest; or the sun's direction, or a value of the gather's light,
-    // differing by more than 1e-5. before is the key the samples started with, not the last frame's, so a slow drift
-    // starts them again once it has gone that far.
-    bool trace_reset(const TraceKey &before, const TraceKey &now);
+    // Why a frame's samples start again, PHOTOREAL_TRACE_RESTART_*: the first of these that holds. A new scene, which a
+    // scene's first samples are too; another render size; a setting the rays depend on, which is the ao distance, the sun
+    // size, the casters, the gather switched on or off, or the hit's share of the ambient light, which scales the
+    // gather's ambient rows; a camera matrix element differing by more than 1e-6 of the matrix's largest; the direction
+    // toward the sun, the shadows' or the gather's shading direction, differing by more than 1e-5; or the gather's sun
+    // color differing by more than 1e-5. before is the key the samples started with, not the last frame's, so a slow
+    // drift starts them again once it has gone that far.
+    enum class TraceRestart : uint8_t { none, scene, render, settings, camera, sun_direction, light, count };
+    extern const std::array<const char *, static_cast<size_t>(TraceRestart::count)> kTraceRestartNames;
+    TraceRestart trace_restart(const TraceKey &before, const TraceKey &now);
+    inline bool trace_reset(const TraceKey &before, const TraceKey &now) { return trace_restart(before, now) != TraceRestart::none; }
+
+    // What changed, for the log, with its values: "the sun's color went from (0.303, 0.808, 1.331) to (0.301, 0.805,
+    // 1.327)". before is null for a scene's first samples.
+    std::string restart_text(TraceRestart reason, const TraceKey *before, const TraceKey &now);
+
+    // The starts since a full pass last completed, a burst, and the reasons the log has named in it.
+    struct RestartBurst
+    {
+        uint32_t count = 0;
+        uint32_t named = 0;     // bits 1 << TraceRestart
+    };
+    // Counts a start into the burst and says whether the log names it: each reason's first of the burst, and every
+    // start whose count is a power of two from kRestartLogFrom on, so a light that changes every frame writes a line a
+    // reason and then a few, not one a frame.
+    constexpr uint32_t kRestartLogFrom = 32;
+    bool restart_logged(RestartBurst &burst, TraceRestart reason);
 
     // The samples of one start share one camera, sun and light, the start's. A later frame's own may differ from them by
     // less than what starts the samples again, and following those from frame to frame would aim and light each pass a

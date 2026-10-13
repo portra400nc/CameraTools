@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 
 namespace photoreal
@@ -66,6 +67,9 @@ namespace photoreal
 
         // The buffers' first rows in SunCbuffers, in rows of 16 bytes, as core/sun.cpp has them.
         constexpr uint32_t kB1 = 768 / 16, kB3 = (768 + 192 + 352) / 16;
+
+        // Where TraceKey::light holds the gather's sun color, its shading direction and its four ambient rows.
+        constexpr size_t kKeySun = 0, kKeyShade = 3, kKeyAmbient = 6;
     }
 
     uint32_t caster_classes(const TraceSettings &settings)
@@ -248,29 +252,119 @@ namespace photoreal
             k.gather = true;
             for (int i = 0; i < 3; i++)
             {
-                k.light[i] = gather->sun[i];
-                k.light[3 + i] = gather->shade[i];
+                k.light[kKeySun + i] = gather->sun[i];
+                k.light[kKeyShade + i] = gather->shade[i];
                 for (int r = 0; r < 4; r++)
-                    k.light[6 + r * 3 + i] = gather->ambient[r][i];
+                    k.light[kKeyAmbient + r * 3 + i] = gather->ambient[r][i];
             }
         }
         return k;
     }
 
-    bool trace_reset(const TraceKey &a, const TraceKey &b)
+    static_assert(PHOTOREAL_TRACE_RESTART_SCENE == static_cast<int>(TraceRestart::scene) && PHOTOREAL_TRACE_RESTART_LIGHT == static_cast<int>(TraceRestart::light)
+        && PHOTOREAL_TRACE_RESTART_COUNT == static_cast<int>(TraceRestart::count));
+
+    const std::array<const char *, static_cast<size_t>(TraceRestart::count)> kTraceRestartNames = { "none", "scene", "render size", "settings", "camera",
+        "sun direction", "light" };
+
+    TraceRestart trace_restart(const TraceKey &a, const TraceKey &b)
     {
-        if (a.generation != b.generation || a.render != b.render || a.ao_distance != b.ao_distance || a.sun_size != b.sun_size || a.casters != b.casters
-            || a.gather != b.gather)
-            return true;
-        for (size_t i = 0; i < a.light.size(); i++)
-            if (!(std::fabs(a.light[i] - b.light[i]) <= 1e-5f))
-                return true;
+        const auto apart = [&](size_t first, size_t count) {
+            for (size_t i = first; i < first + count; i++)
+                if (!(std::fabs(a.light[i] - b.light[i]) <= 1e-5f))
+                    return true;
+            return false;
+        };
+        if (a.generation != b.generation)
+            return TraceRestart::scene;
+        if (a.render != b.render)
+            return TraceRestart::render;
+        if (a.ao_distance != b.ao_distance || a.sun_size != b.sun_size || a.casters != b.casters || a.gather != b.gather || apart(kKeyAmbient, 12))
+            return TraceRestart::settings;
         if (matrix_moved(a.world_to_view, b.world_to_view) || matrix_moved(a.view_to_clip, b.view_to_clip))
-            return true;
+            return TraceRestart::camera;
         for (int k = 0; k < 3; k++)
             if (!(std::fabs(a.toward_sun[k] - b.toward_sun[k]) <= 1e-5f))
-                return true;
-        return false;
+                return TraceRestart::sun_direction;
+        if (apart(kKeyShade, 3))
+            return TraceRestart::sun_direction;
+        return apart(kKeySun, 3) ? TraceRestart::light : TraceRestart::none;
+    }
+
+    std::string restart_text(TraceRestart reason, const TraceKey *before, const TraceKey &b)
+    {
+        if (!before)
+            return "a scene's first samples";
+        const TraceKey &a = *before;
+        char text[320];
+        const auto vec = [](const float *v) {
+            char out[64];
+            std::snprintf(out, sizeof out, "(%.6g, %.6g, %.6g)", v[0], v[1], v[2]);
+            return std::string(out);
+        };
+        const auto went = [&](const char *what, const float *from, const float *to, bool direction) {
+            std::string out = std::string(what) + " went from " + vec(from) + " to " + vec(to);
+            if (direction)
+            {
+                const double cosine = double(from[0]) * to[0] + double(from[1]) * to[1] + double(from[2]) * to[2];
+                char degrees[48];
+                std::snprintf(degrees, sizeof degrees, ", %.4f degrees", std::acos(std::clamp(cosine, -1.0, 1.0)) * 57.29577951308232);
+                out += degrees;
+            }
+            return out;
+        };
+        const auto farthest = [](const std::array<float, 16> &x, const std::array<float, 16> &y) {
+            float most = 0;
+            for (size_t i = 0; i < x.size(); i++)
+                most = std::max(most, std::fabs(x[i] - y[i]));
+            return most;
+        };
+        switch (reason)
+        {
+        case TraceRestart::scene:
+            std::snprintf(text, sizeof text, "the scene went from generation %llu to %llu", static_cast<unsigned long long>(a.generation),
+                static_cast<unsigned long long>(b.generation));
+            return text;
+        case TraceRestart::render:
+            std::snprintf(text, sizeof text, "the render size went from %ux%u to %ux%u", a.render.width, a.render.height, b.render.width, b.render.height);
+            return text;
+        case TraceRestart::settings:
+            if (a.gather != b.gather)
+                return b.gather ? "the gather went on" : "the gather went off";
+            if (a.ao_distance != b.ao_distance)
+                std::snprintf(text, sizeof text, "the occlusion distance went from %g to %g", a.ao_distance, b.ao_distance);
+            else if (a.sun_size != b.sun_size)
+                std::snprintf(text, sizeof text, "the sun's size went from %g to %g", a.sun_size, b.sun_size);
+            else if (a.casters != b.casters)
+                std::snprintf(text, sizeof text, "the casters went from 0x%X to 0x%X", a.casters, b.casters);
+            else
+                return went("the ambient light at a hit, its first row,", &a.light[kKeyAmbient], &b.light[kKeyAmbient], false);
+            return text;
+        case TraceRestart::camera:
+            std::snprintf(text, sizeof text, "the camera moved: its view by up to %.3g an element and its projection by up to %.3g",
+                farthest(a.world_to_view, b.world_to_view), farthest(a.view_to_clip, b.view_to_clip));
+            return text;
+        case TraceRestart::sun_direction:
+            for (int k = 0; k < 3; k++)
+                if (!(std::fabs(a.toward_sun[k] - b.toward_sun[k]) <= 1e-5f))
+                    return went("the direction toward the sun", a.toward_sun.data(), b.toward_sun.data(), true);
+            return went("the sun's shading direction", &a.light[kKeyShade], &b.light[kKeyShade], true);
+        case TraceRestart::light:
+            return went("the sun's color", &a.light[kKeySun], &b.light[kKeySun], false);
+        case TraceRestart::none:
+        case TraceRestart::count:
+            break;
+        }
+        return "nothing changed";
+    }
+
+    bool restart_logged(RestartBurst &burst, TraceRestart reason)
+    {
+        const uint32_t bit = 1u << static_cast<uint32_t>(reason);
+        const bool first = (burst.named & bit) == 0;
+        burst.named |= bit;
+        burst.count++;
+        return first || (burst.count >= kRestartLogFrom && (burst.count & (burst.count - 1)) == 0);
     }
 
     TraceConstants held_constants(const TraceConstants &start, const TraceConstants &now)

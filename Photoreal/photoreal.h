@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define PHOTOREAL_VERSION 9
+#define PHOTOREAL_VERSION 10
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -290,6 +290,20 @@ enum
     PHOTOREAL_TRACE_STATE_FAILED,       // it could not be built, uploaded or traced; ReShade.log says why
 };
 
+// Why the trace's samples last started again, values of PhotorealStatus.trace_restart_reason: the first of these that
+// held on that frame. While one keeps holding, trace_restarts rises and trace_samples stays 0.
+enum
+{
+    PHOTOREAL_TRACE_RESTART_NONE = 0,       // they have not started yet
+    PHOTOREAL_TRACE_RESTART_SCENE,          // a new scene: its first samples
+    PHOTOREAL_TRACE_RESTART_RENDER_SIZE,
+    PHOTOREAL_TRACE_RESTART_SETTINGS,       // trace.ao_distance, sun_size or casters, gather.enabled or gather.hit_ambient
+    PHOTOREAL_TRACE_RESTART_CAMERA,         // the pushed camera's view or projection
+    PHOTOREAL_TRACE_RESTART_SUN_DIRECTION,  // the direction toward the sun, the game's shadows' or its shading's
+    PHOTOREAL_TRACE_RESTART_LIGHT,          // the sun's color
+    PHOTOREAL_TRACE_RESTART_COUNT,
+};
+
 // The trace pass: ambient occlusion and sun shadows traced against the scene a PHOTOREAL_SCENE_TRACE capture built, at the
 // combine step before the game's combine pass reads them. Once every world pixel has a sample, it writes the traced sun
 // visibility into the shadow mask and multiplies the diffuse irradiance by ambient.level and the traced occlusion, on world
@@ -367,6 +381,17 @@ typedef struct PhotorealAccumulate
     float cat_eye_falloff;      // the width of the cut's soft edge in aperture radii; default 0.1, clamped to 0.01..1
 } PhotorealAccumulate;
 
+// A traced shot: while active, every frame runs the trace pass with the gather on over whatever settings are applied,
+// also while their master switch is off, when nothing else of them runs. Separate from PhotorealSettings for the reason
+// PhotorealAccumulate is: a screenshot must not overwrite what another caller applied.
+typedef struct PhotorealShot
+{
+    uint32_t size;              // sizeof(PhotorealShot) as the caller compiled it
+    uint32_t active;            // default 0
+    uint32_t samples;           // gather.samples for the shot; 0 keeps the applied one; clamped to 1..4096
+    float budget_ms;            // trace.budget_ms for the shot; 0 keeps the applied one; clamped to 2..200
+} PhotorealShot;
+
 // The directions a scene capture turns the camera to: world-axis cube faces in D3D cube-map order, each with its own up
 // (+X, -X, +Z and -Z keep +Y up; +Y has -Z up and -Y has +Z up), at a 90-degree vertical field of view, and the view as
 // the camera already is. Values of PhotorealStatus.scene_face, and bits 1 << face of PhotorealSceneRequest.faces.
@@ -394,7 +419,8 @@ enum
     PHOTOREAL_SCENE_NO_MESHES = 1u << 3,    // write no OBJ or PLY; the TSVs, pictures and depth still
     PHOTOREAL_SCENE_GBUFFER = 1u << 4,      // the view face also writes its normals and stencil, and the game's shadow mask and
                                             // diffuse irradiance as the combine step found them, before any pass of ours
-    PHOTOREAL_SCENE_RELEASE = 1u << 5,      // capture nothing and free the traced scene; faces and the other flags are ignored
+    PHOTOREAL_SCENE_RELEASE = 1u << 5,      // capture nothing, stop a scene capture that runs and free the traced scene; faces and
+                                            // the other flags are ignored
     PHOTOREAL_SCENE_LIGHT = 1u << 6,        // with TRACE: each face also copies its G-buffer albedo, stencil and HDR scene, and the
                                             // traced scene gets its triangles' albedo, a sky map, the game's ambient light and
                                             // sun, for PhotorealGather; with GBUFFER, each face writes those copies too
@@ -475,6 +501,11 @@ typedef struct PhotorealStatus
     uint32_t trace_converged;   // 1 when every traced pixel has trace_target samples and the last frame was written from them
     uint32_t trace_error_x10000;    // the gathered light's mean relative standard error at the last full pass, times 10000
     uint32_t trace_light;       // PHOTOREAL_TRACE_LIGHT_* of the traced scene
+    uint32_t trace_restarts;    // times the trace's samples have started since the add-on's device was made, each scene's first
+                                // start among them: while it rises and trace_samples stays 0, no sample accumulates
+    uint32_t trace_restart_reason;  // PHOTOREAL_TRACE_RESTART_* of the last of them
+    uint32_t shot_active;       // 1 when the last frame ran with a PhotorealSetShot shot's settings, so trace_converged is that
+                                // shot's
 } PhotorealStatus;
 
 PHOTOREAL_EXPORT uint32_t PhotorealVersion(void);
@@ -499,7 +530,8 @@ PHOTOREAL_EXPORT uint32_t PhotorealCompare(const PhotorealVariant *variants, uin
 // G-buffer is replayed with stream output, and its triangles are written in world space with the frame's picture and
 // depth to <ReShade base path>\Photoreal\scene-<YYYYMMDD-HHMMSS>\. Returns 1 when accepted, and 0 while a scene capture
 // is still running or saving, or when request is null, too short to hold faces, or names no known face. It works whether
-// settings.enabled is on or not.
+// settings.enabled is on or not. A PHOTOREAL_SCENE_RELEASE request is always accepted: at the next present it stops a
+// capture asked for before it, whose faces written so far stay, and frees the traced scene.
 PHOTOREAL_EXPORT uint32_t PhotorealCaptureScene(const PhotorealSceneRequest *request);
 
 PHOTOREAL_EXPORT void PhotorealGetStatus(PhotorealStatus *status);
@@ -518,6 +550,11 @@ PHOTOREAL_EXPORT uint32_t PhotorealSaveTrace(void);
 // Copies the accumulation's state; it takes effect at the next frame boundary, like PhotorealApply. A null pointer, or a
 // size too small to hold mode, changes nothing. It works whether settings.enabled is on or not.
 PHOTOREAL_EXPORT void PhotorealSetAccumulate(const PhotorealAccumulate *accumulate);
+
+// Copies the shot's state; it takes effect at the next frame boundary, like PhotorealApply, and PhotorealStatus.shot_active
+// follows a frame later. A null pointer, a size too small to hold active, or active 0 ends the shot, and the applied
+// settings run as before. It works whether settings.enabled is on or not.
+PHOTOREAL_EXPORT void PhotorealSetShot(const PhotorealShot *shot);
 
 // Asks for the view-space depth in meters (the distance along the camera's forward axis) at a point on the screen, u and
 // v from 0 at the top left to 1, and returns the newest answer read from a frame that began after the point was first

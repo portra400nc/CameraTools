@@ -30,6 +30,7 @@ namespace photoreal
         TraceSchedule schedule;                 // after this frame's tiles
         std::optional<TraceDispatch> dispatch;  // none on the frame the samples start again, and once every pixel has them
         bool reset = false;                     // the samples start again: the history is cleared first
+        TraceRestart restart = TraceRestart::none;  // and why
         bool traced = false;                    // every traced pixel has a sample after this frame's tiles
         TraceConstants constants {};            // tiles left 0; dispatch sets them
         // While it gathers: the gather kernel runs over the frame's tiles after the trace kernel, which runs only while
@@ -84,6 +85,11 @@ namespace photoreal
         bool gathering() const { return gathering_; }
         uint32_t batch() const { return schedule_.batch; }
         double mrays() const { return mrays_; }
+        // The starts of the samples since the device was made, a scene's first among them, the last one's reason, and what
+        // the samples in the history started with, empty before a scene's first.
+        uint64_t starts() const { return epoch_; }
+        TraceRestart restart() const { return restart_; }
+        const TraceKey *started_key() const { return key_ ? &*key_ : nullptr; }
         const TraceCounts &totals() const { return totals_; }
 
         // What this frame's trace would do with key, settings and constants: changes nothing. The samples start again when
@@ -201,6 +207,7 @@ namespace photoreal
         GatherConstants uploaded_gather_ {};    // what the last gathering dispatch put in the gather's
         TraceSchedule schedule_;
         uint64_t epoch_ = 0;
+        TraceRestart restart_ = TraceRestart::none;
         TraceCounts totals_ {};
         TraceCounts window_ {};                 // since the last pass the consistency grid judged
         bool check_consistency_ = true;

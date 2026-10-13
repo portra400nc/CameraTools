@@ -292,7 +292,10 @@ namespace photoreal
         }
         f.target = trace_target(settings, gather_settings, f.gathering);
         const uint32_t tiles = static_cast<uint32_t>(((key.render.width + kTileSize - 1) / kTileSize) * ((key.render.height + kTileSize - 1) / kTileSize));
-        f.reset = !key_ || trace_reset(*key_, key) || schedule_.tiles != tiles;
+        f.restart = !key_ ? TraceRestart::scene : trace_restart(*key_, key);
+        if (f.restart == TraceRestart::none && schedule_.tiles != tiles)
+            f.restart = TraceRestart::render;
+        f.reset = f.restart != TraceRestart::none;
         if (f.reset)
         {
             f.schedule.tiles = tiles;
@@ -370,6 +373,7 @@ namespace photoreal
                 c->ClearUnorderedAccessViewUint(gather_sky_uav_.Get(), zero);
             }
             epoch_++;
+            restart_ = frame.restart;
             totals_ = {};
             window_ = {};
             window_pass_ = logged_pass_ = 0;

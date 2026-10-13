@@ -12,6 +12,7 @@
 struct PhotorealSettings;  // photoreal.h, read only by parse_settings
 struct PhotorealCamera;    // photoreal.h, read only by parse_camera
 struct PhotorealAccumulate;  // photoreal.h, read only by parse_accumulate
+struct PhotorealShot;      // photoreal.h, read only by parse_shot
 
 namespace photoreal
 {
@@ -192,6 +193,23 @@ namespace photoreal
     // Honors size like parse_settings, maps an unknown mode to off, replaces non-finite floats with the default and
     // clamps the rest.
     AccumulateSettings parse_accumulate(const PhotorealAccumulate &raw);
+
+    // The domain form of PhotorealShot. Built only by parse_shot, so every value in it is in range.
+    struct ShotSettings
+    {
+        bool active = false;
+        uint32_t samples = 0;       // 0: the applied gather's
+        float budget_ms = 0;        // 0: the applied trace's
+    };
+
+    // Honors size like parse_settings. A null pointer is no shot. samples clamps to 4096 and budget_ms to 2..200; 0, and a
+    // budget that is not finite, keep the applied one.
+    ShotSettings parse_shot(const PhotorealShot *raw);
+
+    // The settings a frame runs with: the applied ones, and while a shot is active, with the trace and the gather on and
+    // the shot's samples and budget where it gives them. Under a master switch that is off the shot runs alone: the
+    // master switch on, every other pass and the view off, and the passes' values as applied, the ambient level among them.
+    Settings with_shot(const Settings &applied, const ShotSettings &shot);
 
     // The wetness the wetness pass applies: the setting's while it is above 0, else the weather's from the camera.
     float wetness_amount(const WetnessSettings &settings, const Camera &camera);

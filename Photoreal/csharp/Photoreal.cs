@@ -115,6 +115,9 @@ namespace CameraToolsPhotoreal
     // PHOTOREAL_TRACE_STATE_* in photoreal.h, in order.
     internal enum PhotorealTraceState : uint { None, Building, Uploading, Ready, Stale, Failed }
 
+    // PHOTOREAL_TRACE_RESTART_* in photoreal.h, in order: why the trace's samples last started again.
+    internal enum PhotorealTraceRestart : uint { None, Scene, RenderSize, Settings, Camera, SunDirection, Light }
+
     // PhotorealTrace in photoreal.h, field for field.
     [StructLayout(LayoutKind.Sequential)]
     internal struct PhotorealTrace
@@ -233,7 +236,18 @@ namespace CameraToolsPhotoreal
     // PHOTOREAL_FACE_* in photoreal.h, in order, and PHOTOREAL_FACE_NONE.
     internal enum PhotorealFace : uint { PosX, NegX, PosY, NegY, PosZ, NegZ, View, None = 0xFFFFFFFF }
 
-    // PHOTOREAL_SCENE_* in photoreal.h. Trace with no faces traces the self-test scene; Release frees the traced scene.
+    // PhotorealShot in photoreal.h, field for field.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct PhotorealShot
+    {
+        public uint Size;
+        public uint Active;
+        public uint Samples;        // 0: the applied gather's
+        public float BudgetMs;      // 0: the applied trace's
+    }
+
+    // PHOTOREAL_SCENE_* in photoreal.h. Trace with no faces traces the self-test scene; Release stops a capture that runs
+    // and frees the traced scene.
     [Flags]
     internal enum PhotorealSceneFlags : uint
     {
@@ -308,13 +322,16 @@ namespace CameraToolsPhotoreal
         public uint TraceConverged; // 1 when every traced pixel has TraceTarget samples and the last frame was written from them
         public uint TraceErrorX10000;   // the gathered light's mean relative standard error, times 10000
         public PhotorealTraceLight TraceLight;
+        public uint TraceRestarts;  // times the samples have started; while it rises and TraceSamples stays 0, none accumulates
+        public PhotorealTraceRestart TraceRestartReason;    // why they last did
+        public uint ShotActive;     // 1 when the last frame ran with SetShot's shot, so TraceConverged is the shot's
     }
 
     // The only class that knows CameraToolsPhotoreal.addon64.
     internal static class Photoreal
     {
         private const string ModuleName = "CameraToolsPhotoreal.addon64";
-        private const uint Version = 9;
+        private const uint Version = 10;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -348,8 +365,11 @@ namespace CameraToolsPhotoreal
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate uint SaveTraceCall();
 
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate void SetShotCall(ref PhotorealShot shot);
+
         private sealed record AddOn(IntPtr Module, ApplyCall Apply, SetCameraCall SetCamera, GetStatusCall GetStatus, DescribeCall Describe, CompareCall Compare,
-            SetAccumulateCall SetAccumulate, DepthAtCall DepthAt, CaptureSceneCall CaptureScene, SaveTraceCall SaveTrace);
+            SetAccumulateCall SetAccumulate, DepthAtCall DepthAt, CaptureSceneCall CaptureScene, SaveTraceCall SaveTrace, SetShotCall SetShot);
 
         private static readonly float[] camera = new float[48];
         private static readonly byte[] line = new byte[512];
@@ -447,13 +467,28 @@ namespace CameraToolsPhotoreal
         // <ReShade base path>\Photoreal\scene-<time>\. The caller turns the camera to the face's PhotorealFaces.Direction
         // at PhotorealFaces.FieldOfView while SceneFace names a cube face. Status.SceneRemaining counts the faces not yet
         // written. False while the add-on is not loaded, a scene capture is still running or saving, or Faces holds no
-        // known face.
+        // known face. A capture that was stopped is still saving for a moment, so a caller that released one asks again.
         public static bool CaptureScene(PhotorealSceneRequest request)
         {
             if (addOn == null)
                 return false;
             request.Size = (uint)Marshal.SizeOf<PhotorealSceneRequest>();
             return addOn.CaptureScene(ref request) != 0;
+        }
+
+        // Stops a scene capture that runs and frees the traced scene, at the add-on's next present.
+        public static void ReleaseScene() => CaptureScene(new PhotorealSceneRequest { Flags = PhotorealSceneFlags.Release });
+
+        // Starts or ends a traced shot: while active, the trace pass runs with the gather on over whatever settings are
+        // applied, also while their master switch is off, with samples and budgetMs in place of the applied ones when they
+        // are not 0. Status.ShotActive follows a frame later; Status.TraceConverged then says when the frame is written from
+        // all its samples.
+        public static void SetShot(bool active, uint samples = 0, float budgetMs = 0)
+        {
+            if (addOn == null)
+                return;
+            var shot = new PhotorealShot { Size = (uint)Marshal.SizeOf<PhotorealShot>(), Active = active ? 1u : 0u, Samples = samples, BudgetMs = budgetMs };
+            addOn.SetShot(ref shot);
         }
 
         // Saves the next frame the trace pass writes, with what the Mac's reference tracer needs, to
@@ -533,13 +568,14 @@ namespace CameraToolsPhotoreal
                 || !TryExport<SetAccumulateCall>(module, "PhotorealSetAccumulate", out var setAccumulate)
                 || !TryExport<DepthAtCall>(module, "PhotorealDepthAt", out var depthAt)
                 || !TryExport<CaptureSceneCall>(module, "PhotorealCaptureScene", out var captureScene)
-                || !TryExport<SaveTraceCall>(module, "PhotorealSaveTrace", out var saveTrace))
+                || !TryExport<SaveTraceCall>(module, "PhotorealSaveTrace", out var saveTrace)
+                || !TryExport<SetShotCall>(module, "PhotorealSetShot", out var setShot))
             {
                 MelonLogger.Warning($"Photoreal: {ModuleName} version {found} is missing an export.");
                 return;
             }
             rejected = IntPtr.Zero;
-            addOn = new AddOn(module, apply, setCamera, getStatus, describe, compare, setAccumulate, depthAt, captureScene, saveTrace);
+            addOn = new AddOn(module, apply, setCamera, getStatus, describe, compare, setAccumulate, depthAt, captureScene, saveTrace, setShot);
             MelonLogger.Msg($"Photoreal: connected to {ModuleName} version {found}.");
         }
 

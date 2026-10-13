@@ -16,10 +16,11 @@ namespace photoreal
         // compare_remaining took the padding at the end, so a caller built before it still sends 72 bytes. The accumulator's
         // three fields follow, and the scene capture's three took the 4 bytes of padding after them and one more row, so a
         // caller of version 6 sends 88 and gets scene_face in its padding. The trace's five follow them, and the gather's four
-        // follow those, the first in the 4 bytes of padding a caller of version 8 has.
+        // follow those, the first in the 4 bytes of padding a caller of version 8 has. The restarts, their reason and the
+        // shot follow, the first in the 4 bytes of padding a caller of version 9 has after its 132.
         static_assert(offsetof(PhotorealStatus, compare_remaining) == 68 && offsetof(PhotorealStatus, accum_generation) == 80
             && offsetof(PhotorealStatus, scene_face) == 84 && offsetof(PhotorealStatus, trace_state) == 96 && offsetof(PhotorealStatus, trace_target) == 116
-            && sizeof(PhotorealStatus) == 136);
+            && offsetof(PhotorealStatus, trace_restarts) == 132 && offsetof(PhotorealStatus, shot_active) == 140 && sizeof(PhotorealStatus) == 144);
 
         constexpr uint32_t kPeriod = kSettlePresents + 2;
 

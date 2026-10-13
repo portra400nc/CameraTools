@@ -84,6 +84,7 @@ namespace photoreal
         Mailbox<std::vector<Variant>> compare_box;
         Mailbox<AccumulateSettings> accumulate_box;
         Mailbox<SceneRequest> scene_box;
+        Mailbox<ShotSettings> shot_box;
 
         // The point PhotorealDepthAt asks about and its answer, shared by the C# thread and the render thread.
         struct DepthAsk
@@ -112,6 +113,9 @@ namespace photoreal
         // capture.
         std::atomic<uint32_t> scene_remaining { 0 };
         std::atomic<uint32_t> scene_backlog { 0 };
+        // A PHOTOREAL_SCENE_RELEASE request: 0 while there is none, else one more than scene_box's generation when it came, so
+        // the render thread stops what was asked for up to then and leaves a capture asked for after it alone.
+        std::atomic<uint64_t> scene_release { 0 };
 
         // Every vertex and domain shader's bytecode and every pixel shader's hash, from the events of their creation on
         // the game's threads.
@@ -126,8 +130,11 @@ namespace photoreal
         SceneGpu scene_gpu;
         FrameTracker tracker;
         FrameReport report;
-        Settings settings;                  // this frame's, taken at present
-        uint64_t settings_seen = 0, camera_seen = 0, compare_seen = 0, accumulate_seen = 0, scene_seen = 0;
+        Settings settings;                  // this frame's, set at present: the applied ones under the shot
+        Settings applied;                   // PhotorealApply's newest
+        ShotSettings shot;                  // PhotorealSetShot's newest
+        bool shot_frame = false;            // this frame runs with the shot
+        uint64_t settings_seen = 0, camera_seen = 0, compare_seen = 0, accumulate_seen = 0, scene_seen = 0, shot_seen = 0;
         AccumulateSettings accumulate;      // this frame's, taken at present
         Accumulator accumulator;
         // The depth texel in flight: the point it answers, and the frame and camera it was copied with.
@@ -171,6 +178,7 @@ namespace photoreal
             bool self_test = false;                 // the self-test scene, which the depth buffer never shows
             std::shared_ptr<const SceneLight> light;    // a PHOTOREAL_SCENE_LIGHT capture's
             double light_seconds = 0;               // its bake
+            uint64_t asked = 0;                     // trace_asked when its capture began
         };
         TraceScene trace_scene;
         TraceState trace_logged = TraceState::none; // the state the log last said
@@ -195,10 +203,15 @@ namespace photoreal
         };
         Mailbox<TraceBuilt> trace_box;
         uint64_t trace_seen = 0;
+        // scene_box's generation of the newest request that began a traced scene. A scene built for an older one, whose
+        // capture was released or followed by another while the writer thread still built it, is dropped.
+        uint64_t trace_asked = 0;
         uint64_t trace_generations = 0;
         // A scene of more triangles than this is cut to its nearest; halved each time a scene's buffers could not be made.
         uint64_t trace_max_triangles = 4000000;
         std::optional<TraceFrame> trace_frame;      // this frame's, from the combine step
+        RestartBurst restart_burst;                 // the samples' starts since a full pass, for the log
+        uint64_t restart_burst_frame = 0;           // the frame of the burst's first
         bool trace_traced = false;                  // the trace pass writes this frame
         bool trace_wrote = false;                   // the trace pass wrote the last frame from its samples
         bool gather_without_light = false;          // the gather is on over a scene captured without light
@@ -705,9 +718,23 @@ namespace photoreal
                         // A save waits for a frame the trace writes; run_trace copies it then.
                         const std::optional<TraceSave> save = trace_save_wanted.load() && !trace_gpu.saving() ? std::optional(trace_save_meta()) : std::nullopt;
                         bool saved = false;
+                        // Why this frame's samples start again, when the log names it: read before the start replaces what
+                        // the samples began with.
+                        std::string restart;
+                        if (trace_frame && trace_frame->reset)
+                        {
+                            if (restart_burst.count == 0)
+                                restart_burst_frame = frames;
+                            if (restart_logged(restart_burst, trace_frame->restart))
+                                restart = restart_text(trace_frame->restart, trace_gpu.started_key(), trace_frame->key);
+                        }
                         if (trace_frame)
                             call = gpu.run_trace(map, *trace_frame, settings.trace, settings.gather, camera, settings.flip, report.view, save ? &*save : nullptr,
                                 saved, trace_gpu);
+                        if (!restart.empty())
+                            log(reshade::log::level::info, "the trace's samples start again (" + std::string(kTraceRestartNames[static_cast<size_t>(trace_frame->restart)])
+                                + ", start " + std::to_string(trace_gpu.starts()) + (restart_burst.count > 1 ? ", " + std::to_string(restart_burst.count)
+                                + " starts now without a full pass" : std::string()) + "): " + restart + ".");
                         if (saved)
                             trace_save_wanted = false;
                         trace_wrote = call && trace_frame && trace_frame->traced;
@@ -862,6 +889,7 @@ namespace photoreal
             scene.folder = folder.filename().u8string();
             scene.reference = camera_position(camera);
             scene.self_test = true;
+            scene.asked = trace_asked;
             // world_to_view's third row is minus the camera's forward; Unity's matrices are column-major.
             Vec3d forward = { -camera.world_to_view[2], 0, -camera.world_to_view[10] };
             const double length = std::sqrt(forward[0] * forward[0] + forward[2] * forward[2]);
@@ -1136,11 +1164,8 @@ namespace photoreal
 
         void begin_scene_capture(const SceneRequest &request)
         {
-            if (request.release)
-            {
-                trace_gpu.release();
-                return;
-            }
+            if (request.trace)
+                trace_asked = scene_seen;
             if (request.self_test())
             {
                 begin_self_test(request.light);
@@ -1204,8 +1229,9 @@ namespace photoreal
                 light.pushed_sun_color = { camera.sun_color[0], camera.sun_color[1], camera.sun_color[2] };
                 light.pushed_sun_direction = { camera.toward_sun[0], camera.toward_sun[1], camera.toward_sun[2] };
                 light.pushed_sky = { camera.sky_color[0], camera.sky_color[1], camera.sky_color[2] };
-                worker.push([this_build = run.trace, folder = run.folder->path, cap, light] {
+                worker.push([this_build = run.trace, folder = run.folder->path, cap, light, asked = trace_asked] {
                     TraceScene scene;
+                    scene.asked = asked;
                     scene.folder = folder.filename().u8string();
                     scene.reference = this_build->reference;
                     scene.floating_origin = this_build->floating_origin;
@@ -1233,6 +1259,7 @@ namespace photoreal
                     catch (const std::exception &e)
                     {
                         TraceBuilt failed;
+                        failed.scene.asked = asked;
                         failed.error = std::string("its triangles or their light could not be gathered: ") + e.what();
                         trace_box.put(failed);
                         return;
@@ -1540,7 +1567,7 @@ namespace photoreal
         void tick_trace()
         {
             TraceBuilt built;
-            if (trace_box.take(built, trace_seen) && trace_gpu.state() == TraceState::building)
+            if (trace_box.take(built, trace_seen) && trace_gpu.state() == TraceState::building && built.scene.asked == trace_asked)
             {
                 if (!built.bvh)
                     trace_gpu.fail(built.error);
@@ -1563,6 +1590,13 @@ namespace photoreal
                 combine_read = gpu.combine_constants(frames);
             for (const std::string &line : trace_gpu.poll(settings.trace).log)
                 log(reshade::log::level::info, line);
+            if (restart_burst.count != 0 && trace_gpu.passes() >= 1)
+            {
+                if (restart_burst.count > 1)
+                    log(reshade::log::level::info, "the trace's samples hold: a full pass came in after " + std::to_string(restart_burst.count) + " starts over "
+                        + std::to_string(frames - restart_burst_frame) + " presents.");
+                restart_burst = {};
+            }
             bool failed = false;
             std::optional<TraceSave> save;
             try
@@ -1628,6 +1662,9 @@ namespace photoreal
             s.trace_converged = trace_gpu.state() == TraceState::ready && trace_wrote && trace_gpu.target() != 0 && trace_gpu.passes() >= trace_gpu.target();
             s.trace_error_x10000 = static_cast<uint32_t>(std::min(trace_gpu.error() * 10000, 4e9));
             s.trace_light = trace_gpu.light() ? trace_gpu.light()->flags() : 0;
+            s.trace_restarts = static_cast<uint32_t>(trace_gpu.starts());
+            s.trace_restart_reason = static_cast<uint32_t>(trace_gpu.restart());
+            s.shot_active = shot_frame ? 1 : 0;
             report.accumulated = accumulator.samples;
             published.line = describe(report);
             status_box.put(published);
@@ -1664,6 +1701,14 @@ namespace photoreal
             SceneRequest request;
             if (!scene && scene_box.take(request, scene_seen))
                 begin_scene_capture(request);
+            // After the take, so a capture asked for just before its release stops too.
+            if (const uint64_t released = scene_release.exchange(0))
+            {
+                if (scene && scene_seen < released)
+                    end_scene_capture(std::string("the caller released the scene"));
+                if (trace_asked < released)
+                    trace_gpu.release();
+            }
             if (scene)
                 tick_scene(chain);
             if (gpu.ready())
@@ -1676,9 +1721,18 @@ namespace photoreal
             report.scene_stopped = scene_stopped;
             publish(remaining);
 
-            // A capture owns the settings until it ends; settings applied meanwhile take over after it.
+            // A capture owns the settings until it ends; settings applied meanwhile take over after it, and so does a shot.
             if (!capture)
-                settings_box.take(settings, settings_seen);
+            {
+                settings_box.take(applied, settings_seen);
+                if (shot_box.take(shot, shot_seen))
+                    log(reshade::log::level::info, shot.active ? "a traced shot begins: the trace and the gather run over the applied settings"
+                        + (applied.enabled ? std::string() : std::string(", whose master switch is off, so alone")) + ", " + (shot.samples != 0
+                        ? std::to_string(shot.samples) : "the applied") + " samples within " + (shot.budget_ms != 0 ? std::to_string(int(shot.budget_ms)) + " ms"
+                        : std::string("the applied budget")) + " a frame." : std::string("the traced shot ended; the applied settings run as before."));
+                settings = with_shot(applied, shot);
+            }
+            shot_frame = !capture && shot.active;
             if (camera_box.take(camera, camera_seen))
                 camera_age = 0;
             else if (camera_age != UINT32_MAX)
@@ -1773,6 +1827,7 @@ namespace photoreal
             trace_gpu = TraceGpu {};
             trace_frame.reset();
             trace_traced = false;
+            restart_burst = {};
         }
     }
 }
@@ -1812,6 +1867,12 @@ extern "C" uint32_t PhotorealCaptureScene(const PhotorealSceneRequest *raw)
     const std::optional<SceneRequest> request = parse_scene_request(raw);
     if (!request)
         return 0;
+    // A release waits for no capture: it stops the one that runs.
+    if (request->release)
+    {
+        scene_release = scene_box.generation.load() + 1;
+        return 1;
+    }
     // Raised before the render thread takes the request, so a second call is refused until every face is written.
     uint32_t idle = 0;
     if (!scene_remaining.compare_exchange_strong(idle, static_cast<uint32_t>(start_scene(*request).order.size())))
@@ -1834,6 +1895,15 @@ extern "C" void PhotorealSetAccumulate(const PhotorealAccumulate *raw)
     PhotorealAccumulate copy {};
     std::memcpy(&copy, raw, std::min<size_t>(raw->size, sizeof copy));
     accumulate_box.put(parse_accumulate(copy));
+}
+
+extern "C" void PhotorealSetShot(const PhotorealShot *raw)
+{
+    // Only the bytes the caller says it has, as for the settings.
+    PhotorealShot copy {};
+    if (raw != nullptr && raw->size >= offsetof(PhotorealShot, active) + sizeof raw->active)
+        std::memcpy(&copy, raw, std::min<size_t>(raw->size, sizeof copy));
+    shot_box.put(parse_shot(&copy));
 }
 
 extern "C" float PhotorealDepthAt(float u, float v)

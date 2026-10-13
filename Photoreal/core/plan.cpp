@@ -57,6 +57,7 @@ namespace photoreal
         static_assert(PHOTOREAL_ACCUMULATE_PRESENT == static_cast<int>(AccumulateMode::present)
             && PHOTOREAL_ACCUMULATE_COUNT == static_cast<int>(AccumulateMode::count));
         static_assert(offsetof(PhotorealAccumulate, mode) == 4 && sizeof(PhotorealAccumulate) == 20);
+        static_assert(offsetof(PhotorealShot, active) == 4 && offsetof(PhotorealShot, budget_ms) == 12 && sizeof(PhotorealShot) == 16);
 
     namespace hlsl
     {
@@ -388,6 +389,42 @@ namespace photoreal
         if (knows(offsetof(PhotorealAccumulate, cat_eye_falloff), sizeof raw.cat_eye_falloff))
             a.cat_eye_falloff = finite_or(raw.cat_eye_falloff, defaults.cat_eye_falloff, 0.01f, 1.0f);
         return a;
+    }
+
+    ShotSettings parse_shot(const PhotorealShot *raw)
+    {
+        ShotSettings shot;
+        if (raw == nullptr)
+            return shot;
+        const auto knows = [raw](size_t offset, size_t bytes) { return raw->size >= offset + bytes; };
+        if (knows(offsetof(PhotorealShot, active), sizeof raw->active))
+            shot.active = raw->active != 0;
+        if (knows(offsetof(PhotorealShot, samples), sizeof raw->samples))
+            shot.samples = std::min<uint32_t>(raw->samples, 4096);
+        if (knows(offsetof(PhotorealShot, budget_ms), sizeof raw->budget_ms) && raw->budget_ms != 0)
+            shot.budget_ms = finite_or(raw->budget_ms, 0.0f, 2.0f, 200.0f);
+        return shot;
+    }
+
+    Settings with_shot(const Settings &applied, const ShotSettings &shot)
+    {
+        if (!shot.active)
+            return applied;
+        Settings s = applied;
+        if (!applied.enabled)
+        {
+            s.enabled = true;
+            s.view = View::off;
+            s.ambient.enabled = s.contact_shadows.enabled = s.atmosphere.enabled = s.tonemap.enabled = s.sun_shadows.enabled = s.wetness.enabled
+                = s.light_shafts.enabled = false;
+        }
+        s.trace.enabled = true;
+        s.gather.enabled = true;
+        if (shot.samples != 0)
+            s.gather.samples = shot.samples;
+        if (shot.budget_ms != 0)
+            s.trace.budget_ms = shot.budget_ms;
+        return s;
     }
 
     float wetness_amount(const WetnessSettings &settings, const Camera &camera)

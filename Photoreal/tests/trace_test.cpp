@@ -495,6 +495,60 @@ int main(int argc, char **argv)
             && trace_reset(a, trace_key(1, { 64, 64 }, camera, { 0, 1, 0 }, whole)));
     }
     {
+        // Why the samples start again, and what the log says of it.
+        const Camera camera = looking_down();
+        TraceSettings settings;
+        GatherSettings gather_settings;
+        SunLight sun;
+        sun.color = { 0.303f, 0.808f, 1.331f };
+        sun.shade = { 0, 1, 0 };
+        AmbientFit fit;
+        fit.rows = { { { 0.2f, 0.4f, 0.6f }, { 0, 0, 0 }, { 0.1f, 0.2f, 0.3f }, { 0, 0, 0 } } };
+        const GatherConstants light = gather_constants(gather_settings, sun, fit);
+        const TraceKey a = trace_key(3, { 1920, 1200 }, camera, { 0, 1, 0 }, settings, &light);
+        const auto why = [&](const TraceKey &now) { return std::string(kTraceRestartNames[static_cast<size_t>(trace_restart(a, now))]) + ": " + restart_text(trace_restart(a, now), &a, now); };
+        Camera moved = camera;
+        moved.world_to_view[13] += 0.5f;
+        TraceSettings longer = settings;
+        longer.ao_distance = 3;
+        SunLight dimmer = sun;
+        dimmer.color = { 0.301f, 0.805f, 1.327f };
+        const GatherConstants dim = gather_constants(gather_settings, dimmer, fit);
+        SunLight turned = sun;
+        turned.shade = { 0, 0.9998477f, 0.0174524f };
+        const GatherConstants turn = gather_constants(gather_settings, turned, fit);
+        gather_settings.hit_ambient = 0.25f;
+        const GatherConstants fainter = gather_constants(gather_settings, sun, fit);
+        check("nothing changed starts nothing", trace_restart(a, a) == TraceRestart::none);
+        check("a new scene", why(trace_key(4, { 1920, 1200 }, camera, { 0, 1, 0 }, settings, &light)) == "scene: the scene went from generation 3 to 4");
+        check("a new render size", why(trace_key(3, { 3840, 2400 }, camera, { 0, 1, 0 }, settings, &light)) == "render size: the render size went from 1920x1200 to 3840x2400");
+        check("a setting the rays depend on", why(trace_key(3, { 1920, 1200 }, camera, { 0, 1, 0 }, longer, &light)) == "settings: the occlusion distance went from 2 to 3"
+            && why(trace_key(3, { 1920, 1200 }, camera, { 0, 1, 0 }, settings)) == "settings: the gather went off"
+            && why(trace_key(3, { 1920, 1200 }, camera, { 0, 1, 0 }, settings, &fainter))
+                == "settings: the ambient light at a hit, its first row, went from (0.1, 0.2, 0.3) to (0.05, 0.1, 0.15)");
+        check("a moved camera", why(trace_key(3, { 1920, 1200 }, moved, { 0, 1, 0 }, settings, &light))
+            == "camera: the camera moved: its view by up to 0.5 an element and its projection by up to 0");
+        check("the shadows' sun turned a degree", why(trace_key(3, { 1920, 1200 }, camera, { 0, 0.9998477f, 0.0174524f }, settings, &light))
+            == "sun direction: the direction toward the sun went from (0, 1, 0) to (0, 0.999848, 0.0174524), 1.0000 degrees");
+        check("the shading sun turned a degree", why(trace_key(3, { 1920, 1200 }, camera, { 0, 1, 0 }, settings, &turn))
+            == "sun direction: the sun's shading direction went from (0, 1, 0) to (0, 0.999848, 0.0174524), 1.0000 degrees");
+        check("the sun's color, as build 210's dawn changed it", why(trace_key(3, { 1920, 1200 }, camera, { 0, 1, 0 }, settings, &dim))
+            == "light: the sun's color went from (0.303, 0.808, 1.331) to (0.301, 0.805, 1.327)");
+        check("the first of several that hold names the start: a new scene before a moved camera, a moved camera before the sun's color",
+            trace_restart(a, trace_key(4, { 1920, 1200 }, moved, { 0, 1, 0 }, settings, &dim)) == TraceRestart::scene
+            && trace_restart(a, trace_key(3, { 1920, 1200 }, moved, { 0, 1, 0 }, settings, &dim)) == TraceRestart::camera
+            && trace_restart(a, trace_key(3, { 1920, 1200 }, camera, { 0, 0.9998477f, 0.0174524f }, settings, &dim)) == TraceRestart::sun_direction);
+        check("a scene's first samples have nothing before them", restart_text(TraceRestart::scene, nullptr, a) == "a scene's first samples");
+        // A light that changes every frame for 97 s at 30 frames a second, as build 210's did, with a camera nudge in it.
+        RestartBurst burst;
+        std::string named;
+        for (uint32_t i = 1; i <= 2910; i++)
+            if (restart_logged(burst, i == 1 ? TraceRestart::scene : i == 700 ? TraceRestart::camera : TraceRestart::light))
+                named += std::to_string(i) + " ";
+        check("the log names each reason's first start of a burst and every power of two from 32 on", named == "1 2 32 64 128 256 512 700 1024 2048 "
+            && burst.count == 2910);
+    }
+    {
         const SunFacts facts = sun_facts(load_sun("fixtures/scene-194351-face-6-sun.bin"));
         check("build 199's view face: the sun from cascade 0's depth gradient and the floating origin from b1 row 10",
             facts.toward_sun && near(*facts.toward_sun, { 0.246589f, 0.573576f, 0.781155f }, 1e-6f) && facts.floating_origin

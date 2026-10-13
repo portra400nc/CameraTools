@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 
 using namespace photoreal;
@@ -1186,6 +1187,46 @@ int main()
     {
         check("disabled settings want no step", wanted_steps(view_only(PHOTOREAL_VIEW_HDR_SCENE)).bits != 0
             && wanted_steps(parse_settings(PhotorealSettings { sizeof(PhotorealSettings), 0, PHOTOREAL_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 8 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 2 }, { 1, 1, 1, 1, 1, 1 } })).empty());
+    }
+    {
+        // A traced shot over the applied settings.
+        PhotorealSettings raw = raw_settings();
+        raw.view = PHOTOREAL_VIEW_NORMALS;
+        raw.tonemap.enabled = 1;
+        raw.gather.samples = 32;
+        raw.trace.budget_ms = 100;
+        const Settings on = parse_settings(raw);
+        raw.enabled = 0;
+        const Settings off = parse_settings(raw);
+        PhotorealShot shot = { sizeof shot, 1, 0, 0 };
+        const Settings same = with_shot(on, parse_shot(nullptr)), plain = with_shot(on, parse_shot(&shot));
+        check("no shot leaves the applied settings as they are", !same.trace.enabled && !same.gather.enabled && same.view == View::normals && same.ambient.enabled);
+        check("a shot switches the trace and the gather on over applied settings that are on, and keeps their passes, view, samples and budget",
+            plain.enabled && plain.trace.enabled && plain.gather.enabled && plain.ambient.enabled && plain.tonemap.enabled && plain.view == View::normals
+            && plain.gather.samples == 32 && plain.trace.budget_ms == 100.0f && plain.ambient.level == 0.4f);
+        const Settings alone = with_shot(off, parse_shot(&shot));
+        check("under a master switch that is off the shot runs alone: the trace and the gather, no other pass, no view, the applied ambient level",
+            alone.enabled && alone.trace.enabled && alone.gather.enabled && !alone.ambient.enabled && !alone.tonemap.enabled && alone.view == View::off
+            && alone.ambient.level == 0.4f && wanted_steps(alone).has(Step::combine));
+        shot.samples = 128;
+        shot.budget_ms = 150;
+        const Settings given = with_shot(on, parse_shot(&shot));
+        check("a shot's samples and budget replace the applied ones", given.gather.samples == 128 && given.trace.budget_ms == 150.0f);
+        shot.samples = 100000;
+        shot.budget_ms = 1;
+        check("a shot's samples clamp to 4096 and its budget to 2 ms", parse_shot(&shot).samples == 4096 && parse_shot(&shot).budget_ms == 2.0f);
+        shot.budget_ms = NAN;
+        check("a NaN budget keeps the applied one", parse_shot(&shot).budget_ms == 0.0f && with_shot(on, parse_shot(&shot)).trace.budget_ms == 100.0f);
+        shot.size = 8;
+        check("an 8-byte shot is active with the applied samples and budget", parse_shot(&shot).active && parse_shot(&shot).samples == 0);
+        shot.size = 4;
+        check("a shot too short for active, an inactive one and a null one are no shot", !parse_shot(&shot).active && !parse_shot(nullptr).active
+            && (shot = { sizeof shot, 0, 64, 100 }, !with_shot(on, parse_shot(&shot)).trace.enabled));
+        // The status as a caller of each version reads it: it gets the bytes of its own size.
+        check("the status is 144 bytes: the restarts at 132, in a version 9 caller's padding, their reason at 136 and the shot at 140, and the shot is 16",
+            sizeof(PhotorealStatus) == 144 && offsetof(PhotorealStatus, trace_light) == 128 && offsetof(PhotorealStatus, trace_restarts) == 132
+            && offsetof(PhotorealStatus, trace_restart_reason) == 136 && offsetof(PhotorealStatus, shot_active) == 140 && sizeof(PhotorealShot) == 16
+            && PHOTOREAL_VERSION == 10);
     }
     {
         // Unity's GL.GetGPUProjectionMatrix for a 60 degree, 16:10 camera with near 0.1 and far 1000, reversed Z.
