@@ -8,13 +8,14 @@
  - Hide UI for clean shots
  - Frame guide: see where a crop to 7:5, 21:9 or any aspect ratio will cut the picture
  - Smooth camera movement (damping)
- - Change graphics settings and resolution while in free cam
+ - Change graphics settings and resolution while in free cam, with two presets you can make your own
+ - Enhancements: ambient light, contact shadows, soft sun shadows, haze, light shafts, wet surfaces and a tone map, through CameraTools' ReShade add-on
  - Change the time of day + time-lapse
  - Override the weather with sunny, cloudy, rain, thunderstorm, snow, or mist
  - Camera paths: record views as nodes and fly the camera through them
  - Custom lights: points, spots and soft sphere lights through ReShade, for the world or only characters
  - Character posing: freeze the active character, turn their joints, shape their hands and face, and save poses
- - One-button screenshots through ReShade, at max quality with effects on
+ - One-button screenshots through ReShade, at your highest settings with effects on
  - Depth of field through ReShade, with a focus point you move on the screen
  - Configurable hotkeys
  - Controller support (XInput, including the Steam Deck)
@@ -49,7 +50,7 @@ Freeze the active character, turn their joints with the sticks, shape their hand
 
 ## ReShade
 
-The ReShade tab drives ReShade from the free camera. It controls iMMERSE's depth of field, with a focus point you move on the screen, and it takes a screenshot at max quality with one button.
+The ReShade tab drives ReShade from the free camera. It controls iMMERSE's depth of field, with a focus point you move on the screen, and it takes a screenshot at the Highest preset with one button.
 
 [Use ReShade from CameraTools](RESHADE.md)
 
@@ -94,7 +95,35 @@ The `=` and `-` hotkeys keep their old names, `SetResolutionTo4K` and `SetResolu
 
 While you type a resolution, the hotkeys are off, so typing 8 or 9 does not change the field of view.
 
-## Graphics preferences
+## Graphics
+
+The Graphics tab changes the game's graphics settings from the free camera, and some values past the game's own limits.
+
+### Presets
+
+Highest and Lowest are presets. The line under a row shows what each preset sets that row to. Restore my settings puts back the settings you had before CameraTools changed one.
+
+To make a preset your own:
+
+1. Set the rows the way the preset should set them. For example, apply Highest, then turn Bloom off.
+2. Select Save current settings as Highest, or Save current settings as Lowest.
+
+The preset now sets every game setting, every value past the game's limits and every enhancement to what you had when you saved it. The screenshot button applies Highest, so in the example your screenshots have no bloom. Reset presets brings the built-in presets back.
+
+### Enhancements
+
+The Enhancements category controls the effects of CameraTools' ReShade add-on `CameraToolsEnhancements.addon64`: ambient light, contact shadows, soft sun shadows, haze, light shafts, wet surfaces and a tone map.
+
+- The heading folds the category away, and shows whether the effects are on and how many.
+- The Enhancements switch turns all effects on or off. While it is off, the other rows are greyed.
+- Each effect has a switch. An effect's own settings show while its switch is on.
+- Reset enhancements puts every switch and value back to its default.
+
+Everything starts off. CameraTools saves each change, and applies your settings when the game starts. If the heading says the add-on was not found, ReShade has not loaded it.
+
+The built-in presets leave the enhancements as they are. A preset you save sets them too, and each switch then shows what Highest and Lowest set it to. Restore my settings also puts back the enhancements you had before a preset first changed them.
+
+### Graphics preferences
 
 The `[CameraToolsGraphics]` section of `MelonPreferences.cfg` holds:
 
@@ -104,8 +133,13 @@ The `[CameraToolsGraphics]` section of `MelonPreferences.cfg` holds:
 | `ResolutionSlot2` | `2560x1600` | The size the `=` hotkey and Slot 2 apply, as WxH |
 | `SavedSettings` | empty | Your game settings from before CameraTools first changed one, as setting number=option index, for Restore. CameraTools writes and empties it. |
 | `HideOutlines` | `false` | Hides the outlines the game draws around characters, NPCs and weapons. The Graphics tab's Outlines switch sets it. Presets and the screenshot button leave it as it is. |
+| `HighestPreset` | empty | Your own Highest preset, as Save current settings as Highest wrote it. Empty means the built-in preset. |
+| `LowestPreset` | empty | Your own Lowest preset. Empty means the built-in preset. |
+| `SavedEnhancements` | empty | Your enhancements from before a preset first changed them, for Restore. CameraTools writes and empties it. |
 
 A slot from 320x200 to 16384x16384 is accepted. A slot that does not parse falls back to its default, and the log names it.
+
+The `[CameraToolsEnhancements]` section holds one entry for each switch and value of the Enhancements category, under the names the log uses, and `Folded`, which keeps the category folded.
 
 ## Frame guide
 
