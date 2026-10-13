@@ -26,7 +26,7 @@ namespace CameraTools
         public sealed record Saving(ShotBefore Before, bool Resized, float Started, float Requested, ulong Shots) : Busy(Before, Resized, Started);
     }
 
-    // The ReShade tab's one-button screenshot: hide everything, raise the quality and the resolution, turn ReShade's
+    // The ReShade tab's one-button screenshot: hide everything, apply the Highest preset and the resolution, turn ReShade's
     // effects on, capture through ReShade once the picture has settled, and put everything back. It runs on unscaled
     // time, so a paused game still takes its screenshot.
     internal static class Screenshot
@@ -149,7 +149,7 @@ namespace CameraTools
                 DepthOfField.Flush();
                 CameraUi.ClosePanel();
                 SetUiHidden(true);
-                string preset = Graphics.ApplyQuietly(Graphics.Screenshot);
+                string preset = Graphics.ApplyForShot();
                 if (resized)
                     resize = (slot, bridge.Presents + SaveFrames);
                 ReShade.SetEffects(true);

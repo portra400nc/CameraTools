@@ -23,6 +23,7 @@
          tests touch only its structs. -->
     <Compile Include="../CameraTools/TracedShot.cs" Link="TracedShot.cs" />
     <Compile Include="../CameraTools/EnhancementsModel.cs" Link="EnhancementsModel.cs" />
+    <Compile Include="../CameraTools/GraphicsModel.cs" Link="GraphicsModel.cs" />
     <Compile Include="../Enhancements/csharp/Enhancements.cs" Link="Enhancements.cs" />
   </ItemGroup>
   <ItemGroup>

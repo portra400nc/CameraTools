@@ -3,8 +3,6 @@ using UnityEngine;
 
 namespace CameraTools
 {
-    public enum LodLevel { MostDetail, LeastDetail }
-
     // Genshin's LOD system samples its camera mid-frame, while the game's own pose is still on the main camera, so
     // detail follows the gameplay camera. A disabled proxy camera that never renders carries the free camera's pose.
     internal static class Lod

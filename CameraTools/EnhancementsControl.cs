@@ -17,19 +17,17 @@ namespace CameraTools
         // By field: writes a value to the field's entry.
         private static readonly Action<float>[] writers = new Action<float>[EnhancementsModel.Fields.Length];
         private static MelonPreferences_Entry<bool> folded;
-        private static EnhancementValues own = EnhancementValues.Defaults;
-        // A screenshot's preset's values, which the add-on runs in place of the user's own until the screenshot puts its
-        // settings back. The preferences keep the user's own.
-        private static EnhancementValues shot;
+        // The user's own values, which the preferences keep, and a screenshot's preset's while it runs them.
+        private static EnhancementRun run = new(EnhancementValues.Defaults);
         private static int connections;
         private static float? logAt;
         // The heading's text for the values it was made from.
         private static (EnhancementValues Of, string Text) summary;
 
         // The user's own values.
-        public static EnhancementValues Values => own;
+        public static EnhancementValues Values => run.Own;
 
-        private static EnhancementValues Running => shot ?? own;
+        private static EnhancementValues Running => run.Running;
 
         public static bool Folded => folded.Value;
 
@@ -40,8 +38,8 @@ namespace CameraTools
             {
                 if (Enhancements.Missing is { } missing)
                     return missing;
-                if (!ReferenceEquals(summary.Of, own))
-                    summary = (own, EnhancementsModel.Summary(own));
+                if (!ReferenceEquals(summary.Of, Values))
+                    summary = (Values, EnhancementsModel.Summary(Values));
                 return summary.Text;
             }
         }
@@ -53,16 +51,27 @@ namespace CameraTools
             yield return new FoldRow("Enhancements", () => !Folded, () => SetFolded(!Folded), () => State);
             foreach (var field in EnhancementsModel.Fields)
             {
-                Func<bool> shown = () => EnhancementsModel.Shown(field, own, Folded);
-                Func<bool> usable = field.Id == Enhancement.Enabled ? null : () => EnhancementsModel.Usable(field, own);
+                Func<bool> shown = () => EnhancementsModel.Shown(field, Values, Folded);
+                Func<bool> usable = field.Id == Enhancement.Enabled ? null : () => EnhancementsModel.Usable(field, Values);
+                if (field.Kind == EnhancementKind.Switch)
+                {
+                    // The line that says what the presets set a switch to comes with a saved preset and makes the row
+                    // taller, so each switch has a row without the line and a row with it.
+                    var plain = new ToggleRow(field.Label, () => Values.On(field.Id), on => Change(field.Id, on ? 1f : 0f), usable)
+                    {
+                        Shown = () => shown() && !Graphics.PresetsEnhance,
+                    };
+                    yield return plain;
+                    yield return plain with { Shown = () => shown() && Graphics.PresetsEnhance, Note = () => Graphics.SwitchNote(field.Id) };
+                    continue;
+                }
                 yield return field.Kind switch
                 {
-                    EnhancementKind.Switch => new ToggleRow(field.Label, () => own.On(field.Id), on => Change(field.Id, on ? 1f : 0f), usable) { Shown = shown },
-                    EnhancementKind.Choice => new ChoiceRow(field.Label, field.Options, () => (int)own[field.Id], position => Change(field.Id, position), null, usable)
+                    EnhancementKind.Choice => new ChoiceRow(field.Label, field.Options, () => (int)Values[field.Id], position => Change(field.Id, position), null, usable)
                     {
                         Shown = shown, Sub = true,
                     },
-                    _ => new SliderRow(field.Label, field.Min, field.Max, field.Step, field.Format, () => own[field.Id], value => Change(field.Id, value),
+                    _ => new SliderRow(field.Label, field.Min, field.Max, field.Step, field.Format, () => Values[field.Id], value => Change(field.Id, value),
                         Enabled: usable)
                     {
                         Shown = shown, Sub = true,
@@ -79,12 +88,12 @@ namespace CameraTools
             var readers = new Func<float?>[writers.Length];
             foreach (var field in EnhancementsModel.Fields)
                 (readers[(int)field.Id], writers[(int)field.Id]) = Entry(category, field);
-            own = EnhancementValues.From(field => readers[(int)field.Id]());
+            run = new EnhancementRun(EnhancementValues.From(field => readers[(int)field.Id]()));
             // An entry may hold what its row cannot, such as a number past the row's range, and then says what was read.
             foreach (var field in EnhancementsModel.Fields)
-                writers[(int)field.Id](own[field.Id]);
+                writers[(int)field.Id](Values[field.Id]);
             MelonPreferences.Save();
-            Log($"the preferences hold {Describe(own)}.");
+            Log($"the preferences hold {Describe(Values)}.");
         }
 
         // Once a frame, after Enhancements.Update. An add-on that ReShade loaded has none of the settings yet.
@@ -105,18 +114,18 @@ namespace CameraTools
         // Sets the user's own values: saves the ones that changed and has the add-on run them. Returns whether any did.
         public static bool Set(EnhancementValues values)
         {
-            if (values.Equals(own))
+            if (values.Equals(Values))
                 return false;
             foreach (var field in EnhancementsModel.Fields)
-                if (values[field.Id] != own[field.Id])
+                if (values[field.Id] != Values[field.Id])
                     writers[(int)field.Id](values[field.Id]);
-            own = values;
+            run = run with { Own = values };
             MelonPreferences.Save();
             Push();
             return true;
         }
 
-        private static void Change(Enhancement id, float value) => Set(own.With(id, value));
+        private static void Change(Enhancement id, float value) => Set(Values.With(id, value));
 
         // Every switch and value back to its default: everything off.
         private static void Reset()
@@ -134,21 +143,16 @@ namespace CameraTools
 
         // A screenshot's preset holds these values: the add-on runs them until Release, and the user's own stay as they
         // are. Returns whether the add-on runs other values for it; a preset that holds none changes nothing.
-        public static bool Hold(EnhancementValues values)
-        {
-            if (values == null || values.Equals(Running))
-                return false;
-            shot = values;
-            Push();
-            return true;
-        }
+        public static bool Hold(EnhancementValues values) => Run(run.Hold(values));
 
         // Returns whether the add-on ran a screenshot's values, which the user's own now replace.
-        public static bool Release()
+        public static bool Release() => Run(run.Release());
+
+        private static bool Run(EnhancementRun next)
         {
-            if (shot == null)
+            if (ReferenceEquals(next, run))
                 return false;
-            shot = null;
+            run = next;
             Push();
             return true;
         }

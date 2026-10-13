@@ -1,6 +1,7 @@
 // The traced screenshot's decisions (CameraTools/TracedShot.cs), the Enhancements category's rules and its settings for
-// the add-on (CameraTools/EnhancementsModel.cs), and the Enhancements binding's layout against
-// Enhancements/enhancements.h's literal sizes. No game, no ReShade, no add-on: run with dotnet run.
+// the add-on (CameraTools/EnhancementsModel.cs), the presets' decisions (CameraTools/GraphicsModel.cs), and the
+// Enhancements binding's layout against Enhancements/enhancements.h's literal sizes. No game, no ReShade, no add-on: run
+// with dotnet run.
 using System.Runtime.InteropServices;
 using CameraTools;
 using CameraToolsEnhancements;
@@ -271,6 +272,111 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
         && EnhancementsModel.Summary(running) == "On · 1 effect" && EnhancementsModel.Summary(running.With(Enhancement.LightShafts, 1f).With(Enhancement.ToneMap, 1f)) == "On · 3 effects");
     Check("the log names the effects that are switched on", EnhancementsModel.Names(fresh) == "no effect"
         && EnhancementsModel.Names(running.With(Enhancement.ToneMap, 1f)) == "Haze, Tone map");
+}
+
+// The presets. A setting goes by its number in the game's settings, and a menu lists the option indices the game stores,
+// lowest first: frame rate's 45 was added after 30 and 60, so its index comes last and its place is in the middle.
+{
+    const int FrameRate = 2, RenderResolution = 4, Bloom = 15, Reflections = 20;
+    var lists = new Dictionary<int, OptionList>
+    {
+        [FrameRate] = new(new[] { 0, 2, 1 }),
+        [RenderResolution] = new(new[] { 0, 1, 2, 3, 4, 5, 6, 7, 8 }),
+        [Bloom] = new(new[] { 0, 1 }),
+        // One option on this machine, so the setting has no row.
+        [Reflections] = new(new[] { 0 }),
+    };
+    string[] rates = { "30", "45", "60" }, scales = { "0.6", "0.8", "0.9", "1.0", "1.1", "1.2", "1.3", "1.4", "1.5" }, offOn = { "Off", "On" };
+    var highest = Presets.BuiltIn(PresetSlot.Highest,
+        new Dictionary<int, Pick> { [FrameRate] = Pick.Keep, [RenderResolution] = Pick.Highest, [Bloom] = Pick.Highest, [Reflections] = Pick.Highest });
+    var lowest = Presets.BuiltIn(PresetSlot.Lowest,
+        new Dictionary<int, Pick> { [FrameRate] = Pick.Highest, [RenderResolution] = Pick.Lowest, [Bloom] = Pick.Lowest, [Reflections] = Pick.Lowest });
+    // The user's own settings: 45 FPS, render resolution 1.0, bloom on.
+    var mine = new Dictionary<int, int> { [FrameRate] = 2, [RenderResolution] = 3, [Bloom] = 1, [Reflections] = 0 };
+    string Show(IEnumerable<SettingChange> changes) => string.Join(" ", changes.Select(change => $"{change.Setting}:{change.From}>{change.To}"));
+    Dictionary<int, int> After(Dictionary<int, int> now, IEnumerable<SettingChange> changes)
+    {
+        var next = new Dictionary<int, int>(now);
+        foreach (var change in changes)
+            next[change.Setting] = change.To;
+        return next;
+    }
+
+    Check("the built-in presets are named Highest and Lowest", highest.Name == "Highest" && lowest.Name == "Lowest");
+    Check("the built-in Highest raises what is not at its highest, keeps the frame rate, and leaves a setting without a row alone",
+        Show(Presets.Changes(highest, lists, mine)) == "4:3>8");
+    Check("the built-in Lowest lowers each setting and takes the frame rate to the menu's last option, 60",
+        Show(Presets.Changes(lowest, lists, mine)) == "2:2>1 4:3>0 15:1>0");
+    Check("the built-in presets hold the values past the game's limits, and leave the enhancements alone",
+        highest.Overrides == new Overrides(ShadowDistance: 300f) && highest.Lod == LodLevel.MostDetail && highest.Enhancements == null
+        && lowest.Overrides == new Overrides(0.5f, false, 20f, false, false, 0) && lowest.Lod == LodLevel.LeastDetail && lowest.Enhancements == null);
+    Check("the line under a row says what each built-in preset sets it to",
+        Presets.SettingNote(highest, RenderResolution, lists[RenderResolution], scales) == "1.5" && Presets.SettingNote(lowest, RenderResolution, lists[RenderResolution], scales) == "0.6"
+        && Presets.SettingNote(highest, FrameRate, lists[FrameRate], rates) == "Keep" && Presets.SettingNote(lowest, FrameRate, lists[FrameRate], rates) == "60"
+        && Presets.SettingNote(highest, Bloom, lists[Bloom], offOn) == "On" && Presets.ScaleNote(highest) == "Game" && Presets.ScaleNote(lowest) == "0.50"
+        && Presets.SwitchNote(highest, Enhancement.Enabled) == "Keep" && Presets.SwitchNote(lowest, Enhancement.Haze) == "Keep");
+
+    // Bloom off in screenshots: Highest, then Bloom off and Light shafts on, then "Save current settings as Highest".
+    var raised = After(mine, Presets.Changes(highest, lists, mine));
+    var edited = new Dictionary<int, int>(raised) { [Bloom] = 0 };
+    var shafts = fresh.With(Enhancement.Enabled, 1f).With(Enhancement.LightShafts, 1f).With(Enhancement.MistHeight, 12.5f);
+    var rows = edited.Where(pair => lists[pair.Key].HasRow).ToDictionary(pair => pair.Key, pair => pair.Value);
+    var saved = Presets.Saved(PresetSlot.Highest, rows, highest.Overrides, highest.Lod, shafts);
+    Check("the built-in Highest forces Bloom on again", Show(Presets.Changes(highest, lists, edited)) == "15:0>1");
+    Check("a saved Highest holds every row's value, so the screenshot turns Bloom off where the built-in one leaves it on",
+        Show(Presets.Changes(saved, lists, mine)) == "4:3>8 15:1>0" && Show(Presets.Changes(saved, lists, edited)) == "");
+    Check("after the shot, what the preset changed goes back: the render resolution to 1.0 and Bloom on",
+        Show(Presets.Back(mine, After(mine, Presets.Changes(saved, lists, mine)))) == "4:8>3 15:0>1" && Show(Presets.Back(mine, mine)) == "");
+    Check("a saved preset takes every enhancement switch and value along", saved.Enhancements.Equals(shafts) && saved.Name == "Highest"
+        && saved.Overrides == new Overrides(ShadowDistance: 300f) && saved.Lod == LodLevel.MostDetail);
+    Check("the lines then say what the saved preset sets: no row is kept, and each switch is On or Off",
+        Presets.SettingNote(saved, Bloom, lists[Bloom], offOn) == "Off" && Presets.SettingNote(saved, FrameRate, lists[FrameRate], rates) == "45"
+        && Presets.SettingNote(saved, RenderResolution, lists[RenderResolution], scales) == "1.5" && Presets.SwitchNote(saved, Enhancement.Enabled) == "On"
+        && Presets.SwitchNote(saved, Enhancement.LightShafts) == "On" && Presets.SwitchNote(saved, Enhancement.Haze) == "Off");
+
+    // The screenshot runs the preset's enhancements without making them the user's own.
+    var run = new EnhancementRun(fresh);
+    var shooting = run.Hold(saved.Enhancements);
+    Check("a screenshot runs its preset's enhancements, and the user's own stay as they are", shooting.Running.Equals(shafts) && shooting.Own.Equals(fresh));
+    Check("after the shot the user's own run again", shooting.Release().Running.Equals(fresh) && ReferenceEquals(run.Release(), run));
+    Check("a preset that keeps the enhancements, or holds the ones that run, changes nothing in a shot",
+        ReferenceEquals(run.Hold(highest.Enhancements), run) && ReferenceEquals(run.Hold(fresh), run) && ReferenceEquals(shooting.Hold(shafts), shooting));
+
+    // What the preferences hold of a saved preset.
+    string text = Presets.Text(saved);
+    var skipped = new List<string>();
+    var read = Presets.Parse(PresetSlot.Highest, text, skipped);
+    Check("a saved preset writes its settings, its values past the game's limits, its detail level and its enhancements",
+        text.StartsWith("2=2;4=8;15=0;ShadowDistance=300;Detail=MostDetail;Enabled=1;AmbientLight=0;") && text.Contains(";LightShafts=1;") && text.Contains(";MistHeight=12.5;"));
+    Check("and reads back the same", skipped.Count == 0 && Presets.Text(read) == text && Show(Presets.Changes(read, lists, mine)) == "4:3>8 15:1>0"
+        && read.Overrides == saved.Overrides && read.Lod == saved.Lod && read.Enhancements.Equals(shafts));
+    var all = Presets.Saved(PresetSlot.Lowest, new Dictionary<int, int>(), lowest.Overrides, lowest.Lod, null);
+    Check("every value past the game's limits writes and reads, and a preset without enhancements keeps them",
+        Presets.Text(all) == "RenderScale=0.5;Shadows=Off;ShadowDistance=20;DistantShadows=Off;Fog=Off;Particles=0;Detail=LeastDetail"
+        && Presets.Parse(PresetSlot.Lowest, Presets.Text(all), skipped) is { Enhancements: null, Lod: LodLevel.LeastDetail } low && low.Overrides == lowest.Overrides
+        && low.Name == "Lowest" && skipped.Count == 0);
+    Check("a render scale left to the game is left to the game by the saved preset",
+        Presets.ScaleNote(saved) == "Game" && Presets.ScaleNote(saved with { Overrides = saved.Overrides with { RenderScale = 1.25f } }) == "1.25");
+    Check("an empty entry stands for the built-in preset", Presets.Parse(PresetSlot.Highest, "", skipped) == null && Presets.Parse(PresetSlot.Highest, " ; ", skipped) == null);
+    var odd = Presets.Parse(PresetSlot.Highest, "15=0; Shadows=On; Detail=Best; what; Haze=1; 4=x", skipped);
+    Check("an entry is read without the parts that are none of its values, and names them",
+        Show(Presets.Changes(odd, lists, mine)) == "15:1>0" && odd.Overrides == Overrides.None && odd.Lod == null && odd.Enhancements.Equals(fresh.With(Enhancement.Haze, 1f))
+        && skipped.OrderBy(part => part).SequenceEqual(new[] { "4=x", "Detail=Best", "Shadows=On", "what" }));
+    var stale = Presets.Saved(PresetSlot.Highest, new Dictionary<int, int> { [Bloom] = 5, [Reflections] = 0, [99] = 1 }, Overrides.None, null, null);
+    Check("a saved option the game no longer offers, and a setting without a row, are left alone",
+        Show(Presets.Changes(stale, lists, mine)) == "" && Presets.SettingNote(stale, Bloom, lists[Bloom], offOn) == "Keep");
+
+    // Applying a preset to the enhancements, and Restore.
+    var haze = fresh.With(Enhancement.Haze, 1f);
+    var second = saved with { Enhancements = haze.With(Enhancement.Enabled, 1f) };
+    var (first, remembered) = Presets.Enhance(saved, haze, null);
+    Check("a preset sets the enhancements it holds, and the ones from before it are kept for Restore", first.Equals(shafts) && remembered.Equals(haze));
+    Check("a second preset leaves what Restore returns to: the enhancements from before the first one",
+        Presets.Enhance(second, first, remembered) is var (next, before) && next.Equals(second.Enhancements) && before.Equals(haze));
+    Check("a built-in preset keeps the enhancements, and nothing is kept for Restore",
+        Presets.Enhance(highest, haze, null) is var (same, none) && ReferenceEquals(same, haze) && none == null);
+    Check("a preset that holds the enhancements already set keeps nothing for Restore either",
+        Presets.Enhance(saved, shafts, null) is var (unchanged, nothing) && ReferenceEquals(unchanged, shafts) && nothing == null);
 }
 
 Console.WriteLine($"CameraTools tests: {failures} failed");

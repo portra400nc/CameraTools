@@ -103,6 +103,18 @@ namespace CameraTools
             => string.Join(";", EnhancementsModel.Fields.Select(field => $"{field.Name}={values[(int)field.Id].ToString(CultureInfo.InvariantCulture)}"));
     }
 
+    // The values the add-on runs: the user's own, which the preferences keep, or those of a screenshot's preset until the
+    // screenshot puts its settings back.
+    public sealed record EnhancementRun(EnhancementValues Own, EnhancementValues Shot = null)
+    {
+        public EnhancementValues Running => Shot ?? Own;
+
+        // A screenshot's preset holds these values. A preset that holds none, or the ones that run, changes nothing.
+        public EnhancementRun Hold(EnhancementValues values) => values == null || values.Equals(Running) ? this : this with { Shot = values };
+
+        public EnhancementRun Release() => Shot == null ? this : this with { Shot = null };
+    }
+
     // The Enhancements category's rules, apart from the game, the preferences and the add-on, so tests run them.
     internal static class EnhancementsModel
     {

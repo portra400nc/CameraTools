@@ -36,16 +36,19 @@ namespace CameraTools
     // them. State is read every frame for the line at the heading's right, which shows folded or not.
     public sealed record FoldRow(string Label, Func<bool> Open, Action Toggle, Func<string> State) : Row(Label);
 
-    public sealed record ToggleRow(string Label, Func<bool> Get, Action<bool> Set, Func<bool> Enabled = null) : Row(Label);
-
-    // What the Max quality and Min for performance presets set a row to, shown on a second line under its label.
-    public sealed record PresetNote(string Max, string Min, bool Restart);
+    // Note, when set, is read every frame for what the presets set the switch to, shown under its label in place of a
+    // Detail.
+    public sealed record ToggleRow(string Label, Func<bool> Get, Action<bool> Set, Func<bool> Enabled = null) : Row(Label)
+    {
+        public Func<PresetNote> Note { get; init; }
+    }
 
     // A slider's rail: the plain track with a cream fill, or the colours it picks from, with no fill.
     public enum RailLook { Plain, Hue, Temperature }
 
+    // Note, when set, is read every frame for what the presets set the row to, shown under its label.
     public sealed record SliderRow(string Label, float Min, float Max, float Step, string Format,
-        Func<float> Get, Action<float> Set, PresetNote Note = null, Func<float, string> Display = null, Func<bool> Enabled = null)
+        Func<float> Get, Action<float> Set, Func<PresetNote> Note = null, Func<float, string> Display = null, Func<bool> Enabled = null)
         : Row(Label)
     {
         public RailLook Rail { get; init; }
@@ -59,8 +62,8 @@ namespace CameraTools
             => new(label, setting.Min, setting.Max, step, format, () => setting.Value, value => setting.Value = value);
     }
 
-    // Get is the shown option's position in Options, or -1 when the current value is none of them.
-    public sealed record ChoiceRow(string Label, string[] Options, Func<int> Get, Action<int> Set, PresetNote Note,
+    // Get is the shown option's position in Options, or -1 when the current value is none of them. Note is as a slider's.
+    public sealed record ChoiceRow(string Label, string[] Options, Func<int> Get, Action<int> Set, Func<PresetNote> Note,
         Func<bool> Enabled = null) : Row(Label)
     {
         // Read every frame in place of Options, for a list that changes, such as the active character's expressions.
@@ -571,9 +574,12 @@ namespace CameraTools
             var rows = new List<Row>
             {
                 new Section("Presets"),
-                new ActionRow("Max quality (screenshots)", () => Graphics.Apply(Graphics.Screenshot), "Apply"),
-                new ActionRow("Min for performance", () => Graphics.Apply(Graphics.Performance), "Apply"),
+                new ActionRow("Highest", () => Graphics.Apply(PresetSlot.Highest), "Apply"),
+                new ActionRow("Lowest", () => Graphics.Apply(PresetSlot.Lowest), "Apply"),
                 new ActionRow("Restore my settings", Graphics.Restore, "Restore"),
+                new ActionRow("Save current settings as Highest", () => Graphics.Save(PresetSlot.Highest), "Save"),
+                new ActionRow("Save current settings as Lowest", () => Graphics.Save(PresetSlot.Lowest), "Save"),
+                new ActionRow("Reset presets", Graphics.ResetPresets, "Reset"),
                 new Section("Resolution"),
                 new ResolutionRow("Slot 1", 1),
                 new ResolutionRow("Slot 2", 2),

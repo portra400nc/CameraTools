@@ -5,31 +5,11 @@ using SettingKey = DNMAIIHOLOL;
 
 namespace CameraTools
 {
-    public enum Pick { Keep, Lowest, Highest }
-
-    // One of the game's settings: its row label, the PC menu's option labels, and what each preset picks.
-    public sealed record SettingRow(SettingKey Key, string Label, string[] Options, Pick Screenshot, Pick Performance);
-
-    // Values past the game's own range. Null leaves a value to the game. They are not saved, so a restart resets them.
-    public sealed record Overrides(
-        float? RenderScale = null,
-        ShadowQuality? Shadows = null,
-        float? ShadowDistance = null,
-        bool? DistantShadows = null,
-        bool? Fog = null,
-        int? Particles = null)
+    // One of the game's settings: its row label, the PC menu's option labels, and what each built-in preset picks.
+    public sealed record SettingRow(SettingKey Key, string Label, string[] Options, Pick Highest, Pick Lowest)
     {
-        public static readonly Overrides None = new();
-    }
-
-    public sealed record Preset(string Name, Func<SettingRow, Pick> Pick, Overrides Overrides, LodLevel? Lod);
-
-    // One setting's options in the settings menu's order, lowest first. Menu[position] is the option index the game stores
-    // for that menu position; the two differ where the game appended an option later, such as 45 FPS.
-    public sealed record OptionList(int[] Menu)
-    {
-        public int Lowest => Menu[0];
-        public int Highest => Menu[^1];
+        // The setting's number in the game's settings, which a saved preset and SavedSettings name it by.
+        public int Number => (int)Key;
     }
 
     // The game settings, overrides and forced LOD at one moment, which PutBack returns to.
@@ -60,7 +40,8 @@ namespace CameraTools
 
     // The Graphics tab. Game settings are written through the game's own settings store, so its menu shows them and they
     // are saved; values past the game's range are held as overrides. The user's settings are saved once, before
-    // CameraTools first changes one, for Restore.
+    // CameraTools first changes one, for Restore. Highest and Lowest are the built-in presets until the user saves the
+    // rows' current values as one, which takes the enhancements along; GraphicsModel holds the presets' decisions.
     internal static class Graphics
     {
         private const string MainCameraPath = "/EntityRoot/MainCamera(Clone)";
@@ -94,13 +75,16 @@ namespace CameraTools
             new(SettingKey.GlobalIllumination, "Global illumination", OffOn, Pick.Highest, Pick.Lowest),
         };
 
-        // The game's own render resolution goes to its highest, so Max leaves render scale to the game.
-        public static readonly Preset Screenshot = new("Max quality", row => row.Screenshot,
-            new Overrides(ShadowDistance: 300f), LodLevel.MostDetail);
+        private static readonly Dictionary<int, SettingRow> Rows = Table.ToDictionary(row => row.Number);
 
-        public static readonly Preset Performance = new("Min for performance", row => row.Performance,
-            new Overrides(RenderScale: 0.5f, Shadows: ShadowQuality.Disable, ShadowDistance: 20f, DistantShadows: false, Fog: false, Particles: 0),
-            LodLevel.LeastDetail);
+        // By PresetSlot.
+        private static readonly Preset[] BuiltIn =
+        {
+            Presets.BuiltIn(PresetSlot.Highest, Table.ToDictionary(row => row.Number, row => row.Highest)),
+            Presets.BuiltIn(PresetSlot.Lowest, Table.ToDictionary(row => row.Number, row => row.Lowest)),
+        };
+
+        private const string Unavailable = "Graphics presets are unavailable; see the log";
 
         private static readonly ScreenSize[] CommonSizes =
         {
@@ -119,7 +103,8 @@ namespace CameraTools
         private static readonly IKnob[] Knobs =
         {
             new Knob<float>("innerResolutionScale", SettingKey.RenderResolution, wanted => wanted.RenderScale, ReadScale, WriteScale),
-            new Knob<ShadowQuality>("shadows", SettingKey.ShadowQuality, wanted => wanted.Shadows ?? LightShadows(), () => QualitySettings.shadows,
+            new Knob<ShadowQuality>("shadows", SettingKey.ShadowQuality, wanted => wanted.Shadows == false ? ShadowQuality.Disable : LightShadows(),
+                () => QualitySettings.shadows,
                 value => QualitySettings.shadows = value),
             new Knob<float>("shadowDistance", SettingKey.ShadowQuality, wanted => wanted.ShadowDistance, null, QualitySettings.set_shadowDistance),
             new Knob<bool>("enableDistantShadow", SettingKey.ShadowQuality, wanted => wanted.DistantShadows, () => QualitySettings.enableDistantShadow,
@@ -136,6 +121,12 @@ namespace CameraTools
         };
 
         private static MelonPreferences_Entry<string> saved;
+        private static MelonPreferences_Entry<string> savedEnhancements;
+        private static MelonPreferences_Entry<string>[] presetEntries;
+        // The user's own Highest and Lowest by PresetSlot, or null where the built-in one stands.
+        private static readonly Preset[] own = new Preset[2];
+        // The user's enhancements from before a preset first changed them, or null while none did.
+        private static EnhancementValues ownEnhancements;
         private static MelonPreferences_Entry<string>[] slotEntries;
         private static MelonPreferences_Entry<bool> hideOutlines;
         private static ScreenSize[] slots;
@@ -174,7 +165,29 @@ namespace CameraTools
             }
             hideOutlines = category.CreateEntry("HideOutlines", false,
                 description: "Hide the outlines the game draws around characters, NPCs and weapons. Presets and the screenshot button leave it as it is.");
+            presetEntries = new MelonPreferences_Entry<string>[own.Length];
+            foreach (var slot in Enum.GetValues<PresetSlot>())
+            {
+                presetEntries[(int)slot] = category.CreateEntry($"{slot}Preset", "",
+                    description: $"Your own {slot} preset, which \"Save current settings as {slot}\" writes: setting number=option index for each game setting, "
+                        + "then the values past the game's limits, then every enhancement. Empty for the built-in preset; Reset presets empties it.");
+                own[(int)slot] = Read($"{slot}Preset", presetEntries[(int)slot].Value, (text, skipped) => Presets.Parse(slot, text, skipped));
+            }
+            savedEnhancements = category.CreateEntry("SavedEnhancements", "",
+                description: "Your own enhancements from before a preset first changed them. Restore puts them back and empties this.");
+            ownEnhancements = Read("SavedEnhancements", savedEnhancements.Value, EnhancementsModel.Parse);
             MelonPreferences.Save();
+        }
+
+        // Reads an entry that holds name=value pairs, and names in the log the parts that are none of its values.
+        private static T Read<T>(string entry, string text, Func<string, ICollection<string>, T> parse)
+        {
+            var skipped = new List<string>();
+            var value = parse(text, skipped);
+            if (skipped.Count > 0)
+                Melon<CameraTools>.Logger.Warning($"CameraToolsGraphics {entry} has {string.Join(", ", skipped.Select(part => $"\"{part}\""))}, "
+                    + "which CameraTools cannot read; the entry is read without.");
+            return value;
         }
 
         public static void Update()
@@ -229,32 +242,26 @@ namespace CameraTools
                 CameraTools.LogOnce("Graphics: the game's options were not readable when the UI was built; the Graphics tab has no game settings rows.");
             foreach (var row in Table)
             {
-                if (!lists.TryGetValue(row.Key, out var list) || list.Menu.Length < 2)
+                if (!lists.TryGetValue(row.Number, out var list) || !list.HasRow)
                 {
                     CameraTools.LogOnce($"Graphics: no row for {row.Label}; the game offers {(list == null ? 0 : list.Menu.Length)} options for it.");
                     continue;
                 }
                 var labels = OptionLabels(row, list);
-                string Note(Pick pick) => pick switch
-                {
-                    Pick.Lowest => labels[0],
-                    Pick.Highest => labels[^1],
-                    _ => "Keep",
-                };
+                string Note(PresetSlot slot) => Presets.SettingNote(Current(slot), row.Number, list, labels);
                 yield return new ChoiceRow(row.Label, labels,
-                    () => GameSettings.Get(row.Key) is int now ? Array.IndexOf(list.Menu, now) : -1,
+                    () => GameSettings.Get(row.Key) is int now ? list.Position(now) : -1,
                     position => Change(row, list.Menu[position]),
-                    new PresetNote(Note(row.Screenshot), Note(row.Performance), row.Key == SettingKey.ComprehensiveQuality));
+                    () => new PresetNote(Note(PresetSlot.Highest), Note(PresetSlot.Lowest), row.Key == SettingKey.ComprehensiveQuality));
             }
         }
 
         public static IEnumerable<Row> BeyondRows()
         {
-            string Scale(Preset preset) => preset.Overrides.RenderScale?.ToString("0.00") ?? "Game";
             yield return new SliderRow("Render scale", 0.25f, 2f, 0.05f, "0.00", () => RenderScale, SetRenderScale,
-                new PresetNote(Scale(Screenshot), Scale(Performance), false));
+                () => new PresetNote(Presets.ScaleNote(Current(PresetSlot.Highest)), Presets.ScaleNote(Current(PresetSlot.Lowest))));
             yield return Beyond("Shadows", () => active.Shadows, value => Override(active with { Shadows = value }, "Shadows"),
-                preset => preset.Overrides.Shadows, ("Game", null), ("Off", ShadowQuality.Disable));
+                preset => preset.Overrides.Shadows, ("Game", null), ("Off", false));
             yield return Beyond("Shadow distance", () => active.ShadowDistance, value => Override(active with { ShadowDistance = value }, "Shadow distance"),
                 preset => preset.Overrides.ShadowDistance, ("Game", null), ("20 m", 20f), ("50 m", 50f), ("150 m", 150f), ("300 m", 300f));
             yield return Beyond("Distant shadows", () => active.DistantShadows, value => Override(active with { DistantShadows = value }, "Distant shadows"),
@@ -268,40 +275,100 @@ namespace CameraTools
                 preset => preset.Lod, ("Game", null), ("Highest", LodLevel.MostDetail), ("Lowest", LodLevel.LeastDetail));
         }
 
-        public static void Apply(Preset preset) => CameraUi.Toast(ApplyQuietly(preset));
+        // The user's own preset where one is saved, and else the built-in one.
+        public static Preset Current(PresetSlot slot) => own[(int)slot] ?? BuiltIn[(int)slot];
 
-        // Returns the notice Apply shows. The screenshot button applies a preset while nothing may be on screen.
-        public static string ApplyQuietly(Preset preset)
+        // A saved preset holds every enhancement, and the enhancement switches then show what each preset sets them to.
+        public static bool PresetsEnhance => own[0]?.Enhancements != null || own[1]?.Enhancements != null;
+
+        public static PresetNote SwitchNote(Enhancement id)
+            => new(Presets.SwitchNote(Current(PresetSlot.Highest), id), Presets.SwitchNote(Current(PresetSlot.Lowest), id));
+
+        public static void Apply(PresetSlot slot) => CameraUi.Toast(ApplyPreset(Current(slot), shot: false));
+
+        // The screenshot button's preset: Highest, the user's own where one is saved. Its enhancements show until PutBack
+        // and leave the user's own as they are. Returns the notice Apply shows, since nothing may be on screen in a shot.
+        public static string ApplyForShot() => ApplyPreset(Current(PresetSlot.Highest), shot: true);
+
+        private static string ApplyPreset(Preset preset, bool shot)
         {
             var lists = OptionLists();
             if (lists.Count == 0)
-                return "Graphics presets are unavailable; see the log";
+                return Unavailable;
             SaveSettings(lists);
             var changes = new List<string>();
             bool environment = false;
-            foreach (var row in Table)
+            foreach (var change in Presets.Changes(preset, lists, Now(lists)))
             {
-                if (!lists.TryGetValue(row.Key, out var list) || list.Menu.Length < 2 || GameSettings.Get(row.Key) is not int now)
+                var row = Rows[change.Setting];
+                if (!GameSettings.Set(row.Key, change.To))
                     continue;
-                int? target = preset.Pick(row) switch
-                {
-                    Pick.Lowest => list.Lowest,
-                    Pick.Highest => list.Highest,
-                    _ => null,
-                };
-                if (target is not int index || index == now || !GameSettings.Set(row.Key, index))
-                    continue;
-                changes.Add($"{row.Label} {now}->{index}");
+                changes.Add($"{row.Label} {change.From}->{change.To}");
                 environment |= row.Key == SettingKey.ComprehensiveQuality;
             }
             GameSettings.Save();
             Override(preset.Overrides, preset.Name);
             Lod.Force(preset.Lod);
+            bool enhanced = shot ? EnhancementsControl.Hold(preset.Enhancements) : Enhance(preset);
             Changed = Time.unscaledTime;
-            Melon<CameraTools>.Logger.Msg($"Graphics: {preset.Name} changed {changes.Count} settings ({string.Join(", ", changes)}); "
-                + $"{active}; LOD {preset.Lod}.");
-            return $"{preset.Name}: {changes.Count} game settings changed" + (environment ? ". Environment detail applies after a restart" : "");
+            Melon<CameraTools>.Logger.Msg($"Graphics: {Described(preset)} changed {changes.Count} settings ({string.Join(", ", changes)}); "
+                + $"{active}; LOD {preset.Lod?.ToString() ?? "game"}; enhancements "
+                + (preset.Enhancements == null ? "left as they are" : !enhanced ? "already as it holds them" : shot ? "set until the settings are put back" : "set") + ".");
+            return $"{preset.Name}: {changes.Count} game settings changed" + (enhanced ? " and the enhancements set" : "")
+                + (environment ? ". Environment detail applies after a restart" : "");
         }
+
+        // Sets the enhancements a preset holds, and keeps the user's own from before the first preset changed them for
+        // Restore. Returns whether the preset changed them.
+        private static bool Enhance(Preset preset)
+        {
+            var (next, remembered) = Presets.Enhance(preset, EnhancementsControl.Values, ownEnhancements);
+            if (remembered != null && !remembered.Equals(ownEnhancements))
+            {
+                Remember(remembered);
+                Melon<CameraTools>.Logger.Msg($"Graphics: saved your enhancements for Restore: {remembered}.");
+            }
+            return EnhancementsControl.Set(next);
+        }
+
+        private static void Remember(EnhancementValues values)
+        {
+            ownEnhancements = values;
+            savedEnhancements.Value = values?.ToString() ?? "";
+            MelonPreferences.Save();
+        }
+
+        // Takes every preset-carrying row's current value, and every enhancement switch and value, as the preset.
+        public static void Save(PresetSlot slot)
+        {
+            var lists = OptionLists();
+            if (lists.Count == 0)
+            {
+                CameraUi.Toast(Unavailable);
+                return;
+            }
+            var settings = Now(lists).Where(pair => lists[pair.Key].HasRow).ToDictionary(pair => pair.Key, pair => pair.Value);
+            Store(Presets.Saved(slot, settings, active, Lod.Forced, EnhancementsControl.Values), slot);
+            Melon<CameraTools>.Logger.Msg($"Graphics: saved the current settings as {slot}: {presetEntries[(int)slot].Value}.");
+            CameraUi.Toast($"{slot} now sets what you have now, enhancements included");
+        }
+
+        public static void ResetPresets()
+        {
+            foreach (var slot in Enum.GetValues<PresetSlot>())
+                Store(null, slot);
+            Melon<CameraTools>.Logger.Msg("Graphics: Highest and Lowest are the built-in presets again.");
+            CameraUi.Toast("Highest and Lowest are the built-in ones again");
+        }
+
+        private static void Store(Preset preset, PresetSlot slot)
+        {
+            own[(int)slot] = preset;
+            presetEntries[(int)slot].Value = preset == null ? "" : Presets.Text(preset);
+            MelonPreferences.Save();
+        }
+
+        private static string Described(Preset preset) => $"{preset.Name} ({(ReferenceEquals(own[(int)preset.Slot], preset) ? "yours" : "built-in")})";
 
         public static GraphicsState Capture() => new(Indices(OptionLists()), active, Lod.Forced);
 
@@ -310,16 +377,21 @@ namespace CameraTools
         public static void PutBack(GraphicsState state)
         {
             var changes = new List<string>();
-            foreach (var (row, index) in state.Settings)
-                if (GameSettings.Get(row.Key) is int now && now != index && GameSettings.Set(row.Key, index))
-                    changes.Add($"{row.Label} {now}->{index}");
+            var before = state.Settings.ToDictionary(pair => pair.Row.Number, pair => pair.Index);
+            foreach (var change in Presets.Back(before, Now(state.Settings.Select(pair => pair.Row))))
+            {
+                var row = Rows[change.Setting];
+                if (GameSettings.Set(row.Key, change.To))
+                    changes.Add($"{row.Label} {change.From}->{change.To}");
+            }
             if (changes.Count > 0)
                 GameSettings.Save();
             Override(state.Overrides, "putting the settings back");
             Lod.Force(state.Lod);
+            bool enhanced = EnhancementsControl.Release();
             Changed = Time.unscaledTime;
             Melon<CameraTools>.Logger.Msg($"Graphics: put back {changes.Count} settings ({string.Join(", ", changes)}); "
-                + $"{active}; LOD {state.Lod?.ToString() ?? "game"}.");
+                + $"{active}; LOD {state.Lod?.ToString() ?? "game"}{(enhanced ? "; your enhancements" : "")}.");
         }
 
         public static void Restore()
@@ -330,9 +402,16 @@ namespace CameraTools
                 knob.Release();
             active = Overrides.None;
             Lod.Force(null);
+            bool enhanced = ownEnhancements != null;
+            if (enhanced)
+            {
+                Melon<CameraTools>.Logger.Msg($"Graphics: restored your enhancements: {ownEnhancements}.");
+                EnhancementsControl.Set(ownEnhancements);
+                Remember(null);
+            }
             if (pairs.Count == 0)
             {
-                CameraUi.Toast(overridden ? "Overrides cleared" : "Nothing to restore");
+                CameraUi.Toast(enhanced ? "Restored your settings" : overridden ? "Overrides cleared" : "Nothing to restore");
                 return;
             }
             // Every saved setting is applied again, even an unchanged one, so the game rewrites the engine values the
@@ -443,11 +522,27 @@ namespace CameraTools
         {
             int Position(T? value) => Array.FindIndex(options, option => Nullable.Equals(option.Value, value));
             var texts = options.Select(option => option.Text).ToArray();
+            // A saved preset may hold a value that is none of the row's options, as a typed render scale is none of a list's.
+            string Note(PresetSlot slot) => Position(preset(Current(slot))) is var position and >= 0 ? texts[position] : "?";
             return new ChoiceRow(label, texts, () => Position(get()), position => set(options[position].Value),
-                new PresetNote(texts[Position(preset(Screenshot))], texts[Position(preset(Performance))], false));
+                () => new PresetNote(Note(PresetSlot.Highest), Note(PresetSlot.Lowest)));
         }
 
-        private static Dictionary<SettingKey, OptionList> OptionLists() => GameSettings.OptionLists(Table.Select(row => row.Key));
+        // The options of each setting the game offers any for, by the setting's number.
+        private static Dictionary<int, OptionList> OptionLists()
+            => GameSettings.OptionLists(Table.Select(row => row.Key)).ToDictionary(pair => (int)pair.Key, pair => pair.Value);
+
+        // The option index each of the rows' settings is set to, by the setting's number.
+        private static Dictionary<int, int> Now(IEnumerable<SettingRow> rows)
+        {
+            var now = new Dictionary<int, int>();
+            foreach (var row in rows)
+                if (GameSettings.Get(row.Key) is int index)
+                    now[row.Number] = index;
+            return now;
+        }
+
+        private static Dictionary<int, int> Now(Dictionary<int, OptionList> lists) => Now(Table.Where(row => lists.ContainsKey(row.Number)));
 
         // The PC menu's labels, in menu order, when the game has as many options; else numbers.
         private static string[] OptionLabels(SettingRow row, OptionList list)
@@ -472,8 +567,8 @@ namespace CameraTools
                 CameraUi.Toast("Environment detail applies after a restart");
         }
 
-        // Only while the entry is empty, so Max, then Min, then Restore still returns to the user's own settings.
-        private static void SaveSettings(Dictionary<SettingKey, OptionList> lists)
+        // Only while the entry is empty, so Highest, then Lowest, then Restore still returns to the user's own settings.
+        private static void SaveSettings(Dictionary<int, OptionList> lists)
         {
             if (saved.Value.Length > 0)
                 return;
@@ -482,8 +577,8 @@ namespace CameraTools
             Melon<CameraTools>.Logger.Msg($"Graphics: saved your game settings for Restore (setting=index): {saved.Value}.");
         }
 
-        private static List<(SettingRow Row, int Index)> Indices(Dictionary<SettingKey, OptionList> lists)
-            => Table.Where(row => lists.ContainsKey(row.Key))
+        private static List<(SettingRow Row, int Index)> Indices(Dictionary<int, OptionList> lists)
+            => Table.Where(row => lists.ContainsKey(row.Number))
                 .Select(row => (Row: row, Index: GameSettings.Get(row.Key)))
                 .Where(pair => pair.Index != null)
                 .Select(pair => (pair.Row, pair.Index.Value))
@@ -497,7 +592,7 @@ namespace CameraTools
 
         // The game's Lowest shadow quality switches Unity's shadows off, and with them every shadow of a point or a spot,
         // so while a Lights tab light casts shadows they are on. The game's own setting decides, not the engine value, so
-        // a screenshot's Max quality hands the shadows back to the game's better ones. The Shadows row's own choice wins.
+        // a screenshot's Highest hands the shadows back to the game's better ones. The Shadows row's own choice wins.
         private static ShadowQuality? LightShadows()
             => Lights.NeedsShadows && GameSettings.Get(SettingKey.ShadowQuality) == 0 ? ShadowQuality.All : null;
 
@@ -556,7 +651,7 @@ namespace CameraTools
             var indices = new List<string>();
             foreach (var row in Table)
             {
-                if (!lists.TryGetValue(row.Key, out var list))
+                if (!lists.TryGetValue(row.Number, out var list))
                 {
                     indices.Add($"{row.Label}=none");
                     continue;

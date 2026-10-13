@@ -108,8 +108,24 @@ namespace CameraTools
         public CanvasGroup Group;
         // Only on a row that has Detail.
         public Text DetailText;
+        // Only on a row that shows what the presets set it to.
+        public Text PresetLine;
+        public Func<PresetNote> Preset;
         private bool dimmed;
         private string detail;
+        private PresetNote? preset;
+
+        // A saved preset changes what the line says.
+        protected void SyncPreset()
+        {
+            if (PresetLine == null)
+                return;
+            var note = Preset();
+            if (note == preset)
+                return;
+            preset = note;
+            PresetLine.text = Builder.PresetText(note);
+        }
 
         protected void SyncDetail()
         {
@@ -177,6 +193,7 @@ namespace CameraTools
         {
             Dim();
             SyncDetail();
+            SyncPreset();
             var slider = (SliderRow)Row;
             float value = slider.Get(), top = slider.Top;
             if (value == shown && top == shownTop)
@@ -207,6 +224,7 @@ namespace CameraTools
         {
             Dim();
             SyncDetail();
+            SyncPreset();
             bool on = ((ToggleRow)Row).Get();
             if (marked != on)
             {
@@ -274,6 +292,7 @@ namespace CameraTools
         {
             Dim();
             SyncDetail();
+            SyncPreset();
             var choice = (ChoiceRow)Row;
             var options = choice.Choices;
             int position = choice.Get();
@@ -642,7 +661,7 @@ namespace CameraTools
             view.Value = Label(rect, "Value", "", Style.ValueSize, Style.Dim, TextAnchor.LowerRight);
             TopLeft(view.Value.rectTransform, Left(row), Style.RowTextY, Width(row), Style.RowTextHeight);
             if (row.Note != null)
-                Note(rect, row, row.Note);
+                PresetLine(rect, view, row.Note);
             if (row.Detail != null)
                 view.DetailText = NoteLabel(rect, row);
             view.Track = Node("Slider", rect);
@@ -665,17 +684,19 @@ namespace CameraTools
             return view;
         }
 
-        // With a Detail, the label moves up and the note runs under it; the switch stays in the middle of the row.
+        // With a Detail or a Note, the label moves up and the note runs under it; the switch stays in the middle of the row.
         public ToggleView Toggle(Transform parent, ToggleRow row, float y)
         {
             var view = new ToggleView();
-            bool noted = row.Detail != null;
+            bool noted = row.Detail != null || row.Note != null;
             float height = noted ? Style.ChoiceRowHeight : Style.ToggleRowHeight;
             var rect = Item(parent, view, row, y, height, row.Enabled);
             var label = Label(rect, "Label", row.Label, Style.RowSize, Style.Text, TextAnchor.MiddleLeft);
             TopLeft(label.rectTransform, Left(row), noted ? Style.RowTextY : 0f, Width(row) - Style.SwitchWidth,
                 noted ? Style.RowTextHeight : height);
-            if (noted)
+            if (row.Note != null)
+                PresetLine(rect, view, row.Note);
+            else if (noted)
                 view.DetailText = NoteLabel(rect, row);
             var track = Picture(rect, "Switch", Shapes.SwitchOff, Style.White).rectTransform;
             Pin(track, 1f, 1f, -Style.RowRight, -(height - Style.SwitchHeight) / 2f, Style.SwitchWidth, Style.SwitchHeight);
@@ -694,7 +715,7 @@ namespace CameraTools
             var view = new ChoiceView();
             var rect = Arrows(parent, view, row, y, row.Note != null || row.Detail != null, row.Enabled, Style.ChoiceValueWidth);
             if (row.Note != null)
-                Note(rect, row, row.Note);
+                PresetLine(rect, view, row.Note);
             if (row.Detail != null)
                 view.DetailText = NoteLabel(rect, row);
             view.Sync(1f);
@@ -796,13 +817,17 @@ namespace CameraTools
 
         public static float Width(Row row) => Style.PanelWidth - Left(row) - Style.RowRight;
 
-        private void Note(Transform parent, Row row, PresetNote note)
+        // The line under a row that says what the presets set it to. The view's Sync writes it.
+        private void PresetLine(Transform parent, ItemView view, Func<PresetNote> note)
         {
-            var text = NoteLabel(parent, row);
-            text.supportRichText = true;
-            text.text = $"Max {Colored(note.Max, Style.Cream)} · Min {Colored(note.Min, Style.Cream)}"
-                + (note.Restart ? $" · {Colored("applies after a restart", Style.XboxY)}" : "");
+            view.PresetLine = NoteLabel(parent, view.Row);
+            view.PresetLine.supportRichText = true;
+            view.Preset = note;
         }
+
+        public static string PresetText(PresetNote note)
+            => $"Highest {Colored(note.Highest, Style.Cream)} · Lowest {Colored(note.Lowest, Style.Cream)}"
+                + (note.Restart ? $" · {Colored("applies after a restart", Style.XboxY)}" : "");
 
         private static string Colored(string text, Color color) => $"<color={Style.Html(color)}>{text}</color>";
 
