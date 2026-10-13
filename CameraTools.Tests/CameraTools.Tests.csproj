@@ -22,6 +22,7 @@
     <!-- The sources under test, which need no game to run. The binding compiles against the game's assemblies, and the
          tests touch only its structs. -->
     <Compile Include="../CameraTools/TracedShot.cs" Link="TracedShot.cs" />
+    <Compile Include="../CameraTools/EnhancementsModel.cs" Link="EnhancementsModel.cs" />
     <Compile Include="../Enhancements/csharp/Enhancements.cs" Link="Enhancements.cs" />
   </ItemGroup>
   <ItemGroup>

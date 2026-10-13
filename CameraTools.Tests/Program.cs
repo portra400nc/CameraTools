@@ -1,4 +1,5 @@
-// The traced screenshot's decisions (CameraTools/TracedShot.cs) and the Enhancements binding's layout against
+// The traced screenshot's decisions (CameraTools/TracedShot.cs), the Enhancements category's rules and its settings for
+// the add-on (CameraTools/EnhancementsModel.cs), and the Enhancements binding's layout against
 // Enhancements/enhancements.h's literal sizes. No game, no ReShade, no add-on: run with dotnet run.
 using System.Runtime.InteropServices;
 using CameraTools;
@@ -155,6 +156,122 @@ Check("at the timeout a frame traced from 16 samples or more is saved as it is; 
     && !TracedShot.SaveAsIs(ShotPhase.Tracing, 5, Status(EnhancementsTraceState.Stale, 5, samples: 40))
     && !TracedShot.SaveAsIs(ShotPhase.Capturing, 5, Status(EnhancementsTraceState.Ready, 5, samples: 40))
     && !TracedShot.SaveAsIs(ShotPhase.Done, 5, Status(EnhancementsTraceState.Ready, 5, samples: 40)));
+
+// The Enhancements category: its table, its values, and what the add-on gets for them.
+EnhancementField Field(Enhancement id) => EnhancementsModel.Field(id);
+var fresh = EnhancementValues.Defaults;
+Check("the table holds 38 fields, each at its own id's place, with the master switch and seven effects' switches",
+    EnhancementsModel.Fields.Length == 38 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
+    && string.Join(",", EnhancementsModel.Effects.Select(field => field.Label)) == "Ambient light,Contact shadows,Soft sun shadows,Haze,Light shafts,Wet surfaces,Tone map");
+{
+    var off = EnhancementsModel.Settings(fresh);
+    Check("everything is off by default, the add-on's master switch too, and the path tracer has no part",
+        !fresh.On(Enhancement.Enabled) && EnhancementsModel.Effects.All(field => !fresh.On(field.Id)) && off.Enabled == 0 && off.Ambient.Enabled == 0
+        && off.ContactShadows.Enabled == 0 && off.SunShadows.Enabled == 0 && off.Atmosphere.Enabled == 0 && off.LightShafts.Enabled == 0 && off.Wetness.Enabled == 0
+        && off.Tonemap.Enabled == 0 && off.Trace.Enabled == 0 && off.Gather.Enabled == 0 && off.View == EnhancementsView.Off && off.Flip == 1);
+    Check("the defaults are the mockup's: the add-on's own, but for the AgX curve",
+        off.Ambient is { Level: 0.6f, AoStrength: 0.5f, AoRadius: 1f, FoliageAoStrength: 0.5f } && off.ContactShadows is { Length: 0.6f, Strength: 1f, FoliageStrength: 0f }
+        && off.SunShadows is { LightSize: 0.03f, Strength: 1f } && off.Atmosphere is { Density: 0.000325f, HeightFalloff: 0.02f, SunScatter: 1f, Anisotropy: 0.7f }
+        && off.LightShafts is { Strength: 3f, Density: 0.006f, Height: 5f, Anisotropy: 0.6f, Distance: 150f, Patchiness: 1f, PatchSize: 6f, Ambient: 0.3f, Steps: 48 }
+        && off.Wetness is { Wetness: 0f, Darkening: 0.35f, Puddles: 0.3f }
+        && off.Tonemap is { Curve: EnhancementsCurve.AgX, ExposureEv: 0f, BloomStrength: 1f, Saturation: 1f, Contrast: 1f });
+    Check("a field without a row keeps the add-on's default", off.ContactShadows.Thickness == 0.25f && off.SunShadows.MinPenumbra == 0.02f
+        && off.Trace is { AoSamples: 64, SunSamples: 32, BudgetMs: 100f } && off.Gather is { Samples: 64, Filter: 2 });
+}
+{
+    var set = fresh.With(Enhancement.Enabled, 1).With(Enhancement.AmbientLight, 1).With(Enhancement.AmbientLevel, 1.25f).With(Enhancement.AmbientOcclusion, 0.8f)
+        .With(Enhancement.AmbientOcclusionRadius, 2.5f).With(Enhancement.AmbientFoliageOcclusion, 0.2f)
+        .With(Enhancement.ContactShadows, 1).With(Enhancement.ContactShadowLength, 1.5f).With(Enhancement.ContactShadowStrength, 0.75f).With(Enhancement.ContactShadowFoliage, 0.25f)
+        .With(Enhancement.SoftSunShadows, 1).With(Enhancement.SunShadowSoftness, 0.125f).With(Enhancement.SunShadowStrength, 0.5f)
+        .With(Enhancement.Haze, 1).With(Enhancement.HazeDensity, 2f).With(Enhancement.HazeHeightFalloff, 0.125f).With(Enhancement.HazeSunGlow, 4.5f).With(Enhancement.HazeGlowTowardSun, 0.25f)
+        .With(Enhancement.LightShafts, 1).With(Enhancement.LightShaftStrength, 7.5f).With(Enhancement.MistDensity, 0.032f).With(Enhancement.MistHeight, 12.5f)
+        .With(Enhancement.LightShaftGlowTowardSun, 0.75f).With(Enhancement.LightShaftDistance, 600f).With(Enhancement.MistPatchiness, 0.5f).With(Enhancement.MistPatchSize, 40f)
+        .With(Enhancement.MistSkyLight, 2.25f).With(Enhancement.LightShaftQuality, 2)
+        .With(Enhancement.WetSurfaces, 1).With(Enhancement.Wetness, 3).With(Enhancement.WetDarkening, 0.5f).With(Enhancement.Puddles, 0.75f)
+        .With(Enhancement.ToneMap, 1).With(Enhancement.ToneMapCurve, 2).With(Enhancement.ToneMapExposure, -1.5f).With(Enhancement.ToneMapBloom, 0f)
+        .With(Enhancement.ToneMapSaturation, 1.25f).With(Enhancement.ToneMapContrast, 1.75f);
+    var on = EnhancementsModel.Settings(set);
+    Check("the master switch and Ambient light's rows reach the add-on's ambient block",
+        on.Enabled == 1 && on.Ambient is { Enabled: 1, Level: 1.25f, AoStrength: 0.8f, AoRadius: 2.5f, FoliageAoStrength: 0.2f });
+    Check("Contact shadows' and Soft sun shadows' rows reach theirs", on.ContactShadows is { Enabled: 1, Length: 1.5f, Strength: 0.75f, FoliageStrength: 0.25f, Thickness: 0.25f }
+        && on.SunShadows is { Enabled: 1, LightSize: 0.125f, Strength: 0.5f, MinPenumbra: 0.02f });
+    Check("Haze's Density counts in multiples of the default 0.000325",
+        on.Atmosphere is { Enabled: 1, Density: 0.00065f, HeightFalloff: 0.125f, SunScatter: 4.5f, Anisotropy: 0.25f }
+        && MathF.Abs(EnhancementsModel.Settings(fresh.With(Enhancement.HazeDensity, 10f)).Atmosphere.Density - 0.00325f) < 1e-9f
+        && EnhancementsModel.Settings(fresh.With(Enhancement.HazeDensity, 0f)).Atmosphere.Density == 0f);
+    Check("Light shafts' rows reach theirs, the mist's among them", on.LightShafts is
+        { Enabled: 1, Strength: 7.5f, Density: 0.032f, Height: 12.5f, Anisotropy: 0.75f, Distance: 600f, Patchiness: 0.5f, PatchSize: 40f, Ambient: 2.25f, Steps: 96 });
+    Check("Quality is Low, Medium or High: 24, 48 or 96 steps",
+        string.Join(",", Field(Enhancement.LightShaftQuality).Options) == "Low,Medium,High"
+        && string.Join(",", new[] { 0, 1, 2 }.Select(quality => EnhancementsModel.Settings(fresh.With(Enhancement.LightShaftQuality, quality)).LightShafts.Steps)) == "24,48,96");
+    Check("Wetness follows the weather at 0, then 25%, 50%, 75% and soaked at 1",
+        string.Join(",", Field(Enhancement.Wetness).Options) == "Follows the weather,25%,50%,75%,Soaked" && on.Wetness is { Enabled: 1, Wetness: 0.75f, Darkening: 0.5f, Puddles: 0.75f }
+        && new[] { 0f, 0.25f, 0.5f, 0.75f, 1f }.Select((level, at) => EnhancementsModel.Settings(fresh.With(Enhancement.Wetness, at)).Wetness.Wetness == level).All(ok => ok));
+    Check("Tone map's Curve is the game's, AgX or Neutral, and its rows reach the tone map block",
+        on.Tonemap is { Enabled: 1, Curve: EnhancementsCurve.Neutral, ExposureEv: -1.5f, BloomStrength: 0f, Saturation: 1.25f, Contrast: 1.75f }
+        && EnhancementsModel.Settings(fresh.With(Enhancement.ToneMapCurve, 0)).Tonemap.Curve == EnhancementsCurve.Game
+        && string.Join(",", Field(Enhancement.ToneMapCurve).Options) == "Game,AgX,Neutral");
+    Check("the trace and the gather stay off whatever is switched on", on.Trace.Enabled == 0 && on.Gather.Enabled == 0);
+    Check("with the master switch off the add-on's is off, and an effect's switch stays as it is for when it comes back",
+        EnhancementsModel.Settings(set.With(Enhancement.Enabled, 0)) is { Enabled: 0 } idle && idle.Atmosphere.Enabled == 1 && idle.Tonemap.BloomStrength == 0f);
+}
+Check("a value stays within its row's range, at the decimals the row shows",
+    fresh.With(Enhancement.ToneMapExposure, 7f)[Enhancement.ToneMapExposure] == 3f && fresh.With(Enhancement.ToneMapExposure, -7f)[Enhancement.ToneMapExposure] == -3f
+    && fresh.With(Enhancement.AmbientLevel, 0.6234f)[Enhancement.AmbientLevel] == 0.62f && fresh.With(Enhancement.LightShaftDistance, 437.4f)[Enhancement.LightShaftDistance] == 437f
+    && fresh.With(Enhancement.SunShadowSoftness, 0f)[Enhancement.SunShadowSoftness] == 0.005f && fresh.With(Enhancement.MistDensity, 0.0126f)[Enhancement.MistDensity] == 0.013f
+    && fresh.With(Enhancement.AmbientLevel, 0.6f + 0.05f)[Enhancement.AmbientLevel] == 0.65f);
+Check("a switch is on or off, a choice one of its options, and a number that is none the default",
+    fresh.With(Enhancement.Haze, 5f)[Enhancement.Haze] == 1f && fresh.With(Enhancement.LightShaftQuality, 9f)[Enhancement.LightShaftQuality] == 2f
+    && fresh.With(Enhancement.Wetness, -1f)[Enhancement.Wetness] == 0f && fresh.With(Enhancement.ToneMapBloom, float.NaN)[Enhancement.ToneMapBloom] == 1f);
+Check("a value set to what it is leaves the same values, and another value makes other ones",
+    ReferenceEquals(fresh.With(Enhancement.Haze, 0f), fresh) && !fresh.With(Enhancement.Haze, 1f).Equals(fresh) && fresh.With(Enhancement.Haze, 1f).With(Enhancement.Haze, 0f).Equals(fresh));
+Check("the rows' formats are the mockup's", Field(Enhancement.AmbientLevel).Format == "0.00" && Field(Enhancement.AmbientOcclusionRadius).Format == "0.0' m'"
+    && Field(Enhancement.SunShadowSoftness).Format == "0.000" && Field(Enhancement.HazeDensity).Format == "0.0'×'" && Field(Enhancement.LightShaftDistance).Format == "0' m'"
+    && Field(Enhancement.ToneMapExposure).Format == "0.0' EV'");
+
+// The preferences: one entry a field, by the field's name.
+Check("preferences that hold nothing give the defaults", EnhancementValues.From(_ => null).Equals(fresh));
+{
+    var stored = new Dictionary<string, float> { ["Enabled"] = 1f, ["Haze"] = 1f, ["HazeDensity"] = 25f, ["LightShaftQuality"] = 2f, ["ToneMapExposure"] = 0.5f };
+    var read = EnhancementValues.From(field => stored.TryGetValue(field.Name, out float value) ? value : null);
+    Check("each entry is read by its field's name, and a number past the row's range stops at its end",
+        read.On(Enhancement.Enabled) && read.On(Enhancement.Haze) && !read.On(Enhancement.LightShafts) && read[Enhancement.HazeDensity] == 10f
+        && read[Enhancement.LightShaftQuality] == 2f && read[Enhancement.ToneMapExposure] == 0.5f && read[Enhancement.AmbientLevel] == 0.6f);
+}
+Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQuality).Option("High") == 2f && Field(Enhancement.LightShaftQuality).Option("Ultra") == null
+    && Field(Enhancement.Wetness).Option("Follows the weather") == 0f && Field(Enhancement.ToneMapCurve).Option("AgX") == 1f && Field(Enhancement.Haze).Option("On") == null);
+{
+    string text = fresh.With(Enhancement.Haze, 1f).With(Enhancement.HazeDensity, 2.5f).ToString();
+    var skipped = new List<string>();
+    Check("the values write as name=number pairs and read back the same",
+        text.StartsWith("Enabled=0;AmbientLight=0;AmbientLevel=0.6;AmbientOcclusion=0.5;AmbientOcclusionRadius=1;") && text.Contains(";Haze=1;HazeDensity=2.5;")
+        && text.EndsWith(";ToneMap=0;ToneMapCurve=1;ToneMapExposure=0;ToneMapBloom=1;ToneMapSaturation=1;ToneMapContrast=1")
+        && EnhancementsModel.Parse(text, skipped).Equals(fresh.With(Enhancement.Haze, 1f).With(Enhancement.HazeDensity, 2.5f)) && skipped.Count == 0);
+    var partial = EnhancementsModel.Parse("Haze=1; nonsense; Fog=3; HazeDensity=x; ToneMapBloom=0", skipped);
+    Check("a text that leaves fields out takes their defaults, and names what is no field's",
+        partial.Equals(fresh.With(Enhancement.Haze, 1f).With(Enhancement.ToneMapBloom, 0f)) && skipped.OrderBy(part => part).SequenceEqual(new[] { "Fog=3", "HazeDensity=x", "nonsense" }));
+    Check("an empty text holds no values", EnhancementsModel.Parse("", skipped) == null && EnhancementsModel.Parse("7=1", new List<string>()) == null);
+}
+
+// What shows, what is greyed, and the heading's text.
+{
+    var haze = fresh.With(Enhancement.Haze, 1f);
+    var running = haze.With(Enhancement.Enabled, 1f);
+    Check("an effect's own rows show only while its switch is on, whatever the master switch says",
+        !EnhancementsModel.Shown(Field(Enhancement.HazeDensity), fresh, false) && EnhancementsModel.Shown(Field(Enhancement.HazeDensity), haze, false)
+        && EnhancementsModel.Shown(Field(Enhancement.HazeDensity), running, false) && !EnhancementsModel.Shown(Field(Enhancement.MistDensity), running, false));
+    Check("every switch shows while the category is open", EnhancementsModel.Fields.Where(field => field.Kind == EnhancementKind.Switch)
+        .All(field => EnhancementsModel.Shown(field, fresh, false)));
+    Check("folded, none of the category's rows show", EnhancementsModel.Fields.All(field => !EnhancementsModel.Shown(field, running, true)));
+    Check("every row but the master switch is greyed while the master switch is off",
+        EnhancementsModel.Usable(Field(Enhancement.Enabled), fresh) && !EnhancementsModel.Usable(Field(Enhancement.Haze), haze)
+        && !EnhancementsModel.Usable(Field(Enhancement.HazeDensity), haze) && EnhancementsModel.Fields.All(field => EnhancementsModel.Usable(field, running)));
+    Check("the heading says Off, or On with the effects that are switched on",
+        EnhancementsModel.Summary(fresh) == "Off" && EnhancementsModel.Summary(haze) == "Off" && EnhancementsModel.Summary(fresh.With(Enhancement.Enabled, 1f)) == "On · 0 effects"
+        && EnhancementsModel.Summary(running) == "On · 1 effect" && EnhancementsModel.Summary(running.With(Enhancement.LightShafts, 1f).With(Enhancement.ToneMap, 1f)) == "On · 3 effects");
+    Check("the log names the effects that are switched on", EnhancementsModel.Names(fresh) == "no effect"
+        && EnhancementsModel.Names(running.With(Enhancement.ToneMap, 1f)) == "Haze, Tone map");
+}
 
 Console.WriteLine($"CameraTools tests: {failures} failed");
 return failures == 0 ? 0 : 1;
