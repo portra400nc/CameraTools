@@ -68,6 +68,9 @@ namespace CameraTools
         public static readonly Shape Back = new("Back", 34f, 34f, 0f, Layers((Circle(17f, 17f, 17f), Style.Light),
             (Union(Line(19.2f, 12.2f, 14.6f, 17f, 1.15f), Line(14.6f, 17f, 19.2f, 21.8f, 1.15f)), Style.BackInk)));
         public static readonly Shape Chevron = Solid("Chevron", 8f, 12f, 0f, Union(Line(2.2f, 1.8f, 6f, 6f, 1.1f), Line(6f, 6f, 2.2f, 10.2f, 1.1f)), Style.White);
+        // A category heading's mark: it points down while the category is open and right while it is folded.
+        public static readonly Shape FoldOpen = Solid("FoldOpen", Style.FoldMarkSize, Style.FoldMarkSize, 0f, Triangle(3.5f, 4.5f, 10.5f, 4.5f, 7f, 10f), Style.White);
+        public static readonly Shape FoldClosed = Solid("FoldClosed", Style.FoldMarkSize, Style.FoldMarkSize, 0f, Triangle(4.5f, 3.5f, 10f, 7f, 4.5f, 10.5f), Style.White);
         // The stepper's buttons: the Back button's chevron on a faint 22 unit disc.
         public static readonly Shape StepLeft = new("StepLeft", Style.StepSize, Style.StepSize, 0f, Layers((Circle(11f, 11f, 11f), Style.StepFill),
             (Union(Line(12.4f, 7.9f, 9.4f, 11f, 0.9f), Line(9.4f, 11f, 12.4f, 14.1f, 0.9f)), Style.Text)));
@@ -94,7 +97,7 @@ namespace CameraTools
         public static readonly Shape[] All =
         {
             Face, Bumper, Trigger, Menu, View, DpadUp, DpadDown, DpadLeft, DpadRight, DpadSides, DpadUpDown, Key, Toast, Pill, Bar,
-            FovTrack, SwitchOff, SwitchOn, Knob, Disc, Check, Cross, Plus, Minus, Handle, Arrow, Back, Chevron, StepLeft, StepRight, Button,
+            FovTrack, SwitchOff, SwitchOn, Knob, Disc, Check, Cross, Plus, Minus, Handle, Arrow, Back, Chevron, FoldOpen, FoldClosed, StepLeft, StepRight, Button,
             PanelFill, PanelShadow, FocusWindow, FocusCross, HueRail, TemperatureRail,
         };
 

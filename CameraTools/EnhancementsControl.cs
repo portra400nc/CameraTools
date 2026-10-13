@@ -16,21 +16,66 @@ namespace CameraTools
 
         // By field: writes a value to the field's entry.
         private static readonly Action<float>[] writers = new Action<float>[EnhancementsModel.Fields.Length];
+        private static MelonPreferences_Entry<bool> folded;
         private static EnhancementValues own = EnhancementValues.Defaults;
         // A screenshot's preset's values, which the add-on runs in place of the user's own until the screenshot puts its
         // settings back. The preferences keep the user's own.
         private static EnhancementValues shot;
         private static int connections;
         private static float? logAt;
+        // The heading's text for the values it was made from.
+        private static (EnhancementValues Of, string Text) summary;
 
         // The user's own values.
         public static EnhancementValues Values => own;
 
         private static EnhancementValues Running => shot ?? own;
 
+        public static bool Folded => folded.Value;
+
+        // The right of the heading: why the add-on cannot run the effects, or whether anything is switched on.
+        private static string State
+        {
+            get
+            {
+                if (Enhancements.Missing is { } missing)
+                    return missing;
+                if (!ReferenceEquals(summary.Of, own))
+                    summary = (own, EnhancementsModel.Summary(own));
+                return summary.Text;
+            }
+        }
+
+        // The category's rows, as the mockup lists them: the heading that folds them, the master switch, each effect's
+        // switch with the effect's own rows under it, and the reset.
+        public static IEnumerable<Row> Rows()
+        {
+            yield return new FoldRow("Enhancements", () => !Folded, () => SetFolded(!Folded), () => State);
+            foreach (var field in EnhancementsModel.Fields)
+            {
+                Func<bool> shown = () => EnhancementsModel.Shown(field, own, Folded);
+                Func<bool> usable = field.Id == Enhancement.Enabled ? null : () => EnhancementsModel.Usable(field, own);
+                yield return field.Kind switch
+                {
+                    EnhancementKind.Switch => new ToggleRow(field.Label, () => own.On(field.Id), on => Change(field.Id, on ? 1f : 0f), usable) { Shown = shown },
+                    EnhancementKind.Choice => new ChoiceRow(field.Label, field.Options, () => (int)own[field.Id], position => Change(field.Id, position), null, usable)
+                    {
+                        Shown = shown, Sub = true,
+                    },
+                    _ => new SliderRow(field.Label, field.Min, field.Max, field.Step, field.Format, () => own[field.Id], value => Change(field.Id, value),
+                        Enabled: usable)
+                    {
+                        Shown = shown, Sub = true,
+                    },
+                };
+            }
+            yield return new ActionRow("Reset enhancements", Reset, "Reset") { Shown = () => !Folded };
+        }
+
         public static void Load()
         {
             var category = MelonPreferences.CreateCategory(Category);
+            folded = category.CreateEntry("Folded", false, description: "Fold the Graphics tab's Enhancements category away, so only its heading shows.");
             var readers = new Func<float?>[writers.Length];
             foreach (var field in EnhancementsModel.Fields)
                 (readers[(int)field.Id], writers[(int)field.Id]) = Entry(category, field);
@@ -69,6 +114,22 @@ namespace CameraTools
             MelonPreferences.Save();
             Push();
             return true;
+        }
+
+        private static void Change(Enhancement id, float value) => Set(own.With(id, value));
+
+        // Every switch and value back to its default: everything off.
+        private static void Reset()
+        {
+            Set(EnhancementValues.Defaults);
+            Log("every switch and value is back at its default.");
+            CameraUi.Toast("Enhancements are back to their defaults");
+        }
+
+        private static void SetFolded(bool on)
+        {
+            folded.Value = on;
+            MelonPreferences.Save();
         }
 
         // A screenshot's preset holds these values: the add-on runs them until Release, and the user's own stay as they

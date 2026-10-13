@@ -137,6 +137,31 @@ namespace CameraTools
         }
     }
 
+    // A category's heading: its state, and a mark that points down while the category is open and right while it is folded.
+    internal sealed class FoldView : ItemView
+    {
+        public Text State;
+        public Image Mark;
+        private bool? open;
+        private string state;
+
+        public override void Sync(float step)
+        {
+            var fold = (FoldRow)Row;
+            bool now = fold.Open();
+            if (open != now)
+            {
+                Mark.sprite = Shapes.Get(now ? Shapes.FoldOpen : Shapes.FoldClosed);
+                open = now;
+            }
+            string text = fold.State() ?? "";
+            if (text == state)
+                return;
+            State.text = text;
+            state = text;
+        }
+    }
+
     internal sealed class SliderView : ItemView
     {
         public RectTransform Track;
@@ -228,7 +253,7 @@ namespace CameraTools
             // The label is centred in the row, and moves up to make room while the note shows.
             Note.gameObject.SetActive(!enabled);
             float height = Rect.sizeDelta.y;
-            Builder.TopLeft(Label.rectTransform, Style.RowLeft, enabled ? 0f : Style.RowTextY, Style.RowWidth - Shapes.Chevron.Width,
+            Builder.TopLeft(Label.rectTransform, Builder.Left(Row), enabled ? 0f : Style.RowTextY, Builder.Width(Row) - Shapes.Chevron.Width,
                 enabled ? height : Style.RowTextHeight);
         }
     }
@@ -589,21 +614,39 @@ namespace CameraTools
             return view;
         }
 
+        // A category's heading is a section header that can be selected: the header's size and colour at a row's place,
+        // with the category's state and the fold mark at its right.
+        public FoldView Fold(Transform parent, FoldRow row, float y)
+        {
+            var view = new FoldView();
+            var rect = Item(parent, view, row, y, Style.SectionHeight);
+            var label = Label(rect, "Label", row.Label, Style.SectionSize, Style.Cream, TextAnchor.MiddleLeft);
+            TopLeft(label.rectTransform, Left(row), Style.SectionTextY, Width(row), Style.SectionTextHeight);
+            view.Mark = Picture(rect, "Mark", Shapes.FoldOpen, Style.Cream);
+            Pin(view.Mark.rectTransform, 1f, 1f, -Style.RowRight, -(Style.SectionTextY + (Style.SectionTextHeight - Style.FoldMarkSize) / 2f),
+                Style.FoldMarkSize, Style.FoldMarkSize);
+            float mark = Style.FoldMarkSize + Style.FoldMarkGap;
+            view.State = Label(rect, "State", "", Style.FoldStateSize, Style.Dim, TextAnchor.MiddleRight);
+            Pin(view.State.rectTransform, 1f, 1f, -(Style.RowRight + mark), -Style.SectionTextY, Width(row) - mark, Style.SectionTextHeight);
+            view.Sync(1f);
+            return view;
+        }
+
         public SliderView Slider(Transform parent, SliderRow row, float y)
         {
             var view = new SliderView();
             float noted = row.Note != null || row.Detail != null ? Style.NoteExtra : 0f;
             var rect = Item(parent, view, row, y, Style.SliderRowHeight + noted, row.Enabled);
             var label = Label(rect, "Label", row.Label, Style.RowSize, Style.Text, TextAnchor.LowerLeft);
-            TopLeft(label.rectTransform, Style.RowLeft, Style.RowTextY, Style.RowWidth, Style.RowTextHeight);
+            TopLeft(label.rectTransform, Left(row), Style.RowTextY, Width(row), Style.RowTextHeight);
             view.Value = Label(rect, "Value", "", Style.ValueSize, Style.Dim, TextAnchor.LowerRight);
-            TopLeft(view.Value.rectTransform, Style.RowLeft, Style.RowTextY, Style.RowWidth, Style.RowTextHeight);
+            TopLeft(view.Value.rectTransform, Left(row), Style.RowTextY, Width(row), Style.RowTextHeight);
             if (row.Note != null)
-                Note(rect, row.Note);
+                Note(rect, row, row.Note);
             if (row.Detail != null)
-                view.DetailText = NoteLabel(rect);
+                view.DetailText = NoteLabel(rect, row);
             view.Track = Node("Slider", rect);
-            TopLeft(view.Track, Style.RowLeft, Style.SliderY + noted, Style.RowWidth, Style.SliderHeight);
+            TopLeft(view.Track, Left(row), Style.SliderY + noted, Width(row), Style.SliderHeight);
             var look = row.Rail switch
             {
                 RailLook.Hue => Shapes.HueRail,
@@ -630,10 +673,10 @@ namespace CameraTools
             float height = noted ? Style.ChoiceRowHeight : Style.ToggleRowHeight;
             var rect = Item(parent, view, row, y, height, row.Enabled);
             var label = Label(rect, "Label", row.Label, Style.RowSize, Style.Text, TextAnchor.MiddleLeft);
-            TopLeft(label.rectTransform, Style.RowLeft, noted ? Style.RowTextY : 0f, Style.RowWidth - Style.SwitchWidth,
+            TopLeft(label.rectTransform, Left(row), noted ? Style.RowTextY : 0f, Width(row) - Style.SwitchWidth,
                 noted ? Style.RowTextHeight : height);
             if (noted)
-                view.DetailText = NoteLabel(rect);
+                view.DetailText = NoteLabel(rect, row);
             var track = Picture(rect, "Switch", Shapes.SwitchOff, Style.White).rectTransform;
             Pin(track, 1f, 1f, -Style.RowRight, -(height - Style.SwitchHeight) / 2f, Style.SwitchWidth, Style.SwitchHeight);
             view.On = Picture(track, "On", Shapes.SwitchOn, Style.WithAlpha(Style.White, 0f));
@@ -651,9 +694,9 @@ namespace CameraTools
             var view = new ChoiceView();
             var rect = Arrows(parent, view, row, y, row.Note != null || row.Detail != null, row.Enabled, Style.ChoiceValueWidth);
             if (row.Note != null)
-                Note(rect, row.Note);
+                Note(rect, row, row.Note);
             if (row.Detail != null)
-                view.DetailText = NoteLabel(rect);
+                view.DetailText = NoteLabel(rect, row);
             view.Sync(1f);
             return view;
         }
@@ -663,7 +706,7 @@ namespace CameraTools
             var view = new StepperView();
             var rect = Arrows(parent, view, row, y, row.Note != null, row.Enabled, row.Display != null ? Style.NameValueWidth : Style.ChoiceValueWidth);
             if (row.Note != null)
-                view.Note = NoteLabel(rect);
+                view.Note = NoteLabel(rect, row);
             view.Sync(1f);
             return view;
         }
@@ -679,7 +722,7 @@ namespace CameraTools
             float stepY = -(lineY + (lineHeight - Style.StepSize) / 2f);
             float stepper = 2f * (Style.StepSize + Style.StepGap) + valueWidth;
             var label = Label(rect, "Label", row.Label, Style.RowSize, Style.Text, TextAnchor.MiddleLeft);
-            TopLeft(label.rectTransform, Style.RowLeft, lineY, Style.RowWidth - stepper, lineHeight);
+            TopLeft(label.rectTransform, Left(row), lineY, Width(row) - stepper, lineHeight);
             view.Next = Picture(rect, "Next", Shapes.StepRight, Style.White);
             Pin(view.Next.rectTransform, 1f, 1f, -Style.RowRight, stepY, Style.StepSize, Style.StepSize);
             view.Value = Label(rect, "Value", "", Style.ValueSize, Style.Text, TextAnchor.MiddleCenter);
@@ -698,15 +741,15 @@ namespace CameraTools
             float height = row.DisabledNote != null || noted ? Style.ChoiceRowHeight : Style.ToggleRowHeight;
             var rect = Item(parent, view, row, y, height, row.Enabled);
             view.Label = Label(rect, "Label", row.Label, Style.RowSize, Style.Text, TextAnchor.MiddleLeft);
-            TopLeft(view.Label.rectTransform, Style.RowLeft, noted ? Style.RowTextY : 0f, Style.RowWidth - Shapes.Chevron.Width,
+            TopLeft(view.Label.rectTransform, Left(row), noted ? Style.RowTextY : 0f, Width(row) - Shapes.Chevron.Width,
                 noted ? Style.RowTextHeight : height);
             if (noted)
-                view.DetailText = NoteLabel(rect);
+                view.DetailText = NoteLabel(rect, row);
             view.Go = Picture(rect, "Go", Shapes.Chevron, Style.Cream);
             Pin(view.Go.rectTransform, 1f, 0.5f, -Style.RowRight, 0f, Shapes.Chevron.Width, Shapes.Chevron.Height);
             if (row.DisabledNote != null)
             {
-                view.Note = NoteLabel(rect);
+                view.Note = NoteLabel(rect, row);
                 view.Note.text = row.DisabledNote;
             }
             view.Sync(1f);
@@ -719,7 +762,7 @@ namespace CameraTools
             var rect = Item(parent, view, row, y, Style.ToggleRowHeight);
             float right = Style.RowRight + Style.ButtonWidth + Style.ButtonGap;
             var label = Label(rect, "Label", row.Label, Style.RowSize, Style.Text, TextAnchor.MiddleLeft);
-            TopLeft(label.rectTransform, Style.RowLeft, 0f, Style.PanelWidth - Style.RowLeft - right - Style.SlotValueWidth, Style.ToggleRowHeight);
+            TopLeft(label.rectTransform, Left(row), 0f, Style.PanelWidth - Left(row) - right - Style.SlotValueWidth, Style.ToggleRowHeight);
             view.Apply = Picture(rect, "Apply", Shapes.Button, Style.White).rectTransform;
             Pin(view.Apply, 1f, 0.5f, -Style.RowRight, 0f, Style.ButtonWidth, Style.ButtonHeight);
             Fill(Label(view.Apply, "Text", "Apply", Style.ButtonSize, Style.LightInk, TextAnchor.MiddleCenter).rectTransform);
@@ -734,23 +777,28 @@ namespace CameraTools
             var view = new TextView();
             var rect = Item(parent, view, row, y, Style.ToggleRowHeight, row.Enabled);
             var label = Label(rect, "Label", row.Label, Style.RowSize, Style.Text, TextAnchor.MiddleLeft);
-            TopLeft(label.rectTransform, Style.RowLeft, 0f, Style.RowWidth - Style.SlotValueWidth, Style.ToggleRowHeight);
+            TopLeft(label.rectTransform, Left(row), 0f, Width(row) - Style.SlotValueWidth, Style.ToggleRowHeight);
             view.Value = Label(rect, "Value", "", Style.ValueSize, Style.Dim, TextAnchor.MiddleRight);
             Pin(view.Value.rectTransform, 1f, 0.5f, -Style.RowRight, 0f, Style.SlotValueWidth, Style.ToggleRowHeight);
             view.Sync(1f);
             return view;
         }
 
-        private Text NoteLabel(Transform parent)
+        private Text NoteLabel(Transform parent, Row row)
         {
             var text = Label(parent, "Note", "", Style.NoteSize, Style.Dim, TextAnchor.MiddleLeft);
-            TopLeft(text.rectTransform, Style.RowLeft, Style.NoteY, Style.RowWidth, Style.NoteHeight);
+            TopLeft(text.rectTransform, Left(row), Style.NoteY, Width(row), Style.NoteHeight);
             return text;
         }
 
-        private void Note(Transform parent, PresetNote note)
+        // Where a row's own parts start, and how wide they run to the row's right edge.
+        public static float Left(Row row) => Style.RowLeft + (row.Sub ? Style.SubIndent : 0f);
+
+        public static float Width(Row row) => Style.PanelWidth - Left(row) - Style.RowRight;
+
+        private void Note(Transform parent, Row row, PresetNote note)
         {
-            var text = NoteLabel(parent);
+            var text = NoteLabel(parent, row);
             text.supportRichText = true;
             text.text = $"Max {Colored(note.Max, Style.Cream)} · Min {Colored(note.Min, Style.Cream)}"
                 + (note.Restart ? $" · {Colored("applies after a restart", Style.XboxY)}" : "");
@@ -758,8 +806,8 @@ namespace CameraTools
 
         private static string Colored(string text, Color color) => $"<color={Style.Html(color)}>{text}</color>";
 
-        // The band and arrow that show which row is selected, under the row's own parts. A row with enabled gets a group
-        // to dim it by.
+        // The band and arrow that show which row is selected, under the row's own parts: the arrow starts further in with a
+        // Sub row. A row with enabled gets a group to dim it by.
         private static RectTransform Item(Transform parent, ItemView view, Row row, float y, float height, Func<bool> enabled = null)
         {
             var rect = Node(row.Label, parent);
@@ -769,7 +817,7 @@ namespace CameraTools
             var band = Picture(rect, "Band", null, Style.Band);
             Fill(band.rectTransform);
             var arrow = Picture(rect, "Arrow", Shapes.Arrow, Style.Text);
-            TopLeft(arrow.rectTransform, Style.ArrowX, Style.ArrowY, Shapes.Arrow.Width, Shapes.Arrow.Height);
+            TopLeft(arrow.rectTransform, Style.ArrowX + Left(row) - Style.RowLeft, Style.ArrowY, Shapes.Arrow.Width, Shapes.Arrow.Height);
             view.Row = row;
             view.Rect = rect;
             view.Band = band.gameObject;

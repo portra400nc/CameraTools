@@ -490,6 +490,7 @@ namespace CameraTools
                     RowView built = row switch
                     {
                         Section section => ui.Section(tabRows, section, y),
+                        FoldRow fold => ui.Fold(tabRows, fold, y),
                         SliderRow slider => ui.Slider(tabRows, slider, y),
                         ToggleRow toggle => ui.Toggle(tabRows, toggle, y),
                         ChoiceRow choice => ui.Choice(tabRows, choice, y),
@@ -703,6 +704,9 @@ namespace CameraTools
                 return;
             switch (view.Row)
             {
+                case FoldRow fold when pressA:
+                    fold.Toggle();
+                    break;
                 case ToggleRow toggle when pressA || pressLeft || pressRight:
                     toggle.Set(!toggle.Get());
                     break;
@@ -952,6 +956,9 @@ namespace CameraTools
             // A slot's label only selects it: its size starts typing, and its button applies it.
             switch (CurrentRows[row])
             {
+                case FoldView { Row: FoldRow fold }:
+                    fold.Toggle();
+                    break;
                 case ToggleView { Row: ToggleRow toggle }:
                     toggle.Set(!toggle.Get());
                     break;
@@ -1262,6 +1269,7 @@ namespace CameraTools
             var chosen = selected >= 0 ? CurrentRows[selected].Row : null;
             var footer = editing != null ? new Footer("Save", null, false, "Cancel") : (chosen is { Usable: true } ? chosen : null) switch
             {
+                FoldRow fold => new Footer(fold.Open() ? "Close" : "Open", null, false, "Return"),
                 ToggleRow toggle => new Footer(toggle.Get() ? "Off" : "On", null, false, "Return"),
                 ActionRow action => new Footer(action.Hint, null, false, "Return"),
                 ChoiceRow => new Footer(null, "Change", false, "Return"),

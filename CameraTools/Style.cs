@@ -158,6 +158,11 @@ namespace CameraTools
         public const float ButtonHeight = 24f;
         public const float ButtonGap = 10f;
         public const int ButtonSize = 12;
+        // A row under an effect's switch starts further in. A category's heading shows its state and a mark at its right.
+        public const float SubIndent = 18f;
+        public const int FoldStateSize = 12;
+        public const float FoldMarkSize = 14f;
+        public const float FoldMarkGap = 10f;
         public const float ThumbWidth = 4f;
         public const float ThumbRight = 4f;
         public const float ThumbMin = 24f;

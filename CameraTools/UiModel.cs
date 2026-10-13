@@ -5,10 +5,13 @@ namespace CameraTools
 {
     // A toggle, slider, choice or action row may have Enabled. While it returns false the row is dimmed and ignores input.
     // Any row may have Shown; while it returns false the row is left out and the rows below move up. Detail, when set, is
-    // read every frame for a line under the label of a slider, a choice, a toggle or an action.
+    // read every frame for a line under the label of a slider, a choice, a toggle or an action. A Sub row belongs to the
+    // switch above it and starts further in.
     public abstract record Row(string Label)
     {
         public Func<bool> Shown { get; init; }
+
+        public bool Sub { get; init; }
 
         public Func<string> Detail { get; init; }
 
@@ -28,6 +31,10 @@ namespace CameraTools
 
     // Note, when set, is read every frame for a line at the right of the header, or null for none.
     public sealed record Section(string Label, Func<string> Note = null) : Row(Label);
+
+    // A category's heading, which folds the category's rows away: A or a click runs Toggle, and the rows' own Shown hides
+    // them. State is read every frame for the line at the heading's right, which shows folded or not.
+    public sealed record FoldRow(string Label, Func<bool> Open, Action Toggle, Func<string> State) : Row(Label);
 
     public sealed record ToggleRow(string Label, Func<bool> Get, Action<bool> Set, Func<bool> Enabled = null) : Row(Label);
 
@@ -571,6 +578,7 @@ namespace CameraTools
                 new ResolutionRow("Slot 1", 1),
                 new ResolutionRow("Slot 2", 2),
             };
+            rows.AddRange(EnhancementsControl.Rows());
             var gameSettings = Graphics.SettingRows().ToArray();
             if (gameSettings.Length > 0)
                 rows.Add(new Section("Game settings"));
