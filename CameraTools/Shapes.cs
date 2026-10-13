@@ -11,6 +11,11 @@ namespace CameraTools
     // once, from signed distance fields, at Density pixels per unit with mipmaps: the 1:1 canvas of the Deck samples the
     // box-filtered first mip, and 1080p and 1440p screens (canvas scales 1.35 and 1.8) sample between the full texture and
     // that mip. They are DontSave, so the game's unloading of unused assets leaves them alone.
+    //
+    // The game draws its UI in display colours: a Graphic's colour reaches the screen as it is, and nothing converts a
+    // texture's colours back after sampling. So the textures are created linear, which samples their bytes as they are:
+    // an sRGB texture is decoded when sampled, and every colour baked into one drew darker by that decode. A shape that
+    // is tinted is baked white, so the tint alone is its colour.
     internal static class Shapes
     {
         public const int Density = 2;
@@ -48,6 +53,8 @@ namespace CameraTools
         public static readonly Shape SwitchOff = Framed("SwitchOff", 52f, 26f, 13f, 0f, 1.5f, Style.Track, Style.SwitchRingOff);
         public static readonly Shape SwitchOn = Framed("SwitchOn", 52f, 26f, 13f, 0f, 1.5f, Style.Cream, Style.SwitchRingOn);
         public static readonly Shape Knob = Solid("Knob", 20f, 20f, 0f, Circle(10f, 10f, 10f), Style.Light);
+        // A marker's ring or dot, which takes its colour from its tint.
+        public static readonly Shape Disc = Solid("Disc", 20f, 20f, 0f, Circle(10f, 10f, 10f), Style.White);
         public static readonly Shape Check = Solid("Check", 10f, 10f, 0f, Union(Line(1.6f, 5.3f, 4.1f, 7.7f, 0.9f), Line(4.1f, 7.7f, 8.5f, 2.5f, 0.9f)), Style.White);
         public static readonly Shape Cross = Solid("Cross", 10f, 10f, 0f, Union(Line(2.3f, 2.3f, 7.7f, 7.7f, 0.85f), Line(7.7f, 2.3f, 2.3f, 7.7f, 0.85f)), Style.White);
         public static readonly Shape Plus = Solid("Plus", 10f, 10f, 0f, Union(Box(1f, 4f, 8f, 2f, 0.3f), Box(4f, 1f, 2f, 8f, 0.3f)), Style.White);
@@ -87,7 +94,7 @@ namespace CameraTools
         public static readonly Shape[] All =
         {
             Face, Bumper, Trigger, Menu, View, DpadUp, DpadDown, DpadLeft, DpadRight, DpadSides, DpadUpDown, Key, Toast, Pill, Bar,
-            FovTrack, SwitchOff, SwitchOn, Knob, Check, Cross, Plus, Minus, Handle, Arrow, Back, Chevron, StepLeft, StepRight, Button,
+            FovTrack, SwitchOff, SwitchOn, Knob, Disc, Check, Cross, Plus, Minus, Handle, Arrow, Back, Chevron, StepLeft, StepRight, Button,
             PanelFill, PanelShadow, FocusWindow, FocusCross, HueRail, TemperatureRail,
         };
 
@@ -150,7 +157,7 @@ namespace CameraTools
             var pixels = new Il2CppStructArray<Color32>(width * height);
             for (int i = 0; i < pixels.Length; i++)
                 pixels[i] = new Color32 { r = bytes[i * 4], g = bytes[i * 4 + 1], b = bytes[i * 4 + 2], a = bytes[i * 4 + 3] };
-            var texture = new Texture2D(width, height, TextureFormat.RGBA32, true)
+            var texture = new Texture2D(width, height, TextureFormat.RGBA32, true, true)
             {
                 name = "CameraTools " + shape.Name,
                 hideFlags = HideFlags.DontSave,

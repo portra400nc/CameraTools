@@ -267,9 +267,9 @@ namespace CameraTools
                 Place(marker, V(0f, 0f), V(0f, 0f), V(0.5f, 0.5f), V(0f, 0f), V(Style.MarkerRingSize, Style.MarkerRingSize));
                 var aim = Picture(marker, "Aim", Shapes.Bar, Style.Handle).rectTransform;
                 Place(aim, V(0.5f, 0.5f), V(0.5f, 0.5f), V(0f, 0.5f), V(0f, 0f), V(Style.MarkerAimLength, Style.MarkerAimWidth));
-                var ring = Picture(marker, "Ring", Shapes.Knob, Style.MarkerRing);
+                var ring = Picture(marker, "Ring", Shapes.Disc, Style.MarkerRing);
                 Fill(ring.rectTransform);
-                var dot = Picture(marker, "Dot", Shapes.Knob, Style.White);
+                var dot = Picture(marker, "Dot", Shapes.Disc, Style.White);
                 Pin(dot.rectTransform, 0.5f, 0.5f, 0f, 0f, Style.MarkerDot, Style.MarkerDot);
                 var number = ui.Label(marker, "Number", "", Style.MarkerNumberSize, Style.LightInk, TextAnchor.MiddleCenter);
                 Fill(number.rectTransform);
@@ -316,8 +316,8 @@ namespace CameraTools
                 float size = index < Joints.All.Length ? Style.JointDot : Style.StrandDot;
                 var marker = Node("Joint", layer);
                 Place(marker, V(0f, 0f), V(0f, 0f), V(0.5f, 0.5f), V(0f, 0f), V(size + Style.JointRing, size + Style.JointRing));
-                Fill(Picture(marker, "Ring", Shapes.Knob, Style.MarkerRing).rectTransform);
-                var dot = Picture(marker, "Dot", Shapes.Knob, Style.Handle);
+                Fill(Picture(marker, "Ring", Shapes.Disc, Style.MarkerRing).rectTransform);
+                var dot = Picture(marker, "Dot", Shapes.Disc, Style.Handle);
                 Pin(dot.rectTransform, 0.5f, 0.5f, 0f, 0f, size, size);
                 marker.gameObject.SetActive(false);
                 target.JointMarkers.Add(new JointMarker(marker, dot, size));
