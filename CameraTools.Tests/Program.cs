@@ -26,6 +26,8 @@ Check("the binding's shot is 16 bytes, its settings 236 and its scene request 20
 Check("the restart reasons and the scene states count as photoreal.h's", (uint)PhotorealTraceRestart.Scene == 1 && (uint)PhotorealTraceRestart.Camera == 4
     && (uint)PhotorealTraceRestart.Light == 6 && (uint)PhotorealTraceState.Ready == 3 && (uint)PhotorealTraceState.Failed == 5
     && (uint)PhotorealSceneFlags.Release == 32 && (uint)PhotorealSceneFlags.Light == 64);
+Check("the shot's capture names all seven faces, the view among them, since a traced capture of no face is the self-test scene",
+    TracedShot.AllFaces == 0x7F && (TracedShot.AllFaces & PhotorealFaces.Bit(PhotorealFace.View)) != 0);
 
 // The sky's light.
 var dawn = new SkyLight(new Vec3(0.239f, 0.574f, -0.784f), new Vec3(0.303f, 0.808f, 1.331f), new Vec3(0.24f, 0.53f, 0.81f), 0f);

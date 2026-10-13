@@ -71,6 +71,9 @@ namespace CameraTools
         // Starts without a sample after which the wait says what keeps changing.
         public const uint StalledStarts = 8;
         public const uint Faces = 7;
+        // Every face by name, PhotorealSceneRequest.Faces' bits: with none named, a traced capture is the add-on's self-test
+        // scene.
+        public const uint AllFaces = (1u << (int)Faces) - 1;
         private const uint TracePass = 1u << 7;
 
         // Why the kept scene cannot serve this shot, or null when it can. The game has stayed paused since its capture,
