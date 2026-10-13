@@ -282,6 +282,23 @@ namespace CameraTools
         public Text Value;
         public Image Previous;
         public Image Next;
+        // The value's box is at least this wide.
+        public float MinWidth;
+        private float width;
+
+        // The box grows to hold a value wider than it, as the mockup's min-width does, and the previous arrow moves out
+        // with it. The next arrow stays at the row's right edge.
+        protected void Fit()
+        {
+            float fitted = Math.Max(MinWidth, MathF.Ceiling(Value.preferredWidth));
+            if (fitted == width)
+                return;
+            width = fitted;
+            var box = Value.rectTransform;
+            box.sizeDelta = new Vector2 { x = fitted, y = box.sizeDelta.y };
+            var previous = Previous.rectTransform;
+            previous.anchoredPosition = new Vector2 { x = -(Style.RowRight + Style.StepSize + 2f * Style.StepGap + fitted), y = previous.anchoredPosition.y };
+        }
     }
 
     internal sealed class ChoiceView : ArrowsView
@@ -300,6 +317,7 @@ namespace CameraTools
                 return;
             shown = (position, options);
             Value.text = position >= 0 && position < options.Length ? options[position] : "?";
+            Fit();
             Previous.color = Style.WithAlpha(Style.White, position > 0 ? 1f : Style.StepDimmed);
             Next.color = Style.WithAlpha(Style.White, position < options.Length - 1 ? 1f : Style.StepDimmed);
         }
@@ -742,6 +760,7 @@ namespace CameraTools
             float lineHeight = noted ? Style.RowTextHeight : height;
             float stepY = -(lineY + (lineHeight - Style.StepSize) / 2f);
             float stepper = 2f * (Style.StepSize + Style.StepGap) + valueWidth;
+            view.MinWidth = valueWidth;
             var label = Label(rect, "Label", row.Label, Style.RowSize, Style.Text, TextAnchor.MiddleLeft);
             TopLeft(label.rectTransform, Left(row), lineY, Width(row) - stepper, lineHeight);
             view.Next = Picture(rect, "Next", Shapes.StepRight, Style.White);
