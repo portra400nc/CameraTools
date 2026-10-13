@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <RootNamespace>CameraTools.Tests</RootNamespace>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <NuGetAudit>false</NuGetAudit>
+    <!-- The tests run where they are built, whatever platform a Directory.Build.props above this repo sets for the mod,
+         and dotnet run starts them with the dotnet that built them. -->
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <RuntimeIdentifier></RuntimeIdentifier>
+    <RuntimeIdentifiers></RuntimeIdentifiers>
+    <UseAppHost>false</UseAppHost>
+    <RestoreAdditionalProjectSources></RestoreAdditionalProjectSources>
+    <!-- The references are CameraTools' own: build with -p:GameDir=<folder>, or set MelonLoaderNet6 and Il2CppAssemblies. -->
+    <MelonLoaderNet6 Condition="'$(MelonLoaderNet6)' == ''">$(GameDir)/MelonLoader/net6</MelonLoaderNet6>
+    <Il2CppAssemblies Condition="'$(Il2CppAssemblies)' == ''">$(GameDir)/MelonLoader/Il2CppAssemblies</Il2CppAssemblies>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The sources under test, which need no game to run. The binding compiles against the game's assemblies, and the
+         tests touch only its structs. -->
+    <Compile Include="../CameraTools/TracedShot.cs" Link="TracedShot.cs" />
+    <Compile Include="../Photoreal/csharp/Photoreal.cs" Link="Photoreal.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="$(MelonLoaderNet6)\MelonLoader.dll" Private="false" />
+    <Reference Include="$(MelonLoaderNet6)\Il2CppInterop.Runtime.dll" Private="false" />
+    <Reference Include="$(MelonLoaderNet6)\Il2CppInterop.Common.dll" Private="false" />
+    <Reference Include="$(Il2CppAssemblies)\Il2Cppmscorlib.dll" Private="false" />
+    <Reference Include="$(Il2CppAssemblies)\UnityEngine.CoreModule.dll" Private="false" />
+  </ItemGroup>
+</Project>
