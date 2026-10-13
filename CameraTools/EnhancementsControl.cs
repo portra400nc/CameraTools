@@ -5,14 +5,15 @@ using UnityEngine;
 namespace CameraTools
 {
     // The Graphics tab's Enhancements category, and the only owner of the add-on's settings. Each switch and value is an
-    // entry of the CameraToolsEnhancements preferences: a change is saved and goes to the add-on at once, and the add-on
-    // gets the saved values whenever ReShade loads it, which is some time after the game starts. EnhancementsModel holds
-    // the rows and the rules.
+    // entry of the CameraToolsEnhancements preferences: a change goes to the add-on at once and is saved a moment later,
+    // and the add-on gets the saved values whenever ReShade loads it, which is some time after the game starts.
+    // EnhancementsModel holds the rows and the rules.
     internal static class EnhancementsControl
     {
         private const string Category = "CameraToolsEnhancements";
-        // How long after the last change the log names the values: a dragged slider changes them every frame.
-        private const float LogDelay = 1f;
+        // How long after the last change the preferences are written and the log names the values: a dragged slider
+        // changes them every frame.
+        private const float SaveDelay = 1f;
 
         // By field: writes a value to the field's entry.
         private static readonly Action<float>[] writers = new Action<float>[EnhancementsModel.Fields.Length];
@@ -20,7 +21,8 @@ namespace CameraTools
         // The user's own values, which the preferences keep, and a screenshot's preset's while it runs them.
         private static EnhancementRun run = new(EnhancementValues.Defaults);
         private static int connections;
-        private static float? logAt;
+        private static float? saveAt;
+        private static bool unsaved;
         // The heading's text for the values it was made from.
         private static (EnhancementValues Of, string Text) summary;
 
@@ -105,13 +107,17 @@ namespace CameraTools
                 ulong generation = Enhancements.Apply(EnhancementsModel.Settings(Running));
                 Log($"the add-on connected and runs {Describe(Running)}, as its settings {generation}.");
             }
-            if (logAt is not float at || Time.unscaledTime < at)
+            if (saveAt is not float at || Time.unscaledTime < at)
                 return;
-            logAt = null;
+            saveAt = null;
+            if (unsaved)
+                MelonPreferences.Save();
+            unsaved = false;
             Log($"now {Describe(Running)}{(Enhancements.Connected ? "" : ", which wait for the add-on")}: {Running}.");
         }
 
-        // Sets the user's own values: saves the ones that changed and has the add-on run them. Returns whether any did.
+        // Sets the user's own values: has the add-on run them and writes the ones that changed to their entries, which
+        // Update saves. Returns whether any changed.
         public static bool Set(EnhancementValues values)
         {
             if (values.Equals(Values))
@@ -120,7 +126,7 @@ namespace CameraTools
                 if (values[field.Id] != Values[field.Id])
                     writers[(int)field.Id](values[field.Id]);
             run = run with { Own = values };
-            MelonPreferences.Save();
+            unsaved = true;
             Push();
             return true;
         }
@@ -159,7 +165,7 @@ namespace CameraTools
 
         private static void Push()
         {
-            logAt = Time.unscaledTime + LogDelay;
+            saveAt = Time.unscaledTime + SaveDelay;
             if (Enhancements.Connected)
                 Enhancements.Apply(EnhancementsModel.Settings(Running));
         }
