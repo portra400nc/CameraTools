@@ -110,7 +110,9 @@ namespace photoreal
         float sun_strength = 1.0f;
         uint32_t ao_samples = 64;
         uint32_t sun_samples = 32;
-        float budget_ms = 20.0f;
+        // Frames are long while the samples come in and no longer once they are in: build 209's Deck gave the kernels 18 ms
+        // of its 69 ms frames at a budget of 20, and so spent three quarters of a converging shot's wait outside them.
+        float budget_ms = 100.0f;
     };
 
     enum class GatherSky : uint8_t { occlusion, visibility, weighted, map, count };   // PHOTOREAL_GATHER_SKY_*
@@ -120,7 +122,9 @@ namespace photoreal
     struct GatherSettings
     {
         bool enabled = false;
-        uint32_t samples = 128;
+        // With the two filter passes, 64 samples leave build 209's all-faces frame 0.5/255 from 256 other samples in the
+        // picture's RMS, against 0.4 for 128 (README, "Gathering").
+        uint32_t samples = 64;
         GatherSky sky = GatherSky::visibility;
         uint32_t filter = 2;
         float strength = 1.0f;

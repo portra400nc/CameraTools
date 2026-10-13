@@ -1092,17 +1092,17 @@ int main()
         check("outputs 0 reads as both, and casters keep their known bits", all.ao && all.sun && all.characters && all.alpha_cards && all.whole_cards);
         raw.size = 172;     // a caller of version 7
         const TraceSettings before = parse_settings(raw).trace;
-        check("a 172-byte struct keeps the trace off at 2 m, 0.0093, 64 and 32 samples and 20 ms, with characters and cards casting",
+        check("a 172-byte struct keeps the trace off at 2 m, 0.0093, 64 and 32 samples and 100 ms, with characters and cards casting",
             !before.enabled && before.ao && before.sun && before.characters && before.alpha_cards && !before.whole_cards && before.ao_distance == 2.0f
             && before.ao_strength == 1.0f && before.sun_size == 0.0093f && before.sun_strength == 1.0f && before.ao_samples == 64
-            && before.sun_samples == 32 && before.budget_ms == 20.0f);
+            && before.sun_samples == 32 && before.budget_ms == 100.0f);
         raw.size = 211;
         check("a struct one byte short of the trace block keeps its defaults", !parse_settings(raw).trace.enabled);
         raw.size = sizeof raw;
         raw.trace = { 1, 0, 0, NAN, INFINITY, -INFINITY, NAN, 64, 32, NAN };
         const TraceSettings bad = parse_settings(raw).trace;
-        check("the trace: NaN and infinities fall back to 2 m, strength 1, 0.0093, 1 and 20 ms", bad.ao_distance == 2.0f && bad.ao_strength == 1.0f
-            && bad.sun_size == 0.0093f && bad.sun_strength == 1.0f && bad.budget_ms == 20.0f);
+        check("the trace: NaN and infinities fall back to 2 m, strength 1, 0.0093, 1 and 100 ms", bad.ao_distance == 2.0f && bad.ao_strength == 1.0f
+            && bad.sun_size == 0.0093f && bad.sun_strength == 1.0f && bad.budget_ms == 100.0f);
         raw.trace = { 1, 0, 0, 0, -1, -1, -1, 0, 0, 0 };
         const TraceSettings low = parse_settings(raw).trace;
         check("the trace clamps: distance 0 to 0.1, strengths and sun size -1 to 0, 0 samples to 1, 0 ms to 2", low.ao_distance == 0.1f
@@ -1123,8 +1123,8 @@ int main()
                 && whole.hit_ambient == 0.25f);
         raw.size = 212;     // a caller of version 8
         const GatherSettings before = parse_settings(raw).gather;
-        check("a 212-byte struct keeps the gather off at 128 samples, visibility, two filter passes, strength 1 and half the ambient light",
-            !before.enabled && before.samples == 128 && before.sky == GatherSky::visibility && before.filter == 2 && before.strength == 1.0f
+        check("a 212-byte struct keeps the gather off at 64 samples, visibility, two filter passes, strength 1 and half the ambient light",
+            !before.enabled && before.samples == 64 && before.sky == GatherSky::visibility && before.filter == 2 && before.strength == 1.0f
                 && before.hit_ambient == 0.5f && parse_settings(raw).trace.enabled == parse_settings(raw_settings()).trace.enabled);
         raw.size = sizeof raw;
         raw.gather = { 1, 0, 9, 7, NAN, -1 };

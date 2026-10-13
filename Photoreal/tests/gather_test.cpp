@@ -337,8 +337,8 @@ int main()
         AmbientFit fit;
         fit.rows = { { { 0.2f, 0.4f, 0.6f }, { 0, 0, 0 }, { 0.1f, 0.2f, 0.3f }, { 0, 0, 0 } } };
         const GatherConstants k = gather_constants(settings, light, fit);
-        check("the gather's constants: the sun's color, the shading direction made unit, the ambient rows times hit_ambient, 128 samples",
-            k.sun[0] == 2.8f && k.sun[2] == 1.1f && k.shade[1] == 1 && k.ambient[0][2] == 0.3f && k.ambient[2][1] == 0.1f && k.counts[0] == 128);
+        check("the gather's constants: the sun's color, the shading direction made unit, the ambient rows times hit_ambient, 64 samples",
+            k.sun[0] == 2.8f && k.sun[2] == 1.1f && k.shade[1] == 1 && k.ambient[0][2] == 0.3f && k.ambient[2][1] == 0.1f && k.counts[0] == 64);
         light.shade = { 0, 0, 0 };
         const GatherConstants dark = gather_constants(settings, light, fit);
         check("without a sun, no sun color either", dark.sun[0] == 0 && dark.shade[1] == 0);
@@ -367,7 +367,7 @@ int main()
         TraceSettings t;
         GatherSettings gs;
         check("the target: the larger of the gather's and the sun's samples while gathering, else of the occlusion's and the sun's",
-            trace_target(t, gs, true) == 128 && trace_target(t, gs, false) == 64 && (gs.samples = 16, trace_target(t, gs, true)) == 32);
+            (gs.samples = 128, trace_target(t, gs, true)) == 128 && trace_target(t, gs, false) == 64 && (gs.samples = 16, trace_target(t, gs, true)) == 32);
         check("the trace kernel runs beside the gather while the sun has samples to take, then every 8th pass",
             trace_kernel_runs(0, 32) && trace_kernel_runs(31, 32) && trace_kernel_runs(32, 32) && !trace_kernel_runs(33, 32) && !trace_kernel_runs(39, 32)
                 && trace_kernel_runs(40, 32));

@@ -311,7 +311,8 @@ typedef struct PhotorealTrace
     float sun_strength;         // 0 no traced sun shadow, 1 full; default 1, clamped to 0..1
     uint32_t ao_samples;        // occlusion rays per pixel, then it stops; default 64, clamped to 1..4096
     uint32_t sun_samples;       // sun rays per pixel; default 32, clamped to 1..4096
-    float budget_ms;            // GPU time per frame for tracing, measured with timestamp queries; default 20, clamped to 2..200
+    float budget_ms;            // GPU time per frame for tracing, measured with timestamp queries; default 100, clamped to
+                                // 2..200. Frames are that much longer until every pixel has its samples
 } PhotorealTrace;
 
 // One bounce of diffuse light: each world pixel gathers the light of the surfaces and the sky its hemisphere sees, by rays
@@ -321,7 +322,7 @@ typedef struct PhotorealTrace
 typedef struct PhotorealGather
 {
     uint32_t enabled;           // default 0
-    uint32_t samples;           // gather samples a pixel, then it stops; default 128, clamped to 1..4096
+    uint32_t samples;           // gather samples a pixel, then it stops; default 64, clamped to 1..4096
     uint32_t sky;               // PHOTOREAL_GATHER_SKY_*; default VISIBILITY; unknown values read as the default
     uint32_t filter;            // 0 none, 1 one edge-aware 5x5 pass of the far light, 2 two; default 2, clamped to 0..2
     float strength;             // multiplies the bounce; default 1, clamped to 0..4

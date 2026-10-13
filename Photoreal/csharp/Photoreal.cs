@@ -177,8 +177,8 @@ namespace CameraToolsPhotoreal
         // 0.3, and light shafts at strength 3 through a mist that hides 26% of a pixel 50 m away, thins by e every 5 m up,
         // scatters sun light forward with anisotropy 0.6, is marched 150 m in 48 steps, lies in patches 6 m across at
         // patchiness 1, and takes the sky's light at 0.3, and a trace of occlusion within 2 m and sun shadows of the real
-        // sun's size, both at full strength and cast by characters and cards too, to 64 and 32 samples a pixel within 20 ms a
-        // frame, applied with the ambient level, and when switched on a gather of one bounce, 128 samples a pixel, its sky
+        // sun's size, both at full strength and cast by characters and cards too, to 64 and 32 samples a pixel within 100 ms a
+        // frame, applied with the ambient level, and when switched on a gather of one bounce, 64 samples a pixel, its sky
         // light by visibility, filtered twice, at full strength, with half the game's ambient light on the surfaces it meets.
         public static PhotorealSettings Defaults => new()
         {
@@ -197,9 +197,9 @@ namespace CameraToolsPhotoreal
             Trace = new PhotorealTrace
             {
                 Outputs = PhotorealTraceOutputs.Ao | PhotorealTraceOutputs.Sun, Casters = PhotorealTraceCasters.Characters | PhotorealTraceCasters.AlphaCards,
-                AoDistance = 2, AoStrength = 1, SunSize = 0.0093f, SunStrength = 1, AoSamples = 64, SunSamples = 32, BudgetMs = 20,
+                AoDistance = 2, AoStrength = 1, SunSize = 0.0093f, SunStrength = 1, AoSamples = 64, SunSamples = 32, BudgetMs = 100,
             },
-            Gather = new PhotorealGather { Samples = 128, Sky = PhotorealGatherSky.Visibility, Filter = 2, Strength = 1, HitAmbient = 0.5f },
+            Gather = new PhotorealGather { Samples = 64, Sky = PhotorealGatherSky.Visibility, Filter = 2, Strength = 1, HitAmbient = 0.5f },
         };
     }
 
