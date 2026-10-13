@@ -4,8 +4,8 @@ using static CameraTools.CameraTools;
 
 namespace CameraTools
 {
-    // What the screenshot button changes, as it was when the button was pressed. Traced: the Photoreal add-on's path
-    // tracer lights this shot, and PhotorealShot holds what that changes.
+    // What the screenshot button changes, as it was when the button was pressed. Traced: the Enhancements add-on's path
+    // tracer lights this shot, and EnhancementsShot holds what that changes.
     internal sealed record ShotBefore(bool PanelOpen, bool UiHidden, GraphicsState Graphics, ScreenSize Window, bool Traced);
 
     internal abstract record ShotState
@@ -62,8 +62,8 @@ namespace CameraTools
             new($"{CleanFrames} frames without the CameraTools UI", (settling, bridge) => bridge.Presents >= settling.Dirty + CleanFrames),
             // A traced shot's two, which begin once the ones above hold. Its notices keep the frames above from being clean
             // until the lighting has converged.
-            new("the Photoreal scene to be captured", (settling, _) => !settling.Before.Traced || PhotorealShot.SceneCaptured),
-            new("the lighting to converge", (settling, _) => !settling.Before.Traced || PhotorealShot.Converged),
+            new("the Enhancements scene to be captured", (settling, _) => !settling.Before.Traced || EnhancementsShot.SceneCaptured),
+            new("the lighting to converge", (settling, _) => !settling.Before.Traced || EnhancementsShot.Converged),
         };
 
         // The conditions before the traced shot's two.
@@ -75,7 +75,7 @@ namespace CameraTools
             ("the traced lighting", busy =>
             {
                 if (busy.Before.Traced)
-                    PhotorealShot.End();
+                    EnhancementsShot.End();
             }),
             ("the graphics settings", busy => Graphics.PutBack(busy.Before.Graphics)),
             ("the resolution", busy =>
@@ -126,7 +126,7 @@ namespace CameraTools
             settle = category.CreateEntry("ScreenshotSettleSeconds", 2f,
                 description: $"The least time, in seconds, between changing the graphics settings and taking the screenshot, from 0 to {MaxSettle:0}.");
             MelonPreferences.Save();
-            PhotorealShot.Load();
+            EnhancementsShot.Load();
         }
 
         public static void Take()
@@ -134,7 +134,7 @@ namespace CameraTools
             if (State is not ShotState.Idle || !freecamActive || !ReShade.Connected)
                 return;
             float now = Time.unscaledTime;
-            var before = new ShotBefore(CameraUi.PanelOpen, uiHidden, Graphics.Capture(), Window, PhotorealShot.Wanted);
+            var before = new ShotBefore(CameraUi.PanelOpen, uiHidden, Graphics.Capture(), Window, EnhancementsShot.Wanted);
             var slot = Graphics.Slot(1);
             bool resized = slot != before.Window;
             focusing = null;
@@ -154,9 +154,9 @@ namespace CameraTools
                     resize = (slot, bridge.Presents + SaveFrames);
                 ReShade.SetEffects(true);
                 if (before.Traced)
-                    PhotorealShot.Start();
+                    EnhancementsShot.Start();
                 if (before.Traced && busy is ShotState.Settling)
-                    PhotorealShot.Hold();
+                    EnhancementsShot.Hold();
                 Melon<CameraTools>.Logger.Msg($"Screenshot: started. Window {before.Window}, slot 1 {slot}{(resized ? "" : " (no resize)")}; {preset}; "
                     + $"countdown {(Countdown ? "on" : "off")}, settle {SettleSeconds:0.##} s{(before.Traced ? ", traced lighting" : "")}; {bridge}.");
             }
@@ -168,7 +168,7 @@ namespace CameraTools
 
         public static void Update()
         {
-            PhotorealShot.Watch();
+            EnhancementsShot.Watch();
             if (State is not ShotState.Busy busy)
                 return;
             try
@@ -178,8 +178,8 @@ namespace CameraTools
                     : !uiHidden ? "Screenshot cancelled"
                     : !ReShade.Connected ? "Screenshot failed: ReShade was unloaded"
                     : !busy.Before.Traced ? null
-                    : !CameraToolsPhotoreal.Photoreal.Connected ? "Screenshot failed: the Photoreal add-on was unloaded"
-                    : PhotorealShot.Unpaused ? "Screenshot cancelled: the game was unpaused"
+                    : !CameraToolsEnhancements.Enhancements.Connected ? "Screenshot failed: the Enhancements add-on was unloaded"
+                    : EnhancementsShot.Unpaused ? "Screenshot cancelled: the game was unpaused"
                     : null;
                 if (stopped != null)
                 {
@@ -193,7 +193,7 @@ namespace CameraTools
                 }
                 var bridge = ReShade.Status;
                 if (resize != null || bridge.Runtime != 1 || bridge.EffectsReady != 1 || bridge.EffectsEnabled != 1
-                    || bridge.Width != Screen.width || bridge.Height != Screen.height || (busy.Before.Traced && PhotorealShot.Capturing))
+                    || bridge.Width != Screen.width || bridge.Height != Screen.height || (busy.Before.Traced && EnhancementsShot.Capturing))
                     focusing = null;
                 else
                     focusing ??= Time.unscaledTime;
@@ -225,7 +225,7 @@ namespace CameraTools
                 CameraUi.ClearToast();
                 State = new ShotState.Settling(counting.Before, counting.Resized, counting.Started, now, ReShade.Status.Presents);
                 if (counting.Before.Traced)
-                    PhotorealShot.Hold();
+                    EnhancementsShot.Hold();
                 return;
             }
             int shown = (int)MathF.Ceiling(remaining);
@@ -248,7 +248,7 @@ namespace CameraTools
                 State = settling;
             }
             bool traced = settling.Before.Traced;
-            if (traced && PhotorealShot.Step(Array.FindIndex(Conditions, 0, Plain, condition => !condition.Met(settling, bridge)) < 0, bridge.Presents) is var (toast, detail))
+            if (traced && EnhancementsShot.Step(Array.FindIndex(Conditions, 0, Plain, condition => !condition.Met(settling, bridge)) < 0, bridge.Presents) is var (toast, detail))
             {
                 Finish(settling, toast, detail);
                 return;
@@ -262,10 +262,10 @@ namespace CameraTools
                 State = new ShotState.Saving(settling.Before, settling.Resized, settling.Started, now, bridge.Screenshots);
                 return;
             }
-            float timeout = traced ? PhotorealShot.Timeout : SettleTimeout;
-            if (now - settling.Since < timeout || (traced && PhotorealShot.SaveAsIs()))
+            float timeout = traced ? EnhancementsShot.Timeout : SettleTimeout;
+            if (now - settling.Since < timeout || (traced && EnhancementsShot.SaveAsIs()))
                 return;
-            string waited = (traced ? PhotorealShot.Waiting : null) ?? unmet.Name;
+            string waited = (traced ? EnhancementsShot.Waiting : null) ?? unmet.Name;
             Finish(settling, $"Screenshot failed: timed out waiting for {waited}",
                 $"timed out after {timeout:0} s waiting for {waited}; window {Window}; {bridge}");
         }
@@ -276,7 +276,7 @@ namespace CameraTools
             if (bridge.Screenshots > saving.Shots)
             {
                 string path = ReShade.LastScreenshot;
-                string traced = saving.Before.Traced ? PhotorealShot.Saved() : "";
+                string traced = saving.Before.Traced ? EnhancementsShot.Saved() : "";
                 Finish(saving, (path.Length > 0 ? $"Saved {Path.GetFileName(path)}" : "Screenshot saved") + traced,
                     $"saved {(path.Length > 0 ? path : "a file whose path the bridge did not return")} "
                     + $"{Time.unscaledTime - saving.Started:0.0} s after the button{traced}");

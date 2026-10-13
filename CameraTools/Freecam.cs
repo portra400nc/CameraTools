@@ -134,14 +134,14 @@ namespace CameraTools
         }
 
         // Genshin's own camera system rewrites the camera every frame after OnLateUpdate, so the pose is kept here
-        // and written again right before the camera renders. A Photoreal scene capture's face replaces the rotation and
+        // and written again right before the camera renders. A Enhancements scene capture's face replaces the rotation and
         // field of view on screen only, so the free camera's own pose comes back after it.
         public void Apply()
         {
             transform.position = smoothPosition;
             currentRotation.UpdateTransform(transform);
             cam.nearClipPlane = settings.NearClip;
-            if (PhotorealScene.Pose is { } face)
+            if (EnhancementsScene.Pose is { } face)
             {
                 transform.rotation = face.Rotation;
                 SetFieldOfView(face.Fov);
@@ -216,7 +216,7 @@ namespace CameraTools
             currentRotation.LerpTowards(targetRotation, damping);
             Apply();
             // Detail loads toward a scene capture's face while it is shown.
-            if (PhotorealScene.Pose is { } face)
+            if (EnhancementsScene.Pose is { } face)
                 Lod.Sync(smoothPosition, face.Rotation, face.Fov);
             else
                 Lod.Sync(smoothPosition, Quaternion.Euler(currentRotation.pitch, currentRotation.yaw, currentRotation.roll), smoothFOV);

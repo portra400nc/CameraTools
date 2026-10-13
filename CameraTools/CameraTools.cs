@@ -129,8 +129,8 @@ namespace CameraTools
             // After the speed notice, so unpausing the game for playback does not show one.
             PathPlayback.Update();
             ReShade.Update();
-            CameraToolsPhotoreal.Photoreal.Update();
-            PhotorealScene.Update(freecamActive);
+            CameraToolsEnhancements.Enhancements.Update();
+            EnhancementsScene.Update(freecamActive);
             DepthOfField.Update();
 
             // After the hotkeys, so the key that closes the settings panel does not also fire its camera action.
@@ -334,7 +334,7 @@ namespace CameraTools
             if (freecamActive && camera)
                 freecam.Apply();
             if (rendering == maincam)
-                PhotorealCamera.Push(rendering);
+                EnhancementsCamera.Push(rendering);
         }
 
         // Genshin's camera system writes the gameplay pose after every script LateUpdate, and scenery culling reads the

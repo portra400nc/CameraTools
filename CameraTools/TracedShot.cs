@@ -1,9 +1,9 @@
-using CameraToolsPhotoreal;
+using CameraToolsEnhancements;
 using Vec3 = System.Numerics.Vector3;
 
 namespace CameraTools
 {
-    // The light the sky gives the scene, as PhotorealCamera reads it each frame: the direction toward the sun, the sun
+    // The light the sky gives the scene, as EnhancementsCamera reads it each frame: the direction toward the sun, the sun
     // light's color times its intensity, the sky's ambient color, and the weather's wetness.
     internal readonly record struct SkyLight(Vec3 TowardSun, Vec3 SunColor, Vec3 Ambient, float Wetness)
     {
@@ -71,16 +71,16 @@ namespace CameraTools
         // Starts without a sample after which the wait says what keeps changing.
         public const uint StalledStarts = 8;
         public const uint Faces = 7;
-        // Every face by name, PhotorealSceneRequest.Faces' bits: with none named, a traced capture is the add-on's self-test
+        // Every face by name, EnhancementsSceneRequest.Faces' bits: with none named, a traced capture is the add-on's self-test
         // scene.
         public const uint AllFaces = (1u << (int)Faces) - 1;
         private const uint TracePass = 1u << 7;
 
         // Why the kept scene cannot serve this shot, or null when it can. The game has stayed paused since its capture,
         // or it would have been released.
-        public static string Unusable(SceneFacts kept, SceneFacts now, PhotorealTraceState state)
+        public static string Unusable(SceneFacts kept, SceneFacts now, EnhancementsTraceState state)
         {
-            if (state != PhotorealTraceState.Ready)
+            if (state != EnhancementsTraceState.Ready)
                 return $"the add-on's scene is {state.ToString().ToLowerInvariant()}";
             if (now.Generation != kept.Generation)
                 return "the add-on holds another scene";
@@ -100,7 +100,7 @@ namespace CameraTools
 
         // Why a kept scene is released while no shot holds the world, or null to keep it.
         public static string Release(bool connected, bool freecam, bool paused)
-            => !connected ? "the Photoreal add-on was unloaded"
+            => !connected ? "the Enhancements add-on was unloaded"
                 : !freecam ? "the free camera is off"
                 : !paused ? "the game was unpaused"
                 : null;
@@ -108,27 +108,27 @@ namespace CameraTools
         // A capture asked for while the add-on's scene had the generation before. The status of the frames before the
         // add-on took the request still shows the scene from before, so a failed or missing scene is this capture's only
         // once the status has shown the capture: seen.
-        public static CaptureVerdict Capture(ref bool seen, uint before, PhotorealStatus status)
+        public static CaptureVerdict Capture(ref bool seen, uint before, EnhancementsStatus status)
         {
             bool fresh = status.TraceGeneration != before;
-            seen |= fresh || status.SceneRemaining > 0 || status.TraceState is PhotorealTraceState.Building or PhotorealTraceState.Uploading;
-            if (fresh && status.TraceState == PhotorealTraceState.Ready)
+            seen |= fresh || status.SceneRemaining > 0 || status.TraceState is EnhancementsTraceState.Building or EnhancementsTraceState.Uploading;
+            if (fresh && status.TraceState == EnhancementsTraceState.Ready)
                 return CaptureVerdict.Ready;
-            return seen && status.TraceState is PhotorealTraceState.None or PhotorealTraceState.Stale or PhotorealTraceState.Failed
+            return seen && status.TraceState is EnhancementsTraceState.None or EnhancementsTraceState.Stale or EnhancementsTraceState.Failed
                 ? CaptureVerdict.Failed
                 : CaptureVerdict.Waiting;
         }
 
         // The trace of the scene of that generation: converged only on a frame that ran with the shot, since a status
         // from before the add-on took the shot may show another caller's converged trace.
-        public static TraceVerdict Trace(uint generation, PhotorealStatus status)
-            => status.TraceState != PhotorealTraceState.Ready || status.TraceGeneration != generation ? TraceVerdict.Lost
+        public static TraceVerdict Trace(uint generation, EnhancementsStatus status)
+            => status.TraceState != EnhancementsTraceState.Ready || status.TraceGeneration != generation ? TraceVerdict.Lost
                 : status.ShotActive != 0 && status.TraceConverged != 0 ? TraceVerdict.Converged
                 : TraceVerdict.Waiting;
 
         // Whether no sample accumulates: the samples have started StalledStarts times since baseline, the starts when a
         // pixel last had a sample, which follows the status while it has one.
-        public static bool Stalled(ref uint baseline, PhotorealStatus status)
+        public static bool Stalled(ref uint baseline, EnhancementsStatus status)
         {
             if (status.TraceSamples > 0)
                 baseline = status.TraceRestarts;
@@ -136,23 +136,23 @@ namespace CameraTools
         }
 
         // What keeps starting the samples again, for a notice.
-        public static string Changing(PhotorealTraceRestart reason) => reason switch
+        public static string Changing(EnhancementsTraceRestart reason) => reason switch
         {
-            PhotorealTraceRestart.Camera => "the camera keeps moving",
-            PhotorealTraceRestart.SunDirection => "the sun keeps moving",
-            PhotorealTraceRestart.Light => "the light keeps changing",
-            PhotorealTraceRestart.RenderSize => "the render size keeps changing",
-            PhotorealTraceRestart.Settings => "the Photoreal settings keep changing",
-            PhotorealTraceRestart.Scene => "the scene keeps changing",
+            EnhancementsTraceRestart.Camera => "the camera keeps moving",
+            EnhancementsTraceRestart.SunDirection => "the sun keeps moving",
+            EnhancementsTraceRestart.Light => "the light keeps changing",
+            EnhancementsTraceRestart.RenderSize => "the render size keeps changing",
+            EnhancementsTraceRestart.Settings => "the Enhancements settings keep changing",
+            EnhancementsTraceRestart.Scene => "the scene keeps changing",
             _ => "the samples keep starting again",
         };
 
         // The notice shown while a phase waits, or null for none.
-        public static string Progress(ShotPhase phase, PhotorealStatus status, bool stalled) => phase switch
+        public static string Progress(ShotPhase phase, EnhancementsStatus status, bool stalled) => phase switch
         {
             ShotPhase.Requesting => "Capturing the scene",
             ShotPhase.Capturing => status.SceneRemaining > 0 ? $"Capturing the scene {Math.Min(Faces - Math.Min(status.SceneRemaining, Faces) + 1, Faces)}/{Faces}"
-                : status.TraceState == PhotorealTraceState.Uploading ? "Sending the scene to the GPU"
+                : status.TraceState == EnhancementsTraceState.Uploading ? "Sending the scene to the GPU"
                 : "Building the scene",
             ShotPhase.Tracing => stalled ? $"Lighting: {Changing(status.TraceRestartReason)}"
                 : $"Lighting {Math.Min(status.TraceSamples, status.TraceTarget)}/{status.TraceTarget}",
@@ -161,10 +161,10 @@ namespace CameraTools
 
         // What a traced shot waits for, to complete "timed out waiting for ...", or null while it waits for the
         // screenshot's own conditions.
-        public static string Waiting(ShotPhase phase, PhotorealStatus status, bool stalled) => phase switch
+        public static string Waiting(ShotPhase phase, EnhancementsStatus status, bool stalled) => phase switch
         {
-            ShotPhase.Requesting => "the Photoreal add-on to take a scene capture",
-            ShotPhase.Capturing => "the Photoreal scene to be captured (" + (status.SceneRemaining > 0 ? $"{status.SceneRemaining} of {Faces} directions left"
+            ShotPhase.Requesting => "the Enhancements add-on to take a scene capture",
+            ShotPhase.Capturing => "the Enhancements scene to be captured (" + (status.SceneRemaining > 0 ? $"{status.SceneRemaining} of {Faces} directions left"
                 : status.TraceState.ToString().ToLowerInvariant()) + ")",
             ShotPhase.Tracing => $"the lighting to converge ({status.TraceSamples} of {status.TraceTarget} samples"
                 + (stalled ? $"; {Changing(status.TraceRestartReason)}, {status.TraceRestarts} starts" : "") + ")",
@@ -185,8 +185,8 @@ namespace CameraTools
 
         // At the timeout: a shot whose frame the trace pass draws from at least PartialSamples samples a pixel is saved as
         // it is. Any other has no traced lighting to show and fails.
-        public static bool SaveAsIs(ShotPhase phase, uint generation, PhotorealStatus status)
-            => phase == ShotPhase.Tracing && status.TraceState == PhotorealTraceState.Ready && status.TraceGeneration == generation && status.ShotActive != 0
+        public static bool SaveAsIs(ShotPhase phase, uint generation, EnhancementsStatus status)
+            => phase == ShotPhase.Tracing && status.TraceState == EnhancementsTraceState.Ready && status.TraceGeneration == generation && status.ShotActive != 0
                 && (status.PassesRan & TracePass) != 0 && status.TraceSamples >= PartialSamples;
     }
 }
