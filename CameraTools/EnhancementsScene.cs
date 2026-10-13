@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace CameraTools
 {
-    // Turns the free camera to the cube face a Enhancements scene capture asks for. The add-on publishes the face it wants and
+    // Turns the free camera to the cube face an Enhancements scene capture asks for. The add-on publishes the face it wants and
     // accepts a frame only when that frame's own camera shows it, so the free camera only follows. Its own pose is never
     // changed, so it comes back as soon as the add-on asks for no face.
     internal static class EnhancementsScene

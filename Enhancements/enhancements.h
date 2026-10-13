@@ -282,7 +282,7 @@ enum
 enum
 {
     ENHANCEMENTS_TRACE_STATE_NONE = 0,     // no traced scene
-    ENHANCEMENTS_TRACE_STATE_BUILDING,     // a ENHANCEMENTS_SCENE_TRACE capture runs, or its BVH is being built
+    ENHANCEMENTS_TRACE_STATE_BUILDING,     // an ENHANCEMENTS_SCENE_TRACE capture runs, or its BVH is being built
     ENHANCEMENTS_TRACE_STATE_UPLOADING,    // its buffers are being filled, a part each present
     ENHANCEMENTS_TRACE_STATE_READY,        // the trace pass can trace it
     ENHANCEMENTS_TRACE_STATE_STALE,        // the world moved under it: a world shift, or rays from the camera no longer meet the
@@ -304,7 +304,7 @@ enum
     ENHANCEMENTS_TRACE_RESTART_COUNT,
 };
 
-// The trace pass: ambient occlusion and sun shadows traced against the scene a ENHANCEMENTS_SCENE_TRACE capture built, at the
+// The trace pass: ambient occlusion and sun shadows traced against the scene an ENHANCEMENTS_SCENE_TRACE capture built, at the
 // combine step before the game's combine pass reads them. Once every world pixel has a sample, it writes the traced sun
 // visibility into the shadow mask and multiplies the diffuse irradiance by ambient.level and the traced occlusion, on world
 // pixels, and sun_shadows, contact_shadows and ambient do not run (only those whose output it writes). Each frame it adds
@@ -504,7 +504,7 @@ typedef struct EnhancementsStatus
     uint32_t trace_restarts;    // times the trace's samples have started since the add-on's device was made, each scene's first
                                 // start among them: while it rises and trace_samples stays 0, no sample accumulates
     uint32_t trace_restart_reason;  // ENHANCEMENTS_TRACE_RESTART_* of the last of them
-    uint32_t shot_active;       // 1 when the last frame ran with a EnhancementsSetShot shot's settings, so trace_converged is that
+    uint32_t shot_active;       // 1 when the last frame ran with an EnhancementsSetShot shot's settings, so trace_converged is that
                                 // shot's
 } EnhancementsStatus;
 
@@ -530,7 +530,7 @@ ENHANCEMENTS_EXPORT uint32_t EnhancementsCompare(const EnhancementsVariant *vari
 // G-buffer is replayed with stream output, and its triangles are written in world space with the frame's picture and
 // depth to <ReShade base path>\Enhancements\scene-<YYYYMMDD-HHMMSS>\. Returns 1 when accepted, and 0 while a scene capture
 // is still running or saving, or when request is null, too short to hold faces, or names no known face. It works whether
-// settings.enabled is on or not. A ENHANCEMENTS_SCENE_RELEASE request is always accepted: at the next present it stops a
+// settings.enabled is on or not. An ENHANCEMENTS_SCENE_RELEASE request is always accepted: at the next present it stops a
 // capture asked for before it, whose faces written so far stay, and frees the traced scene.
 ENHANCEMENTS_EXPORT uint32_t EnhancementsCaptureScene(const EnhancementsSceneRequest *request);
 

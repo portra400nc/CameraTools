@@ -134,7 +134,7 @@ namespace CameraTools
         }
 
         // Genshin's own camera system rewrites the camera every frame after OnLateUpdate, so the pose is kept here
-        // and written again right before the camera renders. A Enhancements scene capture's face replaces the rotation and
+        // and written again right before the camera renders. An Enhancements scene capture's face replaces the rotation and
         // field of view on screen only, so the free camera's own pose comes back after it.
         public void Apply()
         {

@@ -113,7 +113,7 @@ namespace enhancements
         // capture.
         std::atomic<uint32_t> scene_remaining { 0 };
         std::atomic<uint32_t> scene_backlog { 0 };
-        // A ENHANCEMENTS_SCENE_RELEASE request: 0 while there is none, else one more than scene_box's generation when it came, so
+        // An ENHANCEMENTS_SCENE_RELEASE request: 0 while there is none, else one more than scene_box's generation when it came, so
         // the render thread stops what was asked for up to then and leaves a capture asked for after it alone.
         std::atomic<uint64_t> scene_release { 0 };
 
@@ -176,14 +176,14 @@ namespace enhancements
             double bake_seconds = 0;
             double seconds = 0;                     // its BVH's build
             bool self_test = false;                 // the self-test scene, which the depth buffer never shows
-            std::shared_ptr<const SceneLight> light;    // a ENHANCEMENTS_SCENE_LIGHT capture's
+            std::shared_ptr<const SceneLight> light;    // an ENHANCEMENTS_SCENE_LIGHT capture's
             double light_seconds = 0;               // its bake
             uint64_t asked = 0;                     // trace_asked when its capture began
         };
         TraceScene trace_scene;
         TraceState trace_logged = TraceState::none; // the state the log last said
 
-        // A ENHANCEMENTS_SCENE_TRACE capture's triangles as the writer thread writes its faces.
+        // An ENHANCEMENTS_SCENE_TRACE capture's triangles as the writer thread writes its faces.
         struct TraceBuild
         {
             SceneBuilder builder;
@@ -270,7 +270,7 @@ namespace enhancements
         {
             sticky_error = ENHANCEMENTS_ERROR_STATE;
             armed.store(false, std::memory_order_relaxed);
-            log(reshade::log::level::error, std::string("the game's ") + moved + " differed after restoring state. Enhancements is off until the game restarts.");
+            log(reshade::log::level::error, std::string("the game's ") + moved + " differed after restoring state. Enhancements are off until the game restarts.");
         }
 
         // Runs jobs on its own thread in the order they came. The thread ends when it runs out of work.
@@ -824,7 +824,7 @@ namespace enhancements
             std::optional<Camera> pushed;           // the camera CameraTools pushed for it
             std::optional<SunCbuffers> sun;         // its shadow-mask draw's constants, once read
             std::optional<std::string> stop;        // a replay's reason to stop, taken at the next present
-            std::shared_ptr<TraceBuild> trace;      // a ENHANCEMENTS_SCENE_TRACE capture's triangles, touched only by worker jobs
+            std::shared_ptr<TraceBuild> trace;      // an ENHANCEMENTS_SCENE_TRACE capture's triangles, touched only by worker jobs
         };
 
         // How a traced scene's alpha programs baked into masks, for the log.
@@ -1481,7 +1481,7 @@ namespace enhancements
             if (!gpu.init(reinterpret_cast<ID3D11Device *>(dev->get_native()), reinterpret_cast<ID3D11DeviceContext *>(immediate->get_native())))
             {
                 sticky_error = ENHANCEMENTS_ERROR_SHADER;
-                log(reshade::log::level::error, "could not create its shaders or states. Enhancements is off.");
+                log(reshade::log::level::error, "could not create its shaders or states. Enhancements are off.");
                 return;
             }
             scene_gpu.init(gpu.device(), gpu.context(), gpu.no_write(), gpu.no_depth());

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Checks a ENHANCEMENTS_SCENE_LIGHT | GBUFFER capture's light on the Mac: builds bake_light.cpp optimized, bakes the light
+# Checks an ENHANCEMENTS_SCENE_LIGHT | GBUFFER capture's light on the Mac: builds bake_light.cpp optimized, bakes the light
 # again from the faces' raw copies and checks it against trace-light.bin to the bit, and with a trace folder of a save at
 # the capture's spot compares the albedo the view's rays meet with the G-buffer's; then check_light.py reports the
 # sources by gather hit, writes the sky map beside the six faces, and fits the sun's color to the saved view.

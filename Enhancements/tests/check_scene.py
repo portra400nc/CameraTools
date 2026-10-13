@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks a Enhancements scene capture folder on the Mac: python3 check_scene.py <scene folder>. Needs only numpy.
+"""Checks an Enhancements scene capture folder on the Mac: python3 check_scene.py <scene folder>. Needs only numpy.
 
 1. Replay fidelity: scene.tsv's depth check for stencil 128 has matched / (tested - behind) >= 0.98 on every face, every
    direct draw in draws.tsv wrote the triangles it should, no replayed draw left a corner of its reservation unwritten,

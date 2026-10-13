@@ -1,4 +1,4 @@
-// The traced scene's light, which a ENHANCEMENTS_SCENE_LIGHT capture brings and the gather kernel (shaders/gather.hlsli)
+// The traced scene's light, which an ENHANCEMENTS_SCENE_LIGHT capture brings and the gather kernel (shaders/gather.hlsli)
 // reads: an albedo for every triangle, baked from the faces' G-buffers into the triangle's light word; the sky as an
 // octahedral map of the faces' HDR sky pixels; the game's ambient light as a first-order fit of its irradiance to the
 // normal; and the sun's color and shading direction from the combine draw's constants. Pure C++17 like trace_scene.h,
@@ -178,7 +178,7 @@ namespace enhancements
         uint32_t flags() const;
     };
 
-    // What a ENHANCEMENTS_SCENE_LIGHT capture brings for its scene's light: every face's images, the first face's G-buffer
+    // What an ENHANCEMENTS_SCENE_LIGHT capture brings for its scene's light: every face's images, the first face's G-buffer
     // normals, diffuse irradiance, stencil and depth for the ambient fit, the newest combine constants and cascade 0's
     // direction, and the pushed camera's sun and sky for what the game's cannot give.
     struct LightInputs

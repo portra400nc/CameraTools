@@ -390,7 +390,7 @@ namespace CameraToolsEnhancements
             return addOn.Apply(ref settings);
         }
 
-        // From Camera.onPreCull of the main camera, every frame while Enhancements is enabled. viewToClip is
+        // From Camera.onPreCull of the main camera, every frame while Enhancements are enabled. viewToClip is
         // GL.GetGPUProjectionMatrix(camera.projectionMatrix, false): Settings.Flip owns the vertical orientation.
         // towardSun is the world direction toward the sun, such as -sunLight.transform.forward, of any length;
         // Vector3.zero means no sun, and contact shadows then add nothing. sunColor is the sun light's color in linear RGB

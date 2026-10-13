@@ -1,4 +1,4 @@
-// Bakes a ENHANCEMENTS_SCENE_LIGHT | GBUFFER capture's light again on the Mac from its faces' raw copies, as the add-on's
+// Bakes an ENHANCEMENTS_SCENE_LIGHT | GBUFFER capture's light again on the Mac from its faces' raw copies, as the add-on's
 // writer thread did (core/light.h's build_light), and checks it against the capture's trace-light.bin to the bit: every
 // triangle's light word, the sky map and its harmonics, and the ambient fit. With a trace folder of a save at the
 // capture's spot, it also casts a ray from the eye through every view pixel and compares the albedo of the triangle it

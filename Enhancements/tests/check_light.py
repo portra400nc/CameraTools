@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Report on a ENHANCEMENTS_SCENE_LIGHT capture's light, after bake_light has checked it. numpy only.
+"""Report on an ENHANCEMENTS_SCENE_LIGHT capture's light, after bake_light has checked it. numpy only.
 
 python3 check_light.py <scene folder> [trace folder]
 
