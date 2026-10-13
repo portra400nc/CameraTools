@@ -111,6 +111,7 @@ namespace photoreal
         triangles_ = node_count_ = 0;
         hash_ = 0;
         key_.reset();
+        started_constants_.reset();
         uploaded_constants_.reset();
         schedule_ = {};
         save_.reset();
@@ -271,6 +272,7 @@ namespace photoreal
         uploading_alpha_.reset();
         state_ = TraceState::ready;
         key_.reset();
+        started_constants_.reset();
         schedule_ = {};
         return true;
     }
@@ -296,6 +298,13 @@ namespace photoreal
             f.schedule.tiles = tiles;
             f.schedule.visits = 0;
             return f;
+        }
+        // The samples go on with the camera, sun and light they started with.
+        if (started_constants_)
+        {
+            f.constants = held_constants(*started_constants_, f.constants);
+            if (f.gathering)
+                f.gather = held_gather(started_gather_, f.gather);
         }
         const uint32_t before = trace_passes(f.schedule);
         f.dispatch = trace_next(f.schedule, f.target);
@@ -369,8 +378,11 @@ namespace photoreal
             noise_deviation_ = noise_mean_ = 0;
             noise_pass_ = 0;
             error_ = 0;
+            // What these samples started with: every later frame's key is held against it, and its constants are theirs.
+            key_ = frame.key;
+            started_constants_ = frame.constants;
+            started_gather_ = frame.gather;
         }
-        key_ = frame.key;
         schedule_ = frame.schedule;
         gathering_ = frame.gathering;
         target_ = frame.target;

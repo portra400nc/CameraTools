@@ -353,6 +353,17 @@ int main()
         check("the samples start again when the gather goes on or off, or its sun or ambient light changes, not for more samples",
             trace_reset(off, on) && trace_reset(on, trace_key(1, { 8, 8 }, camera, { 0, 1, 0 }, TraceSettings {}, &brighter))
                 && !trace_reset(on, trace_key(1, { 8, 8 }, camera, { 0, 1, 0 }, TraceSettings {}, &more)) && !trace_reset(on, on));
+        // A sun that brightens by 0.6e-5 a frame: no frame differs enough from the last, the second does from the start.
+        GatherConstants drift1 = k, drift2 = k;
+        drift1.sun[0] += 6e-6f;
+        drift1.counts[0] = 256;
+        drift2.sun[0] += 1.2e-5f;
+        const TraceKey key1 = trace_key(1, { 8, 8 }, camera, { 0, 1, 0 }, TraceSettings {}, &drift1), key2 = trace_key(1, { 8, 8 }, camera, { 0, 1, 0 }, TraceSettings {}, &drift2);
+        const GatherConstants held = held_gather(k, drift1);
+        check("a light that drifts starts the samples again once it is 1e-5 from what they started with, though no frame is from the last, and until "
+              "then they keep the start's sun and ambient rows with the frame's samples",
+            !trace_reset(on, key1) && !trace_reset(key1, key2) && trace_reset(on, key2) && held.sun[0] == k.sun[0] && held.shade[1] == k.shade[1]
+                && held.ambient[2][1] == k.ambient[2][1] && held.counts[0] == 256);
         TraceSettings t;
         GatherSettings gs;
         check("the target: the larger of the gather's and the sun's samples while gathering, else of the occlusion's and the sun's",

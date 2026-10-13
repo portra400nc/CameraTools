@@ -273,6 +273,24 @@ namespace photoreal
         return false;
     }
 
+    TraceConstants held_constants(const TraceConstants &start, const TraceConstants &now)
+    {
+        TraceConstants c = now;
+        std::memcpy(c.clip_rows, start.clip_rows, sizeof c.clip_rows);
+        std::memcpy(c.eye_position, start.eye_position, sizeof c.eye_position);
+        std::memcpy(c.sun_cone, start.sun_cone, sizeof c.sun_cone);
+        c.trace_params[0] = start.trace_params[0];
+        c.trace_counts[2] = start.trace_counts[2];
+        return c;
+    }
+
+    GatherConstants held_gather(const GatherConstants &start, const GatherConstants &now)
+    {
+        GatherConstants c = start;
+        std::memcpy(c.counts, now.counts, sizeof c.counts);
+        return c;
+    }
+
     SunFacts sun_facts(const SunCbuffers &bytes)
     {
         SunFacts facts;

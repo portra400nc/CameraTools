@@ -143,8 +143,18 @@ namespace photoreal
 
     // A new generation, render size, ao distance, sun size or casters, or the gather switched on or off; a camera matrix
     // element differing by more than 1e-6 of the matrix's largest; or the sun's direction, or a value of the gather's light,
-    // differing by more than 1e-5.
+    // differing by more than 1e-5. before is the key the samples started with, not the last frame's, so a slow drift
+    // starts them again once it has gone that far.
     bool trace_reset(const TraceKey &before, const TraceKey &now);
+
+    // The samples of one start share one camera, sun and light, the start's. A later frame's own may differ from them by
+    // less than what starts the samples again, and following those from frame to frame would aim and light each pass a
+    // little apart from the last, with no bound on where they end. So a frame that goes on takes from the start's
+    // constants what the key holds, the clip rows, the eye, the sun's cone, the occlusion distance and the classes, and
+    // keeps its own of the rest, which starts nothing: the strengths, the level, the samples, the outputs and the size.
+    TraceConstants held_constants(const TraceConstants &start, const TraceConstants &now);
+    // The gather's: the start's sun, shading direction and ambient rows, and now's samples.
+    GatherConstants held_gather(const GatherConstants &start, const GatherConstants &now);
 
     // The samples every traced pixel gets: with the gather, the larger of its samples and the sun's, else the larger of
     // the occlusion's and the sun's.

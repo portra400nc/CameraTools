@@ -86,8 +86,9 @@ namespace photoreal
         const TraceCounts &totals() const { return totals_; }
 
         // What this frame's trace would do with key, settings and constants: changes nothing. The samples start again when
-        // key differs from the last dispatched frame's; that frame dispatches no tiles, so a moving camera costs none. With
-        // gather, the frame gathers with its constants, and the trace kernel's constants ask for no occlusion ray.
+        // key differs from the key they started with; that frame dispatches no tiles, so a moving camera costs none. A
+        // frame that goes on traces with the start's camera, sun and light (core/trace.h's held_constants). With gather,
+        // the frame gathers with its constants, and the trace kernel's constants ask for no occlusion ray.
         TraceFrame preview(const TraceKey &key, const TraceSettings &settings, const TraceConstants &constants, const GatherSettings &gather_settings,
             const GatherConstants *gather) const;
 
@@ -191,7 +192,9 @@ namespace photoreal
         uint64_t generation_ = 0;
         uint32_t triangles_ = 0, node_count_ = 0;
         uint64_t hash_ = 0;
-        std::optional<TraceKey> key_;           // the last dispatched frame's
+        std::optional<TraceKey> key_;           // what the samples started with
+        std::optional<TraceConstants> started_constants_;   // the constants of the frame that started them, and its gather's,
+        GatherConstants started_gather_ {};                 // which every later frame's camera, sun and light are
         std::optional<TraceConstants> uploaded_constants_;  // what the last dispatch put in the constant buffer, tiles and all
         GatherConstants uploaded_gather_ {};    // what the last gathering dispatch put in the gather's
         TraceSchedule schedule_;

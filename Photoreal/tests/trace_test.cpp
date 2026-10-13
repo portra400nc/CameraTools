@@ -472,6 +472,20 @@ int main(int argc, char **argv)
             && trace_reset(a, trace_key(1, { 64, 64 }, camera, { 0, 1, 2e-5f }, settings)) && trace_reset(a, trace_key(2, { 64, 64 }, camera, { 0, 1, 0 }, settings))
             && trace_reset(a, trace_key(1, { 64, 32 }, camera, { 0, 1, 0 }, settings)) && trace_reset(a, trace_key(1, { 64, 64 }, camera, { 0, 1, 0 }, other))
             && !trace_reset(a, trace_key(1, { 64, 64 }, camera, { 0, 1, 0 }, more)));
+        // The samples go on with what they started with: a camera 1e-7 off, with other strengths and samples.
+        TraceSettings softer = settings;
+        softer.ao_strength = 0.5f;
+        softer.sun_samples = 48;
+        const TraceConstants start = *trace_constants(settings, 0.6f, camera, false, { 64, 64 }, {}, { 0, 1, 0 }, 1);
+        Camera drifted = camera;
+        drifted.world_to_view[13] += 1e-6f;
+        const TraceConstants now = *trace_constants(softer, 0.8f, drifted, false, { 64, 64 }, {}, { 0, 1, 0 }, 1);
+        const TraceConstants held = held_constants(start, now);
+        check("a frame that goes on keeps the start's clip rows, eye, sun and occlusion distance, and takes its own strengths, level and samples",
+            !trace_reset(a, trace_key(1, { 64, 64 }, drifted, { 0, 1, 0 }, softer)) && std::memcmp(now.eye_position, start.eye_position, sizeof now.eye_position) != 0 && std::memcmp(held.clip_rows, start.clip_rows, sizeof held.clip_rows) == 0
+            && std::memcmp(held.eye_position, start.eye_position, sizeof held.eye_position) == 0 && std::memcmp(held.sun_cone, start.sun_cone, sizeof held.sun_cone) == 0
+            && held.trace_params[0] == start.trace_params[0] && held.trace_counts[2] == start.trace_counts[2] && held.trace_params[1] == 0.5f
+            && held.trace_params[3] == 0.8f && held.trace_counts[1] == 48 && held.trace_render[0] == 64);
         check("the classes a ray sees, with the alpha tests", caster_classes(settings) == (0x1F | kAlphaTests) && caster_classes(other) == (0x0F | kAlphaTests));
         other.alpha_cards = false;
         check("without cards and characters only the world and other", caster_classes(other) == (0x09 | kAlphaTests));
