@@ -1,6 +1,7 @@
 using CameraToolsPhotoreal;
 using MoleMole;
 using UnityEngine;
+using Vec3 = System.Numerics.Vector3;
 
 namespace CameraTools
 {
@@ -11,6 +12,9 @@ namespace CameraTools
         private const float WetnessSeconds = 5;
 
         private static float wetness;
+
+        // The sky's light as last pushed, which a traced screenshot waits to hold still and compares a kept scene's with.
+        public static SkyLight Light { get; private set; }
 
         // Camera.onPreCull of the main camera, after the free camera applied its pose. The lens sample is zero: the frame
         // renders from the camera's own position.
@@ -25,8 +29,11 @@ namespace CameraTools
             var sun = sky ? sky.MainLight : null;
             Vector3 towardSun = sun ? -sun.transform.forward : Vector3.zero;
             Color sunColor = sun ? sun.color.linear * sun.intensity : Color.black;
+            Color skyColor = RenderSettings.ambientSkyColor.linear;
+            Light = new SkyLight(new Vec3(towardSun.x, towardSun.y, towardSun.z), new Vec3(sunColor.r, sunColor.g, sunColor.b),
+                new Vec3(skyColor.r, skyColor.g, skyColor.b), wetness);
             Photoreal.SetCamera(camera.worldToCameraMatrix, GL.GetGPUProjectionMatrix(camera.nonJitteredProjectionMatrix, false), towardSun,
-                sunColor, RenderSettings.ambientSkyColor.linear, default, wetness);
+                sunColor, skyColor, default, wetness);
         }
     }
 }

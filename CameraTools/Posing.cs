@@ -41,6 +41,9 @@ namespace CameraTools
         // The pose has changes since it was last saved, loaded or reset.
         public static bool Changed { get; private set; }
 
+        // Rises whenever the pose changes or posing starts or ends, so a traced scene knows the character it holds moved.
+        public static int Revision { get; private set; }
+
         public static PoseSetup Current => session?.Pose ?? Blank;
 
         // The Joint row's and Pose joints' entry, a position in Targets, and the Finger row's finger.
@@ -94,6 +97,7 @@ namespace CameraTools
                 return;
             change(session.Pose);
             Changed = true;
+            Revision++;
         }
 
         public static void SelectJoint(int index) => Joint = Math.Clamp(index, 0, Targets.Count - 1);
@@ -125,6 +129,7 @@ namespace CameraTools
                 return;
             session.Pose = new PoseSetup();
             Changed = false;
+            Revision++;
             CameraUi.Toast("The character is back in the game's pose");
         }
 
@@ -304,6 +309,7 @@ namespace CameraTools
                 return false;
             }
             Changed = false;
+            Revision++;
             return true;
         }
 
@@ -314,6 +320,7 @@ namespace CameraTools
                 return;
             session = null;
             Changed = false;
+            Revision++;
             // Strands belong to the character that was posed.
             if (Joint >= Joints.All.Length)
                 Joint = (int)PoseJoint.Head;
@@ -325,6 +332,7 @@ namespace CameraTools
         private static int Use(PoseSetup pose)
         {
             session.Pose = session.Rig.Fit(pose, out int skipped);
+            Revision++;
             return skipped;
         }
 
@@ -391,6 +399,7 @@ namespace CameraTools
             {
                 current.Pose = edit.Before;
                 Changed = edit.Changed;
+                Revision++;
             }
             CameraUi.OpenPanel();
             CameraUi.Toast(keep ? "Pose kept" : "Pose change cancelled");

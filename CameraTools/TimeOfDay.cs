@@ -47,6 +47,27 @@ namespace CameraTools
 
         public static void SetHour(float value) => Lock(value);
 
+        // The lock and the speed as they were before a Hold.
+        internal readonly record struct Held(bool Locked, float Speed);
+
+        // Holds the hour that shows, for a traced screenshot: the game's pause does not stop its time of day, and a moving
+        // sun starts the trace's samples again every frame. Release puts the lock and the speed back.
+        public static Held Hold()
+        {
+            var before = new Held(Locked, Speed);
+            Speed = 0f;
+            if (!Locked)
+                Lock(Hour);
+            return before;
+        }
+
+        public static void Release(Held before)
+        {
+            Speed = before.Speed;
+            if (!before.Locked)
+                Unlock();
+        }
+
         public static void SetSpeed(float value)
         {
             Speed = Math.Max(value, 0f);
