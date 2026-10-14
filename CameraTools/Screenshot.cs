@@ -20,7 +20,11 @@ namespace CameraTools
         public sealed record Countdown(ShotBefore Before, bool Resized, float Started, float Until, int Shown) : Busy(Before, Resized, Started);
 
         // Since is when this wait began. Dirty is the bridge's present count when CameraTools last had something on screen.
-        public sealed record Settling(ShotBefore Before, bool Resized, float Started, float Since, ulong Dirty) : Busy(Before, Resized, Started);
+        public sealed record Settling(ShotBefore Before, bool Resized, float Started, float Since, ulong Dirty) : Busy(Before, Resized, Started)
+        {
+            // When ReShade was last still creating its runtime or compiling its effects, or 0 when it never was.
+            public float Loading { get; init; }
+        }
 
         // Shots is the bridge's screenshot count when the capture was requested.
         public sealed record Saving(ShotBefore Before, bool Resized, float Started, float Requested, ulong Shots) : Busy(Before, Resized, Started);
@@ -33,6 +37,10 @@ namespace CameraTools
     {
         private const float CountdownSeconds = 3f;
         private const float SettleTimeout = 60f;
+        // ReShade compiles every effect again the first time the window has a size, and the first frames after that are
+        // slow: 51 s and 9 s more at 3840x2160 on the Deck, which the settle's own limit then cut short. So that time has
+        // a limit of its own, and the settle's limit counts from when the effects are in.
+        private const float LoadTimeout = 180f;
         private const float SaveTimeout = 15f;
         private const float MaxSettle = 30f;
         // Presents after the last CameraTools element left the screen, so the countdown is not in the capture.
@@ -247,6 +255,12 @@ namespace CameraTools
                 settling = settling with { Dirty = bridge.Presents };
                 State = settling;
             }
+            bool loading = bridge.Runtime != 1 || bridge.EffectsReady != 1;
+            if (loading)
+            {
+                settling = settling with { Loading = now };
+                State = settling;
+            }
             bool traced = settling.Before.Traced;
             if (traced && EnhancementsShot.Step(Array.FindIndex(Conditions, 0, Plain, condition => !condition.Met(settling, bridge)) < 0, bridge.Presents) is var (toast, detail))
             {
@@ -262,8 +276,9 @@ namespace CameraTools
                 State = new ShotState.Saving(settling.Before, settling.Resized, settling.Started, now, bridge.Screenshots);
                 return;
             }
-            float timeout = traced ? EnhancementsShot.Timeout : SettleTimeout;
-            if (now - settling.Since < timeout || (traced && EnhancementsShot.SaveAsIs()))
+            float timeout = traced ? EnhancementsShot.Timeout : loading ? LoadTimeout : SettleTimeout;
+            float since = traced || loading ? settling.Since : Math.Max(settling.Since, settling.Loading);
+            if (now - since < timeout || (traced && EnhancementsShot.SaveAsIs()))
                 return;
             string waited = (traced ? EnhancementsShot.Waiting : null) ?? unmet.Name;
             Finish(settling, $"Screenshot failed: timed out waiting for {waited}",
