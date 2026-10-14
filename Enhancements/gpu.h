@@ -7,6 +7,7 @@
 
 #include "core/accumulate.h"
 #include "core/compare.h"
+#include "core/grade.h"
 #include "core/light.h"
 #include "core/plan.h"
 
@@ -278,10 +279,22 @@ namespace enhancements
         // on the sky; copy out over the game's HDR scene. Empty when a texture of ours failed.
         std::optional<GameCall> run_atmosphere(const FrameMap &map, const AtmosphereSettings &settings, const Camera &camera, bool flip);
 
-        // The tonemap pass, at the game's tone map draw: copy the draw's constants (b0) into ours; mirror in the HDR scene
-        // and the final bloom; draw the tone mapped, encoded image into a mirror of the game's output; copy it over the
-        // output, and skip the game's draw. Empty when a texture of ours failed, and the game's draw then runs.
-        std::optional<GameCall> run_tonemap(const FrameMap &map, const TonemapSettings &settings);
+        // The pixel shader bound now, as the handle ReShade's pipeline events name it by, or 0.
+        uint64_t bound_pixel_shader() const;
+        // Copies the grade a tone map shader's layout names from the game's bound pixel shader constants at b0 into
+        // game_grade_. Called at the game's tone map draw before any pass of ours draws, since a pass binds its own b0.
+        // false when no constants are bound or they are too small for the layout.
+        bool copy_game_grade(const GradeLayout &layout);
+        // Asks for the grade copy_game_grade just copied, for the log; read_game_grade returns it some frames later.
+        void request_game_grade();
+        // The grade last asked for, once the GPU has it: the three rows of the color matrix, then exposure, bloom, gamma
+        // and an unused float. Empty until then and after it was returned.
+        std::optional<std::array<float, 16>> read_game_grade();
+        // The tonemap pass, at the game's tone map draw: mirror in the HDR scene and the final bloom; draw the tone mapped,
+        // encoded image into a mirror of the game's output; copy it over the output, and skip the game's draw. grade says
+        // whether copy_game_grade copied this draw's grade; without it the shader uses its own. bloom says whether the
+        // draw's shader adds the bloom. Empty when a texture of ours failed, and the game's draw then runs.
+        std::optional<GameCall> run_tonemap(const FrameMap &map, const TonemapSettings &settings, bool grade, bool bloom);
 
         // The accumulator at the bloom step, in tick's order: clear empties sum_; add mirrors in the HDR scene and draws it
         // times the cat's-eye weight of lens, with the weight in alpha, additively into sum_; present draws sum.rgb / sum.a
@@ -354,9 +367,6 @@ namespace enhancements
         // false when a texture of ours failed.
         bool mirror_gbuffer(const FrameMap &map, Scratch &scratch);
         bool mirror_gbuffer(const FrameMap &map);
-        // Copies the game's bound pixel shader constants at b0 into game_tonemap_. false when none are bound or they are
-        // too small for the rows the tonemap shader reads.
-        bool copy_game_tonemap_constants();
 
         ComPtr<ID3D11Device> device_;
         ComPtr<ID3D11DeviceContext1> context_;
@@ -369,7 +379,9 @@ namespace enhancements
         ComPtr<ID3D11ShaderResourceView> lattice_srv_;
         ComPtr<ID3D11Buffer> constants_;
         ComPtr<ID3D11Buffer> gather_apply_;    // core/trace.h's GatherApplyConstants, at b2 for the gather's draws
-        ComPtr<ID3D11Buffer> game_tonemap_;    // the game's tone map constants, copied in at each tonemap pass
+        ComPtr<ID3D11Buffer> game_grade_;      // shaders/tonemap_ps.hlsl's GameGrade, filled by copy_game_grade
+        ComPtr<ID3D11Buffer> grade_stage_;     // game_grade_ for the CPU to read
+        bool grade_staged_ = false;
         ComPtr<ID3D11Buffer> game_sun_[4];     // the game's b0 to b3 at its shadow-mask draw, bound at b1 to b4
         // Three, so a frame reads one of the two before it while it writes its own.
         struct SunStage

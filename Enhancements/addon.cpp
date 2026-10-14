@@ -30,6 +30,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 using namespace reshade::api;
@@ -347,6 +348,89 @@ namespace enhancements
                 base = fs::path(module_path).parent_path().parent_path();
             }
             return base / "Enhancements";
+        }
+
+        // The game's grade at one tone map draw, for the tonemap pass.
+        struct GameGrade
+        {
+            bool copied = false;    // the draw's own grade is in the pass's constants
+            bool bloom = true;      // the draw's shader adds the bloom
+        };
+
+        // By the hash of a pixel shader the game drew its tone map with: where its code keeps the grade, or none for a
+        // shader that is not the tone map the add-on knows. Render thread only.
+        std::unordered_map<uint64_t, std::optional<GradeLayout>> grade_layouts;
+        // The shader of the last tone map draw, named in the log when it changes, at most kGradeNotes times.
+        constexpr uint32_t kGradeNotes = 16;
+        uint64_t grade_shader = 0;
+        uint32_t grade_notes = 0;
+
+        std::string shader_name(uint64_t hash)
+        {
+            char name[17];
+            std::snprintf(name, sizeof name, "%016llx", static_cast<unsigned long long>(hash));
+            return name;
+        }
+
+        std::string place(const GradeValue &value) { return std::to_string(value.row) + "." + "xyzw"[value.component]; }
+
+        // At the game's tone map draw, before any pass of ours draws there: a pass binds its own shader and constants, and
+        // the grade is in the draw's. Finds where the draw's shader keeps the grade and copies it for the tonemap pass.
+        // The rows differ between the shader's variants (the game's Bloom setting picks another), so each shader is read
+        // once, and the log names each one the game changes to, with the values it held.
+        GameGrade take_game_grade()
+        {
+            if (const std::optional<std::array<float, 16>> g = gpu.read_game_grade())
+            {
+                char text[320];
+                std::snprintf(text, sizeof text, "red becomes (%.4f, %.4f, %.4f), green (%.4f, %.4f, %.4f) and blue (%.4f, %.4f, %.4f); "
+                    "exposure %.4f, bloom %.4f, gamma %.4f", (*g)[0], (*g)[1], (*g)[2], (*g)[4], (*g)[5], (*g)[6], (*g)[8], (*g)[9], (*g)[10],
+                    (*g)[12], (*g)[13], (*g)[14]);
+                log(reshade::log::level::info, std::string("the game's grade at that tone map draw: ") + text + ".");
+            }
+            const std::optional<ShaderCode> code = shaders.find(gpu.bound_pixel_shader());
+            const uint64_t hash = code ? code->hash : 0;
+            auto known = grade_layouts.find(hash);
+            const bool first = known == grade_layouts.end();
+            if (first)
+            {
+                std::optional<GradeLayout> layout;
+                if (code)
+                    if (const std::optional<Shex> shex = decode_shex(reinterpret_cast<const uint8_t *>(code->code->data()), code->code->size()))
+                        layout = find_grade(*shex);
+                known = grade_layouts.emplace(hash, layout).first;
+            }
+            const std::optional<GradeLayout> &layout = known->second;
+            const bool copied = layout && gpu.copy_game_grade(*layout);
+            if (hash != grade_shader && grade_notes < kGradeNotes)
+            {
+                grade_notes++;
+                std::string note = "the game's tone map draw of frame " + std::to_string(frames) + " uses pixel shader " + shader_name(hash);
+                if (layout)
+                {
+                    note += ", which keeps its color matrix in rows " + std::to_string(layout->color_row) + " to " + std::to_string(layout->color_row + 2)
+                        + " of its constants, its exposure at " + place(layout->exposure) + ", its gamma at " + place(layout->gamma)
+                        + (layout->bloom ? " and its bloom at " + place(*layout->bloom) + "." : " and adds no bloom.");
+                    if (copied)
+                        gpu.request_game_grade();
+                    else
+                        note += " Its constants could not be copied, so the tonemap pass uses exposure 1, no color matrix and gamma 1.";
+                }
+                else
+                {
+                    note += code ? ", which is not the tone map the add-on knows" : ", whose code the add-on never saw";
+                    if (code && first)
+                    {
+                        const fs::path path = output_root() / ("tonemap-" + shader_name(hash) + ".ps.dxbc");
+                        note += " and is saved as " + path.u8string();
+                        worker.push([path, bytes = code->code] { write_file(path, *bytes); });
+                    }
+                    note += ". The tonemap pass uses exposure 1, no color matrix and gamma 1 in place of the game's.";
+                }
+                log(reshade::log::level::info, note);
+            }
+            grade_shader = hash;
+            return { copied, !layout || layout->bloom.has_value() };
         }
 
         std::string timestamp()
@@ -677,6 +761,10 @@ namespace enhancements
             report.note(p);
             bool skip = false;
             const char *moved = nullptr;
+            GameGrade grade;
+            for (uint8_t i = 0; i < p.count; i++)
+                if (p.items[i].kind == Decision::Kind::run && p.items[i].pass == PassId::tonemap)
+                    grade = take_game_grade();
             {
                 // Captured once, before the first pass that draws, restored at the end of this block. Copies (the debug
                 // snapshot) change no pipeline state, so a step with no running pass never pays for it.
@@ -711,7 +799,7 @@ namespace enhancements
                             report.view == View::light_shafts);
                         break;
                     case PassId::tonemap:
-                        call = gpu.run_tonemap(map, settings.tonemap);
+                        call = gpu.run_tonemap(map, settings.tonemap, grade.copied, grade.bloom);
                         break;
                     case PassId::trace:
                     {

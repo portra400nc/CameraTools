@@ -72,7 +72,8 @@ namespace enhancements
         && offsetof(Constants, lens_sample) == 392, "Constants must match common.hlsli");
 
     // The rows of the game's tone map constants shaders/tonemap_ps.hlsl reads, 0 to 101.
-    constexpr UINT kGameTonemapBytes = 102 * 16;
+    // shaders/tonemap_ps.hlsl's GameGrade: three rows of the color matrix, then exposure, bloom, gamma and an unused float.
+    constexpr UINT kGameGradeBytes = 64, kGradeExposure = 48, kGradeBloom = 52, kGradeGamma = 56;
     static_assert(sizeof(Constants::label) == sizeof(Label::glyphs), "the label holds one byte per glyph");
 
     namespace
@@ -511,10 +512,17 @@ namespace enhancements
         buffer.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
         D3D11_BUFFER_DESC gather_apply = buffer;
         gather_apply.ByteWidth = sizeof(GatherApplyConstants);
-        D3D11_BUFFER_DESC game_tonemap = {};
-        game_tonemap.ByteWidth = kGameTonemapBytes;
-        game_tonemap.Usage = D3D11_USAGE_DEFAULT;
-        game_tonemap.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        // Zeros until a grade is copied in, which the shader takes for no grade.
+        D3D11_BUFFER_DESC game_grade = {};
+        game_grade.ByteWidth = kGameGradeBytes;
+        game_grade.Usage = D3D11_USAGE_DEFAULT;
+        game_grade.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        const float no_grade[kGameGradeBytes / sizeof(float)] = {};
+        const D3D11_SUBRESOURCE_DATA no_grade_data = { no_grade, 0, 0 };
+        D3D11_BUFFER_DESC grade_stage = {};
+        grade_stage.ByteWidth = kGameGradeBytes;
+        grade_stage.Usage = D3D11_USAGE_STAGING;
+        grade_stage.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
         D3D11_BUFFER_DESC sun_stage = {};
         sun_stage.ByteWidth = kSunCbufferTotal;
         sun_stage.Usage = D3D11_USAGE_STAGING;
@@ -571,7 +579,8 @@ namespace enhancements
             && SUCCEEDED(device->CreateShaderResourceView(made.lattice_.Get(), nullptr, &made.lattice_srv_))
             && SUCCEEDED(device->CreateBuffer(&buffer, nullptr, &made.constants_))
             && SUCCEEDED(device->CreateBuffer(&gather_apply, nullptr, &made.gather_apply_))
-            && SUCCEEDED(device->CreateBuffer(&game_tonemap, nullptr, &made.game_tonemap_))
+            && SUCCEEDED(device->CreateBuffer(&game_grade, &no_grade_data, &made.game_grade_))
+            && SUCCEEDED(device->CreateBuffer(&grade_stage, nullptr, &made.grade_stage_))
             && SUCCEEDED(device->CreateBlendState(&blend, &made.opaque_))
             && SUCCEEDED(device->CreateBlendState(&additive, &made.additive_))
             && SUCCEEDED(device->CreateBlendState(&no_write, &made.no_write_))
@@ -582,7 +591,7 @@ namespace enhancements
             return false;
         for (size_t i = 0; i < kSunCbufferBytes.size(); i++)
         {
-            D3D11_BUFFER_DESC game_sun = game_tonemap;
+            D3D11_BUFFER_DESC game_sun = game_grade;
             game_sun.ByteWidth = kSunCbufferBytes[i];
             if (FAILED(device->CreateBuffer(&game_sun, nullptr, &made.game_sun_[i])))
                 return false;
@@ -1047,34 +1056,68 @@ namespace enhancements
         return GameCall::keep;
     }
 
-    bool Gpu::copy_game_tonemap_constants()
+    uint64_t Gpu::bound_pixel_shader() const
+    {
+        ComPtr<ID3D11PixelShader> shader;
+        context_->PSGetShader(&shader, nullptr, nullptr);
+        return reinterpret_cast<uintptr_t>(shader.Get());
+    }
+
+    bool Gpu::copy_game_grade(const GradeLayout &layout)
     {
         ComPtr<ID3D11Buffer> game;
         UINT first = 0, count = 0;
         context_->PSGetConstantBuffers1(0, 1, game.GetAddressOf(), &first, &count);
-        if (!game || count * 16 < kGameTonemapBytes)
+        const UINT bytes = layout.bytes();
+        if (!game || count * 16 < bytes)
             return false;
         D3D11_BUFFER_DESC desc;
         game->GetDesc(&desc);
         const UINT offset = first * 16;
-        if (desc.ByteWidth < offset + kGameTonemapBytes)
+        if (desc.ByteWidth < offset + bytes)
             return false;
-        const D3D11_BOX box = { offset, 0, 0, offset + kGameTonemapBytes, 1, 1 };
-        context_->CopySubresourceRegion(game_tonemap_.Get(), 0, 0, 0, 0, game.Get(), 0, &box);
+        // A buffer's box counts bytes, so each value lands at its own place in GameGrade.
+        const auto copy = [&](UINT to, UINT from, UINT size)
+        {
+            const D3D11_BOX box = { offset + from, 0, 0, offset + from + size, 1, 1 };
+            context_->CopySubresourceRegion(game_grade_.Get(), 0, to, 0, 0, game.Get(), 0, &box);
+        };
+        copy(0, layout.color_row * 16, 48);
+        copy(kGradeExposure, layout.exposure.offset(), 4);
+        copy(kGradeGamma, layout.gamma.offset(), 4);
+        if (layout.bloom)
+            copy(kGradeBloom, layout.bloom->offset(), 4);
         return true;
     }
 
-    std::optional<GameCall> Gpu::run_tonemap(const FrameMap &map, const TonemapSettings &settings)
+    void Gpu::request_game_grade()
+    {
+        context_->CopyResource(grade_stage_.Get(), game_grade_.Get());
+        grade_staged_ = true;
+    }
+
+    std::optional<std::array<float, 16>> Gpu::read_game_grade()
+    {
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        if (!grade_staged_ || FAILED(context_->Map(grade_stage_.Get(), 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &mapped)))
+            return std::nullopt;
+        std::array<float, 16> grade;
+        std::memcpy(grade.data(), mapped.pData, sizeof(grade));
+        context_->Unmap(grade_stage_.Get(), 0);
+        grade_staged_ = false;
+        return grade;
+    }
+
+    std::optional<GameCall> Gpu::run_tonemap(const FrameMap &map, const TonemapSettings &settings, bool grade, bool with_bloom)
     {
         const Texture &scene = *map[Entry::hdr_scene], &out = *map[Entry::tonemap_out];
-        const std::optional<Texture> &bloom = map[Entry::bloom_final];
+        // The slot the frame map reads the bloom from may hold another draw's texture when this draw's shader adds none.
+        const std::optional<Texture> bloom = with_bloom ? map[Entry::bloom_final] : std::nullopt;
         const auto scene_format = static_cast<DXGI_FORMAT>(scene.format);
         ID3D11Device *d = device_.Get();
         if (!scene_in_.sync(d, native(scene), scene_format, false) || !tonemap_out_.sync(d, native(out), static_cast<DXGI_FORMAT>(out.format), true)
             || (bloom && !bloom_in_.sync(d, native(*bloom), static_cast<DXGI_FORMAT>(bloom->format), false)))
             return std::nullopt;
-        // Read before anything of ours is bound: the game's tone map draw still has its constants at b0.
-        const bool game_constants = copy_game_tonemap_constants();
         Constants constants = {};
         constants.render_size[0] = static_cast<float>(map.render.width);
         constants.render_size[1] = static_cast<float>(map.render.height);
@@ -1091,8 +1134,8 @@ namespace enhancements
         scene_in_.copy_from(c, native(scene));
         if (bloom)
             bloom_in_.copy_from(c, native(*bloom));
-        ID3D11Buffer *const grade = game_constants ? game_tonemap_.Get() : nullptr;
-        c->PSSetConstantBuffers(1, 1, &grade);
+        ID3D11Buffer *const game_grade = grade ? game_grade_.Get() : nullptr;
+        c->PSSetConstantBuffers(1, 1, &game_grade);
         ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), bloom ? bloom_in_.srv() : nullptr };
         draw_fullscreen(tonemap_ps_.Get(), srvs, 2, tonemap_out_.rtv(), map.render);
         tonemap_out_.copy_to(c, native(out));
