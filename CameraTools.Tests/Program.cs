@@ -1,7 +1,7 @@
 // The traced screenshot's decisions (CameraTools/TracedShot.cs), the Enhancements category's rules and its settings for
 // the add-on (CameraTools/EnhancementsModel.cs), the presets' decisions (CameraTools/GraphicsModel.cs), and the
 // Enhancements binding's layout against Enhancements/enhancements.h's literal sizes, and the camera path's motion
-// (CameraTools/PathSampler.cs). No game, no ReShade, no add-on: run with dotnet run.
+// (CameraTools/PathSampler.cs), and the long exposure's settings (CameraTools/Exposure.cs). No game, no ReShade, no add-on: run with dotnet run.
 using System.Runtime.InteropServices;
 using CameraTools;
 using CameraToolsEnhancements;
@@ -416,6 +416,19 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     var samples = new[] { false, true }.SelectMany(constant => Enumerable.Range(0, 101).Select(step => new PathSampler(turnFirst, constant).Sample(step / 100f))).ToList();
     Check("a path that turns in place before it moves samples to real numbers both ways",
         samples.All(node => float.IsFinite(node.Position.X) && float.IsFinite(node.Rotation.W) && float.IsFinite(node.Fov)));
+}
+
+// The long exposure.
+Check("the shutters run 1/8 s to 120 s, inside RealLongExposure.fx's 0.1 s to 120 s",
+    Exposure.ShutterLabels.First() == "1/8 s" && Exposure.ShutterLabels.Last() == "120 s" && Exposure.Shutters.All(seconds => seconds >= 0.1f && seconds <= 120f));
+Check("a saved shutter time rounds to the nearest full stop: 7 s to 8 s, 0.1 s to 1/8 s, 500 s to 120 s",
+    Exposure.Shutters[Exposure.NearestShutter(7f)] == 8f && Exposure.NearestShutter(0.1f) == 0 && Exposure.Shutters[Exposure.NearestShutter(500f)] == 120f);
+{
+    var open = new Exposure(8f, 400, 2f).Uniforms(open: true).ToDictionary(uniform => uniform.Name, uniform => uniform.Value);
+    Check("an open shutter sets the duration, ISO and boost, starts the exposure, and keeps the shader's marks off the picture",
+        open["UI_ExposureDuration"] == 8f && open["UI_ISO"] == 400f && open["UI_Gamma"] == 2f && open["UI_StartExposure"] == 1f
+        && open["UI_ShowProgress"] == 0f && open["UI_ShowGreenOnFinish"] == 0f && open["UI_Delay"] == 0f);
+    Check("a closed shutter does not start the exposure", new Exposure(8f, 400, 2f).Uniforms(open: false).Single(uniform => uniform.Name == "UI_StartExposure").Value == 0f);
 }
 
 Console.WriteLine($"CameraTools tests: {failures} failed");

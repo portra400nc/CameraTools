@@ -549,10 +549,14 @@ namespace CameraTools
         {
             new Section("Effects", () => ReShade.Missing),
             new ToggleRow("ReShade effects", () => ReShade.Status.EffectsEnabled == 1, ReShade.SetEffects, () => ReShade.Status.Runtime == 1),
-        }.Concat(DepthOfField.Rows).Concat(new Row[]
+        }.Concat(DepthOfField.Rows).Concat(LongExposure.Rows).Concat(new Row[]
         {
             new Section("Screenshot"),
-            new ActionRow("Take screenshot", Screenshot.Take, "Shoot", () => ReShade.Connected, "Needs the ReShade bridge; see Effects"),
+            new ActionRow("Take screenshot", Screenshot.Take, "Shoot", () => ReShade.Connected)
+            {
+                Detail = () => !ReShade.Connected ? "Needs the ReShade bridge; see Effects"
+                    : LongExposure.Active ? $"Records {LongExposure.Current.ShutterLabel}, then saves" : "",
+            },
             new ToggleRow("3-second countdown", () => Screenshot.Countdown, on => Screenshot.Countdown = on),
         }).ToArray());
 

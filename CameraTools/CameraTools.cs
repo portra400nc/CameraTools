@@ -43,6 +43,7 @@ namespace CameraTools
             Poses.Load();
             Screenshot.Load();
             DepthOfField.Load();
+            LongExposure.Load();
             FrameGuide.Load();
             pauseInFreecam = MelonPreferences.CreateCategory("CameraTools").CreateEntry("PauseInFreeCamera", false,
                 description: "Pause the game when the free camera starts, and resume it when the free camera ends.");
@@ -134,6 +135,7 @@ namespace CameraTools
             EnhancementsControl.Update();
             EnhancementsScene.Update(freecamActive);
             DepthOfField.Update();
+            LongExposure.Update();
 
             // After the hotkeys, so the key that closes the settings panel does not also fire its camera action.
             CameraUi.Update();

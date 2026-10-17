@@ -50,7 +50,7 @@ Freeze the active character, turn their joints with the sticks, shape their hand
 
 ## ReShade
 
-The ReShade tab drives ReShade from the free camera. It controls iMMERSE's depth of field, with a focus point you move on the screen, and it takes a screenshot at the Highest preset with one button.
+The ReShade tab drives ReShade from the free camera. It controls iMMERSE's depth of field, with a focus point you move on the screen, and it takes a screenshot at the Highest preset with one button, also as a long exposure through SirCobra's RealLongExposure shader.
 
 [Use ReShade from CameraTools](RESHADE.md)
 

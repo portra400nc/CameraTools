@@ -1,4 +1,4 @@
-# ReShade: depth of field and screenshots
+# ReShade: depth of field, long exposure and screenshots
 
 The ReShade tab drives ReShade from the free camera. It needs ReShade and CameraTools' own add-on, `CameraToolsReShadeBridge.addon64`, whose source is in `ReShadeBridge/`. Without them, its rows are dimmed and the tab reads "ReShade bridge not found". If the add-on is older or newer than CameraTools, the tab says which version is loaded and which is needed: copy the add-on from the same release as CameraTools into the folder ReShade loads add-ons from. That is `C:\ReShade`, or the folder that `AddonPath` in `ReShade.ini` names, such as `C:\ReShade\reshade-shaders\Addons`.
 
@@ -31,6 +31,21 @@ The focus point is a position relative to the screen, so it stays on the same pa
 
 CameraTools saves your changes to ReShade's current preset: when the panel closes, a second after you last moved the focus point or zoomed with the link on, and before a screenshot. ReShade loads its effects again from the preset whenever the window changes size.
 
+## Long exposure
+
+Long exposure makes Take screenshot record for a while, as a camera on a tripod does. Water and clouds smooth out, moving characters blur, and lights draw trails. It uses SirCobra's [RealLongExposure](https://github.com/LordKobra/CobraFX) shader. Install `RealLongExposure.fx` and the `CobraUtility.fxh` beside it into ReShade's shader folder. Until ReShade has loaded the shader, the section header reads "Install RealLongExposure.fx first" and its rows are hidden. CameraTools finds the shader by its technique, so with ReShade's "Load only enabled effects" option on, the shader has to be enabled in the preset to be found.
+
+| Row | What it does |
+|--|--|
+| Long exposure | Makes Take screenshot record for the shutter time. Off, Take screenshot takes a normal shot. |
+| Shutter | How long the picture records, from 1/8 s to 120 s in full stops |
+| ISO | 100 keeps the game's brightness. Each step brightens the picture. |
+| Highlight boost | How strongly bright lights stay as they move, from 0.4 to 4.4. 1 is plain averaging. |
+
+Shutter, ISO and Highlight boost show only while Long exposure is on. CameraTools keeps them in its own preferences, not in ReShade's preset, and switches the shader on only for the shot, so it costs no frame rate the rest of the time.
+
+The shot runs as any screenshot does, and once the picture has settled it opens the shutter, waits the shutter time, and saves ReShade's average of every frame in that time. The game keeps running while it records: a paused game gives the same picture as a normal shot, and moving the camera blurs the whole picture. Nothing of CameraTools is on screen while it records. A long exposure skips the Enhancements' traced lighting, which pauses the game. If ReShade loads its effects again during the exposure, the screenshot fails and puts everything back.
+
 ## Screenshots
 
 Take screenshot takes a screenshot through ReShade with one button.
@@ -41,8 +56,9 @@ Take screenshot does this:
 2. Applies the Highest preset, your own if you saved one, and resolution slot 1, and turns ReShade's effects on.
 3. Counts down 3 seconds, if 3-second countdown is on.
 4. Waits until the picture has settled, ReShade has compiled its effects at the new size, and the depth of field has had time to focus. In Focus point mode the shader eases its focus toward the point, in up to 2 seconds depending on its Adjustment Speed setting, and starts over when the resolution changes. The first screenshot at a size can take many seconds.
-5. Saves the screenshot to ReShade's screenshot folder.
-6. Puts the graphics settings, the enhancements and the resolution back as they were, turns ReShade's effects off, opens the panel again, and shows the file's name.
+5. With Long exposure on, records for the shutter time.
+6. Saves the screenshot to ReShade's screenshot folder.
+7. Puts the graphics settings, the enhancements and the resolution back as they were, turns ReShade's effects off, opens the panel again, and shows the file's name.
 
 Hide UI (PageDown, or B), opening the settings panel, or leaving the free camera cancels the screenshot and puts everything back. If a wait takes too long, CameraTools gives up, names what it waited for, and puts everything back.
 
@@ -54,3 +70,7 @@ The `[CameraToolsReShade]` section of `MelonPreferences.cfg` holds:
 | `ScreenshotSettleSeconds` | `2` | The least time, in seconds, between changing the graphics settings and taking the screenshot, from 0 to 30 |
 | `LinkFocalLengthToFov` | `false` | Keep the depth of field's focal length and the free camera's field of view in step. The ReShade tab's switch changes it. |
 | `ShowFocusPoint` | `true` | Draw the focus point on the picture in Focus point mode. The ReShade tab's switch changes it. |
+| `LongExposure` | `false` | Take screenshot records for the shutter time. The ReShade tab's switch changes it. |
+| `LongExposureShutter` | `8` | The shutter time in seconds, rounded to the nearest full stop from 1/8 s to 120 s |
+| `LongExposureIso` | `100` | 100, 200, 400, 800 or 1600 |
+| `LongExposureHighlightBoost` | `1` | From 0.4 to 4.4 |

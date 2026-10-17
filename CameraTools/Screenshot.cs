@@ -5,8 +5,11 @@ using static CameraTools.CameraTools;
 namespace CameraTools
 {
     // What the screenshot button changes, as it was when the button was pressed. Traced: the Enhancements add-on's path
-    // tracer lights this shot, and EnhancementsShot holds what that changes.
-    internal sealed record ShotBefore(bool PanelOpen, bool UiHidden, GraphicsState Graphics, ScreenSize Window, bool Traced);
+    // tracer lights this shot, and EnhancementsShot holds what that changes. Long, when set, makes the shot a long exposure.
+    internal sealed record ShotBefore(bool PanelOpen, bool UiHidden, GraphicsState Graphics, ScreenSize Window, bool Traced, LongShot Long);
+
+    // A long exposure's settings, and whether the shader's technique was on before the shot switched it on.
+    internal sealed record LongShot(Exposure Exposure, bool TechniqueWasOn);
 
     internal abstract record ShotState
     {
@@ -26,6 +29,10 @@ namespace CameraTools
             public float Loading { get; init; }
         }
 
+        // A long exposure: Requested is when the shot asked the shader to open its shutter, and Opened when the bridge read
+        // it back as open, or null before.
+        public sealed record Exposing(ShotBefore Before, bool Resized, float Started, float Requested, float? Opened) : Busy(Before, Resized, Started);
+
         // Shots is the bridge's screenshot count when the capture was requested.
         public sealed record Saving(ShotBefore Before, bool Resized, float Started, float Requested, ulong Shots) : Busy(Before, Resized, Started);
     }
@@ -42,6 +49,9 @@ namespace CameraTools
         // a limit of its own, and the settle's limit counts from when the effects are in.
         private const float LoadTimeout = 180f;
         private const float SaveTimeout = 15f;
+        private const float OpenTimeout = 5f;
+        // Past the shutter time, for the shader's last frame and the present that shows its average.
+        private const float CloseMargin = 0.25f;
         private const float MaxSettle = 30f;
         // Presents after the last CameraTools element left the screen, so the countdown is not in the capture.
         private const ulong CleanFrames = 3;
@@ -65,6 +75,7 @@ namespace CameraTools
             new("ReShade to reach the window's size", (_, bridge) => bridge.Width == Screen.width && bridge.Height == Screen.height),
             new("the render resolution to follow the window", (_, _) => !Graphics.SizePending),
             new("the depth of field to focus", (_, _) => focusing is float since && Time.unscaledTime - since >= DepthOfField.FocusSeconds),
+            new($"{LongExposure.File} to take its settings", (settling, _) => settling.Before.Long == null || exposureReady),
             new("the graphics settings to settle",
                 (settling, _) => Time.unscaledTime - Math.Max(settling.Started, Graphics.Changed) >= SettleSeconds),
             new($"{CleanFrames} frames without the CameraTools UI", (settling, bridge) => bridge.Presents >= settling.Dirty + CleanFrames),
@@ -84,6 +95,11 @@ namespace CameraTools
             {
                 if (busy.Before.Traced)
                     EnhancementsShot.End();
+            }),
+            ("the long exposure", busy =>
+            {
+                if (busy.Before.Long is { } shot)
+                    LongExposure.End(shot.TechniqueWasOn);
             }),
             ("the graphics settings", busy => Graphics.PutBack(busy.Before.Graphics)),
             ("the resolution", busy =>
@@ -109,6 +125,8 @@ namespace CameraTools
         // Since when ReShade has drawn its effects at the screenshot's size without a break. The depth of field's
         // autofocus only moves while it is drawn, and starts again when ReShade loads its effects again.
         private static float? focusing;
+        // A long exposure's shader has its technique on and every setting as the shot wants it.
+        private static bool exposureReady;
 
         public static ShotState State { get; private set; } = new ShotState.Idle();
 
@@ -142,10 +160,13 @@ namespace CameraTools
             if (State is not ShotState.Idle || !freecamActive || !ReShade.Connected)
                 return;
             float now = Time.unscaledTime;
-            var before = new ShotBefore(CameraUi.PanelOpen, uiHidden, Graphics.Capture(), Window, EnhancementsShot.Wanted);
+            // The traced lighting pauses the game, which leaves a long exposure nothing to record, so a long exposure goes without.
+            var shot = LongExposure.Active ? new LongShot(LongExposure.Current, LongExposure.TechniqueOn) : null;
+            var before = new ShotBefore(CameraUi.PanelOpen, uiHidden, Graphics.Capture(), Window, EnhancementsShot.Wanted && shot == null, shot);
             var slot = Graphics.Slot(1);
             bool resized = slot != before.Window;
             focusing = null;
+            exposureReady = false;
             var bridge = ReShade.Status;
             ShotState.Busy busy = Countdown
                 ? new ShotState.Countdown(before, resized, now, now + CountdownSeconds, 0)
@@ -166,7 +187,8 @@ namespace CameraTools
                 if (before.Traced && busy is ShotState.Settling)
                     EnhancementsShot.Hold();
                 Melon<CameraTools>.Logger.Msg($"Screenshot: started. Window {before.Window}, slot 1 {slot}{(resized ? "" : " (no resize)")}; {preset}; "
-                    + $"countdown {(Countdown ? "on" : "off")}, settle {SettleSeconds:0.##} s{(before.Traced ? ", traced lighting" : "")}; {bridge}.");
+                    + $"countdown {(Countdown ? "on" : "off")}, settle {SettleSeconds:0.##} s{(before.Traced ? ", traced lighting" : "")}"
+                    + $"{(shot != null ? $", long exposure {shot.Exposure}" : "")}; {bridge}.");
             }
             catch (Exception e)
             {
@@ -205,6 +227,8 @@ namespace CameraTools
                     focusing = null;
                 else
                     focusing ??= Time.unscaledTime;
+                if (busy.Before.Long is { } shot)
+                    exposureReady = LongExposure.Converge(shot.Exposure, open: busy is ShotState.Exposing or ShotState.Saving);
                 switch (busy)
                 {
                     case ShotState.Countdown counting:
@@ -212,6 +236,9 @@ namespace CameraTools
                         break;
                     case ShotState.Settling settling:
                         Settle(settling);
+                        break;
+                    case ShotState.Exposing exposing:
+                        Expose(exposing);
                         break;
                     case ShotState.Saving saving:
                         Save(saving);
@@ -268,6 +295,12 @@ namespace CameraTools
                 return;
             }
             var unmet = Array.Find(Conditions, condition => !condition.Met(settling, bridge));
+            if (unmet == null && settling.Before.Long != null)
+            {
+                Melon<CameraTools>.Logger.Msg($"Screenshot: opening the shutter {now - settling.Started:0.0} s after the button; window {Window}; {bridge}.");
+                State = new ShotState.Exposing(settling.Before, settling.Resized, settling.Started, now, null);
+                return;
+            }
             if (unmet == null)
             {
                 ReShade.SaveScreenshot();
@@ -285,13 +318,41 @@ namespace CameraTools
                 $"timed out after {timeout:0} s waiting for {waited}; window {Window}; {bridge}");
         }
 
+        // A reload of ReShade's effects clears the shader's frames, so the exposure cannot go on after one.
+        private static void Expose(ShotState.Exposing exposing)
+        {
+            float now = Time.unscaledTime;
+            var bridge = ReShade.Status;
+            if (bridge.Runtime != 1 || bridge.EffectsReady != 1 || bridge.Width != Screen.width || bridge.Height != Screen.height)
+            {
+                Finish(exposing, "Screenshot failed: ReShade reloaded its effects during the exposure",
+                    $"ReShade reloaded its effects {now - exposing.Requested:0.0} s into the exposure; window {Window}; {bridge}");
+                return;
+            }
+            if (exposing.Opened is not float opened)
+            {
+                if (LongExposure.Open)
+                    State = exposing with { Opened = now };
+                else if (now - exposing.Requested >= OpenTimeout)
+                    Finish(exposing, $"Screenshot failed: the long exposure did not start within {OpenTimeout:0} s",
+                        $"{LongExposure.File} did not read back as open within {OpenTimeout:0} s; {bridge}");
+                return;
+            }
+            if (now - opened < exposing.Before.Long.Exposure.Seconds + CloseMargin)
+                return;
+            ReShade.SaveScreenshot();
+            Melon<CameraTools>.Logger.Msg($"Screenshot: capture requested after a {now - opened:0.0} s exposure; {bridge}.");
+            State = new ShotState.Saving(exposing.Before, exposing.Resized, exposing.Started, now, bridge.Screenshots);
+        }
+
         private static void Save(ShotState.Saving saving)
         {
             var bridge = ReShade.Status;
             if (bridge.Screenshots > saving.Shots)
             {
                 string path = ReShade.LastScreenshot;
-                string traced = saving.Before.Traced ? EnhancementsShot.Saved() : "";
+                string traced = saving.Before.Traced ? EnhancementsShot.Saved()
+                    : saving.Before.Long is { } shot ? $" · {shot.Exposure.ShutterLabel} exposure" : "";
                 Finish(saving, (path.Length > 0 ? $"Saved {Path.GetFileName(path)}" : "Screenshot saved") + traced,
                     $"saved {(path.Length > 0 ? path : "a file whose path the bridge did not return")} "
                     + $"{Time.unscaledTime - saving.Started:0.0} s after the button{traced}");
@@ -308,6 +369,7 @@ namespace CameraTools
             State = new ShotState.Idle();
             resize = null;
             focusing = null;
+            exposureReady = false;
             var log = Melon<CameraTools>.Logger;
             foreach (var (what, run) in Restores)
             {
