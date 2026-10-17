@@ -18,8 +18,12 @@ namespace CameraTools
         private const float StillLength = 1e-3f;
 
         private readonly CameraNode[] nodes;
-        // Distance along the path at each arc-length sample, SamplesPerSegment per segment; null for equal time per segment.
+        // Distance along the path at each arc-length sample, SamplesPerSegment per segment; null for a path that only turns.
         private readonly float[] lengths;
+        // The progress at which the camera reaches each node. Every channel is timed by these, so none changes its rate at a node.
+        private readonly float[] times;
+        // The camera's speed at each node, in metres per unit of progress; null with lengths.
+        private readonly float[] speeds;
 
         public PathSampler(IReadOnlyList<CameraNode> path, bool constantSpeed)
         {
@@ -34,8 +38,14 @@ namespace CameraTools
                     rotation = Quaternion.Negate(rotation);
                 nodes[index] = path[index] with { Rotation = rotation };
             }
-            if (constantSpeed && nodes.Length > 1)
+            int last = nodes.Length - 1;
+            if (last > 0)
                 lengths = MeasureLengths();
+            times = new float[nodes.Length];
+            for (int index = 0; index <= last; index++)
+                times[index] = last == 0 ? 0f : constantSpeed && lengths != null ? Distance(index) / lengths[^1] : (float)index / last;
+            if (lengths != null)
+                speeds = constantSpeed ? Enumerable.Repeat(lengths[^1], nodes.Length).ToArray() : NodeSpeeds();
         }
 
         public int Count => nodes.Length;
@@ -45,21 +55,14 @@ namespace CameraTools
             if (nodes.Length == 1)
                 return nodes[0];
             var (segment, u) = Locate(Math.Clamp(progress, 0f, 1f));
-            var rotation = Quaternion.Normalize(CatmullRom(Rotation(segment - 1), Rotation(segment), Rotation(segment + 1), Rotation(segment + 2), u));
-            float fov = CatmullRom(Fov(segment - 1), Fov(segment), Fov(segment + 1), Fov(segment + 2), u);
-            return new CameraNode(Position(segment, u), rotation, Math.Clamp(fov, MinFov, MaxFov));
+            float t0 = Time(segment - 1), t1 = times[segment], t2 = times[segment + 1], t3 = Time(segment + 2);
+            var rotation = Quaternion.Normalize(Spline(Rotation(segment - 1), Rotation(segment), Rotation(segment + 1), Rotation(segment + 2), t0, t1, t2, t3, u));
+            float fov = Spline(Fov(segment - 1), Fov(segment), Fov(segment + 1), Fov(segment + 2), t0, t1, t2, t3, u);
+            return new CameraNode(Position(segment, Along(segment, u)), rotation, Math.Clamp(fov, MinFov, MaxFov));
         }
 
         // The progress at which the camera reaches node index.
-        public float NodeProgress(int index)
-        {
-            int last = nodes.Length - 1;
-            if (last == 0)
-                return 0f;
-            if (lengths == null)
-                return (float)index / last;
-            return lengths[index * SamplesPerSegment] / lengths[^1];
-        }
+        public float NodeProgress(int index) => times[index];
 
         // The share of the duration at which the camera reaches each node, for the play bar's ticks.
         public float[] NodeTimes(bool easeIn, bool easeOut)
@@ -96,25 +99,63 @@ namespace CameraTools
             return (low + high) / 2f;
         }
 
+        // The segment that progress falls in, and how far through its time; a segment of no time is never the one.
         private (int segment, float u) Locate(float progress)
         {
-            int segments = nodes.Length - 1;
+            int last = nodes.Length - 1;
+            int segment = Array.BinarySearch(times, progress);
+            if (segment < 0)
+                segment = ~segment - 1;
+            segment = Math.Clamp(segment, 0, last - 1);
+            while (segment < last - 1 && times[segment + 1] <= times[segment])
+                segment++;
+            while (segment > 0 && times[segment + 1] <= times[segment])
+                segment--;
+            float span = times[segment + 1] - times[segment];
+            return (segment, Math.Clamp((progress - times[segment]) / span, 0f, 1f));
+        }
+
+        // The curve's parameter u of the way through a segment's time: the distance travelled by then follows a cubic
+        // through both nodes' distances and speeds, which the arc-length table turns back into a parameter.
+        private float Along(int segment, float u)
+        {
             if (lengths == null)
-            {
-                float scaled = progress * segments;
-                int at = Math.Min((int)scaled, segments - 1);
-                return (at, scaled - at);
-            }
-            float target = progress * lengths[^1];
-            int index = Array.BinarySearch(lengths, target);
+                return u;
+            float span = times[segment + 1] - times[segment];
+            float target = Hermite(Distance(segment), Distance(segment + 1), speeds[segment] * span, speeds[segment + 1] * span, u);
+            int first = segment * SamplesPerSegment;
+            int index = Array.BinarySearch(lengths, first, SamplesPerSegment + 1, target);
             if (index < 0)
                 index = ~index - 1;
-            index = Math.Clamp(index, 0, lengths.Length - 2);
-            float span = lengths[index + 1] - lengths[index];
-            float within = span > 0f ? (target - lengths[index]) / span : 0f;
-            int segment = index / SamplesPerSegment;
-            return (segment, (index % SamplesPerSegment + within) / SamplesPerSegment);
+            index = Math.Clamp(index, first, first + SamplesPerSegment - 1);
+            float step = lengths[index + 1] - lengths[index];
+            float within = step > 0f ? Math.Clamp((target - lengths[index]) / step, 0f, 1f) : 0f;
+            return (index - first + within) / SamplesPerSegment;
         }
+
+        // The speed at each node from its segments' average speeds. Inside, it is their weighted harmonic mean, as in Fritsch
+        // and Butland's monotone cubic, so the camera never runs backward and slows down at a node beside a short segment.
+        // At either end, it is the end segment's own average.
+        private float[] NodeSpeeds()
+        {
+            int last = nodes.Length - 1;
+            var spans = Enumerable.Range(0, last).Select(segment => times[segment + 1] - times[segment]).ToArray();
+            var averages = Enumerable.Range(0, last).Select(segment => (Distance(segment + 1) - Distance(segment)) / spans[segment]).ToArray();
+            var result = new float[nodes.Length];
+            result[0] = averages[0];
+            result[last] = averages[last - 1];
+            for (int index = 1; index < last; index++)
+            {
+                float before = averages[index - 1], after = averages[index];
+                if (before <= 0f || after <= 0f)
+                    continue;
+                float w1 = 2f * spans[index] + spans[index - 1], w2 = spans[index] + 2f * spans[index - 1];
+                result[index] = (w1 + w2) / (w1 / before + w2 / after);
+            }
+            return result;
+        }
+
+        private float Distance(int index) => lengths[index * SamplesPerSegment];
 
         private float[] MeasureLengths()
         {
@@ -182,6 +223,15 @@ namespace CameraTools
         private static Quaternion Mirror(Quaternion end, Quaternion neighbour)
             => new(2f * end.X - neighbour.X, 2f * end.Y - neighbour.Y, 2f * end.Z - neighbour.Z, 2f * end.W - neighbour.W);
 
+        // Past either end, a phantom node's time is as far from the end node's as the neighbouring node's.
+        private float Time(int index)
+        {
+            int last = nodes.Length - 1;
+            return index < 0 ? 2f * times[0] - times[1]
+                : index > last ? 2f * times[last] - times[last - 1]
+                : times[index];
+        }
+
         private float Fov(int index)
         {
             int last = nodes.Length - 1;
@@ -190,12 +240,23 @@ namespace CameraTools
                 : nodes[index].Fov;
         }
 
-        // Uniform Catmull-Rom, which passes through p1 at u = 0 and p2 at u = 1.
-        private static float CatmullRom(float p0, float p1, float p2, float p3, float u)
-            => 0.5f * (2f * p1 + (p2 - p0) * u + (2f * p0 - 5f * p1 + 4f * p2 - p3) * u * u + (3f * p1 - p0 - 3f * p2 + p3) * u * u * u);
+        // Catmull-Rom over the nodes' times, which passes through p1 at u = 0 and p2 at u = 1: the slope at a node spans
+        // both its neighbours' times, so the value changes at the same rate on either side of the node.
+        private static float Spline(float p0, float p1, float p2, float p3, float t0, float t1, float t2, float t3, float u)
+        {
+            float span = t2 - t1;
+            return Hermite(p1, p2, (p2 - p0) / (t2 - t0) * span, (p3 - p1) / (t3 - t1) * span, u);
+        }
 
-        private static Quaternion CatmullRom(Quaternion p0, Quaternion p1, Quaternion p2, Quaternion p3, float u)
-            => new(CatmullRom(p0.X, p1.X, p2.X, p3.X, u), CatmullRom(p0.Y, p1.Y, p2.Y, p3.Y, u),
-                CatmullRom(p0.Z, p1.Z, p2.Z, p3.Z, u), CatmullRom(p0.W, p1.W, p2.W, p3.W, u));
+        private static Quaternion Spline(Quaternion p0, Quaternion p1, Quaternion p2, Quaternion p3, float t0, float t1, float t2, float t3, float u)
+            => new(Spline(p0.X, p1.X, p2.X, p3.X, t0, t1, t2, t3, u), Spline(p0.Y, p1.Y, p2.Y, p3.Y, t0, t1, t2, t3, u),
+                Spline(p0.Z, p1.Z, p2.Z, p3.Z, t0, t1, t2, t3, u), Spline(p0.W, p1.W, p2.W, p3.W, t0, t1, t2, t3, u));
+
+        // The cubic from p1 to p2 with slopes m1 and m2, per unit of u.
+        private static float Hermite(float p1, float p2, float m1, float m2, float u)
+        {
+            float u2 = u * u, u3 = u2 * u;
+            return (2f * u3 - 3f * u2 + 1f) * p1 + (u3 - 2f * u2 + u) * m1 + (3f * u2 - 2f * u3) * p2 + (u3 - u2) * m2;
+        }
     }
 }

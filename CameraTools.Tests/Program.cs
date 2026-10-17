@@ -380,18 +380,21 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
         Presets.Enhance(saved, shafts, null) is var (unchanged, nothing) && ReferenceEquals(unchanged, shafts) && nothing == null);
 }
 
-// A camera path: how fast the camera moves and turns on either side of a node, over a sixtieth of a second of a 10 s path.
+// A camera path: how fast the camera moves and turns just before and just after a node, over a ten-thousandth of the path.
 {
     CameraNode Node(float x, float yaw) => new(new Vec3(x, 0, 0), Quat.CreateFromYawPitchRoll(yaw * MathF.PI / 180f, 0, 0), 45f);
     float Step(PathSampler path, float from, float to, bool turn)
     {
         var a = path.Sample(from);
         var b = path.Sample(to);
-        return (turn ? 2f * MathF.Acos(MathF.Min(1f, MathF.Abs(Quat.Dot(a.Rotation, b.Rotation)))) : Vec3.Distance(a.Position, b.Position)) / (to - from);
+        // The turn's angle from atan2, since acos of a dot product near 1 has too few digits in a float for a frame's turn.
+        var turned = Quat.Inverse(a.Rotation) * b.Rotation;
+        float angle = 2f * MathF.Atan2(new Vec3(turned.X, turned.Y, turned.Z).Length(), MathF.Abs(turned.W));
+        return (turn ? angle : Vec3.Distance(a.Position, b.Position)) / (to - from);
     }
     float Across(PathSampler path, int node, bool turn)
     {
-        float at = path.NodeProgress(node), frame = 1f / 600f;
+        float at = path.NodeProgress(node), frame = 1e-4f;
         return Step(path, at, at + frame, turn) / Step(path, at - frame, at, turn);
     }
     bool Near(float value, float expected, float tolerance) => MathF.Abs(value - expected) <= tolerance;
