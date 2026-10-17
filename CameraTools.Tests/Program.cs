@@ -1,10 +1,11 @@
 // The traced screenshot's decisions (CameraTools/TracedShot.cs), the Enhancements category's rules and its settings for
 // the add-on (CameraTools/EnhancementsModel.cs), the presets' decisions (CameraTools/GraphicsModel.cs), and the
-// Enhancements binding's layout against Enhancements/enhancements.h's literal sizes. No game, no ReShade, no add-on: run
-// with dotnet run.
+// Enhancements binding's layout against Enhancements/enhancements.h's literal sizes, and the camera path's motion
+// (CameraTools/PathSampler.cs). No game, no ReShade, no add-on: run with dotnet run.
 using System.Runtime.InteropServices;
 using CameraTools;
 using CameraToolsEnhancements;
+using Quat = System.Numerics.Quaternion;
 using Vec3 = System.Numerics.Vector3;
 
 int failures = 0;
@@ -377,6 +378,41 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
         Presets.Enhance(highest, haze, null) is var (same, none) && ReferenceEquals(same, haze) && none == null);
     Check("a preset that holds the enhancements already set keeps nothing for Restore either",
         Presets.Enhance(saved, shafts, null) is var (unchanged, nothing) && ReferenceEquals(unchanged, shafts) && nothing == null);
+}
+
+// A camera path: how fast the camera moves and turns on either side of a node, over a sixtieth of a second of a 10 s path.
+{
+    CameraNode Node(float x, float yaw) => new(new Vec3(x, 0, 0), Quat.CreateFromYawPitchRoll(yaw * MathF.PI / 180f, 0, 0), 45f);
+    float Step(PathSampler path, float from, float to, bool turn)
+    {
+        var a = path.Sample(from);
+        var b = path.Sample(to);
+        return (turn ? 2f * MathF.Acos(MathF.Min(1f, MathF.Abs(Quat.Dot(a.Rotation, b.Rotation)))) : Vec3.Distance(a.Position, b.Position)) / (to - from);
+    }
+    float Across(PathSampler path, int node, bool turn)
+    {
+        float at = path.NodeProgress(node), frame = 1f / 600f;
+        return Step(path, at, at + frame, turn) / Step(path, at - frame, at, turn);
+    }
+    bool Near(float value, float expected, float tolerance) => MathF.Abs(value - expected) <= tolerance;
+
+    var uneven = new[] { Node(0, 0), Node(3, 20), Node(19, 40) };
+    var timed = new PathSampler(uneven, constantSpeed: false);
+    var even = new PathSampler(uneven, constantSpeed: true);
+    Check("with equal time a node, the camera reaches the middle node halfway, and keeps its speed into a segment five times longer",
+        timed.NodeProgress(1) == 0.5f && Near(Across(timed, 1, turn: false), 1f, 0.02f));
+    Check("with equal time a node, the camera also keeps its turn rate across the node", Near(Across(timed, 1, turn: true), 1f, 0.02f));
+    Check("with constant speed, the camera reaches the middle node at 3/19 of the way, and keeps its speed",
+        Near(even.NodeProgress(1), 3f / 19f, 1e-4f) && Near(Across(even, 1, turn: false), 1f, 0.02f));
+    Check("with constant speed, the camera keeps its turn rate across the node, though the segments' times differ fivefold",
+        Near(Across(even, 1, turn: true), 1f, 0.02f));
+    Check("both ways, the camera is at each node at its progress",
+        new[] { timed, even }.All(path => Enumerable.Range(0, 3).All(index => Vec3.Distance(path.Sample(path.NodeProgress(index)).Position, uneven[index].Position) < 1e-3f)));
+
+    var turnFirst = new[] { Node(0, 0), Node(0, 30), Node(8, 30) };
+    var samples = new[] { false, true }.SelectMany(constant => Enumerable.Range(0, 101).Select(step => new PathSampler(turnFirst, constant).Sample(step / 100f))).ToList();
+    Check("a path that turns in place before it moves samples to real numbers both ways",
+        samples.All(node => float.IsFinite(node.Position.X) && float.IsFinite(node.Rotation.W) && float.IsFinite(node.Fov)));
 }
 
 Console.WriteLine($"CameraTools tests: {failures} failed");
