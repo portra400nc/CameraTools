@@ -3,7 +3,8 @@ using System.Numerics;
 namespace CameraTools
 {
     // Position is an absolute world position, so a node stays put when Genshin shifts its world origin. Fov is in degrees.
-    public readonly record struct CameraNode(Vector3 Position, Quaternion Rotation, float Fov);
+    // Time, in seconds from the path's start, pins the node: the camera reaches it exactly then.
+    public readonly record struct CameraNode(Vector3 Position, Quaternion Rotation, float Fov, float? Time = null);
 
     // Plain math over System.Numerics, because Unity's structs call into the game and cannot run outside it. Built once
     // when playback starts; Sample maps progress from 0 to 1 onto the path.
@@ -25,7 +26,7 @@ namespace CameraTools
         // The camera's speed at each node, in metres per unit of progress; null with lengths.
         private readonly float[] speeds;
 
-        public PathSampler(IReadOnlyList<CameraNode> path, bool constantSpeed)
+        public PathSampler(IReadOnlyList<CameraNode> path, bool constantSpeed, float duration)
         {
             if (path.Count == 0)
                 throw new ArgumentException("A path needs at least one node.", nameof(path));
@@ -38,17 +39,18 @@ namespace CameraTools
                     rotation = Quaternion.Negate(rotation);
                 nodes[index] = path[index] with { Rotation = rotation };
             }
-            int last = nodes.Length - 1;
-            if (last > 0)
+            if (nodes.Length > 1)
                 lengths = MeasureLengths();
-            times = new float[nodes.Length];
-            for (int index = 0; index <= last; index++)
-                times[index] = last == 0 ? 0f : constantSpeed && lengths != null ? Distance(index) / lengths[^1] : (float)index / last;
+            Pinned = nodes.Any(node => node.Time != null);
+            times = Spread(constantSpeed, duration);
             if (lengths != null)
-                speeds = constantSpeed ? Enumerable.Repeat(lengths[^1], nodes.Length).ToArray() : NodeSpeeds();
+                speeds = constantSpeed && !Pinned ? Enumerable.Repeat(lengths[^1], nodes.Length).ToArray() : NodeSpeeds();
         }
 
         public int Count => nodes.Length;
+
+        // Whether any node has a time of its own.
+        public bool Pinned { get; }
 
         public CameraNode Sample(float progress)
         {
@@ -66,7 +68,10 @@ namespace CameraTools
 
         // The share of the duration at which the camera reaches each node, for the play bar's ticks.
         public float[] NodeTimes(bool easeIn, bool easeOut)
-            => Enumerable.Range(0, nodes.Length).Select(index => Unease(NodeProgress(index), easeIn, easeOut)).ToArray();
+            => Enumerable.Range(0, nodes.Length).Select(index => Pinned ? NodeProgress(index) : Unease(NodeProgress(index), easeIn, easeOut)).ToArray();
+
+        // The progress at a share of the duration. Easing would move a pinned node's moment, so a pinned path has none.
+        public float Progress(float share, bool easeIn, bool easeOut) => Pinned ? Math.Clamp(share, 0f, 1f) : Ease(share, easeIn, easeOut);
 
         // Seconds into the current pass after elapsed seconds of playback; a looping path starts again from its first node.
         public static float PassTime(float elapsed, float duration, bool loop)
@@ -97,6 +102,39 @@ namespace CameraTools
                     high = mid;
             }
             return (low + high) / 2f;
+        }
+
+        // The progress at which the camera reaches each node. A pinned node's is its time's share of the duration. The
+        // others share the time between the pinned nodes around them by the usual rule, distance with constant speed and
+        // even spacing without, and the path's ends count as pinned at 0 and at the duration when they have no time.
+        private float[] Spread(bool constantSpeed, float duration)
+        {
+            int last = nodes.Length - 1;
+            var usual = new float[nodes.Length];
+            for (int index = 0; index <= last; index++)
+                usual[index] = last == 0 ? 0f : constantSpeed && lengths != null ? Distance(index) / lengths[^1] : (float)index / last;
+            if (!Pinned)
+                return usual;
+            var result = new float[nodes.Length];
+            result[0] = Pin(0, 0f);
+            int from = 0;
+            for (int to = 1; to <= last; to++)
+            {
+                if (nodes[to].Time == null && to < last)
+                    continue;
+                // A file's times out of order would make time run backward; the camera holds instead.
+                result[to] = Math.Max(Pin(to, 1f), result[from]);
+                float span = usual[to] - usual[from];
+                for (int index = from + 1; index < to; index++)
+                {
+                    float share = span > 0f ? (usual[index] - usual[from]) / span : (float)(index - from) / (to - from);
+                    result[index] = result[from] + share * (result[to] - result[from]);
+                }
+                from = to;
+            }
+            return result;
+
+            float Pin(int index, float end) => nodes[index].Time is float time ? Math.Clamp(time / duration, 0f, 1f) : end;
         }
 
         // The segment that progress falls in, and how far through its time; a segment of no time is never the one.
@@ -140,7 +178,9 @@ namespace CameraTools
         {
             int last = nodes.Length - 1;
             var spans = Enumerable.Range(0, last).Select(segment => times[segment + 1] - times[segment]).ToArray();
-            var averages = Enumerable.Range(0, last).Select(segment => (Distance(segment + 1) - Distance(segment)) / spans[segment]).ToArray();
+            // Two nodes pinned at one moment have no time between them, and the camera jumps.
+            var averages = Enumerable.Range(0, last)
+                .Select(segment => spans[segment] > 0f ? (Distance(segment + 1) - Distance(segment)) / spans[segment] : 0f).ToArray();
             var result = new float[nodes.Length];
             result[0] = averages[0];
             result[last] = averages[last - 1];

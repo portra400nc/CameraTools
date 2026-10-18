@@ -28,7 +28,7 @@ namespace CameraTools
 
             public bool Finished => !Loop && Elapsed >= Length;
 
-            public CameraNode Sample() => Sampler.Sample(PathSampler.Ease(PassTime / Duration, EaseIn, EaseOut));
+            public CameraNode Sample() => Sampler.Sample(Sampler.Progress(PassTime / Duration, EaseIn, EaseOut));
         }
     }
 
@@ -205,7 +205,7 @@ namespace CameraTools
         {
             var path = CameraPaths.Current;
             var options = CameraPaths.Options;
-            return new PlaybackState.Playing(new PathSampler(path.Nodes, options.ConstantSpeed), CameraPaths.Active + 1, path.Duration,
+            return new PlaybackState.Playing(new PathSampler(path.Nodes, options.ConstantSpeed, path.Duration), CameraPaths.Active + 1, path.Duration,
                 Math.Max(path.Duration, ReplayPlayer.LinkedEnd(path)), options.Loop, options.EaseIn, options.EaseOut, Time.unscaledTime + lead, wasHidden, repause);
         }
 

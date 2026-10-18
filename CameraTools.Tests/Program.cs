@@ -401,8 +401,8 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     bool Near(float value, float expected, float tolerance) => MathF.Abs(value - expected) <= tolerance;
 
     var uneven = new[] { Node(0, 0), Node(3, 20), Node(19, 40) };
-    var timed = new PathSampler(uneven, constantSpeed: false);
-    var even = new PathSampler(uneven, constantSpeed: true);
+    var timed = new PathSampler(uneven, constantSpeed: false, 10f);
+    var even = new PathSampler(uneven, constantSpeed: true, 10f);
     Check("with equal time a node, the camera reaches the middle node halfway, and keeps its speed into a segment five times longer",
         timed.NodeProgress(1) == 0.5f && Near(Across(timed, 1, turn: false), 1f, 0.02f));
     Check("with equal time a node, the camera also keeps its turn rate across the node", Near(Across(timed, 1, turn: true), 1f, 0.02f));
@@ -414,9 +414,45 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
         new[] { timed, even }.All(path => Enumerable.Range(0, 3).All(index => Vec3.Distance(path.Sample(path.NodeProgress(index)).Position, uneven[index].Position) < 1e-3f)));
 
     var turnFirst = new[] { Node(0, 0), Node(0, 30), Node(8, 30) };
-    var samples = new[] { false, true }.SelectMany(constant => Enumerable.Range(0, 101).Select(step => new PathSampler(turnFirst, constant).Sample(step / 100f))).ToList();
+    var samples = new[] { false, true }.SelectMany(constant => Enumerable.Range(0, 101).Select(step => new PathSampler(turnFirst, constant, 10f).Sample(step / 100f))).ToList();
     Check("a path that turns in place before it moves samples to real numbers both ways",
         samples.All(node => float.IsFinite(node.Position.X) && float.IsFinite(node.Rotation.W) && float.IsFinite(node.Fov)));
+
+    // The sampler's output before nodes could have times, for a path whose nodes have none.
+    var four = new[] { new CameraNode(new Vec3(0, 0, 0), Quat.CreateFromYawPitchRoll(0f, 0, 0), 45f),
+        new CameraNode(new Vec3(3, 1, 0), Quat.CreateFromYawPitchRoll(20f * MathF.PI / 180f, 0, 0), 50f),
+        new CameraNode(new Vec3(19, 0, 0), Quat.CreateFromYawPitchRoll(40f * MathF.PI / 180f, 0, 0), 30f),
+        new CameraNode(new Vec3(20, 5, 0), Quat.CreateFromYawPitchRoll(90f * MathF.PI / 180f, 0, 0), 60f) };
+    bool Was(PathSampler path, float progress, float x, float y, float turn, float fov)
+        => path.Sample(progress) is var node && Near(node.Position.X, x, 1e-4f) && Near(node.Position.Y, y, 1e-4f) && Near(node.Rotation.Y, turn, 1e-5f) && Near(node.Fov, fov, 1e-3f);
+    var plain = new PathSampler(four, constantSpeed: false, 10f);
+    var steady = new PathSampler(four, constantSpeed: true, 10f);
+    Check("a path without times samples as before, with equal time a node and with constant speed",
+        !plain.Pinned && Was(plain, 0.1f, 0.76013625f, 0.30128196f, 0.05237828f, 47.287502f) && Was(plain, 0.37f, 3.9206607f, 1.0347897f, 0.19122072f, 48.619915f)
+        && Was(plain, 0.8f, 19.861443f, 2.2447517f, 0.48254833f, 38.399998f) && Was(steady, 0.1f, 2.3000188f, 0.8720409f, 0.15074894f, 49.88515f)
+        && Was(steady, 0.37f, 8.892317f, 0.39530164f, 0.23067355f, 41.425865f) && Was(steady, 0.8f, 19.235413f, 0.21760967f, 0.35228732f, 30.34957f));
+
+    // Pinned nodes: the camera reaches each at its time.
+    var two = new[] { Node(0, 0) with { Time = 2f }, Node(8, 30) with { Time = 6f } };
+    bool At(PathSampler path, float progress, CameraNode node) => Vec3.Distance(path.Sample(progress).Position, node.Position) < 1e-3f;
+    foreach (bool constant in new[] { false, true })
+    {
+        var pinned = new PathSampler(two, constant, 10f);
+        Check($"two nodes pinned at 2 s and 6 s of 10 s show the first from 0 to 0.2 and the second from 0.6 to 1{(constant ? ", with constant speed" : "")}",
+            pinned.Pinned && At(pinned, 0f, two[0]) && At(pinned, 0.1f, two[0]) && At(pinned, 0.2f, two[0]) && !At(pinned, 0.4f, two[0]) && !At(pinned, 0.4f, two[1])
+            && At(pinned, 0.6f, two[1]) && At(pinned, 0.8f, two[1]) && At(pinned, 1f, two[1]));
+    }
+    var between = new[] { Node(0, 0) with { Time = 2f }, Node(3, 0), Node(19, 0) with { Time = 6f } };
+    Check("an unpinned node between pins takes its share of their time by distance with constant speed, and evenly without",
+        Near(new PathSampler(between, true, 10f).NodeProgress(1), 0.2f + 0.4f * 3f / 19f, 1e-4f) && Near(new PathSampler(between, false, 10f).NodeProgress(1), 0.4f, 1e-6f));
+    var ends = new[] { Node(0, 0), Node(3, 0) with { Time = 2.5f }, Node(4, 0), Node(19, 0) };
+    var spread = new PathSampler(ends, false, 10f);
+    Check("unpinned ends count as pinned at 0 and at the duration, and the nodes after a pin share what is left evenly",
+        spread.NodeProgress(0) == 0f && spread.NodeProgress(1) == 0.25f && Near(spread.NodeProgress(2), 0.625f, 1e-6f) && spread.NodeProgress(3) == 1f);
+    var eased = new PathSampler(two, false, 10f);
+    Check("a pinned path ignores Ease in and Ease out, in its progress and its ticks; a path without pins still eases",
+        eased.Progress(0.25f, true, true) == 0.25f && eased.NodeTimes(true, true).SequenceEqual(new[] { 0.2f, 0.6f })
+        && plain.Progress(0.25f, true, true) == 0.15625f && plain.NodeTimes(true, true)[0] == 0f && plain.NodeTimes(true, true)[3] == 1f);
 }
 
 // The long exposure.
