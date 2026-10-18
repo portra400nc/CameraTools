@@ -223,7 +223,7 @@ namespace CameraTools
             }
         }
 
-        private void SetFreecam(bool active)
+        internal void SetFreecam(bool active)
         {
             if (!camera)
             {
@@ -263,7 +263,7 @@ namespace CameraTools
 
         // Taking the pad turns the free camera on; giving it back leaves the free camera where it is, so the
         // character can be walked through a fixed shot.
-        private void SetPadOwner(PadOwner owner)
+        internal void SetPadOwner(PadOwner owner, bool announce = true)
         {
             if (owner == PadOwner.CameraTools)
             {
@@ -274,6 +274,8 @@ namespace CameraTools
             }
             Controls.Owner = owner;
             SetPlayerInput(owner == PadOwner.Game, "Controller");
+            if (!announce)
+                return;
             Gamepad.Rumble();
             CameraUi.Toast($"Controller: {owner}");
         }

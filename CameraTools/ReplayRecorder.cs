@@ -9,16 +9,20 @@ namespace CameraTools
         public sealed record Idle : RecordState;
 
         // Shown is the number last shown in the countdown, 0 before the first.
-        public sealed record Countdown(float Until, int Shown) : RecordState;
+        public sealed record Countdown(float Until, int Shown, Handoff Before) : RecordState;
 
         public sealed record Recording(RecordSession Session) : RecordState;
     }
+
+    // The free camera and pad owner from before a recording took them, given back when it stops.
+    internal readonly record struct Handoff(bool Freecam, PadOwner Owner);
 
     // What one recording builds and what it keeps between frames. Path is the number of the path it plays, or null.
     internal sealed class RecordSession
     {
         public readonly Replay Replay = new();
         public float Start;
+        public Handoff Before;
         public int? Path;
         public string PathId;
         public bool Enemies, Effects;
@@ -54,26 +58,42 @@ namespace CameraTools
 
         public static RecordSession Session => (State as RecordState.Recording)?.Session;
 
-        // Closes the panel and records, after the countdown when it is on.
+        // Closes the panel and records, after the countdown when it is on. You act while recording, so the pad goes to the
+        // game and the game's camera follows you, unless a path to play flies the free camera.
         public static void Arm()
         {
             if (!Idle)
                 return;
+            // Recording runs in the game camera's pre-cull callback, which injecting the free camera registers.
+            if (!CameraTools.camera)
+            {
+                CameraUi.Toast("Turn on the free camera once first");
+                return;
+            }
+            var before = new Handoff(CameraTools.freecamActive, Controls.Owner);
             ReplayPlayer.Stop(null);
             PathPlayback.Stop(null);
             CameraUi.ClosePanel();
+            var mod = Melon<CameraTools>.Instance;
+            mod.SetFreecam(Replays.PlayPath && CameraPaths.CanPlay);
+            if (Controls.Owner == PadOwner.CameraTools)
+                mod.SetPadOwner(PadOwner.Game, announce: false);
             if (!Replays.Countdown)
             {
-                Begin();
+                Begin(before);
                 return;
             }
-            State = new RecordState.Countdown(Time.unscaledTime + CountdownSeconds, 0);
+            State = new RecordState.Countdown(Time.unscaledTime + CountdownSeconds, 0, before);
             Count((RecordState.Countdown)State);
         }
 
         public static void Update()
         {
-            if (!Idle && !CameraTools.freecamActive)
+            // Taking the pad back with L3+R3 stops the recording and keeps the free camera that taking it turns on.
+            if (!Idle && Controls.Owner == PadOwner.CameraTools)
+                Stop(restore: false);
+            // Here rather than in the pre-cull callback, so the free camera does not come back in the middle of drawing.
+            if (Session is { } session && session.Elapsed > Replays.Limit)
                 Stop();
             if (State is RecordState.Countdown countdown)
                 Count(countdown);
@@ -84,7 +104,7 @@ namespace CameraTools
             float remaining = countdown.Until - Time.unscaledTime;
             if (remaining <= 0f)
             {
-                Begin();
+                Begin(countdown.Before);
                 return;
             }
             int shown = (int)MathF.Ceiling(remaining);
@@ -96,10 +116,10 @@ namespace CameraTools
 
         // Every weapon and pooled effect is copied before the clock starts, so a pooled effect costs nothing while
         // recording. Characters are copied once they are on the field. A path to play starts with the clock.
-        private static void Begin()
+        private static void Begin(Handoff before)
         {
             var prepare = System.Diagnostics.Stopwatch.StartNew();
-            var session = new RecordSession { Enemies = Replays.RecordEnemies, Effects = Replays.RecordEffects };
+            var session = new RecordSession { Before = before, Enemies = Replays.RecordEnemies, Effects = Replays.RecordEffects };
             ReplayHooks.Drain();
             foreach (var weapon in ReplayScene.Children(ReplayScene.EquipRoot))
                 StandIns.Shared(weapon, TrackKind.Weapon);
@@ -127,15 +147,20 @@ namespace CameraTools
                 + $"{(session.Path is int path ? $", with path {path}" : "")}; enemies {(session.Enemies ? "on" : "off")}, effects {(session.Effects ? "on" : "off")}.");
         }
 
+        public static void Stop() => Stop(restore: true);
+
         // Keeps what was recorded as a new replay, unless it is too short to play. A path the recording started stops with it.
-        public static void Stop()
+        // restore gives back the free camera and pad as they were before the recording.
+        private static void Stop(bool restore)
         {
             var state = State;
             State = new RecordState.Idle();
             ReplayHooks.Recording = false;
             ReplayHooks.Watched = null;
-            if (state is RecordState.Countdown)
+            if (state is RecordState.Countdown countdown)
             {
+                if (restore)
+                    Restore(countdown.Before);
                 CameraUi.Toast("Recording cancelled");
                 return;
             }
@@ -143,6 +168,8 @@ namespace CameraTools
                 return;
             if (session.Path != null && PathPlayback.State is PlaybackState.Playing)
                 PathPlayback.Stop(null);
+            if (restore)
+                Restore(session.Before);
             var replay = session.Replay;
             replay.Duration = session.Elapsed;
             if (replay.Duration < MinDuration)
@@ -166,6 +193,14 @@ namespace CameraTools
             CameraUi.Toast(ReplayText.Recorded(replay.Name, replay.Duration, Replays.PathLabel(session.Path)));
         }
 
+        private static void Restore(Handoff before)
+        {
+            var mod = Melon<CameraTools>.Instance;
+            if (before.Owner == PadOwner.CameraTools && Controls.Owner != PadOwner.CameraTools)
+                mod.SetPadOwner(PadOwner.CameraTools, announce: false);
+            mod.SetFreecam(before.Freecam);
+        }
+
         public static void PreCull() => Replays.Guard("recording", Frame, Stop);
 
         private static void Frame()
@@ -175,10 +210,7 @@ namespace CameraTools
             session.LastFrame = Time.frameCount;
             float t = session.Elapsed;
             if (t > Replays.Limit)
-            {
-                Stop();
                 return;
-            }
             var avatar = Character.Active();
             if (avatar)
             {

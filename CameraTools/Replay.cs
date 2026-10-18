@@ -168,11 +168,7 @@ namespace CameraTools
             CameraUi.Toast($"{replay.Name} deleted");
         }
 
-        public static void Record()
-        {
-            if (CameraPaths.FreecamOn())
-                ReplayRecorder.Arm();
-        }
+        public static void Record() => ReplayRecorder.Arm();
 
         // With a linked path, the path plays and every replay linked to it plays along; without, the replay plays alone.
         public static void Play()

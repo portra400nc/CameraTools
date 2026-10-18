@@ -66,11 +66,14 @@ namespace CameraTools
         private static ActionView armed;
         private static float armedUntil;
 
-        public static View View => !CameraTools.freecamActive || CameraTools.uiHidden ? View.Hidden
+        // A recording shows its bar with the free camera off too, since recording turns it off.
+        public static View View => CameraTools.uiHidden ? View.Hidden
+            : ReplayRecorder.Active ? View.Playing
+            : !CameraTools.freecamActive ? View.Hidden
             : Lights.Moving ? View.Moving
             : Posing.Editing ? View.Joints
             : panelOpen ? View.Panel
-            : PathPlayback.State is PlaybackState.Playing || ReplayRecorder.Active || ReplayPlayer.Solo != null ? View.Playing
+            : PathPlayback.State is PlaybackState.Playing || ReplayPlayer.Solo != null ? View.Playing
             : View.Hud;
 
         // Drawn with IMGUI until the UI has been built.
@@ -434,6 +437,7 @@ namespace CameraTools
             Place(target.PlayFill, V(0f, 0.5f), V(0f, 0.5f), V(0f, 0.5f), V(0f, 0f), V(0f, Style.RailHeight));
             target.PlayStops = new[] { CamAction.PlayPath, CamAction.RecordReplay, CamAction.PlayReplay }
                 .Select(action => (action, BuildLegend(ui, bar, new Hint(action, "Stop")))).ToArray();
+            target.PlayTakeBack = ui.PadHint(bar, Controls.OwnerSwitchBinding, "Stop");
         }
 
         private static Legend BuildLegend(Builder ui, Transform row, Hint hint)
@@ -1239,16 +1243,19 @@ namespace CameraTools
                 live.PlayFillImage.color = bar.Recording ? Style.Recording : Style.Cream;
                 live.PlayText = null;
             }
-            var stop = (bar.Stop, live.Layout);
+            // While recording the game owns the pad, which stops a recording with the L3+R3 switch that takes it back.
+            var layout = bar.Recording ? Controls.LastUsed : live.Layout;
+            var stop = (bar.Stop, layout);
             if (live.PlayStopShown != stop)
             {
                 live.PlayStopShown = stop;
-                bool pad = live.Layout == InputDevice.Pad;
+                bool pad = layout == InputDevice.Pad;
                 foreach (var (action, legend) in live.PlayStops)
                 {
-                    legend.Pad.Root.SetActive(action == bar.Stop && pad && legend.HasPad);
+                    legend.Pad.Root.SetActive(action == bar.Stop && pad && legend.HasPad && !bar.Recording);
                     legend.Key.Root.SetActive(action == bar.Stop && !pad && legend.HasKey);
                 }
+                live.PlayTakeBack.Root.SetActive(bar.Recording && pad);
             }
             if (bar.Text != live.PlayText)
             {
@@ -1545,6 +1552,7 @@ namespace CameraTools
             public object PlayShown;
             public (CamAction, InputDevice?)? PlayStopShown;
             public (CamAction Action, Legend Legend)[] PlayStops;
+            public HintView PlayTakeBack;
             public string PlayText;
             // The game's option lists could not be read when this UI was built, so its Graphics tab has no settings rows.
             public bool MissingSettings;

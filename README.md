@@ -137,6 +137,8 @@ Rebind any hotkey in `UserData/MelonPreferences.cfg` with a [Unity key code](htt
 
 The game owns the controller until you press <kbd>L3</kbd>+<kbd>R3</kbd>. That hands it to CameraTools: the free camera injects and turns on if needed, the game stops reading the controller, it rumbles, and "Controller: CameraTools" shows at the top of the screen. Press <kbd>L3</kbd>+<kbd>R3</kbd> again to give it back. The free camera stays put, so you can walk the character through a fixed shot.
 
+Recording a replay hands the controller to the game and turns the free camera off, so you play as usual while it records. With **Play camera path while recording** on, the free camera stays on and flies the path instead. Press <kbd>L3</kbd>+<kbd>R3</kbd> to stop the recording and take the controller back, or <kbd>Num −</kbd> to stop it and return to the free camera and controller you had before.
+
 Hold <kbd>Back</kbd> for the right-hand column. While it is held, <kbd>LT</kbd> and <kbd>RT</kbd> do not move the camera.
 
 | Button | Action | <kbd>Back</kbd> + button |

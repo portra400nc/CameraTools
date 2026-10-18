@@ -178,6 +178,11 @@ namespace CameraTools
 
         public static bool OwnerSwitchPressed => OwnerSwitch.Pressed(Gamepad.Current, Gamepad.Previous);
 
+        public static PadBinding OwnerSwitchBinding => OwnerSwitch;
+
+        // The device used last, read even while the game owns the pad.
+        public static InputDevice LastUsed => lastUsed;
+
         public static (float x, float y) Look
             => PadActive && !DepthOfField.Steering ? (Gamepad.Current.RightX, Gamepad.Current.RightY) : (0f, 0f);
 
