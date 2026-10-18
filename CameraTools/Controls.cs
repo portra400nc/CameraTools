@@ -49,6 +49,8 @@ namespace CameraTools
         SelectPath8,
         SelectPath9,
         CenterFocusPoint,
+        RecordReplay,
+        PlayReplay,
     }
 
     public enum PadOwner
@@ -109,6 +111,8 @@ namespace CameraTools
             (CamAction.SelectPath8, KeyCode.Keypad8, ""),
             (CamAction.SelectPath9, KeyCode.Keypad9, ""),
             (CamAction.CenterFocusPoint, KeyCode.None, "Back+R3"),
+            (CamAction.RecordReplay, KeyCode.KeypadMinus, "Back+DpadLeft"),
+            (CamAction.PlayReplay, KeyCode.KeypadMultiply, "Back+DpadRight"),
         };
 
         private static readonly KeyCode[] keys = new KeyCode[Defaults.Length];

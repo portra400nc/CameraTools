@@ -130,6 +130,7 @@ namespace CameraTools
                 CameraUi.Toast(Time.timeScale == 0.0f ? "Paused" : $"Game speed {Time.timeScale:0.##}x");
             // After the speed notice, so unpausing the game for playback does not show one.
             PathPlayback.Update();
+            Replays.Update();
             ReShade.Update();
             CameraToolsEnhancements.Enhancements.Update();
             EnhancementsControl.Update();
@@ -337,8 +338,10 @@ namespace CameraTools
             }
             if (freecamActive && camera)
                 freecam.Apply();
-            if (rendering == maincam)
-                EnhancementsCamera.Push(rendering);
+            if (rendering != maincam)
+                return;
+            Replays.PreCull();
+            EnhancementsCamera.Push(rendering);
         }
 
         // Genshin's camera system writes the gameplay pose after every script LateUpdate, and scenery culling reads the

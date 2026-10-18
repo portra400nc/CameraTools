@@ -87,6 +87,8 @@ namespace CameraTools
                     RestoreUi(countdown.WasHidden);
                     break;
                 case PlaybackState.Playing playing:
+                    // First, so a frozen world's speed is back before the path pauses the game again.
+                    ReplayPlayer.PathStopped();
                     RestoreUi(playing.WasHidden);
                     if (playing.Repause)
                         SetPaused(true);
@@ -139,7 +141,10 @@ namespace CameraTools
             if (State is PlaybackState.Playing playing)
             {
                 if (Playable())
-                    State = Start(playing.WasHidden, playing.Repause);
+                {
+                    State = Start(playing.WasHidden, playing.Repause, 0f);
+                    ReplayPlayer.PathStarted(CameraPaths.Current);
+                }
                 return;
             }
             CameraUi.Toast($"Path {number} selected");
@@ -160,8 +165,20 @@ namespace CameraTools
             State = countdown with { Shown = shown };
         }
 
+        // Plays the active path at once, with no countdown, for a recording that starts it with its own clock. lead is
+        // how long the recording spent copying in this frame before its clock started, which the path's frame-start clock
+        // would otherwise count.
+        public static bool PlayNow(float lead)
+        {
+            if (!CameraPaths.FreecamOn() || !Playable())
+                return false;
+            Stop(null);
+            Begin(uiHidden, lead);
+            return true;
+        }
+
         // The path can change during the countdown, so it is checked again here.
-        private static void Begin(bool wasHidden)
+        private static void Begin(bool wasHidden, float lead = 0f)
         {
             if (!Playable())
             {
@@ -174,15 +191,16 @@ namespace CameraTools
             bool repause = options.UnpauseGame && Time.timeScale == 0f;
             if (repause)
                 SetPaused(false);
-            State = Start(wasHidden, repause);
+            State = Start(wasHidden, repause, lead);
+            ReplayPlayer.PathStarted(CameraPaths.Current);
         }
 
-        private static PlaybackState.Playing Start(bool wasHidden, bool repause)
+        private static PlaybackState.Playing Start(bool wasHidden, bool repause, float lead)
         {
             var path = CameraPaths.Current;
             var options = CameraPaths.Options;
             return new PlaybackState.Playing(new PathSampler(path.Nodes, options.ConstantSpeed), CameraPaths.Active + 1, path.Duration,
-                options.Loop, options.EaseIn, options.EaseOut, Time.unscaledTime, wasHidden, repause);
+                options.Loop, options.EaseIn, options.EaseOut, Time.unscaledTime + lead, wasHidden, repause);
         }
 
         private static bool Playable()
