@@ -1,3 +1,4 @@
+using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using UnityEngine;
 
@@ -84,7 +85,7 @@ namespace CameraTools
             SeenDissolve = new Shader[Slots.Length];
             SlotPointers = new IntPtr[Slots.Length];
             SlotMaterials = new Material[Slots.Length];
-            filters = Renderers.Select(renderer => renderer && !renderer.TryCast<SkinnedMeshRenderer>() ? renderer.GetComponent<MeshFilter>() : null).ToArray();
+            filters = Renderers.Select(renderer => renderer && !renderer.TryCast<SkinnedMeshRenderer>() ? renderer.GetComponent(Il2CppType.Of<MeshFilter>())?.TryCast<MeshFilter>() : null).ToArray();
             perMaterial = Renderers.Select(renderer => renderer && renderer.AllowPerMaterialProp()).ToArray();
         }
 
