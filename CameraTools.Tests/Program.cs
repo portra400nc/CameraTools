@@ -539,9 +539,17 @@ Check("a saved shutter time rounds to the nearest full stop: 7 s to 8 s, 0.1 s t
         kaeya.Poses.Add(time, 0);
     foreach (float time in new[] { 1.2f, 2f, 3.9f })
         noel.Poses.Add(time, 0);
+    Check("a timeline's sample after and before a time, past one taken at that time, and none past its ends",
+        timeline.After(1f) == 1.1f && timeline.After(1.05f) == 1.1f && timeline.After(2f) == null && timeline.Before(1.1f) == 1f
+        && timeline.Before(1.05f) == 1f && timeline.Before(1f) == null && timeline.Before(9f) == 2f);
     string OnField(float time) => Timeline<int>.Latest(new[] { kaeya, noel }.Select(each => Tuple.Create(each.Name, each.Poses)), each => each.Item2, time)?.Item1;
     Check("the character on the field is the one recorded most recently, through a hitch in its recording, and the first one before any pose",
         OnField(0.8f) == "Kaeya" && OnField(3.5f) == "Noel" && OnField(4.1f) == "Kaeya" && OnField(-0.1f) == "Kaeya");
+    var party = new[] { kaeya.Poses, noel.Poses };
+    Check("a frame step goes to the next or last frame of any character, and stays at either end",
+        EditTimeline.Step(party, 1f, 1) == 1.2f && EditTimeline.Step(party, 1.2f, -1) == 1f && EditTimeline.Step(party, 3.9f, 1) == 4f
+        && EditTimeline.Step(party, 4f, 1) == 4f && EditTimeline.Step(party, 0f, -1) == 0f && EditTimeline.Step(Array.Empty<Timeline<int>>(), 2f, 1) == 2f);
+    Check("the party switches where another character becomes the one recorded last", EditTimeline.Switches(party).SequenceEqual(new[] { 1.2f, 4f }));
     Check("before any pose, the first character is the one recorded first, whatever the order of the tracks",
         Timeline<int>.Latest(new[] { noel, kaeya }.Select(each => Tuple.Create(each.Name, each.Poses)), each => each.Item2, -1f)?.Item1 == "Kaeya"
         && Timeline<int>.Latest(Array.Empty<Tuple<string, Timeline<int>>>(), each => each.Item2, 1f) == null);
@@ -560,6 +568,21 @@ Check("a saved shutter time rounds to the nearest full stop: 7 s to 8 s, 0.1 s t
         Live(10, swaps: true) == "1,3,6,7,8,9" && Live(12, swaps: true) == "1,3,6,7,8,9,11");
     Check("a character's swaps do not run, so they hide nothing, and a seek to an earlier call repeats only the calls up to it",
         Live(10, swaps: false) == "1,3,5,6,7,8,9" && Live(4, swaps: true) == "1,3" && Live(0, swaps: true) == "");
+}
+{
+    var moments = new[] { 0.5f, 3f, 3.08f, 8f };
+    Check("the node at the playhead is the nearest within 0.1 s, and there is none further off",
+        EditTimeline.NodeAt(moments, 3.05f) == 2 && EditTimeline.NodeAt(moments, 2.95f) == 1 && EditTimeline.NodeAt(moments, 3.2f) == -1);
+    Check("the next and previous nodes go past the one at the playhead, and there are none past the ends",
+        EditTimeline.Neighbour(moments, 3.08f, 1) == 3 && EditTimeline.Neighbour(moments, 3.085f, 1) == 3 && EditTimeline.Neighbour(moments, 3f, -1) == 0
+        && EditTimeline.Neighbour(moments, 8f, 1) == -1 && EditTimeline.Neighbour(moments, 0.5f, -1) == -1);
+    Check("holding a frame step scrubs at half speed, doubles every 0.75 s and stops at 16 times",
+        EditTimeline.ScrubRate(0f) == 0.5f && EditTimeline.ScrubRate(0.75f) == 1f && EditTimeline.ScrubRate(3f) == 8f && EditTimeline.ScrubRate(10f) == 16f);
+    Check("the timeline's line names the replay, the playhead and the duration, and whether it plays",
+        EditTimeline.Meta("Replay 1", 6.126f, 18.44f, false) == "Replay 1 · 6.13 / 18.4 s · paused" && EditTimeline.Meta("Replay 2", 0f, 5f, true) == "Replay 2 · 0.00 / 5.0 s · playing");
+    Check("the mode line names the path, its nodes and the camera, and a frozen world",
+        EditTimeline.Mode("Path 1", 8, false, ReplayWorld.Running) == "Path 1 · 8 nodes · free camera"
+        && EditTimeline.Mode("Waterfall dolly", 1, true, ReplayWorld.Frozen) == "Waterfall dolly · 1 node · looking through the path · world frozen");
 }
 Check("a character's name is the end of its root's name", ReplayText.CharacterName("Avatar_Girl_Claymore_Noel(Clone)") == "Noel"
     && ReplayText.CharacterName("Avatar_Male_Sword_Kaeya") == "Kaeya" && ReplayText.CharacterName("Paimon") == "Paimon");

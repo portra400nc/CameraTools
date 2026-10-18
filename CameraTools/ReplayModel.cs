@@ -66,6 +66,8 @@ namespace CameraTools
 
         public IReadOnlyList<T> Values => values;
 
+        public IReadOnlyList<float> Times => times;
+
         public void Add(float time, T value)
         {
             times.Add(time);
@@ -91,6 +93,18 @@ namespace CameraTools
 
         // When the last sample at or before a time was taken, or null when there is none.
         public float? LastAt(float time) => IndexAt(time) is var i && i >= 0 ? times[i] : null;
+
+        // The first sample after a time, or null when there is none.
+        public float? After(float time) => IndexAt(time) + 1 is var i && i < times.Count ? times[i] : null;
+
+        // The last sample before a time, or null when there is none.
+        public float? Before(float time)
+        {
+            int i = IndexAt(time);
+            while (i >= 0 && times[i] >= time)
+                i--;
+            return i >= 0 ? times[i] : null;
+        }
 
         // The sample at a time: the last one before it, blended toward the next when that follows within Gap. Before the
         // first sample it is the first; with no samples there is none.
@@ -142,6 +156,73 @@ namespace CameraTools
             }
             return latest ?? first;
         }
+    }
+
+    // Edit replay's timeline: the frames it steps between, how fast it scrubs, the nodes near the playhead, the party
+    // switches, and its words.
+    internal static class EditTimeline
+    {
+        // A node this close to the playhead is the one there: Place node updates it and Delete node removes it.
+        public const float Reach = 0.1f;
+        // Jumping to the next node goes past the one the playhead is on.
+        private const float Past = 0.01f;
+
+        // The recorded frame before or after t, direction -1 or 1, across the tracks; t itself when there is none that way.
+        public static float Step<T>(IEnumerable<Timeline<T>> tracks, float t, int direction)
+        {
+            float? best = null;
+            foreach (var track in tracks)
+                if ((direction < 0 ? track.Before(t) : track.After(t)) is float time && (best is not float now || (direction < 0 ? time > now : time < now)))
+                    best = time;
+            return best ?? t;
+        }
+
+        // Replay seconds per real second while a frame step is held for held seconds: from half speed, doubling every
+        // 0.75 s, up to 16 times.
+        public static float ScrubRate(float held) => Math.Min(0.5f * MathF.Pow(2f, held / 0.75f), 16f);
+
+        // The times another track becomes the one recorded most recently, which for characters is the one on the field.
+        public static float[] Switches<T>(IReadOnlyList<Timeline<T>> tracks)
+        {
+            var samples = tracks.SelectMany((track, index) => track.Times.Select(time => (Time: time, Track: index))).OrderBy(sample => sample.Time);
+            var switches = new List<float>();
+            int current = -1;
+            foreach (var (time, track) in samples)
+            {
+                if (current >= 0 && track != current)
+                    switches.Add(time);
+                current = track;
+            }
+            return switches.ToArray();
+        }
+
+        // The node whose moment is nearest t, within Reach, or -1.
+        public static int NodeAt(IReadOnlyList<float> moments, float t)
+        {
+            int found = -1;
+            for (int index = 0; index < moments.Count; index++)
+                if (Math.Abs(moments[index] - t) <= Reach && (found < 0 || Math.Abs(moments[index] - t) < Math.Abs(moments[found] - t)))
+                    found = index;
+            return found;
+        }
+
+        // The first node after t, or the last before it, direction 1 or -1; -1 when there is none.
+        public static int Neighbour(IReadOnlyList<float> moments, float t, int direction)
+        {
+            int found = -1;
+            for (int index = 0; index < moments.Count; index++)
+                if (direction > 0 ? moments[index] > t + Past && found < 0 : moments[index] < t - Past)
+                    found = index;
+            return found;
+        }
+
+        public static string Meta(string replay, float t, float duration, bool playing)
+            => $"{replay} · {t:0.00} / {duration:0.0} s · {(playing ? "playing" : "paused")}";
+
+        public static string Mode(string path, int nodes, bool look, ReplayWorld world)
+            => $"{path} · {Nodes(nodes)} · {(look ? "looking through the path" : "free camera")}{(world == ReplayWorld.Frozen ? " · world frozen" : "")}";
+
+        public static string Nodes(int count) => count == 1 ? "1 node" : $"{count} nodes";
     }
 
     // The Replays tab's words for a replay, and the clock a linked replay keeps.
