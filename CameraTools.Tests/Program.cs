@@ -462,6 +462,19 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     var spread = new PathSampler(ends, false, 10f);
     Check("unpinned ends count as pinned at 0 and at the duration, and the nodes after a pin share what is left evenly",
         spread.NodeProgress(0) == 0f && spread.NodeProgress(1) == 0.25f && Near(spread.NodeProgress(2), 0.625f, 1e-6f) && spread.NodeProgress(3) == 1f);
+    // Pinned moments 2 s, 3 s and 2 s apart: speed, acceleration and turn all carry on through the nodes between them.
+    var smooth = new PathSampler(new[] { Node(0, 0) with { Time = 0f }, Node(10, 0) with { Time = 2f }, Node(18, 20) with { Time = 5f }, Node(26, 0) with { Time = 7f } }, false, 7f);
+    float X(PathSampler path, float seconds) => path.Sample(seconds / 7f).Position.X;
+    float Speed(PathSampler path, float seconds) => (X(path, seconds + 0.05f) - X(path, seconds - 0.05f)) / 0.1f;
+    float Accel(float from, float to) => (Speed(smooth, to) - Speed(smooth, from)) / (to - from);
+    float Yaw(float seconds) => smooth.Sample(seconds / 7f).Rotation.Y;
+    float TurnAccel(float seconds) => (Yaw(seconds + 0.02f) - 2f * Yaw(seconds) + Yaw(seconds - 0.02f)) / 0.0004f;
+    Check("a pinned path's acceleration and turn carry on through its nodes",
+        Math.Abs(Accel(1.75f, 2f) - Accel(2f, 2.25f)) < 0.3f && Math.Abs(TurnAccel(4.95f) - TurnAccel(5.05f)) < 0.05f * Math.Abs(TurnAccel(4.95f)));
+    // A node between a 0.5 m/s segment and an 18 m/s one, where the smooth curve alone would run the camera backward.
+    var lurch = new PathSampler(new[] { Node(0, 0) with { Time = 0f }, Node(10, 0) with { Time = 2f }, Node(12, 0) with { Time = 6f }, Node(30, 0) with { Time = 7f } }, false, 7f);
+    Check("a pinned path never stops or runs backward: at a node it keeps at least half the slower segment's speed",
+        Speed(lurch, 2f) >= 0.25f && Speed(lurch, 6f) >= 0.25f && Enumerable.Range(1, 69).All(step => Speed(lurch, step * 0.1f) > 0f));
     var eased = new PathSampler(two, false, 10f);
     Check("a pinned path ignores Ease in and Ease out, in its progress and its ticks; a path without pins still eases",
         eased.Progress(0.25f, true, true) == 0.25f && eased.NodeTimes(true, true).SequenceEqual(new[] { 0.2f, 0.6f })

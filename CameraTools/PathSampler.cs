@@ -25,6 +25,9 @@ namespace CameraTools
         private readonly float[] times;
         // The camera's speed at each node, in metres per unit of progress; null with lengths.
         private readonly float[] speeds;
+        // On a pinned path, the rate of each rotation component and the field of view at each node, from one smooth curve
+        // through all nodes; null on other paths, which take Catmull-Rom's rates.
+        private readonly float[][] turns;
 
         public PathSampler(IReadOnlyList<CameraNode> path, bool constantSpeed, float duration)
         {
@@ -43,8 +46,18 @@ namespace CameraTools
                 lengths = MeasureLengths();
             Pinned = nodes.Any(node => node.Time != null);
             times = Spread(constantSpeed, duration);
+            // Pinned moments make segments of very different speeds, which a curve that only matches the speed at each
+            // node turns into jolts there; a curve that also matches the acceleration keeps the motion smooth.
+            bool smooth = Pinned && nodes.Length > 1 && times.Zip(times.Skip(1)).All(pair => pair.Second > pair.First);
             if (lengths != null)
-                speeds = constantSpeed && !Pinned ? Enumerable.Repeat(lengths[^1], nodes.Length).ToArray() : NodeSpeeds();
+                speeds = constantSpeed && !Pinned ? Enumerable.Repeat(lengths[^1], nodes.Length).ToArray() : smooth ? SmoothSpeeds() : NodeSpeeds();
+            if (smooth)
+                turns = new[]
+                {
+                    Smooth(nodes.Select(node => node.Rotation.X)), Smooth(nodes.Select(node => node.Rotation.Y)),
+                    Smooth(nodes.Select(node => node.Rotation.Z)), Smooth(nodes.Select(node => node.Rotation.W)),
+                    Smooth(nodes.Select(node => node.Fov)),
+                };
         }
 
         public int Count => nodes.Length;
@@ -57,10 +70,19 @@ namespace CameraTools
             if (nodes.Length == 1)
                 return nodes[0];
             var (segment, u) = Locate(Math.Clamp(progress, 0f, 1f));
+            var position = Position(segment, Along(segment, u));
+            if (turns != null)
+            {
+                var (from, to) = (nodes[segment], nodes[segment + 1]);
+                float Turn(int channel, float a, float b) => Hermite(a, b, turns[channel][segment] * Span(segment), turns[channel][segment + 1] * Span(segment), u);
+                var turned = new Quaternion(Turn(0, from.Rotation.X, to.Rotation.X), Turn(1, from.Rotation.Y, to.Rotation.Y),
+                    Turn(2, from.Rotation.Z, to.Rotation.Z), Turn(3, from.Rotation.W, to.Rotation.W));
+                return new CameraNode(position, Quaternion.Normalize(turned), Math.Clamp(Turn(4, from.Fov, to.Fov), MinFov, MaxFov));
+            }
             float t0 = Time(segment - 1), t1 = times[segment], t2 = times[segment + 1], t3 = Time(segment + 2);
             var rotation = Quaternion.Normalize(Spline(Rotation(segment - 1), Rotation(segment), Rotation(segment + 1), Rotation(segment + 2), t0, t1, t2, t3, u));
             float fov = Spline(Fov(segment - 1), Fov(segment), Fov(segment + 1), Fov(segment + 2), t0, t1, t2, t3, u);
-            return new CameraNode(Position(segment, Along(segment, u)), rotation, Math.Clamp(fov, MinFov, MaxFov));
+            return new CameraNode(position, rotation, Math.Clamp(fov, MinFov, MaxFov));
         }
 
         // The progress at which the camera reaches node index.
@@ -193,6 +215,63 @@ namespace CameraTools
                 result[index] = (w1 + w2) / (w1 / before + w2 / after);
             }
             return result;
+        }
+
+        private float Span(int segment) => times[segment + 1] - times[segment];
+
+        // The node speeds of the smooth curve through the nodes' distances, kept between half the slower and three times
+        // the faster of the segments beside each node: the smooth curve alone could stop the camera, or run it backward,
+        // where a quick segment meets a slow one.
+        private float[] SmoothSpeeds()
+        {
+            int last = nodes.Length - 1;
+            var result = Smooth(Enumerable.Range(0, nodes.Length).Select(Distance));
+            for (int index = 0; index <= last; index++)
+            {
+                float before = index > 0 ? (Distance(index) - Distance(index - 1)) / Span(index - 1) : float.MaxValue;
+                float after = index < last ? (Distance(index + 1) - Distance(index)) / Span(index) : float.MaxValue;
+                float slower = Math.Min(before, after);
+                result[index] = Math.Clamp(result[index], 0.5f * slower, 3f * slower);
+            }
+            return result;
+        }
+
+        // The rates at each node of the natural cubic spline through values at the nodes' times: the curve whose rate and
+        // acceleration both carry on smoothly through every node, with no acceleration at either end.
+        private float[] Smooth(IEnumerable<float> values)
+        {
+            var y = values.ToArray();
+            int last = y.Length - 1;
+            var below = new double[last + 1];
+            var diagonal = new double[last + 1];
+            var above = new double[last + 1];
+            var right = new double[last + 1];
+            double Slope(int segment) => (y[segment + 1] - y[segment]) / (double)Span(segment);
+            diagonal[0] = 2;
+            above[0] = 1;
+            right[0] = 3 * Slope(0);
+            for (int index = 1; index < last; index++)
+            {
+                double h0 = Span(index - 1), h1 = Span(index);
+                below[index] = 1 / h0;
+                diagonal[index] = 2 * (1 / h0 + 1 / h1);
+                above[index] = 1 / h1;
+                right[index] = 3 * (Slope(index - 1) / h0 + Slope(index) / h1);
+            }
+            below[last] = 1;
+            diagonal[last] = 2;
+            right[last] = 3 * Slope(last - 1);
+            for (int index = 1; index <= last; index++)
+            {
+                double factor = below[index] / diagonal[index - 1];
+                diagonal[index] -= factor * above[index - 1];
+                right[index] -= factor * right[index - 1];
+            }
+            var rates = new double[last + 1];
+            rates[last] = right[last] / diagonal[last];
+            for (int index = last - 1; index >= 0; index--)
+                rates[index] = (right[index] - above[index] * rates[index + 1]) / diagonal[index];
+            return rates.Select(rate => (float)rate).ToArray();
         }
 
         private float Distance(int index) => lengths[index * SamplesPerSegment];
