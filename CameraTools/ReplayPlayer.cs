@@ -40,6 +40,10 @@ namespace CameraTools
             Begin(scale => new PlayState.Solo(replay, Time.unscaledTime, scale), new[] { replay });
         }
 
+        // When the last replay linked to a path ends, in seconds after the path starts; 0 when none would play along.
+        public static float LinkedEnd(CameraPath path) => ReplayRecorder.Active ? 0f
+            : Replays.All.Where(replay => replay.PathId == path.Id).Select(replay => replay.Offset + replay.Duration).DefaultIfEmpty(0f).Max();
+
         // A camera path started: every replay linked to it plays along. A recording that plays its path records instead.
         public static void PathStarted(CameraPath path)
         {
@@ -130,7 +134,7 @@ namespace CameraTools
                 Stop("Playback stopped");
                 return;
             }
-            float? pathSeconds = PathPlayback.State is PlaybackState.Playing path ? path.PassTime : null;
+            float? pathSeconds = PathPlayback.State is PlaybackState.Playing path ? path.Clock : null;
             if (playing is PlayState.Solo solo && solo.Elapsed > solo.Replay.Duration)
             {
                 Stop("Replay finished");

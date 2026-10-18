@@ -12,15 +12,21 @@ namespace CameraTools
         public sealed record Countdown(float Until, int Shown, bool WasHidden) : PlaybackState;
 
         // Everything that shapes the flight is fixed when it starts; only the shake follows the settings while it plays.
-        // Repause: playback unpaused the game, so stopping pauses it again.
-        public sealed record Playing(PathSampler Sampler, int Number, float Duration, bool Loop, bool EaseIn, bool EaseOut,
+        // Repause: playback unpaused the game, so stopping pauses it again. Length is how long a path that does not loop
+        // plays: past its last node, the camera holds there until the replays linked to it end.
+        public sealed record Playing(PathSampler Sampler, int Number, float Duration, float Length, bool Loop, bool EaseIn, bool EaseOut,
             float Started, bool WasHidden, bool Repause) : PlaybackState
         {
             public float Elapsed => Time.unscaledTime - Started;
 
             public float PassTime => PathSampler.PassTime(Elapsed, Duration, Loop);
 
-            public bool Finished => !Loop && Elapsed >= Duration;
+            // The time linked replays play at: the pass for a looping path, else the time since the start up to Length.
+            public float Clock => Loop ? PassTime : Math.Min(Elapsed, Length);
+
+            public float Shown => Loop ? Duration : Length;
+
+            public bool Finished => !Loop && Elapsed >= Length;
 
             public CameraNode Sample() => Sampler.Sample(PathSampler.Ease(PassTime / Duration, EaseIn, EaseOut));
         }
@@ -200,7 +206,7 @@ namespace CameraTools
             var path = CameraPaths.Current;
             var options = CameraPaths.Options;
             return new PlaybackState.Playing(new PathSampler(path.Nodes, options.ConstantSpeed), CameraPaths.Active + 1, path.Duration,
-                options.Loop, options.EaseIn, options.EaseOut, Time.unscaledTime + lead, wasHidden, repause);
+                Math.Max(path.Duration, ReplayPlayer.LinkedEnd(path)), options.Loop, options.EaseIn, options.EaseOut, Time.unscaledTime + lead, wasHidden, repause);
         }
 
         private static bool Playable()
