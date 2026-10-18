@@ -17,6 +17,17 @@ namespace CameraTools
         }
 
         public sealed record Linked(Replay[] All, float? RestoreScale) : Playing(All, RestoreScale);
+
+        // Edit replay: one replay held at the playhead T, in replay seconds, while the free camera frames the shot. Plays
+        // moves T on in real time, and Look poses the camera from the replay's path. Switches are when the party switched.
+        public sealed record Editing(Replay Replay, float[] Switches, float? RestoreScale) : Playing(new[] { Replay }, RestoreScale)
+        {
+            public float T { get; set; }
+
+            public bool Plays { get; set; }
+
+            public bool Look { get; set; }
+        }
     }
 
     // Plays replays on script-free copies. The real party, weapons and enemies are hidden while they play: the game keeps
@@ -33,10 +44,20 @@ namespace CameraTools
 
         public static PlayState.Solo Solo => State as PlayState.Solo;
 
+        public static PlayState.Editing Editing => State as PlayState.Editing;
+
         public static void PlaySolo(Replay replay)
         {
             Stop(null);
             Begin(scale => new PlayState.Solo(replay, Time.unscaledTime, scale), new[] { replay });
+        }
+
+        // Holds a replay at its start for Edit replay, the same way playback shows it.
+        public static void Edit(Replay replay)
+        {
+            Stop(null);
+            var switches = EditTimeline.Switches(replay.Of(TrackKind.Character).Select(track => track.Poses).ToArray());
+            Begin(scale => new PlayState.Editing(replay, switches, scale), new[] { replay });
         }
 
         // When the last replay linked to a path ends, in seconds after the path starts; 0 when none would play along.
@@ -94,7 +115,7 @@ namespace CameraTools
             }
             State = state(restore);
             Melon<CameraTools>.Logger.Msg($"Replays: playing {string.Join(", ", replays.Select(replay => replay.Name))}"
-                + $"{(State is PlayState.Linked ? " with its path" : " on its own")}, world {(restore != null ? "frozen" : "running")}.");
+                + $"{State switch { PlayState.Linked => " with its path", PlayState.Editing => " to edit", _ => " on its own" }}, world {(restore != null ? "frozen" : "running")}.");
         }
 
         // message is the toast to show, or null for none.
@@ -128,7 +149,7 @@ namespace CameraTools
                 return;
             if (!CameraTools.freecamActive)
             {
-                Stop("Playback stopped");
+                Stop(playing is PlayState.Editing editing ? ReplayEditor.Closed(ReplayEditor.PathOf(editing.Replay)) : "Playback stopped");
                 return;
             }
             float? pathSeconds = PathPlayback.State is PlaybackState.Playing path ? path.Clock : null;
@@ -146,7 +167,12 @@ namespace CameraTools
             shown.Clear();
             foreach (var replay in playing.Replays)
             {
-                float t = playing is PlayState.Solo each ? each.Elapsed : ReplayText.LinkedTime(pathSeconds.Value, replay.Offset, replay.Duration);
+                float t = playing switch
+                {
+                    PlayState.Solo each => each.Elapsed,
+                    PlayState.Editing edit => edit.T,
+                    _ => ReplayText.LinkedTime(pathSeconds.Value, replay.Offset, replay.Duration),
+                };
                 if (replay.Latest(TrackKind.Character, t) is { } character)
                     Play(character, t);
                 if (replay.Latest(TrackKind.Weapon, t) is { } weapon)

@@ -160,7 +160,7 @@ namespace CameraTools
                 // Before playback poses the camera, which already accounts for the current shift.
                 freecam.FollowWorldShift();
                 // While the sticks move a light or turn a joint, the camera stays put.
-                if (!PathPlayback.Drive(freecam) && !Lights.Moving && !Posing.Editing)
+                if (!PathPlayback.Drive(freecam) && !ReplayEditor.Drive(freecam) && !Lights.Moving && !Posing.Editing)
                     freecam.Update();
                 freecam.LateUpdate();
             }

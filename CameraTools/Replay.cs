@@ -206,7 +206,7 @@ namespace CameraTools
             }
             if (Controls.Pressed(CamAction.PlayReplay))
             {
-                if (ReplayPlayer.Idle)
+                if (ReplayPlayer.Idle || ReplayPlayer.Editing != null)
                     Play();
                 else if (ReplayPlayer.State is PlayState.Linked)
                     PathPlayback.Stop("Playback stopped");
@@ -214,6 +214,7 @@ namespace CameraTools
                     ReplayPlayer.Stop("Playback stopped");
             }
             Guard("starting the recording", ReplayRecorder.Update, ReplayRecorder.Stop);
+            Guard("editing", ReplayEditor.Update, () => ReplayPlayer.Stop("Edit closed; see the log"));
             ReplayPlayer.Update();
         }
 

@@ -110,8 +110,8 @@ namespace CameraTools
 
     // Hidden: the free camera is off. Hud: legends and the field of view bar. Playing: the play bar of a camera path, a
     // recording or a replay playing on its own. Panel: settings. Moving: the sticks move a light, and the legends say how.
-    // Joints: the sticks turn the posed character's joints, with a marker on each.
-    public enum View { Hidden, Hud, Playing, Panel, Moving, Joints }
+    // Joints: the sticks turn the posed character's joints, with a marker on each. Editing: a replay held on the timeline.
+    public enum View { Hidden, Hud, Playing, Panel, Moving, Joints, Editing }
 
     internal static class UiModel
     {
@@ -225,6 +225,7 @@ namespace CameraTools
             new ToggleRow("Record effects", () => Replays.RecordEffects, on => Replays.RecordEffects = on) { Detail = () => "Skills, bursts, hits and energy orbs" },
             new ToggleRow("3-second countdown", () => Replays.Countdown, on => Replays.Countdown = on),
             new Section("Playback"),
+            new ActionRow("Edit replay", ReplayEditor.Start, "Edit", () => Replays.HasReplay) { Detail = () => "Scrub the replay and place camera nodes at its moments" },
             new ActionRow("Play replay", Replays.Play, "Play", () => Replays.HasReplay) { Detail = () => Replays.PlayNote },
             new ChoiceRow("Camera path", new[] { "None" }, () => Replays.PathChoice, Replays.SetPathChoice, null, () => Replays.HasReplay)
             {

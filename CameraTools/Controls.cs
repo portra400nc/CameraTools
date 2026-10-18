@@ -187,15 +187,20 @@ namespace CameraTools
             => PadActive && !DepthOfField.Steering ? (Gamepad.Current.RightX, Gamepad.Current.RightY) : (0f, 0f);
 
         public static bool Pressed(CamAction action, bool keyboard = true)
-            => keyboard && KeysActive && Input.GetKeyDown(keys[(int)action])
-                || PadActive && pads[(int)action].Pressed(Gamepad.Current, Gamepad.Previous);
+            => keyboard && KeyOn(action) && Input.GetKeyDown(keys[(int)action])
+                || PadOn(action) && pads[(int)action].Pressed(Gamepad.Current, Gamepad.Previous);
 
         public static bool Held(CamAction action, bool keyboard = true)
-            => keyboard && KeysActive && Input.GetKey(keys[(int)action])
-                || PadActive && pads[(int)action].Held(Gamepad.Current);
+            => keyboard && KeyOn(action) && Input.GetKey(keys[(int)action])
+                || PadOn(action) && pads[(int)action].Held(Gamepad.Current);
 
         public static float Value(CamAction action, bool keyboard = true)
-            => keyboard && KeysActive && Input.GetKey(keys[(int)action]) ? 1f
-                : PadActive ? pads[(int)action].Value(Gamepad.Current) : 0f;
+            => keyboard && KeyOn(action) && Input.GetKey(keys[(int)action]) ? 1f
+                : PadOn(action) ? pads[(int)action].Value(Gamepad.Current) : 0f;
+
+        // Edit replay reads its keys and buttons itself, and the actions bound to the same ones wait until it closes.
+        private static bool KeyOn(CamAction action) => KeysActive && !ReplayEditor.Reads(keys[(int)action]);
+
+        private static bool PadOn(CamAction action) => PadActive && !ReplayEditor.Reads(pads[(int)action]);
     }
 }

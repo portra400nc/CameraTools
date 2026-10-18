@@ -71,6 +71,8 @@ namespace CameraTools
             if (!CameraPaths.FreecamOn() || !Playable())
                 return;
             Stop(null);
+            // Editing or a replay playing alone ends as the countdown starts, not when the path does.
+            ReplayPlayer.Stop(null);
             CameraUi.ClosePanel();
             bool wasHidden = uiHidden;
             if (!CameraPaths.Options.Countdown)
@@ -112,7 +114,15 @@ namespace CameraTools
         {
             if (State is not PlaybackState.Playing playing)
                 return false;
-            var node = playing.Sample();
+            Pose(freecam, playing.Sample());
+            if (playing.Finished)
+                Stop("Playback finished");
+            return true;
+        }
+
+        // Poses the free camera at a node of a path, with the shake the settings ask for.
+        public static void Pose(Freecam freecam, CameraNode node)
+        {
             var position = WorldShift.Relative(node.Position.ToUnity());
             var rotation = node.Rotation.ToUnity();
             var options = CameraPaths.Options;
@@ -130,9 +140,6 @@ namespace CameraTools
                 rotation *= Quaternion.Euler(Noise(at, 3) * scale, Noise(at, 4) * scale, Noise(at, 5) * scale);
             }
             freecam.Snap(position, rotation, node.Fov);
-            if (playing.Finished)
-                Stop("Playback finished");
-            return true;
         }
 
         // During playback, a path hotkey switches playback to that path from its start.

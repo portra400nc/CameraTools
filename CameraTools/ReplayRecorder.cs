@@ -70,9 +70,10 @@ namespace CameraTools
                 CameraUi.Toast("Turn on the free camera once first");
                 return;
             }
-            var before = new Handoff(CameraTools.freecamActive, Controls.Owner, Time.timeScale == 0f);
+            // Playback first, so a frozen world's speed is back before the pause is read.
             ReplayPlayer.Stop(null);
             PathPlayback.Stop(null);
+            var before = new Handoff(CameraTools.freecamActive, Controls.Owner, Time.timeScale == 0f);
             CameraUi.ClosePanel();
             var mod = Melon<CameraTools>.Instance;
             mod.SetFreecam(Replays.PlayPath && CameraPaths.CanPlay);
