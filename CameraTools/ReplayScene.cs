@@ -139,8 +139,24 @@ namespace CameraTools
         public Track Owner;
         // Made for one track, and destroyed with it.
         public bool Own;
+        // What the game had given the original's renderers, and the copy's meshes, when it was made: the recorded calls
+        // change both from there.
+        public ReplayHooks.Given[] Given;
+        public Mesh[] Meshes;
 
         public bool Usable => Rig != null && Rig.Root;
+
+        // Back to the renderer settings and meshes the copy was made with. Settings the game first gave after that cannot
+        // be read back, so they stay.
+        public void Reset()
+        {
+            for (int r = 0; r < (Given?.Length ?? 0) && r < Rig.Renderers.Length; r++)
+                if (Given[r] != null && Rig.Renderers[r])
+                    ReplayHooks.Give(Given[r], Rig.Renderers[r]);
+            for (int r = 0; r < (Meshes?.Length ?? 0) && r < Rig.Renderers.Length; r++)
+                if (Meshes[r] && Rig.MeshOf(r)?.Pointer != Meshes[r].Pointer)
+                    Rig.SetMesh(r, Meshes[r]);
+        }
 
         public void Destroy()
         {
@@ -192,9 +208,8 @@ namespace CameraTools
                 if (kind is not (TrackKind.Effect or TrackKind.Gadget))
                 {
                     rig.TakeRendererState(source);
-                    for (int i = 0; i < rig.Renderers.Length; i++)
-                        if (rig.Renderers[i] && source.Renderers[i])
-                            ReplayHooks.Transplant(source.Renderers[i], rig.Renderers[i]);
+                    copy.Given = source.Renderers.Select(renderer => renderer ? ReplayHooks.Remembered(renderer) : null).ToArray();
+                    copy.Meshes = Enumerable.Range(0, rig.Renderers.Length).Select(rig.MeshOf).ToArray();
                 }
                 var systems = ReplayScene.All<ParticleSystem>(rig.Root);
                 var originals = ReplayScene.All<ParticleSystem>(root);
@@ -208,6 +223,7 @@ namespace CameraTools
                 if (kind is TrackKind.Effect or TrackKind.Gadget)
                     rig.UseMaterials(source.TakeMaterials());
                 copy.Rig = rig;
+                copy.Reset();
             }
             catch (Exception e)
             {

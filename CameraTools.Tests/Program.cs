@@ -546,6 +546,21 @@ Check("a saved shutter time rounds to the nearest full stop: 7 s to 8 s, 0.1 s t
         Timeline<int>.Latest(new[] { noel, kaeya }.Select(each => Tuple.Create(each.Name, each.Poses)), each => each.Item2, -1f)?.Item1 == "Kaeya"
         && Timeline<int>.Latest(Array.Empty<Tuple<string, Timeline<int>>>(), each => each.Item2, 1f) == null);
 }
+{
+    var calls = new[]
+    {
+        CallTarget.Of(CallKind.Float, 0, 5, null), CallTarget.Of(CallKind.Float, 0, 5, null),
+        CallTarget.Of(CallKind.KeywordOn, 0, 0, "_RIM"), CallTarget.Of(CallKind.KeywordOff, 0, 0, "_RIM"),
+        CallTarget.Of(CallKind.Swap, 1, 0, null), CallTarget.Of(CallKind.KeywordOn, 1, 0, "_HIT"), CallTarget.Of(CallKind.Swap, 1, 0, null),
+        CallTarget.Of(CallKind.Float, 1, 5, null), CallTarget.Of(CallKind.CustomFloat, 1, 5, null), CallTarget.Of(CallKind.Color, 0, 5, null),
+        CallTarget.Of(CallKind.KeywordIdOn, 2, 7, null), CallTarget.Of(CallKind.KeywordIdOff, 2, 7, null),
+    };
+    string Live(int count, bool swaps) => string.Join(",", LookCalls.Live(count, index => calls[index], swaps));
+    Check("a seek repeats the last call on each target, none from before a slot's last swap, and a renderer's calls whatever its material slots do",
+        Live(10, swaps: true) == "1,3,6,7,8,9" && Live(12, swaps: true) == "1,3,6,7,8,9,11");
+    Check("a character's swaps do not run, so they hide nothing, and a seek to an earlier call repeats only the calls up to it",
+        Live(10, swaps: false) == "1,3,5,6,7,8,9" && Live(4, swaps: true) == "1,3" && Live(0, swaps: true) == "");
+}
 Check("a character's name is the end of its root's name", ReplayText.CharacterName("Avatar_Girl_Claymore_Noel(Clone)") == "Noel"
     && ReplayText.CharacterName("Avatar_Male_Sword_Kaeya") == "Kaeya" && ReplayText.CharacterName("Paimon") == "Paimon");
 Check("a replay's line gives its length, its party and its enemies, leaving out what it has none of",

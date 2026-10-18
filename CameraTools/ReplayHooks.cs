@@ -6,8 +6,6 @@ using UnityEngine;
 
 namespace CameraTools
 {
-    internal enum CallKind { Float, Int, Color, Vector, Shader, KeywordOn, KeywordOff, KeywordIdOn, KeywordIdOff, CustomFloat, Swap, RendererSet, EnableProperty, Texture, MeshSwap }
-
     // A call the game made on one material slot of a recorded object, or, for the renderer kinds and MeshSwap, on one of
     // its renderers.
     internal sealed class LookCall
@@ -122,27 +120,27 @@ namespace CameraTools
                 intSetters[setter]?.Trampoline(renderer, i);
         }
 
-        // Gives a copy's renderer every setting the game gave the original's, as far as the hooks saw.
-        public static void Transplant(Renderer from, Renderer to)
+        // What the game gave a renderer, as far as the hooks saw: its settings, custom floats and enable property.
+        public sealed record Given(Dictionary<int, (int Int, float Float)> Values, Dictionary<int, float> Floats, bool? Enabled);
+
+        public static Given Remembered(Renderer from)
         {
-            Dictionary<int, (int Int, float Float)> values = null;
-            Dictionary<int, float> floats = null;
-            bool known, on;
             lock (gate)
-            {
-                if (Settings.TryGetValue(from.Pointer, out var found))
-                    values = new Dictionary<int, (int, float)>(found);
-                if (CustomFloats.TryGetValue(from.Pointer, out var custom))
-                    floats = new Dictionary<int, float>(custom);
-                known = Enabled.TryGetValue(from.Pointer, out on);
-            }
-            if (values != null)
-                foreach (var (setter, (i, f)) in values)
+                return new Given(Settings.TryGetValue(from.Pointer, out var values) ? new Dictionary<int, (int, float)>(values) : null,
+                    CustomFloats.TryGetValue(from.Pointer, out var floats) ? new Dictionary<int, float>(floats) : null,
+                    Enabled.TryGetValue(from.Pointer, out bool on) ? on : null);
+        }
+
+        // Gives another renderer, such as a copy, what the game gave the original.
+        public static void Give(Given given, Renderer to)
+        {
+            if (given.Values != null)
+                foreach (var (setter, (i, f)) in given.Values)
                     Apply(setter, to.Pointer, i, f);
-            if (floats != null)
-                foreach (var (id, value) in floats)
+            if (given.Floats != null)
+                foreach (var (id, value) in given.Floats)
                     to.SetCustomPropertyFloat(id, value, true);
-            if (known)
+            if (given.Enabled is bool on)
                 SetEnableProperty(to, on);
         }
 

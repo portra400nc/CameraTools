@@ -7,6 +7,48 @@ namespace CameraTools
 
     internal enum ReplayWorld { Running, Frozen }
 
+    // The game's setter calls a replay repeats: on one material slot, or, for CustomFloat, RendererSet, EnableProperty and
+    // MeshSwap, on one renderer.
+    internal enum CallKind { Float, Int, Color, Vector, Shader, KeywordOn, KeywordOff, KeywordIdOn, KeywordIdOff, CustomFloat, Swap, RendererSet, EnableProperty, Texture, MeshSwap }
+
+    // What a call sets. A later call on the same target leaves an earlier one nothing to do.
+    internal readonly record struct CallTarget(CallKind Kind, int Slot, int Id, string Text)
+    {
+        public static CallTarget Of(CallKind kind, int slot, int id, string text) => kind switch
+        {
+            CallKind.KeywordOn or CallKind.KeywordOff => new(CallKind.KeywordOn, slot, 0, text),
+            CallKind.KeywordIdOn or CallKind.KeywordIdOff => new(CallKind.KeywordIdOn, slot, id, null),
+            CallKind.Shader or CallKind.Swap or CallKind.MeshSwap or CallKind.EnableProperty => new(kind, slot, 0, null),
+            _ => new(kind, slot, id, null),
+        };
+
+        public bool OnRenderer => Kind is CallKind.CustomFloat or CallKind.RendererSet or CallKind.EnableProperty or CallKind.MeshSwap;
+    }
+
+    internal static class LookCalls
+    {
+        // The first count calls that still change something once all of them have run, in their order: the last call on
+        // each target and, where swaps apply, none from before a slot's last swap, whose snapshot already holds them.
+        // Seeking repeats only these on fresh materials, which ends where repeating every call does.
+        public static List<int> Live(int count, Func<int, CallTarget> target, bool swaps)
+        {
+            var seen = new HashSet<CallTarget>();
+            var swapped = new HashSet<int>();
+            var live = new List<int>();
+            for (int index = count - 1; index >= 0; index--)
+            {
+                var call = target(index);
+                if (swaps && !call.OnRenderer && swapped.Contains(call.Slot) || !seen.Add(call))
+                    continue;
+                live.Add(index);
+                if (swaps && call.Kind == CallKind.Swap)
+                    swapped.Add(call.Slot);
+            }
+            live.Reverse();
+            return live;
+        }
+    }
+
     // Samples in the order they were taken, at rising times.
     internal sealed class Timeline<T>
     {

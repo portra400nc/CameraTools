@@ -26,7 +26,6 @@ namespace CameraTools
         private static readonly List<(Transform Root, bool On)> hidden = new();
         private static readonly HashSet<StandIn> shown = new();
         private static readonly List<(Rig Rig, RigPose A, RigPose B, float Blend, bool Opaque)> written = new();
-        private static readonly Dictionary<Replay, float> lastTime = new();
 
         public static PlayState State { get; private set; } = new PlayState.Idle();
 
@@ -91,8 +90,7 @@ namespace CameraTools
                 foreach (var track in dissolving)
                     track.Source.UseDissolve(track.Materials, dissolve);
                 foreach (var track in replay.Tracks)
-                    track.Rewind();
-                lastTime[replay] = 0f;
+                    track.LooksAt = float.PositiveInfinity;
             }
             State = state(restore);
             Melon<CameraTools>.Logger.Msg($"Replays: playing {string.Join(", ", replays.Select(replay => replay.Name))}"
@@ -118,7 +116,6 @@ namespace CameraTools
                 Time.timeScale = scale;
             CameraTools.SetPlayerInput(Controls.Owner == PadOwner.Game, "Replays");
             written.Clear();
-            lastTime.Clear();
             if (message != null)
                 CameraUi.Toast(message);
         }
@@ -150,11 +147,6 @@ namespace CameraTools
             foreach (var replay in playing.Replays)
             {
                 float t = playing is PlayState.Solo each ? each.Elapsed : ReplayText.LinkedTime(pathSeconds.Value, replay.Offset, replay.Duration);
-                // A looping path starts its replays again with each pass.
-                if (t < lastTime[replay])
-                    foreach (var track in replay.Tracks)
-                        track.Rewind();
-                lastTime[replay] = t;
                 if (replay.Latest(TrackKind.Character, t) is { } character)
                     Play(character, t);
                 if (replay.Latest(TrackKind.Weapon, t) is { } weapon)
@@ -176,6 +168,13 @@ namespace CameraTools
             var copy = track.Copy;
             if (copy is not { Usable: true } || shown.Contains(copy) || !track.Poses.Sample(t, out var a, out var b, out float blend))
                 return;
+            // A time before the looks' rewinds them, as a looping path's next pass or a seek back does, so it shows what
+            // playing there from the start shows. A jump either way clears the trails, which would draw it.
+            bool back = t < track.LooksAt;
+            if (back)
+                track.Rewind();
+            bool jumped = back || t - track.LooksAt > Timeline<RigPose>.Gap;
+            track.LooksAt = t;
             var rig = copy.Rig;
             bool opaque = track.Kind is TrackKind.Character or TrackKind.Weapon;
             if (!copy.Shown)
@@ -191,11 +190,11 @@ namespace CameraTools
             rig.WriteLooks(a, b, blend, opaque);
             // One copy plays every play of a pooled effect, so a new play moves it to where that play starts. A trail
             // would draw that jump: energy orbs left lines across the arena that came back with each orb.
-            if (copy.Owner != track)
+            if (copy.Owner != track || jumped)
             {
-                copy.Owner = track;
-                if ((track.Working ?? track.Materials) is { } materials)
+                if (copy.Owner != track && (track.Working ?? track.Materials) is { } materials)
                     rig.UseMaterials(materials);
+                copy.Owner = track;
                 foreach (var trail in copy.Trails)
                     if (trail)
                         trail.Clear();
@@ -215,24 +214,37 @@ namespace CameraTools
         }
 
         // Repeats the game's recorded setter calls on the copy's own materials and renderers up to a time. Characters and
-        // their weapons take property changes only: their materials stay on the dissolve shader, which draws.
+        // their weapons take property changes only: their materials stay on the dissolve shader, which draws. From a
+        // rewind, only the calls whose effect lasts to t run, so a seek near the end of a long replay stays quick.
         private static void ApplyCalls(Track track, Rig rig, float t)
         {
             var working = track.Working;
             if (working == null)
                 return;
             bool character = track.Kind is TrackKind.Character or TrackKind.Weapon;
-            while (track.Cursor < track.Calls.Count && track.Calls[track.Cursor].Time <= t)
+            if (track.Cursor == 0)
             {
-                var call = track.Calls[track.Cursor++];
-                try
-                {
-                    Apply(call, track, rig, working, character);
-                }
-                catch (Exception e)
-                {
-                    CameraTools.LogOnce($"Replays: repeating a {call.Kind} call on {rig.Name} failed: {e.Message}");
-                }
+                int count = 0;
+                while (count < track.Calls.Count && track.Calls[count].Time <= t)
+                    count++;
+                var calls = track.Calls;
+                foreach (int index in LookCalls.Live(count, index => CallTarget.Of(calls[index].Kind, calls[index].Slot, calls[index].Id, calls[index].Text), swaps: !character))
+                    Repeat(calls[index], track, rig, working, character);
+                track.Cursor = count;
+            }
+            while (track.Cursor < track.Calls.Count && track.Calls[track.Cursor].Time <= t)
+                Repeat(track.Calls[track.Cursor++], track, rig, working, character);
+        }
+
+        private static void Repeat(LookCall call, Track track, Rig rig, Material[][] working, bool character)
+        {
+            try
+            {
+                Apply(call, track, rig, working, character);
+            }
+            catch (Exception e)
+            {
+                CameraTools.LogOnce($"Replays: repeating a {call.Kind} call on {rig.Name} failed: {e.Message}");
             }
         }
 

@@ -21,6 +21,10 @@ namespace CameraTools
         public readonly List<LookCall> Calls = new();
         public int Cursor;
 
+        // The replay time the copy's looks were last brought to. Playing an earlier time rewinds them first; a playback
+        // starts at infinity, so its first play starts from fresh materials.
+        public float LooksAt = float.PositiveInfinity;
+
         // The recorder's state: when the current run on the field began and when an effect last had live particles,
         // whether the captured materials are from a settled character, the structure of an enemy's stretch, and the
         // materials and meshes last seen in each slot and renderer.
@@ -32,12 +36,14 @@ namespace CameraTools
 
         public bool Covers(float time) => time >= Start && time <= End;
 
-        // Back to the start of the calls, on fresh clones of the captured materials.
+        // Back to the start of the calls, on fresh clones of the captured materials and the copy as it was made.
         public void Rewind()
         {
             Destroy(Working);
             Working = Materials?.Select(row => row?.Select(material => material ? new Material(material) : null).ToArray()).ToArray();
             Cursor = 0;
+            if (Copy is { Usable: true })
+                Copy.Reset();
             if (Copy?.Owner == this)
                 Copy.Owner = null;
         }
