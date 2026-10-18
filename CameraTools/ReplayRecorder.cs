@@ -14,8 +14,8 @@ namespace CameraTools
         public sealed record Recording(RecordSession Session) : RecordState;
     }
 
-    // The free camera and pad owner from before a recording took them, given back when it stops.
-    internal readonly record struct Handoff(bool Freecam, PadOwner Owner);
+    // The free camera, pad owner and pause from before a recording took them, given back when it stops.
+    internal readonly record struct Handoff(bool Freecam, PadOwner Owner, bool Paused);
 
     // What one recording builds and what it keeps between frames. Path is the number of the path it plays, or null.
     internal sealed class RecordSession
@@ -70,7 +70,7 @@ namespace CameraTools
                 CameraUi.Toast("Turn on the free camera once first");
                 return;
             }
-            var before = new Handoff(CameraTools.freecamActive, Controls.Owner);
+            var before = new Handoff(CameraTools.freecamActive, Controls.Owner, Time.timeScale == 0f);
             ReplayPlayer.Stop(null);
             PathPlayback.Stop(null);
             CameraUi.ClosePanel();
@@ -78,6 +78,9 @@ namespace CameraTools
             mod.SetFreecam(Replays.PlayPath && CameraPaths.CanPlay);
             if (Controls.Owner == PadOwner.CameraTools)
                 mod.SetPadOwner(PadOwner.Game, announce: false);
+            // The free camera may have paused the game, and a path keeps it on.
+            if (Time.timeScale == 0f)
+                CameraTools.SetPaused(false);
             if (!Replays.Countdown)
             {
                 Begin(before);
@@ -199,6 +202,8 @@ namespace CameraTools
             if (before.Owner == PadOwner.CameraTools && Controls.Owner != PadOwner.CameraTools)
                 mod.SetPadOwner(PadOwner.CameraTools, announce: false);
             mod.SetFreecam(before.Freecam);
+            if (before.Paused && Time.timeScale != 0f)
+                CameraTools.SetPaused(true);
         }
 
         public static void PreCull() => Replays.Guard("recording", Frame, Stop);

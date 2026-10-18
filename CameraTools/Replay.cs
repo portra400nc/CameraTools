@@ -102,7 +102,7 @@ namespace CameraTools
 
         public static bool HasReplay => Current != null;
 
-        public static bool PlayPath = true, RecordEnemies = true, RecordEffects = true, Countdown = true;
+        public static bool PlayPath = false, RecordEnemies = true, RecordEffects = true, Countdown = true;
 
         public static string Note => Current is { } replay ? ReplayText.Note(replay.Duration, replay.Party, replay.Enemies) : "Record a replay to start";
 
