@@ -18,6 +18,8 @@ namespace CameraTools
 
         public int Count => times.Count;
 
+        public float FirstTime => times[0];
+
         public float LastTime => times[^1];
 
         public IReadOnlyList<T> Values => values;
@@ -48,15 +50,16 @@ namespace CameraTools
         // When the last sample at or before a time was taken, or null when there is none.
         public float? LastAt(float time) => IndexAt(time) is var i && i >= 0 ? times[i] : null;
 
-        // The sample at a time: the last one before it, blended toward the next when that follows within Gap.
+        // The sample at a time: the last one before it, blended toward the next when that follows within Gap. Before the
+        // first sample it is the first; with no samples there is none.
         public bool Sample(float time, out T a, out T b, out float blend)
         {
             int i = IndexAt(time);
             if (i < 0)
             {
-                a = b = default;
+                a = b = times.Count > 0 ? values[0] : default;
                 blend = 0f;
-                return false;
+                return times.Count > 0;
             }
             a = values[i];
             if (i + 1 < times.Count && times[i + 1] - times[i] <= Gap)
@@ -72,20 +75,30 @@ namespace CameraTools
             return true;
         }
 
-        // The item whose timeline was sampled most recently up to a time, or null when none was yet. The on-field
-        // character is the one recorded last: a rule that hid a character across a gap in its recording hid characters at
-        // switches whenever the recording hitched.
+        // The item whose timeline was sampled most recently up to a time; before any was, the one sampled first; null when
+        // none has samples. The on-field character is the one recorded last: a rule that hid a character across a gap in
+        // its recording hid characters at switches whenever the recording hitched.
         public static TItem Latest<TItem>(IEnumerable<TItem> items, Func<TItem, Timeline<T>> of, float time) where TItem : class
         {
-            TItem latest = null;
-            float at = float.NegativeInfinity;
+            TItem latest = null, first = null;
+            float at = float.NegativeInfinity, earliest = float.PositiveInfinity;
             foreach (var item in items)
-                if (of(item).LastAt(time) is float last && last > at)
+            {
+                var timeline = of(item);
+                if (timeline.Count == 0)
+                    continue;
+                if (timeline.LastAt(time) is float last && last > at)
                 {
                     latest = item;
                     at = last;
                 }
-            return latest;
+                if (timeline.FirstTime < earliest)
+                {
+                    first = item;
+                    earliest = timeline.FirstTime;
+                }
+            }
+            return latest ?? first;
         }
     }
 

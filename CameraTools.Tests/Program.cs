@@ -442,8 +442,9 @@ Check("a saved shutter time rounds to the nearest full stop: 7 s to 8 s, 0.1 s t
         timeline.IndexAt(0.5f) == -1 && timeline.IndexAt(1f) == 0 && timeline.IndexAt(1.05f) == 0 && timeline.IndexAt(1.5f) == 1 && timeline.IndexAt(9f) == 2);
     Check("a sample blends toward the next one within a quarter second",
         timeline.Sample(1.05f, out var a, out var b, out float blend) && a == "a" && b == "b" && Math.Abs(blend - 0.5f) < 1e-4f);
-    Check("a sample holds across a longer gap, and there is none before the first",
-        timeline.Sample(1.5f, out a, out b, out blend) && a == "b" && b == "b" && blend == 0f && !timeline.Sample(0.5f, out _, out _, out _));
+    Check("a sample holds across a longer gap, holds the first sample before it, and there is none on an empty timeline",
+        timeline.Sample(1.5f, out a, out b, out blend) && a == "b" && b == "b" && blend == 0f
+        && timeline.Sample(0.5f, out a, out b, out blend) && a == "a" && b == "a" && blend == 0f && !new Timeline<string>().Sample(1f, out _, out _, out _));
 
     var kaeya = (Name: "Kaeya", Poses: new Timeline<int>());
     var noel = (Name: "Noel", Poses: new Timeline<int>());
@@ -452,8 +453,11 @@ Check("a saved shutter time rounds to the nearest full stop: 7 s to 8 s, 0.1 s t
     foreach (float time in new[] { 1.2f, 2f, 3.9f })
         noel.Poses.Add(time, 0);
     string OnField(float time) => Timeline<int>.Latest(new[] { kaeya, noel }.Select(each => Tuple.Create(each.Name, each.Poses)), each => each.Item2, time)?.Item1;
-    Check("the character on the field is the one recorded most recently, through a hitch in its recording, and none before the first pose",
-        OnField(0.8f) == "Kaeya" && OnField(3.5f) == "Noel" && OnField(4.1f) == "Kaeya" && OnField(-0.1f) == null);
+    Check("the character on the field is the one recorded most recently, through a hitch in its recording, and the first one before any pose",
+        OnField(0.8f) == "Kaeya" && OnField(3.5f) == "Noel" && OnField(4.1f) == "Kaeya" && OnField(-0.1f) == "Kaeya");
+    Check("before any pose, the first character is the one recorded first, whatever the order of the tracks",
+        Timeline<int>.Latest(new[] { noel, kaeya }.Select(each => Tuple.Create(each.Name, each.Poses)), each => each.Item2, -1f)?.Item1 == "Kaeya"
+        && Timeline<int>.Latest(Array.Empty<Tuple<string, Timeline<int>>>(), each => each.Item2, 1f) == null);
 }
 Check("a character's name is the end of its root's name", ReplayText.CharacterName("Avatar_Girl_Claymore_Noel(Clone)") == "Noel"
     && ReplayText.CharacterName("Avatar_Male_Sword_Kaeya") == "Kaeya" && ReplayText.CharacterName("Paimon") == "Paimon");
