@@ -20,6 +20,7 @@
 | **Graphics** | Game settings and resolution from the free camera, with two presets you can make your own |
 | **Enhancements** | Ambient light, contact shadows, soft sun shadows, haze, light shafts, wet surfaces and a tone map, through CameraTools' ReShade add-on |
 | **Camera paths** | Record views as nodes and fly the camera through them in one shot |
+| **Replays** | Record the party, their skills and the enemies near them, and play it back alone or along a camera path to film the moment again |
 | **Lights** | Point, spot and soft sphere lights, for the world or only characters |
 | **Posing** | Freeze the active character, turn their joints, shape hands and face, save poses |
 | **ReShade** | Depth of field with a movable focus point; one-button screenshots at your highest settings, also as long exposures |
@@ -119,6 +120,8 @@ Rebind any hotkey in `UserData/MelonPreferences.cfg` with a [Unity key code](htt
 | <kbd>Num +</kbd> | Add a node to the selected path (starts one if there is none) |
 | <kbd>Num Enter</kbd> | Play or stop the selected path |
 | <kbd>Num 1</kbd>–<kbd>9</kbd> | Select path 1 to 9 (during playback, play it from the start) |
+| <kbd>Num −</kbd> | Record a replay, or stop recording |
+| <kbd>Num *</kbd> | Play or stop the selected replay |
 
 **Depth of field**
 
@@ -144,7 +147,7 @@ Hold <kbd>Back</kbd> for the right-hand column. While it is held, <kbd>LT</kbd> 
 | <kbd>LB</kbd> / <kbd>RB</kbd> | Roll left / right | Slow / fast movement (hold) |
 | <kbd>R3</kbd> | Reset roll | Center the focus point |
 | D-pad ↑ / ↓ | Field of view up / down | Speed +0.5 / −0.5 |
-| D-pad ← / → | Speed −0.1 / +0.1 | |
+| D-pad ← / → | Speed −0.1 / +0.1 | Record or stop a replay / play or stop the replay |
 | <kbd>A</kbd> | Toggle free camera | Reset field of view |
 | <kbd>B</kbd> | Hide UI | Toggle damage overlay |
 | <kbd>X</kbd> | Toggle pause | Remove enemy HP overlay |
