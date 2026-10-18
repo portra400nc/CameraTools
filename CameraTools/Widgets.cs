@@ -371,7 +371,7 @@ namespace CameraTools
             if (shown == (value, Buffer))
                 return;
             shown = (value, Buffer);
-            Value.text = Buffer != null ? row.Prefix + Buffer.ToUpperInvariant() + "|" : value;
+            Value.text = Buffer != null ? row.Prefix + Buffer + "|" : value;
             Value.color = Buffer != null ? Style.Text : row.Tint?.Invoke() ?? Style.Dim;
         }
     }

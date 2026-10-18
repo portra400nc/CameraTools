@@ -858,7 +858,8 @@ namespace CameraTools
         }
 
         // The keys that type each allowed character: digits from both rows, a point from either, letters from their keys,
-        // and a space, hyphen or apostrophe from theirs. Type adds capitals with Shift.
+        // and a space, hyphen or apostrophe from theirs. A field that allows only capitals types them; Type adds capitals
+        // to the others with Shift.
         private static (KeyCode Key, char Typed)[] KeysFor(string allowed)
         {
             if (typedKeys.TryGetValue(allowed, out var keys))
@@ -872,7 +873,7 @@ namespace CameraTools
                     ' ' => new[] { (KeyCode.Space, typed) },
                     '-' => new[] { (KeyCode.Minus, typed), (KeyCode.KeypadMinus, typed) },
                     '\'' => new[] { (KeyCode.Quote, typed) },
-                    _ => new[] { (KeyCode.A + (typed - 'a'), typed) },
+                    _ => new[] { (KeyCode.A + (char.ToLowerInvariant(typed) - 'a'), typed) },
                 })
                 .ToArray();
             typedKeys[allowed] = keys;
@@ -1206,9 +1207,9 @@ namespace CameraTools
                 return new Bar(recording, CamAction.RecordReplay, true, ReplayText.Recording(recording.Elapsed, Replays.PathLabel(recording.Path)),
                     ReplayText.Recording(Replays.Limit, Replays.PathLabel(recording.Path)), recording.Elapsed / Replays.Limit, Array.Empty<float>);
             if (PathPlayback.State is PlaybackState.Playing playing)
-                return new Bar(playing.Sampler, CamAction.PlayPath, false, PlayText(playing.Number, playing.PassTime, playing.Duration),
-                    PlayText(playing.Number, playing.Duration, playing.Duration), playing.PassTime / playing.Duration,
-                    () => playing.Sampler.NodeTimes(playing.EaseIn, playing.EaseOut));
+                return new Bar(playing.Sampler, CamAction.PlayPath, false, PlayText(playing.Number, playing.Clock, playing.Shown),
+                    PlayText(playing.Number, playing.Shown, playing.Shown), playing.Clock / playing.Shown,
+                    () => playing.Sampler.NodeTimes(playing.EaseIn, playing.EaseOut).Select(t => t * playing.Duration / playing.Shown).ToArray());
             if (ReplayPlayer.Solo is { } solo)
             {
                 var replay = solo.Replay;
