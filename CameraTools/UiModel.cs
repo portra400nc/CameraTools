@@ -102,9 +102,9 @@ namespace CameraTools
 
     public sealed record Hint(CamAction Action, string Label);
 
-    // Hidden: the free camera is off. Hud: legends and the field of view bar. Playing: a camera path's play bar. Panel:
-    // settings. Moving: the sticks move a light, and the legends say how. Joints: the sticks turn the posed character's
-    // joints, with a marker on each.
+    // Hidden: the free camera is off. Hud: legends and the field of view bar. Playing: the play bar of a camera path, a
+    // recording or a replay playing on its own. Panel: settings. Moving: the sticks move a light, and the legends say how.
+    // Joints: the sticks turn the posed character's joints, with a marker on each.
     public enum View { Hidden, Hud, Playing, Panel, Moving, Joints }
 
     internal static class UiModel
@@ -185,6 +185,41 @@ namespace CameraTools
             Shake("Rotation frequency", options => options.RotateShakeFrequency, (options, value) => options.RotateShakeFrequency = value),
             Shake("Movement strength", options => options.MoveShakeStrength, (options, value) => options.MoveShakeStrength = value),
             Shake("Rotation strength", options => options.RotateShakeStrength, (options, value) => options.RotateShakeStrength = value),
+        });
+
+        private static readonly string[] WorldNames = { "Running", "Frozen" };
+        private static readonly string[] WorldNotes = { "Wind, water and people keep moving", "Everything else stops: a time-stop shot" };
+
+        // A replay records the party, their effects and the enemies near them, and plays them back on copies, alone or
+        // with a camera path, so the camera can film the moment again from other angles.
+        private static readonly Tab ReplaysTab = new("Replays", new Row[]
+        {
+            new Section("Replay"),
+            new StepperRow("Replay", () => Replays.All.Count, () => Replays.Active, Replays.Select, () => Replays.Note) { Display = () => Replays.Current?.Name },
+            new ActionRow("Record new replay", Replays.Record, "Record") { Detail = () => Replays.RecordNote },
+            new ActionRow("Delete replay", Replays.Delete, "Delete", () => Replays.HasReplay, Confirm: () => $"delete {Replays.Current?.Name}"),
+            new Section("Recording"),
+            new ToggleRow("Play camera path while recording", () => Replays.PlayPath, on => Replays.PlayPath = on)
+            {
+                Detail = () => CameraPaths.HasPath ? $"Path {CameraPaths.Active + 1}, picked in the Paths tab" : "Pick a path in the Paths tab first",
+            },
+            new ToggleRow("Record enemies", () => Replays.RecordEnemies, on => Replays.RecordEnemies = on) { Detail = () => "Enemies near you, with their spawns and deaths" },
+            new ToggleRow("Record effects", () => Replays.RecordEffects, on => Replays.RecordEffects = on) { Detail = () => "Skills, bursts, hits and energy orbs" },
+            new ToggleRow("3-second countdown", () => Replays.Countdown, on => Replays.Countdown = on),
+            new Section("Playback"),
+            new ActionRow("Play replay", Replays.Play, "Play", () => Replays.HasReplay) { Detail = () => Replays.PlayNote },
+            new ChoiceRow("Camera path", new[] { "None" }, () => Replays.PathChoice, Replays.SetPathChoice, null, () => Replays.HasReplay)
+            {
+                LiveOptions = Replays.PathChoices,
+                Detail = () => "Playing that path plays this replay with it",
+            },
+            new SliderRow("Start", 0f, Replays.MaxOffset, 0.1f, "0.0' s after the path'", () => Replays.Current?.Offset ?? 0f, Replays.SetOffset,
+                Enabled: () => Replays.PathNumber(Replays.Current) != null),
+            new ChoiceRow("World while playing", WorldNames, () => (int)(Replays.Current?.World ?? ReplayWorld.Running),
+                choice => Replays.SetWorld((ReplayWorld)choice), null, () => Replays.HasReplay)
+            {
+                Detail = () => WorldNotes[(int)(Replays.Current?.World ?? ReplayWorld.Running)],
+            },
         });
 
         private static readonly string[] KindNotes =
@@ -595,7 +630,7 @@ namespace CameraTools
             rows.AddRange(gameSettings);
             rows.Add(new Section("Beyond the game's limits"));
             rows.AddRange(Graphics.BeyondRows());
-            return new[] { Camera, World, Paths, LightsTab, PoseTab, new Tab("Graphics", rows.ToArray()), ReShadeTab };
+            return new[] { Camera, World, Paths, ReplaysTab, LightsTab, PoseTab, new Tab("Graphics", rows.ToArray()), ReShadeTab };
         }
 
         public static readonly Hint[] BottomHints =

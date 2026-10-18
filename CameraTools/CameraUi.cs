@@ -70,7 +70,7 @@ namespace CameraTools
             : Lights.Moving ? View.Moving
             : Posing.Editing ? View.Joints
             : panelOpen ? View.Panel
-            : PathPlayback.State is PlaybackState.Playing ? View.Playing
+            : PathPlayback.State is PlaybackState.Playing || ReplayRecorder.Active || ReplayPlayer.Solo != null ? View.Playing
             : View.Hud;
 
         // Drawn with IMGUI until the UI has been built.
@@ -413,7 +413,8 @@ namespace CameraTools
             Place(target.FovHandle, V(0.5f, 1f), V(0.5f, 1f), V(0.5f, 0.5f), V(0f, -Style.FovInset), V(Shapes.Handle.Width, Shapes.Handle.Height));
         }
 
-        // Across the top, like the mockup's: the path and its time, a rail with a tick per node, and the Stop hint.
+        // Across the top, like the mockup's: the path and its time, a rail with a tick per node, and the Stop hint. A
+        // recording and a replay playing on its own use it too, each with its own Stop hint.
         private static void BuildPlayBar(Builder ui, Live target, Transform root)
         {
             var bar = Node("PlayBar", root);
@@ -428,9 +429,11 @@ namespace CameraTools
             target.PlayRail = Picture(bar, "Rail", Shapes.FovTrack, Style.White).rectTransform;
             target.PlayRail.sizeDelta = V(0f, Style.RailHeight + 2f);
             target.PlayRail.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
-            target.PlayFill = Picture(target.PlayRail, "Fill", Shapes.Bar, Style.Cream).rectTransform;
+            target.PlayFillImage = Picture(target.PlayRail, "Fill", Shapes.Bar, Style.Cream);
+            target.PlayFill = target.PlayFillImage.rectTransform;
             Place(target.PlayFill, V(0f, 0.5f), V(0f, 0.5f), V(0f, 0.5f), V(0f, 0f), V(0f, Style.RailHeight));
-            target.Legends = target.Legends.Append(BuildLegend(ui, bar, new Hint(CamAction.PlayPath, "Stop"))).ToArray();
+            target.PlayStops = new[] { CamAction.PlayPath, CamAction.RecordReplay, CamAction.PlayReplay }
+                .Select(action => (action, BuildLegend(ui, bar, new Hint(action, "Stop")))).ToArray();
         }
 
         private static Legend BuildLegend(Builder ui, Transform row, Hint hint)
@@ -1184,16 +1187,38 @@ namespace CameraTools
             live.FovShown = fov.Value;
         }
 
+        // What the play bar shows. Key is what is playing or recording, and a new one lays the bar out again: Widest is its
+        // longest text, which sets the label's width so the rail does not move as the seconds count up.
+        private sealed record Bar(object Key, CamAction Stop, bool Recording, string Text, string Widest, float Fill, Func<float[]> Ticks);
+
+        private static Bar CurrentBar()
+        {
+            if (ReplayRecorder.Session is { } recording)
+                return new Bar(recording, CamAction.RecordReplay, true, ReplayText.Recording(recording.Elapsed, recording.Path),
+                    ReplayText.Recording(Replays.Limit, recording.Path), recording.Elapsed / Replays.Limit, Array.Empty<float>);
+            if (PathPlayback.State is PlaybackState.Playing playing)
+                return new Bar(playing.Sampler, CamAction.PlayPath, false, PlayText(playing.Number, playing.PassTime, playing.Duration),
+                    PlayText(playing.Number, playing.Duration, playing.Duration), playing.PassTime / playing.Duration,
+                    () => playing.Sampler.NodeTimes(playing.EaseIn, playing.EaseOut));
+            if (ReplayPlayer.Solo is { } solo)
+            {
+                var replay = solo.Replay;
+                return new Bar(solo, CamAction.PlayReplay, false, ReplayText.Playing(replay.Name, Math.Min(solo.Elapsed, replay.Duration), replay.Duration, replay.World),
+                    ReplayText.Playing(replay.Name, replay.Duration, replay.Duration, replay.World), solo.Elapsed / replay.Duration, Array.Empty<float>);
+            }
+            return null;
+        }
+
         // The fill follows time, and each tick marks when the camera reaches a node. The bar keeps its last frame while it
         // fades out after playback.
         private static void RenderPlayBar()
         {
-            if (PathPlayback.State is not PlaybackState.Playing playing)
+            if (CurrentBar() is not { } bar)
                 return;
-            if (live.PlayShown != playing.Sampler)
+            if (live.PlayShown != bar.Key)
             {
-                live.PlayShown = playing.Sampler;
-                var times = playing.Sampler.NodeTimes(playing.EaseIn, playing.EaseOut);
+                live.PlayShown = bar.Key;
+                var times = bar.Ticks();
                 while (live.Ticks.Count < times.Length)
                     live.Ticks.Add(Picture(live.PlayRail, "Tick", null, Style.Tick).rectTransform);
                 for (int index = 0; index < live.Ticks.Count; index++)
@@ -1203,19 +1228,29 @@ namespace CameraTools
                     if (index < times.Length)
                         Place(tick, V(times[index], 0.5f), V(times[index], 0.5f), V(0.5f, 0.5f), V(0f, 0f), V(Style.TickWidth, Style.TickHeight));
                 }
-                // As wide as this playback's longest text, so the rail does not move as the seconds count up.
-                live.PlayMeta.text = PlayText(playing.Number, playing.Duration, playing.Duration);
+                live.PlayMeta.text = bar.Widest;
                 live.PlayMetaWidth.preferredWidth = live.PlayMeta.preferredWidth + Style.PlayMetaSlack;
+                live.PlayMeta.color = bar.Recording ? Style.Recording : Style.Text;
+                live.PlayFillImage.color = bar.Recording ? Style.Recording : Style.Cream;
                 live.PlayText = null;
             }
-            float seconds = playing.PassTime;
-            string text = PlayText(playing.Number, seconds, playing.Duration);
-            if (text != live.PlayText)
+            var stop = (bar.Stop, live.Layout);
+            if (live.PlayStopShown != stop)
             {
-                live.PlayMeta.text = text;
-                live.PlayText = text;
+                live.PlayStopShown = stop;
+                bool pad = live.Layout == InputDevice.Pad;
+                foreach (var (action, legend) in live.PlayStops)
+                {
+                    legend.Pad.Root.SetActive(action == bar.Stop && pad && legend.HasPad);
+                    legend.Key.Root.SetActive(action == bar.Stop && !pad && legend.HasKey);
+                }
             }
-            live.PlayFill.anchorMax = V(seconds / playing.Duration, 0.5f);
+            if (bar.Text != live.PlayText)
+            {
+                live.PlayMeta.text = bar.Text;
+                live.PlayText = bar.Text;
+            }
+            live.PlayFill.anchorMax = V(Math.Clamp(bar.Fill, 0f, 1f), 0.5f);
         }
 
         private static string PlayText(int number, float seconds, float duration) => $"Path {number} · {seconds:0.0} / {duration:0.0} s";
@@ -1499,9 +1534,12 @@ namespace CameraTools
             public LayoutElement PlayMetaWidth;
             public RectTransform PlayRail;
             public RectTransform PlayFill;
+            public Image PlayFillImage;
             public readonly List<RectTransform> Ticks = new();
-            // The playback the play bar was laid out for.
-            public PathSampler PlayShown;
+            // What the play bar was laid out for, and the Stop hint and layout it shows.
+            public object PlayShown;
+            public (CamAction, InputDevice?)? PlayStopShown;
+            public (CamAction Action, Legend Legend)[] PlayStops;
             public string PlayText;
             // The game's option lists could not be read when this UI was built, so its Graphics tab has no settings rows.
             public bool MissingSettings;
