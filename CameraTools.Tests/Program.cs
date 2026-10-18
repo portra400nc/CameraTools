@@ -19,6 +19,19 @@ void Check(string name, bool ok)
 
 int Offset<T>(string field) => (int)Marshal.OffsetOf<T>(field);
 
+bool Fails(Action read)
+{
+    try
+    {
+        read();
+        return false;
+    }
+    catch (InvalidDataException)
+    {
+        return true;
+    }
+}
+
 // The binding: what enhancements.h's static_asserts say of version 10.
 Check("the binding's status is enhancements.h's 144 bytes, with the restarts at 132, their reason at 136 and the shot at 140",
     Marshal.SizeOf<EnhancementsStatus>() == 144 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceTarget)) == 116
@@ -453,6 +466,44 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     Check("a pinned path ignores Ease in and Ease out, in its progress and its ticks; a path without pins still eases",
         eased.Progress(0.25f, true, true) == 0.25f && eased.NodeTimes(true, true).SequenceEqual(new[] { 0.2f, 0.6f })
         && plain.Progress(0.25f, true, true) == 0.15625f && plain.NodeTimes(true, true)[0] == 0f && plain.NodeTimes(true, true)[3] == 1f);
+}
+
+// A camera path's pinned times as its duration changes, nodes placed at a time, and CameraPaths.json.
+{
+    CameraNode At(float x, float? time = null) => new(new Vec3(x, 0, 0), Quat.Identity, 45f, time);
+    var path = new CameraPath { Duration = 10f };
+    path.Nodes.AddRange(new[] { At(0, 2f), At(5), At(9, 6f) });
+    path.SetDuration(20f);
+    Check("a longer duration moves the pinned times with it, so each keeps its share, and leaves an unpinned node unpinned",
+        path.Duration == 20f && path.Nodes[0].Time == 4f && path.Nodes[1].Time == null && path.Nodes[2].Time == 12f);
+    path.SetDuration(500f);
+    Check("the duration stops at 310 s, and the times keep their shares of it", path.Duration == 310f && path.Nodes[0].Time == 62f && path.Nodes[2].Time == 186f);
+
+    var even = new CameraPath { Duration = 10f };
+    even.Nodes.AddRange(new[] { At(0), At(1), At(2) });
+    int middle = even.Place(At(7), 3f, constantSpeed: false);
+    Check("a node placed at 3 s goes in after the node the camera reaches at 0 s and before the one at 5 s",
+        middle == 1 && even.Nodes[1].Position.X == 7f && even.Nodes[1].Time == 3f && even.Duration == 10f);
+    int late = even.Place(At(8), 12.5f, constantSpeed: false);
+    Check("a node placed past the end goes last and makes the path that long", late == 4 && even.Duration == 12.5f
+        && even.Moments(false).Select(moment => MathF.Round(moment, 3)).SequenceEqual(new[] { 0f, 3f, 6.167f, 9.333f, 12.5f }));
+
+    var library = new PathLibrary(new List<CameraPath> { path, new CameraPath { Name = "Waterfall dolly" } }, 0, 1, new PathOptions { Loop = true });
+    string text = PathFile.Write(library);
+    var read = PathFile.Read(text, out bool gaveIds);
+    Check("a saved library reads back with its times, and an unpinned node has no Time in the file",
+        !gaveIds && read.Paths.Count == 2 && read.Paths[0].Nodes.Select(node => node.Time).SequenceEqual(new float?[] { 62f, null, 186f })
+        && read.Paths[0].Duration == 310f && read.Paths[1].Name == "Waterfall dolly" && read.Active == 0 && read.Node == 1 && read.Options.Loop
+        && text.Split("\"Time\"").Length == 3);
+    const string old = """
+        { "Paths": [ { "Duration": 12, "Nodes": [ { "Position": [1, 2, 3], "Rotation": [0, 0, 0, 1], "Fov": 50 } ] } ], "ActivePath": 0, "ActiveNode": 0 }
+        """;
+    var before = PathFile.Read(old, out bool given);
+    Check("a file from before nodes had times loads, its node unpinned and its path given an Id",
+        given && before.Paths[0].Nodes.Single() is { Time: null, Fov: 50f } && before.Paths[0].Id.Length == 8 && before.Paths[0].Duration == 12f);
+    Check("a time past the path's end reads as its end, and a time that is not a number fails the read",
+        PathFile.Read(old.Replace("\"Fov\": 50", "\"Fov\": 50, \"Time\": 40"), out _).Paths[0].Nodes[0].Time == 12f
+        && Fails(() => PathFile.Read(old.Replace("\"Fov\": 50", "\"Fov\": 50, \"Time\": \"NaN\""), out _)));
 }
 
 // The long exposure.

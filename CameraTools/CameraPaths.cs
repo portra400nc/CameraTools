@@ -1,5 +1,3 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using MelonLoader;
 using MelonLoader.Utils;
 using UnityEngine;
@@ -8,51 +6,12 @@ using NumericsVector3 = System.Numerics.Vector3;
 
 namespace CameraTools
 {
-    public sealed class CameraPath
-    {
-        public const float MinDuration = 1f;
-        public const float MaxDuration = 120f;
-        public const float DefaultDuration = 10f;
-
-        // Replays link to a path by this, so the link survives paths being added, deleted or reordered.
-        public string Id { get; init; } = NewId();
-        // A name the user typed, shown in place of "Path 2"; null for the number.
-        public string Name { get; set; }
-        public List<CameraNode> Nodes { get; } = new();
-        public float Duration { get; set; } = DefaultDuration;
-
-        public static string NewId() => Guid.NewGuid().ToString("N")[..8];
-    }
-
-    // Playback options shared by every path. Saved as they are, so the names are the JSON keys.
-    public sealed class PathOptions
-    {
-        public const float MaxShake = 5f;
-
-        public bool Loop { get; set; }
-        public bool ConstantSpeed { get; set; } = true;
-        public bool EaseIn { get; set; } = true;
-        public bool EaseOut { get; set; } = true;
-        public bool UnpauseGame { get; set; }
-        public bool HideUi { get; set; } = true;
-        public bool Countdown { get; set; } = true;
-        public float MoveShakeFrequency { get; set; } = 1.5f;
-        public float RotateShakeFrequency { get; set; } = 1.5f;
-        public float MoveShakeStrength { get; set; }
-        public float RotateShakeStrength { get; set; }
-    }
-
     // The camera path library: the paths, which path and node the Paths tab points at, and the playback options, saved to
     // UserData/CameraTools/CameraPaths.json after every edit.
     internal static class CameraPaths
     {
         private static readonly string Folder = Path.Combine(MelonEnvironment.UserDataDirectory, "CameraTools");
         private static readonly string FilePath = Path.Combine(Folder, "CameraPaths.json");
-        private static readonly JsonSerializerOptions Json = new()
-        {
-            WriteIndented = true,
-            NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals,
-        };
 
         public static List<CameraPath> Paths { get; } = new();
         public static PathOptions Options { get; private set; } = new();
@@ -64,6 +23,9 @@ namespace CameraTools
         public static int Node { get; private set; }
 
         public static CameraPath Current => Active >= 0 ? Paths[Active] : null;
+
+        // Rises with every save, which follows every change.
+        public static int Revision { get; private set; }
 
         public static bool HasPath => Current != null;
 
@@ -170,11 +132,12 @@ namespace CameraTools
             CameraUi.Toast($"Inserted as node {Node + 1}");
         }
 
+        // A pinned node keeps its time.
         public static void ReplaceNode()
         {
             if (!HasNode || !Capture(out var node))
                 return;
-            Current.Nodes[Node] = node;
+            Current.Nodes[Node] = node with { Time = Current.Nodes[Node].Time };
             Save();
             CameraUi.Toast($"Node {Node + 1} now uses the current view");
         }
@@ -205,7 +168,41 @@ namespace CameraTools
             seconds = Math.Clamp(seconds, CameraPath.MinDuration, CameraPath.MaxDuration);
             if (path == null || path.Duration == seconds)
                 return;
-            path.Duration = seconds;
+            path.SetDuration(seconds);
+            Save();
+        }
+
+        // A new path for a replay's camera nodes, as long as the replay and selected in the Paths tab.
+        public static CameraPath NewPath(string name, float duration)
+        {
+            var path = new CameraPath { Name = name, Duration = Math.Clamp(duration, CameraPath.MinDuration, CameraPath.MaxDuration) };
+            Paths.Add(path);
+            Active = Paths.Count - 1;
+            Node = 0;
+            Save();
+            return path;
+        }
+
+        // Pins the free camera's view at time seconds into path, in place of the node at replacing if there is one, and
+        // selects it. Returns its index, or null with the free camera off.
+        public static int? PlaceView(CameraPath path, float time, int? replacing)
+        {
+            if (!Capture(out var node))
+                return null;
+            if (replacing is int old)
+                path.Nodes.RemoveAt(old);
+            int index = path.Place(node, time, Options.ConstantSpeed);
+            if (path == Current)
+                Node = index;
+            Save();
+            return index;
+        }
+
+        public static void RemoveNode(CameraPath path, int index)
+        {
+            path.Nodes.RemoveAt(index);
+            if (path == Current)
+                Node = Math.Clamp(index, 0, Math.Max(path.Nodes.Count - 1, 0));
             Save();
         }
 
@@ -240,7 +237,13 @@ namespace CameraTools
                 return;
             try
             {
-                if (Read(JsonSerializer.Deserialize<LibraryFile>(File.ReadAllText(FilePath), Json)))
+                var library = PathFile.Read(File.ReadAllText(FilePath), out bool gaveIds);
+                Paths.Clear();
+                Paths.AddRange(library.Paths);
+                Options = library.Options;
+                Active = library.Active;
+                Node = library.Node;
+                if (gaveIds)
                     Save();
                 Melon<CameraTools>.Logger.Msg($"Camera paths: loaded {Paths.Count} path{(Paths.Count == 1 ? "" : "s")} from {FilePath}.");
             }
@@ -262,102 +265,18 @@ namespace CameraTools
         // Written beside the file and moved over it, so a crash mid-write leaves the last good save.
         private static void Save()
         {
+            Revision++;
             try
             {
                 Directory.CreateDirectory(Folder);
                 string temporary = FilePath + ".tmp";
-                File.WriteAllText(temporary, JsonSerializer.Serialize(Write(), Json));
+                File.WriteAllText(temporary, PathFile.Write(new PathLibrary(Paths, Active, Node, Options)));
                 File.Move(temporary, FilePath, true);
             }
             catch (Exception e)
             {
                 CameraTools.LogOnce($"Camera paths: saving {FilePath} failed: {e.Message}");
             }
-        }
-
-        private static LibraryFile Write() => new()
-        {
-            Paths = Paths.Select(path => new PathFile
-            {
-                Id = path.Id,
-                Name = path.Name,
-                Duration = path.Duration,
-                Nodes = path.Nodes.Select(node => new NodeFile
-                {
-                    Position = new[] { node.Position.X, node.Position.Y, node.Position.Z },
-                    Rotation = new[] { node.Rotation.X, node.Rotation.Y, node.Rotation.Z, node.Rotation.W },
-                    Fov = node.Fov,
-                }).ToList(),
-            }).ToList(),
-            ActivePath = Active,
-            ActiveNode = Node,
-            Options = Options,
-        };
-
-        // The file is outside input: any shape it should not have fails the whole load, before anything is replaced.
-        // Returns whether a path had no Id and was given one, which the file should then keep.
-        private static bool Read(LibraryFile file)
-        {
-            if (file?.Paths == null)
-                throw new InvalidDataException("no Paths list");
-            var paths = file.Paths.Select(ReadPath).ToList();
-            var options = file.Options ?? new PathOptions();
-            options.MoveShakeFrequency = Math.Clamp(options.MoveShakeFrequency, 0f, PathOptions.MaxShake);
-            options.RotateShakeFrequency = Math.Clamp(options.RotateShakeFrequency, 0f, PathOptions.MaxShake);
-            options.MoveShakeStrength = Math.Clamp(options.MoveShakeStrength, 0f, PathOptions.MaxShake);
-            options.RotateShakeStrength = Math.Clamp(options.RotateShakeStrength, 0f, PathOptions.MaxShake);
-            Paths.Clear();
-            Paths.AddRange(paths);
-            Options = options;
-            Active = Paths.Count == 0 ? -1 : Math.Clamp(file.ActivePath, 0, Paths.Count - 1);
-            Node = Active < 0 ? 0 : Math.Clamp(file.ActiveNode, 0, Math.Max(Paths[Active].Nodes.Count - 1, 0));
-            return file.Paths.Any(path => string.IsNullOrEmpty(path.Id));
-        }
-
-        private static CameraPath ReadPath(PathFile file)
-        {
-            if (file?.Nodes == null)
-                throw new InvalidDataException("a path has no Nodes list");
-            var path = new CameraPath { Id = string.IsNullOrEmpty(file.Id) ? CameraPath.NewId() : file.Id,
-                Name = string.IsNullOrWhiteSpace(file.Name) ? null : file.Name, Duration = Math.Clamp(Finite(file.Duration, "Duration"), CameraPath.MinDuration, CameraPath.MaxDuration) };
-            foreach (var node in file.Nodes)
-            {
-                if (node?.Position is not { Length: 3 } p || node.Rotation is not { Length: 4 } r)
-                    throw new InvalidDataException("a node needs a 3-number Position and a 4-number Rotation");
-                var rotation = new NumericsQuaternion(Finite(r[0], "Rotation"), Finite(r[1], "Rotation"), Finite(r[2], "Rotation"), Finite(r[3], "Rotation"));
-                if (rotation.Length() < 1e-3f)
-                    throw new InvalidDataException("a node's Rotation is zero");
-                var position = new NumericsVector3(Finite(p[0], "Position"), Finite(p[1], "Position"), Finite(p[2], "Position"));
-                path.Nodes.Add(new CameraNode(position, NumericsQuaternion.Normalize(rotation),
-                    Math.Clamp(Finite(node.Fov, "Fov"), PathSampler.MinFov, PathSampler.MaxFov)));
-            }
-            return path;
-        }
-
-        private static float Finite(float value, string name)
-            => float.IsFinite(value) ? value : throw new InvalidDataException($"{name} is not a finite number");
-
-        private sealed class LibraryFile
-        {
-            public List<PathFile> Paths { get; set; }
-            public int ActivePath { get; set; }
-            public int ActiveNode { get; set; }
-            public PathOptions Options { get; set; }
-        }
-
-        private sealed class PathFile
-        {
-            public string Id { get; set; }
-            public string Name { get; set; }
-            public float Duration { get; set; }
-            public List<NodeFile> Nodes { get; set; }
-        }
-
-        private sealed class NodeFile
-        {
-            public float[] Position { get; set; }
-            public float[] Rotation { get; set; }
-            public float Fov { get; set; }
         }
     }
 
