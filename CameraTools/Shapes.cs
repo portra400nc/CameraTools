@@ -64,6 +64,13 @@ namespace CameraTools
             (Subtract(Grow(Diamond(13f, 13f, 7f, 2f), 3.5f), Diamond(13f, 13f, 7f, 2f)), Style.HandleHalo),
             (Subtract(Grow(Diamond(13f, 13f, 7f, 2f), 2f), Diamond(13f, 13f, 7f, 2f)), Style.HandleRing),
             (Diamond(13f, 13f, 7f, 2f), Style.Handle)));
+        // A timeline node: a 14 unit square with a dark ring, turned 45 degrees, its fill white for its tint. The glow
+        // behind the node at the playhead.
+        public static readonly Shape TimelineNode = new("TimelineNode", Style.TimelineNodeSize, Style.TimelineNodeSize, 0f, Layers(
+            (Diamond(11f, 11f, 7f, 2f), Style.TimelineNodeRing), (Diamond(11f, 11f, 5f, 1f), Style.White)));
+        public static readonly Shape TimelineGlow = new("TimelineGlow", 34f, 34f, 0f, Layers(
+            (Grow(Diamond(17f, 17f, 7f, 2f), 6f), Style.WithAlpha(Style.White, 0.2f)),
+            (Grow(Diamond(17f, 17f, 7f, 2f), 3f), Style.WithAlpha(Style.White, 0.45f))));
         public static readonly Shape Arrow = Solid("Arrow", 7f, 10f, 0f, Triangle(0f, 0f, 7f, 5f, 0f, 10f), Style.White);
         public static readonly Shape Back = new("Back", 34f, 34f, 0f, Layers((Circle(17f, 17f, 17f), Style.Light),
             (Union(Line(19.2f, 12.2f, 14.6f, 17f, 1.15f), Line(14.6f, 17f, 19.2f, 21.8f, 1.15f)), Style.BackInk)));
@@ -97,7 +104,7 @@ namespace CameraTools
         public static readonly Shape[] All =
         {
             Face, Bumper, Trigger, Menu, View, DpadUp, DpadDown, DpadLeft, DpadRight, DpadSides, DpadUpDown, Key, Toast, Pill, Bar,
-            FovTrack, SwitchOff, SwitchOn, Knob, Disc, Check, Cross, Plus, Minus, Handle, Arrow, Back, Chevron, FoldOpen, FoldClosed, StepLeft, StepRight, Button,
+            FovTrack, SwitchOff, SwitchOn, Knob, Disc, Check, Cross, Plus, Minus, Handle, TimelineNode, TimelineGlow, Arrow, Back, Chevron, FoldOpen, FoldClosed, StepLeft, StepRight, Button,
             PanelFill, PanelShadow, FocusWindow, FocusCross, HueRail, TemperatureRail,
         };
 

@@ -65,6 +65,11 @@ namespace CameraTools
         private static FieldView editing;
         private static ActionView armed;
         private static float armedUntil;
+        // A click on the timeline's rail drags the playhead until the button comes up.
+        private static bool seeking;
+        // The frame the panel last opened on, whose pad presses opened it: Edit replay's B both closes the edit and
+        // reopens the panel, and must not also close the panel.
+        private static int openedOn = -1;
 
         // A recording shows its bar with the free camera off too, since recording turns it off.
         public static View View => CameraTools.uiHidden ? View.Hidden
@@ -72,6 +77,7 @@ namespace CameraTools
             : !CameraTools.freecamActive ? View.Hidden
             : Lights.Moving ? View.Moving
             : Posing.Editing ? View.Joints
+            : ReplayPlayer.Editing != null ? View.Editing
             : panelOpen ? View.Panel
             : PathPlayback.State is PlaybackState.Playing || ReplayPlayer.Solo != null ? View.Playing
             : View.Hud;
@@ -92,7 +98,7 @@ namespace CameraTools
         // Whether anything of CameraTools' is on screen, a part that is still fading out included.
         public static bool OnScreen => live != null
             ? live.Hud.Visible || live.Guide.Visible || live.Focus.Visible || live.PlayBar.Visible || live.Panel.Visible || live.Toast.Visible
-                || live.Move.Visible || live.Markers.Visible || live.JointLayer.Visible
+                || live.Move.Visible || live.Markers.Visible || live.JointLayer.Visible || live.Timeline.Visible
             : FallbackToast != null;
 
         public static bool PanelOpen => panelOpen;
@@ -186,6 +192,7 @@ namespace CameraTools
                 BuildMove(ui, built, root.transform);
                 BuildJoints(ui, built, root.transform);
                 BuildPlayBar(ui, built, root.transform);
+                BuildTimeline(ui, built, root.transform);
                 BuildPanel(ui, built, root.transform, model);
                 BuildToast(ui, built, root.transform);
                 ShowTab(Math.Min(tab, model.Length - 1), built);
@@ -395,6 +402,7 @@ namespace CameraTools
             target.Hud = new Fader(hud, V(0f, 0f), Style.HudFade);
             var bottom = HintRow(hud, "Bottom", TextAnchor.MiddleRight);
             Pin(bottom, 1f, 0f, -Style.Margin, Style.Margin, LegendWidth, Style.HintHeight);
+            target.HudBottom = bottom.gameObject;
             var top = HintRow(hud, "Top", TextAnchor.MiddleRight);
             Pin(top, 1f, 1f, -Style.Margin, -Style.TopLegendY, LegendWidth, Style.HintHeight);
             target.Legends = UiModel.BottomHints.Select(hint => BuildLegend(ui, bottom, hint))
@@ -438,6 +446,62 @@ namespace CameraTools
             target.PlayStops = new[] { CamAction.PlayPath, CamAction.RecordReplay, CamAction.PlayReplay }
                 .Select(action => (action, BuildLegend(ui, bar, new Hint(action, "Stop")))).ToArray();
             target.PlayTakeBack = ui.PadHint(bar, Controls.OwnerSwitchBinding, "Stop");
+        }
+
+        // Edit replay's timeline along the bottom, as in the mockup: the replay's line and the path's, a rail with the
+        // playhead, a gold node where the path reaches each node and a blue tick at each party switch, and the controls.
+        private static void BuildTimeline(Builder ui, Live target, Transform root)
+        {
+            var timeline = Node("Timeline", root);
+            Place(timeline, V(0f, 0f), V(1f, 0f), V(0.5f, 0f), V(0f, Style.Margin), V(-2f * Style.Margin, Style.TimelineHeight));
+            target.Timeline = new Fader(timeline, V(0f, 0f), Style.HudFade);
+            target.TimelineMeta = ui.Label(timeline, "Meta", "", Style.HintSize, Style.Text, TextAnchor.MiddleLeft);
+            Place(target.TimelineMeta.rectTransform, V(0f, 0f), V(0.5f, 0f), V(0f, 0f), V(0f, Style.TimelineHeadY), V(0f, Style.HintHeight));
+            target.TimelineMode = ui.Label(timeline, "Mode", "", Style.HintSize, Style.Dim, TextAnchor.MiddleRight);
+            Place(target.TimelineMode.rectTransform, V(0.5f, 0f), V(1f, 0f), V(1f, 0f), V(0f, Style.TimelineHeadY), V(0f, Style.HintHeight));
+            foreach (var label in new[] { target.TimelineMeta, target.TimelineMode })
+                DropShadow(label, Style.TextShadow);
+
+            // The rail's image carries a one unit ring outside the track, like the play bar's.
+            var rail = Picture(timeline, "Rail", Shapes.FovTrack, Style.White).rectTransform;
+            Place(rail, V(0f, 0f), V(1f, 0f), V(0.5f, 0f), V(0f, Style.TimelineRailY - 1f), V(0f, Style.TimelineRail + 2f));
+            target.TimelineRail = rail;
+            target.TimelineHit = Node("Hit", rail);
+            Place(target.TimelineHit, V(0f, 0.5f), V(1f, 0.5f), V(0.5f, 0.5f), V(0f, 0f), V(Style.TimelineNodeSize, Style.TimelineHitHeight));
+            target.TimelineFill = Picture(rail, "Fill", Shapes.Bar, Style.TimelineFill).rectTransform;
+            Place(target.TimelineFill, V(0f, 0.5f), V(0f, 0.5f), V(0f, 0.5f), V(0f, 0f), V(0f, Style.TimelineRail));
+            target.TimelineSwitches = Node("Switches", rail);
+            Fill(target.TimelineSwitches);
+            var playhead = Picture(rail, "Playhead", Shapes.Bar, Style.Text);
+            target.TimelinePlayhead = playhead.rectTransform;
+            Place(target.TimelinePlayhead, V(0f, 0.5f), V(0f, 0.5f), V(0.5f, 0.5f), V(0f, 0f), V(Style.PlayheadWidth, Style.PlayheadHeight));
+            DropShadow(playhead, Style.TextShadow);
+            target.TimelineGlow = Picture(rail, "Glow", Shapes.TimelineGlow, Style.TimelineNode).rectTransform;
+            target.TimelineNodes = Node("Nodes", rail);
+            Fill(target.TimelineNodes);
+
+            var pad = HintRow(timeline, "Pad", TextAnchor.MiddleLeft);
+            Pin(pad, 0f, 0f, 0f, 0f, LegendWidth, Style.HintHeight);
+            ui.GlyphHint(pad, PadButtons.DpadLeft | PadButtons.DpadRight, "Frame (hold to scrub)");
+            ui.PadHint(pad, new PadBinding(PadButtons.Back | PadButtons.DpadLeft | PadButtons.DpadRight, PadAxis.None), "Previous / next node");
+            var padPlay = ui.GlyphHint(pad, PadButtons.X, "Play");
+            var padPlace = ui.GlyphHint(pad, PadButtons.Y, "Place node");
+            ui.PadHint(pad, new PadBinding(PadButtons.Back | PadButtons.Y, PadAxis.None), "Delete node");
+            ui.GlyphHint(pad, PadButtons.A, "Look through path");
+            ui.GlyphHint(pad, PadButtons.B, "Done");
+            var keys = HintRow(timeline, "Keys", TextAnchor.MiddleLeft);
+            Pin(keys, 0f, 0f, 0f, 0f, LegendWidth, Style.HintHeight);
+            ui.KeysHint(keys, new[] { KeyName(KeyCode.LeftArrow), KeyName(KeyCode.RightArrow) }, "Frame (hold to scrub)");
+            ui.KeysHint(keys, new[] { "Shift", KeyName(KeyCode.LeftArrow), KeyName(KeyCode.RightArrow) }, "Previous / next node");
+            var keysPlay = ui.KeyHint(keys, KeyCode.Space, "Play");
+            var keysPlace = ui.KeyHint(keys, KeyCode.N, "Place node");
+            ui.KeyHint(keys, KeyCode.Backspace, "Delete node");
+            ui.KeyHint(keys, KeyCode.V, "Look through path");
+            ui.KeysHint(keys, new[] { "Esc" }, "Done");
+            target.TimelinePad = pad.gameObject;
+            target.TimelineKeys = keys.gameObject;
+            target.TimelinePlay = new[] { padPlay.Label, keysPlay.Label };
+            target.TimelinePlace = new[] { padPlace.Label, keysPlace.Label };
         }
 
         private static Legend BuildLegend(Builder ui, Transform row, Hint hint)
@@ -610,6 +674,13 @@ namespace CameraTools
         {
             if (!CameraTools.freecamActive)
                 return;
+            // Edit replay keeps the panel closed; its own keys and buttons are read by ReplayEditor.
+            if (View == View.Editing)
+            {
+                SeekOnTimeline();
+                return;
+            }
+            seeking = false;
             bool padOwned = Controls.Owner == PadOwner.CameraTools;
             if (Controls.Pressed(CamAction.ToggleGUI)
                 || panelOpen && padOwned && Controls.Binding(CamAction.ToggleGUI).Pad.Pressed(Gamepad.Current, Gamepad.Previous))
@@ -661,13 +732,17 @@ namespace CameraTools
         // On the tab and row it was closed on.
         public static void OpenPanel()
         {
-            if (!panelOpen)
-                SetPanel(true);
+            if (panelOpen)
+                return;
+            SetPanel(true);
+            openedOn = Time.frameCount;
         }
 
         // The panel reads the pad with fixed buttons, like the L3+R3 switch, so rebinding camera actions cannot strand it.
         private static void Navigate()
         {
+            if (Time.frameCount == openedOn)
+                return;
             var now = Gamepad.Current;
             var before = Gamepad.Previous;
             if (editing != null)
@@ -1003,15 +1078,47 @@ namespace CameraTools
         // the screen instead.
         private static void Drag(SliderView view, Vector2 point)
         {
-            var rect = view.Track;
+            if (Along(view.Track, point) is not float t)
+                return;
+            var slider = (SliderRow)view.Row;
+            slider.Set(slider.Min + (slider.Top - slider.Min) * t);
+        }
+
+        // How far along a rect a screen point is, from 0 at its left end to 1 at its right, or null for a rect of no width.
+        private static float? Along(RectTransform rect, Vector2 point)
+        {
             var area = rect.rect;
             float from = RectTransformUtility.WorldToScreenPoint(null, rect.TransformPoint(new Vector3 { x = area.xMin })).x;
             float to = RectTransformUtility.WorldToScreenPoint(null, rect.TransformPoint(new Vector3 { x = area.xMax })).x;
-            if (to <= from)
+            return to > from ? Math.Clamp((point.x - from) / (to - from), 0f, 1f) : null;
+        }
+
+        // With the cursor free, clicking a node jumps to it, and clicking or dragging on the rail seeks.
+        private static void SeekOnTimeline()
+        {
+            if (ReplayPlayer.Editing is not { } editing || Freecam.Focused || !live.Timeline.Visible)
+            {
+                seeking = false;
                 return;
-            float t = Math.Clamp((point.x - from) / (to - from), 0f, 1f);
-            var slider = (SliderRow)view.Row;
-            slider.Set(slider.Min + (slider.Top - slider.Min) * t);
+            }
+            var mouse = Input.mousePosition;
+            var point = V(mouse.x, mouse.y);
+            if (Input.GetMouseButtonDown(0))
+            {
+                for (int index = live.TimelineNodeViews.Count - 1; index >= 0; index--)
+                    if (live.TimelineNodeViews[index].gameObject.activeSelf && Contains(live.TimelineNodeViews[index].rectTransform, point))
+                    {
+                        ReplayEditor.JumpTo(index);
+                        return;
+                    }
+                seeking = Contains(live.TimelineHit, point);
+            }
+            if (!seeking)
+                return;
+            if (!Input.GetMouseButton(0))
+                seeking = false;
+            else if (Along(live.TimelineRail, point) is float t)
+                ReplayEditor.Seek(t * editing.Replay.Duration);
         }
 
         private static void Render()
@@ -1026,7 +1133,11 @@ namespace CameraTools
             RenderFocus(view, deltaTime);
             RenderMarkers(view, deltaTime);
             RenderJoints(view, deltaTime);
-            live.Hud.Update(view == View.Hud, deltaTime);
+            // Edit replay keeps the free camera's legends at the top and the field of view bar; the timeline takes the bottom.
+            live.Hud.Update(view is View.Hud or View.Editing, deltaTime);
+            if (live.HudBottom.activeSelf != (view != View.Editing))
+                live.HudBottom.SetActive(view != View.Editing);
+            RenderTimeline(view, deltaTime);
             live.Move.Update(view == View.Moving, deltaTime);
             live.PlayBar.Update(view == View.Playing, deltaTime);
             live.Panel.Update(view == View.Panel, deltaTime);
@@ -1096,6 +1207,8 @@ namespace CameraTools
             live.MoveKeys.SetActive(!pad);
             live.JointsPad.SetActive(pad);
             live.JointsKeys.SetActive(!pad);
+            live.TimelinePad.SetActive(pad);
+            live.TimelineKeys.SetActive(!pad);
             float glyph = Style.TabBarPadding + Shapes.Bumper.Width + Style.TabClipGap;
             live.TabClip.offsetMin = V(pad ? glyph : Style.TabsAfterBack, 0f);
             live.TabClip.offsetMax = V(pad ? -glyph : -Style.TabBarPadding, 0f);
@@ -1264,6 +1377,73 @@ namespace CameraTools
                 live.PlayText = bar.Text;
             }
             live.PlayFill.anchorMax = V(Math.Clamp(bar.Fill, 0f, 1f), 0.5f);
+        }
+
+        private static void RenderTimeline(View view, float deltaTime)
+        {
+            live.Timeline.Update(view == View.Editing, deltaTime);
+            if (!live.Timeline.Visible || ReplayPlayer.Editing is not { } editing || ReplayEditor.PathOf(editing.Replay) is not { } path)
+                return;
+            var replay = editing.Replay;
+            float duration = Math.Max(replay.Duration, 1e-3f);
+            float Share(float seconds) => Math.Clamp(seconds / duration, 0f, 1f);
+            if (!ReferenceEquals(live.TimelineShown, editing))
+            {
+                live.TimelineShown = editing;
+                for (int index = live.TimelineSwitchViews.Count; index < editing.Switches.Length; index++)
+                    live.TimelineSwitchViews.Add(Picture(live.TimelineSwitches, "Switch", null, Style.TimelineSwitch).rectTransform);
+                for (int index = 0; index < live.TimelineSwitchViews.Count; index++)
+                {
+                    var tick = live.TimelineSwitchViews[index];
+                    tick.gameObject.SetActive(index < editing.Switches.Length);
+                    if (index < editing.Switches.Length)
+                    {
+                        float at = Share(editing.Switches[index]);
+                        Place(tick, V(at, 1f), V(at, 1f), V(0.5f, 1f), V(0f, -1f - Style.PartySwitchY), V(Style.TickWidth, Style.PartySwitchHeight));
+                    }
+                }
+            }
+            var moments = ReplayEditor.Moments(editing, path);
+            int here = EditTimeline.NodeAt(moments, editing.T);
+            SetText(live.TimelineMeta, EditTimeline.Meta(replay.Name, editing.T, replay.Duration, editing.Plays));
+            SetText(live.TimelineMode, EditTimeline.Mode(CameraPaths.Label(CameraPaths.Paths.IndexOf(path)), path.Nodes.Count, editing.Look, replay.World));
+            float playhead = Share(editing.T);
+            live.TimelineFill.anchorMax = V(playhead, 0.5f);
+            live.TimelinePlayhead.anchorMin = V(playhead, 0.5f);
+            live.TimelinePlayhead.anchorMax = V(playhead, 0.5f);
+            while (live.TimelineNodeViews.Count < moments.Length)
+                live.TimelineNodeViews.Add(Picture(live.TimelineNodes, "Node", Shapes.TimelineNode, Style.TimelineNode));
+            for (int index = 0; index < live.TimelineNodeViews.Count; index++)
+            {
+                var node = live.TimelineNodeViews[index];
+                bool shown = index < moments.Length;
+                if (node.gameObject.activeSelf != shown)
+                    node.gameObject.SetActive(shown);
+                if (!shown)
+                    continue;
+                var at = V(Share(moments[index]), 0.5f);
+                node.rectTransform.anchorMin = at;
+                node.rectTransform.anchorMax = at;
+                node.color = index == here ? Style.TimelineNodeHere : Style.TimelineNode;
+            }
+            live.TimelineGlow.gameObject.SetActive(here >= 0);
+            if (here >= 0)
+            {
+                var at = V(Share(moments[here]), 0.5f);
+                live.TimelineGlow.anchorMin = at;
+                live.TimelineGlow.anchorMax = at;
+            }
+            foreach (var label in live.TimelinePlay)
+                SetText(label, editing.Plays ? "Pause" : "Play");
+            foreach (var label in live.TimelinePlace)
+                SetText(label, here >= 0 ? "Update node" : "Place node");
+        }
+
+        // Setting a Text's text rebuilds its mesh, so an unchanged text is left alone.
+        private static void SetText(Text label, string text)
+        {
+            if (label.text != text)
+                label.text = text;
         }
 
         private static string PlayText(int number, float seconds, float duration) => $"{CameraPaths.Label(number - 1)} · {seconds:0.0} / {duration:0.0} s";
@@ -1555,6 +1735,25 @@ namespace CameraTools
             public (CamAction Action, Legend Legend)[] PlayStops;
             public HintView PlayTakeBack;
             public string PlayText;
+            public GameObject HudBottom;
+            public Fader Timeline;
+            public Text TimelineMeta;
+            public Text TimelineMode;
+            public RectTransform TimelineRail;
+            public RectTransform TimelineHit;
+            public RectTransform TimelineFill;
+            public RectTransform TimelinePlayhead;
+            public RectTransform TimelineGlow;
+            public RectTransform TimelineSwitches;
+            public RectTransform TimelineNodes;
+            public readonly List<RectTransform> TimelineSwitchViews = new();
+            public readonly List<Image> TimelineNodeViews = new();
+            public GameObject TimelinePad;
+            public GameObject TimelineKeys;
+            public Text[] TimelinePlay;
+            public Text[] TimelinePlace;
+            // The edit the switches were placed for.
+            public PlayState.Editing TimelineShown;
             // The game's option lists could not be read when this UI was built, so its Graphics tab has no settings rows.
             public bool MissingSettings;
             public Text ToastLabel;

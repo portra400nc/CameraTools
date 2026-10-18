@@ -53,6 +53,12 @@ namespace CameraTools
         public static readonly Color GuideOutline = Hex(0x000000, 0.35f);
         public static readonly Color GuideGrid = Hex(0xece5d8, 0.40f);
         public static readonly Color GuideShade = Hex(0x000000);
+        // Edit replay's timeline: gold nodes, the one at the playhead lighter, and blue party switches.
+        public static readonly Color TimelineFill = Hex(0xece5d8, 0.45f);
+        public static readonly Color TimelineNode = Hex(0xe8c46a);
+        public static readonly Color TimelineNodeHere = Hex(0xfff3c4);
+        public static readonly Color TimelineNodeRing = Hex(0x3a2f1a);
+        public static readonly Color TimelineSwitch = Hex(0x96c8ff, 0.8f);
 
         public const float Margin = 44f;
         public const float TopLegendY = 28f;
@@ -181,6 +187,21 @@ namespace CameraTools
         public const float TickWidth = 2f;
         public const float TickHeight = 10f;
         public const float PlayMetaSlack = 6f;
+
+        // Edit replay's timeline, from the bottom margin up: the legend, a gap, the rail, a gap, and the replay's and the
+        // path's lines.
+        public const float TimelineRailY = HintHeight + 16f;
+        public const float TimelineRail = 8f;
+        public const float TimelineHeadY = TimelineRailY + TimelineRail + 10f;
+        public const float TimelineHeight = TimelineHeadY + HintHeight;
+        public const float TimelineNodeSize = 22f;
+        public const float PlayheadWidth = 3f;
+        public const float PlayheadHeight = 26f;
+        // A switch's tick sits under the rail, 10 below its top.
+        public const float PartySwitchY = 10f;
+        public const float PartySwitchHeight = 8f;
+        // The rail takes clicks a little above and below itself.
+        public const float TimelineHitHeight = 26f;
 
         public const float ComboGap = 3f;
         public const int ComboSize = 12;
