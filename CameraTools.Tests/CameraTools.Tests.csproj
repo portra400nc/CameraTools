@@ -26,6 +26,7 @@
     <Compile Include="../CameraTools/GraphicsModel.cs" Link="GraphicsModel.cs" />
     <Compile Include="../CameraTools/PathSampler.cs" Link="PathSampler.cs" />
     <Compile Include="../CameraTools/Exposure.cs" Link="Exposure.cs" />
+    <Compile Include="../CameraTools/ReplayModel.cs" Link="ReplayModel.cs" />
     <Compile Include="../Enhancements/csharp/Enhancements.cs" Link="Enhancements.cs" />
   </ItemGroup>
   <ItemGroup>

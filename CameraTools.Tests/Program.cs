@@ -1,7 +1,8 @@
 // The traced screenshot's decisions (CameraTools/TracedShot.cs), the Enhancements category's rules and its settings for
 // the add-on (CameraTools/EnhancementsModel.cs), the presets' decisions (CameraTools/GraphicsModel.cs), and the
 // Enhancements binding's layout against Enhancements/enhancements.h's literal sizes, and the camera path's motion
-// (CameraTools/PathSampler.cs), and the long exposure's settings (CameraTools/Exposure.cs). No game, no ReShade, no add-on: run with dotnet run.
+// (CameraTools/PathSampler.cs), the long exposure's settings (CameraTools/Exposure.cs), and a replay's timeline and
+// words (CameraTools/ReplayModel.cs). No game, no ReShade, no add-on: run with dotnet run.
 using System.Runtime.InteropServices;
 using CameraTools;
 using CameraToolsEnhancements;
@@ -430,6 +431,41 @@ Check("a saved shutter time rounds to the nearest full stop: 7 s to 8 s, 0.1 s t
         && open["UI_ShowProgress"] == 0f && open["UI_ShowGreenOnFinish"] == 0f && open["UI_Delay"] == 0f);
     Check("a closed shutter does not start the exposure", new Exposure(8f, 400, 2f).Uniforms(open: false).Single(uniform => uniform.Name == "UI_StartExposure").Value == 0f);
 }
+
+// A replay's timeline, which character is on the field, and the Replays tab's words.
+{
+    var timeline = new Timeline<string>();
+    timeline.Add(1f, "a");
+    timeline.Add(1.1f, "b");
+    timeline.Add(2f, "c");
+    Check("a timeline finds the last sample at or before a time, and none before its first",
+        timeline.IndexAt(0.5f) == -1 && timeline.IndexAt(1f) == 0 && timeline.IndexAt(1.05f) == 0 && timeline.IndexAt(1.5f) == 1 && timeline.IndexAt(9f) == 2);
+    Check("a sample blends toward the next one within a quarter second",
+        timeline.Sample(1.05f, out var a, out var b, out float blend) && a == "a" && b == "b" && Math.Abs(blend - 0.5f) < 1e-4f);
+    Check("a sample holds across a longer gap, and there is none before the first",
+        timeline.Sample(1.5f, out a, out b, out blend) && a == "b" && b == "b" && blend == 0f && !timeline.Sample(0.5f, out _, out _, out _));
+
+    var kaeya = (Name: "Kaeya", Poses: new Timeline<int>());
+    var noel = (Name: "Noel", Poses: new Timeline<int>());
+    foreach (float time in new[] { 0f, 0.5f, 1f, 4f })
+        kaeya.Poses.Add(time, 0);
+    foreach (float time in new[] { 1.2f, 2f, 3.9f })
+        noel.Poses.Add(time, 0);
+    string OnField(float time) => Timeline<int>.Latest(new[] { kaeya, noel }.Select(each => Tuple.Create(each.Name, each.Poses)), each => each.Item2, time)?.Item1;
+    Check("the character on the field is the one recorded most recently, through a hitch in its recording, and none before the first pose",
+        OnField(0.8f) == "Kaeya" && OnField(3.5f) == "Noel" && OnField(4.1f) == "Kaeya" && OnField(-0.1f) == null);
+}
+Check("a character's name is the end of its root's name", ReplayText.CharacterName("Avatar_Girl_Claymore_Noel(Clone)") == "Noel"
+    && ReplayText.CharacterName("Avatar_Male_Sword_Kaeya") == "Kaeya" && ReplayText.CharacterName("Paimon") == "Paimon");
+Check("a replay's line gives its length, its party and its enemies, leaving out what it has none of",
+    ReplayText.Note(18.44f, new[] { "Kaeya", "Noel" }, 6) == "18.4 s · Kaeya, Noel · 6 enemies"
+    && ReplayText.Note(2f, new[] { "Lisa" }, 1) == "2.0 s · Lisa · 1 enemy" && ReplayText.Note(2f, Array.Empty<string>(), 0) == "2.0 s");
+Check("a new replay is numbered after the highest number, so a deleted one's number is not taken again while a later one is there",
+    ReplayText.NextName(new[] { "Replay 1", "Replay 3" }) == "Replay 4" && ReplayText.NextName(Array.Empty<string>()) == "Replay 1");
+Check("the recorded toast names the linked path", ReplayText.Recorded("Replay 3", 18.44f, 1) == "Replay 3 recorded · 18.4 s · plays with path 1"
+    && ReplayText.Recorded("Replay 2", 5f, null) == "Replay 2 recorded · 5.0 s");
+Check("a linked replay starts its offset into the path, holds its first frame before and its last frame after",
+    ReplayText.LinkedTime(1f, 2f, 10f) == 0f && ReplayText.LinkedTime(5f, 2f, 10f) == 3f && ReplayText.LinkedTime(30f, 2f, 10f) == 10f);
 
 Console.WriteLine($"CameraTools tests: {failures} failed");
 return failures == 0 ? 0 : 1;
