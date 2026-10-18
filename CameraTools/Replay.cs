@@ -106,10 +106,13 @@ namespace CameraTools
 
         public static string Note => Current is { } replay ? ReplayText.Note(replay.Duration, replay.Party, replay.Enemies) : "Record a replay to start";
 
-        public static string RecordNote => PlayPath && CameraPaths.HasPath ? $"Plays path {CameraPaths.Active + 1} while you act"
+        public static string RecordNote => PlayPath && CameraPaths.HasPath ? $"Plays {CameraPaths.CurrentLabel} while you act"
             : $"Records until you stop it, up to {Limit / 60f:0} minutes";
 
-        public static string PlayNote => PathNumber(Current) is int number ? $"Plays with path {number}" : "Plays on its own; the free camera stays yours";
+        public static string PlayNote => PathNumber(Current) is int number ? $"Plays with {CameraPaths.Label(number - 1)}" : "Plays on its own; the free camera stays yours";
+
+        // A path number's label, its name or "Path 2", or null for no path.
+        public static string PathLabel(int? number) => number is int n ? CameraPaths.Label(n - 1) : null;
 
         // The number of the path a replay is linked to, or null when it has none or its path was deleted.
         public static int? PathNumber(Replay replay)
@@ -120,7 +123,7 @@ namespace CameraTools
             return index >= 0 ? index + 1 : null;
         }
 
-        public static string[] PathChoices() => new[] { "None" }.Concat(CameraPaths.Paths.Select((_, index) => $"Path {index + 1}")).ToArray();
+        public static string[] PathChoices() => new[] { "None" }.Concat(CameraPaths.Paths.Select((_, index) => CameraPaths.Label(index))).ToArray();
 
         public static int PathChoice => PathNumber(Current) ?? 0;
 

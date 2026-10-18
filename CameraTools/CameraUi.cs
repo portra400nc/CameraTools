@@ -822,7 +822,7 @@ namespace CameraTools
                 return;
             StopEditing();
             editing = view;
-            view.Buffer = "";
+            view.Buffer = view.Row is TextRow { StartsWithValue: { } start } ? start() ?? "" : "";
             Controls.TextCapture = true;
             // The game reads the keyboard under the free camera too, and 1 to 4 would switch party members.
             CameraTools.SetPlayerInput(false, "Typing");
@@ -841,9 +841,10 @@ namespace CameraTools
         private static void Type()
         {
             var (keys, max) = editing.Row is TextRow field ? (KeysFor(field.Allowed), field.MaxLength) : (TypedKeys, MaxTyped);
+            bool shift = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
             foreach (var (key, typed) in keys)
                 if (Input.GetKeyDown(key) && editing.Buffer.Length < max)
-                    editing.Buffer += typed;
+                    editing.Buffer += shift && char.IsLetter(typed) ? char.ToUpperInvariant(typed) : typed;
             if (Input.GetKeyDown(KeyCode.Backspace) && editing.Buffer.Length > 0)
                 editing.Buffer = editing.Buffer[..^1];
             if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
@@ -852,7 +853,8 @@ namespace CameraTools
                 StopEditing();
         }
 
-        // The keys that type each allowed character: digits from both rows, a point from either, letters from their keys.
+        // The keys that type each allowed character: digits from both rows, a point from either, letters from their keys,
+        // and a space, hyphen or apostrophe from theirs. Type adds capitals with Shift.
         private static (KeyCode Key, char Typed)[] KeysFor(string allowed)
         {
             if (typedKeys.TryGetValue(allowed, out var keys))
@@ -863,6 +865,9 @@ namespace CameraTools
                     '.' => new[] { (KeyCode.Period, typed), (KeyCode.KeypadPeriod, typed) },
                     // Shift and ; on a US keyboard, which Unity reports as Semicolon.
                     ':' => new[] { (KeyCode.Semicolon, typed) },
+                    ' ' => new[] { (KeyCode.Space, typed) },
+                    '-' => new[] { (KeyCode.Minus, typed), (KeyCode.KeypadMinus, typed) },
+                    '\'' => new[] { (KeyCode.Quote, typed) },
                     _ => new[] { (KeyCode.A + (typed - 'a'), typed) },
                 })
                 .ToArray();
@@ -876,7 +881,7 @@ namespace CameraTools
             var view = editing;
             string text = view.Buffer;
             StopEditing();
-            if (text.Length == 0)
+            if (text.Length == 0 && view.Row is not TextRow { CommitsEmpty: true })
                 return;
             if (view.Row is TextRow field)
             {
@@ -1194,8 +1199,8 @@ namespace CameraTools
         private static Bar CurrentBar()
         {
             if (ReplayRecorder.Session is { } recording)
-                return new Bar(recording, CamAction.RecordReplay, true, ReplayText.Recording(recording.Elapsed, recording.Path),
-                    ReplayText.Recording(Replays.Limit, recording.Path), recording.Elapsed / Replays.Limit, Array.Empty<float>);
+                return new Bar(recording, CamAction.RecordReplay, true, ReplayText.Recording(recording.Elapsed, Replays.PathLabel(recording.Path)),
+                    ReplayText.Recording(Replays.Limit, Replays.PathLabel(recording.Path)), recording.Elapsed / Replays.Limit, Array.Empty<float>);
             if (PathPlayback.State is PlaybackState.Playing playing)
                 return new Bar(playing.Sampler, CamAction.PlayPath, false, PlayText(playing.Number, playing.PassTime, playing.Duration),
                     PlayText(playing.Number, playing.Duration, playing.Duration), playing.PassTime / playing.Duration,
@@ -1253,7 +1258,7 @@ namespace CameraTools
             live.PlayFill.anchorMax = V(Math.Clamp(bar.Fill, 0f, 1f), 0.5f);
         }
 
-        private static string PlayText(int number, float seconds, float duration) => $"Path {number} · {seconds:0.0} / {duration:0.0} s";
+        private static string PlayText(int number, float seconds, float duration) => $"{CameraPaths.Label(number - 1)} · {seconds:0.0} / {duration:0.0} s";
 
         // A tab switch fades the shown rows out, swaps in the selected tab's, and fades them in.
         private static void RenderPanel(bool opened, float deltaTime)

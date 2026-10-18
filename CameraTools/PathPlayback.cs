@@ -147,7 +147,7 @@ namespace CameraTools
                 }
                 return;
             }
-            CameraUi.Toast($"Path {number} selected");
+            CameraUi.Toast($"{CameraPaths.Label(number - 1)} selected");
         }
 
         private static void Count(PlaybackState.Countdown countdown)
@@ -207,7 +207,7 @@ namespace CameraTools
         {
             if (CameraPaths.CanPlay)
                 return true;
-            CameraUi.Toast(CameraPaths.HasPath ? $"Path {CameraPaths.Active + 1} needs at least 2 nodes" : "Add 2 nodes to play a path");
+            CameraUi.Toast(CameraPaths.HasPath ? $"{CameraPaths.CurrentLabel} needs at least 2 nodes" : "Add 2 nodes to play a path");
             return false;
         }
 

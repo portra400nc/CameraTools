@@ -132,11 +132,11 @@ namespace CameraTools
             return string.Join(" · ", parts);
         }
 
-        // path is the linked path's number, or null for none.
-        public static string Recorded(string name, float seconds, int? path)
-            => $"{name} recorded · {seconds:0.0} s{(path is int number ? $" · plays with path {number}" : "")}";
+        // path is the linked path's label, its name or "Path 2", or null for none.
+        public static string Recorded(string name, float seconds, string path)
+            => $"{name} recorded · {seconds:0.0} s{(path != null ? $" · plays with {path}" : "")}";
 
-        public static string Recording(float seconds, int? path) => $"● REC {seconds:0.0} s{(path is int number ? $" · path {number}" : "")}";
+        public static string Recording(float seconds, string path) => $"● REC {seconds:0.0} s{(path != null ? $" · {path}" : "")}";
 
         public static string Playing(string name, float seconds, float duration, ReplayWorld world)
             => $"{name} · {seconds:0.0} / {duration:0.0} s{(world == ReplayWorld.Frozen ? " · world frozen" : "")}";

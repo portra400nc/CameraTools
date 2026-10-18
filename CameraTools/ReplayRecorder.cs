@@ -163,7 +163,7 @@ namespace CameraTools
             Melon<CameraTools>.Logger.Msg($"Replays: recorded {replay.Name}, {replay.Duration:0.00} s, {replay.Tracks.Count} tracks: "
                 + $"{replay.Of(TrackKind.Character).Count()} characters, {replay.Enemies} enemies, {replay.Of(TrackKind.Effect).Count()} effect plays, "
                 + $"{replay.Of(TrackKind.Gadget).Count()} gadgets, {replay.Tracks.Sum(track => track.Calls.Count)} look calls.");
-            CameraUi.Toast(ReplayText.Recorded(replay.Name, replay.Duration, session.Path));
+            CameraUi.Toast(ReplayText.Recorded(replay.Name, replay.Duration, Replays.PathLabel(session.Path)));
         }
 
         public static void PreCull() => Replays.Guard("recording", Frame, Stop);

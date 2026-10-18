@@ -52,6 +52,7 @@ A node is one saved camera position. It keeps where the camera is, where it look
 - **Constant speed** moves the camera at an even speed, however far apart the nodes are.
 - **Insert before this node** and **Insert after this node** add a node in the middle of a path.
 - **New path** starts another path. Numpad 1 to 9 pick paths 1 to 9.
+- **Name** gives the selected path a name, shown in place of its number in the Paths and Replays tabs and in notices. Select the row and type the name (Steam+X opens the keyboard on the Deck), then press Enter. Save an empty name to number the path again.
 - **Delete path** asks you to press again within 3 seconds. **Delete node** does not ask.
 - A path plays even while the game is paused. Turn on **Unpause game while playing** to let the world move during the shot.
 - Turn off **Hide UI while playing** to see the time and a tick for each node while the path plays.

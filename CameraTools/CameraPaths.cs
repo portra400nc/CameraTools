@@ -16,6 +16,8 @@ namespace CameraTools
 
         // Replays link to a path by this, so the link survives paths being added, deleted or reordered.
         public string Id { get; init; } = NewId();
+        // A name the user typed, shown in place of "Path 2"; null for the number.
+        public string Name { get; set; }
         public List<CameraNode> Nodes { get; } = new();
         public float Duration { get; set; } = DefaultDuration;
 
@@ -77,8 +79,25 @@ namespace CameraTools
                 if (path == null || path.Nodes.Count == 0)
                     return "Add a node to start a path";
                 int count = path.Nodes.Count;
-                return $"{count} node{(count == 1 ? "" : "s")} · {path.Duration:0.0} s";
+                return $"{Active + 1} of {Paths.Count} · {count} node{(count == 1 ? "" : "s")} · {path.Duration:0.0} s";
             }
+        }
+
+        // The path's name, or "Path 2" for the second path without one.
+        public static string Label(int index) => index >= 0 && index < Paths.Count && !string.IsNullOrWhiteSpace(Paths[index].Name)
+            ? Paths[index].Name : $"Path {index + 1}";
+
+        public static string CurrentLabel => HasPath ? Label(Active) : "None";
+
+        // An empty name gives the path its number back.
+        public static void SetName(string name)
+        {
+            if (Current is not { } path)
+                return;
+            string before = Label(Active);
+            path.Name = string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+            Save();
+            CameraUi.Toast(path.Name == null ? $"{before} is Path {Active + 1} again" : $"Path {Active + 1} is now \"{path.Name}\"");
         }
 
         public static float Duration => Current?.Duration ?? CameraPath.DefaultDuration;
@@ -106,19 +125,19 @@ namespace CameraTools
             Active = Paths.Count - 1;
             Node = 0;
             Save();
-            CameraUi.Toast($"Path {Active + 1} created");
+            CameraUi.Toast($"{Label(Active)} created");
         }
 
         public static void DeletePath()
         {
             if (!HasPath)
                 return;
-            int number = Active + 1;
+            string label = Label(Active);
             Paths.RemoveAt(Active);
             Active = Math.Min(Active, Paths.Count - 1);
             Node = 0;
             Save();
-            CameraUi.Toast($"Path {number} deleted");
+            CameraUi.Toast($"{label} deleted");
         }
 
         // With no path yet, adding a node starts one.
@@ -134,7 +153,7 @@ namespace CameraTools
             Current.Nodes.Add(node);
             Node = Current.Nodes.Count - 1;
             Save();
-            CameraUi.Toast($"Node {Node + 1} added to path {Active + 1}");
+            CameraUi.Toast($"Node {Node + 1} added to {Label(Active)}");
         }
 
         public static void InsertBefore() => Insert(Node);
@@ -261,6 +280,7 @@ namespace CameraTools
             Paths = Paths.Select(path => new PathFile
             {
                 Id = path.Id,
+                Name = path.Name,
                 Duration = path.Duration,
                 Nodes = path.Nodes.Select(node => new NodeFile
                 {
@@ -298,7 +318,8 @@ namespace CameraTools
         {
             if (file?.Nodes == null)
                 throw new InvalidDataException("a path has no Nodes list");
-            var path = new CameraPath { Id = string.IsNullOrEmpty(file.Id) ? CameraPath.NewId() : file.Id, Duration = Math.Clamp(Finite(file.Duration, "Duration"), CameraPath.MinDuration, CameraPath.MaxDuration) };
+            var path = new CameraPath { Id = string.IsNullOrEmpty(file.Id) ? CameraPath.NewId() : file.Id,
+                Name = string.IsNullOrWhiteSpace(file.Name) ? null : file.Name, Duration = Math.Clamp(Finite(file.Duration, "Duration"), CameraPath.MinDuration, CameraPath.MaxDuration) };
             foreach (var node in file.Nodes)
             {
                 if (node?.Position is not { Length: 3 } p || node.Rotation is not { Length: 4 } r)
@@ -327,6 +348,7 @@ namespace CameraTools
         private sealed class PathFile
         {
             public string Id { get; set; }
+            public string Name { get; set; }
             public float Duration { get; set; }
             public List<NodeFile> Nodes { get; set; }
         }

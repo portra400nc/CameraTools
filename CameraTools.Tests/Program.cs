@@ -466,7 +466,7 @@ Check("a replay's line gives its length, its party and its enemies, leaving out 
     && ReplayText.Note(2f, new[] { "Lisa" }, 1) == "2.0 s · Lisa · 1 enemy" && ReplayText.Note(2f, Array.Empty<string>(), 0) == "2.0 s");
 Check("a new replay is numbered after the highest number, so a deleted one's number is not taken again while a later one is there",
     ReplayText.NextName(new[] { "Replay 1", "Replay 3" }) == "Replay 4" && ReplayText.NextName(Array.Empty<string>()) == "Replay 1");
-Check("the recorded toast names the linked path", ReplayText.Recorded("Replay 3", 18.44f, 1) == "Replay 3 recorded · 18.4 s · plays with path 1"
+Check("the recorded toast names the linked path", ReplayText.Recorded("Replay 3", 18.44f, "Waterfall dolly") == "Replay 3 recorded · 18.4 s · plays with Waterfall dolly"
     && ReplayText.Recorded("Replay 2", 5f, null) == "Replay 2 recorded · 5.0 s");
 Check("a linked replay starts its offset into the path, holds its first frame before and its last frame after",
     ReplayText.LinkedTime(1f, 2f, 10f) == 0f && ReplayText.LinkedTime(5f, 2f, 10f) == 3f && ReplayText.LinkedTime(30f, 2f, 10f) == 10f);

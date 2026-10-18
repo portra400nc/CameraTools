@@ -96,6 +96,12 @@ namespace CameraTools
         Func<Color> Tint = null, Func<bool> Enabled = null) : Row(Label)
     {
         public string Prefix { get; init; } = "";
+
+        // The text typing starts from, to edit a value rather than replace it; null starts empty.
+        public Func<string> StartsWithValue { get; init; }
+
+        // Whether Enter on an empty field commits the empty text, as clearing a name does, rather than keeping the value.
+        public bool CommitsEmpty { get; init; }
     }
 
     public sealed record Tab(string Name, Row[] Rows);
@@ -155,13 +161,25 @@ namespace CameraTools
             new ChoiceRow("Weather", Weather.Labels, () => Weather.Choice, Weather.SetChoice, null),
         });
 
+        // A path name: letters (capitals with Shift), digits, spaces and a little punctuation.
+        private const string PathNameCharacters = "abcdefghijklmnopqrstuvwxyz0123456789 -'";
+
         private static readonly Tab Paths = new("Paths", new Row[]
         {
             new Section("Path"),
-            new StepperRow("Path", () => CameraPaths.Paths.Count, () => CameraPaths.Active, CameraPaths.SelectPath, () => CameraPaths.PathNote),
+            new StepperRow("Path", () => CameraPaths.Paths.Count, () => CameraPaths.Active, CameraPaths.SelectPath, () => CameraPaths.PathNote)
+            {
+                Display = () => CameraPaths.HasPath ? CameraPaths.CurrentLabel : null,
+            },
+            new TextRow("Name", () => CameraPaths.CurrentLabel, CameraPaths.SetName, PathNameCharacters, 24, Enabled: () => CameraPaths.HasPath)
+            {
+                Detail = () => "Shown instead of the path number",
+                StartsWithValue = () => CameraPaths.Current?.Name ?? "",
+                CommitsEmpty = true,
+            },
             new ActionRow("New path", CameraPaths.NewPath, "Create"),
             new ActionRow("Delete path", CameraPaths.DeletePath, "Delete", () => CameraPaths.HasPath,
-                Confirm: () => $"delete path {CameraPaths.Active + 1}"),
+                Confirm: () => $"delete {CameraPaths.CurrentLabel}"),
             new Section("Nodes"),
             new StepperRow("Node", () => CameraPaths.Current?.Nodes.Count ?? 0, () => CameraPaths.Node, CameraPaths.SelectNode),
             new ActionRow("Add node at end", CameraPaths.AddNode, "Add"),
@@ -201,7 +219,7 @@ namespace CameraTools
             new Section("Recording"),
             new ToggleRow("Play camera path while recording", () => Replays.PlayPath, on => Replays.PlayPath = on)
             {
-                Detail = () => CameraPaths.HasPath ? $"Path {CameraPaths.Active + 1}, picked in the Paths tab" : "Pick a path in the Paths tab first",
+                Detail = () => CameraPaths.HasPath ? $"{CameraPaths.CurrentLabel}, picked in the Paths tab" : "Pick a path in the Paths tab first",
             },
             new ToggleRow("Record enemies", () => Replays.RecordEnemies, on => Replays.RecordEnemies = on) { Detail = () => "Enemies near you, with their spawns and deaths" },
             new ToggleRow("Record effects", () => Replays.RecordEffects, on => Replays.RecordEffects = on) { Detail = () => "Skills, bursts, hits and energy orbs" },
