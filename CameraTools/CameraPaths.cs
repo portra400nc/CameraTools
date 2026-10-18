@@ -14,8 +14,12 @@ namespace CameraTools
         public const float MaxDuration = 120f;
         public const float DefaultDuration = 10f;
 
+        // Replays link to a path by this, so the link survives paths being added, deleted or reordered.
+        public string Id { get; init; } = NewId();
         public List<CameraNode> Nodes { get; } = new();
         public float Duration { get; set; } = DefaultDuration;
+
+        public static string NewId() => Guid.NewGuid().ToString("N")[..8];
     }
 
     // Playback options shared by every path. Saved as they are, so the names are the JSON keys.
@@ -217,7 +221,8 @@ namespace CameraTools
                 return;
             try
             {
-                Read(JsonSerializer.Deserialize<LibraryFile>(File.ReadAllText(FilePath), Json));
+                if (Read(JsonSerializer.Deserialize<LibraryFile>(File.ReadAllText(FilePath), Json)))
+                    Save();
                 Melon<CameraTools>.Logger.Msg($"Camera paths: loaded {Paths.Count} path{(Paths.Count == 1 ? "" : "s")} from {FilePath}.");
             }
             catch (Exception e)
@@ -255,6 +260,7 @@ namespace CameraTools
         {
             Paths = Paths.Select(path => new PathFile
             {
+                Id = path.Id,
                 Duration = path.Duration,
                 Nodes = path.Nodes.Select(node => new NodeFile
                 {
@@ -269,7 +275,8 @@ namespace CameraTools
         };
 
         // The file is outside input: any shape it should not have fails the whole load, before anything is replaced.
-        private static void Read(LibraryFile file)
+        // Returns whether a path had no Id and was given one, which the file should then keep.
+        private static bool Read(LibraryFile file)
         {
             if (file?.Paths == null)
                 throw new InvalidDataException("no Paths list");
@@ -284,13 +291,14 @@ namespace CameraTools
             Options = options;
             Active = Paths.Count == 0 ? -1 : Math.Clamp(file.ActivePath, 0, Paths.Count - 1);
             Node = Active < 0 ? 0 : Math.Clamp(file.ActiveNode, 0, Math.Max(Paths[Active].Nodes.Count - 1, 0));
+            return file.Paths.Any(path => string.IsNullOrEmpty(path.Id));
         }
 
         private static CameraPath ReadPath(PathFile file)
         {
             if (file?.Nodes == null)
                 throw new InvalidDataException("a path has no Nodes list");
-            var path = new CameraPath { Duration = Math.Clamp(Finite(file.Duration, "Duration"), CameraPath.MinDuration, CameraPath.MaxDuration) };
+            var path = new CameraPath { Id = string.IsNullOrEmpty(file.Id) ? CameraPath.NewId() : file.Id, Duration = Math.Clamp(Finite(file.Duration, "Duration"), CameraPath.MinDuration, CameraPath.MaxDuration) };
             foreach (var node in file.Nodes)
             {
                 if (node?.Position is not { Length: 3 } p || node.Rotation is not { Length: 4 } r)
@@ -318,6 +326,7 @@ namespace CameraTools
 
         private sealed class PathFile
         {
+            public string Id { get; set; }
             public float Duration { get; set; }
             public List<NodeFile> Nodes { get; set; }
         }
