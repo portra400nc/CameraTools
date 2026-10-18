@@ -194,8 +194,8 @@ namespace CameraTools
             var copy = track.Copy;
             if (copy is not { Usable: true } || shown.Contains(copy) || !track.Poses.Sample(t, out var a, out var b, out float blend))
                 return;
-            // A time before the looks' rewinds them, as a looping path's next pass or a seek back does, so it shows what
-            // playing there from the start shows. A jump either way clears the trails, which would draw it.
+            // A time earlier than the copy's looks rewinds them, as a looping path's next pass or a seek back does, so the
+            // copy shows what playing there from the start shows. A jump either way clears the trails, which would draw it.
             bool back = t < track.LooksAt;
             if (back)
                 track.Rewind();
@@ -248,11 +248,12 @@ namespace CameraTools
             if (working == null)
                 return;
             bool character = track.Kind is TrackKind.Character or TrackKind.Weapon;
+            int count = 0;
             if (track.Cursor == 0)
-            {
-                int count = 0;
                 while (count < track.Calls.Count && track.Calls[count].Time <= t)
                     count++;
+            if (count > 0)
+            {
                 var calls = track.Calls;
                 foreach (int index in LookCalls.Live(count, index => CallTarget.Of(calls[index].Kind, calls[index].Slot, calls[index].Id, calls[index].Text), swaps: !character))
                     Repeat(calls[index], track, rig, working, character);
