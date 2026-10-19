@@ -149,6 +149,9 @@ namespace enhancements
         // A later row whose event is this step's moment too when this step has not matched by then, because the game's
         // call there still reads what this step's passes write; count for none.
         Step fallback = Step::count;
+        // An entry this step fills whose target, drawn into again by an event the step matches, makes that event its moment
+        // again: the game drew over what the first moment's passes wrote. count for none.
+        Entry again = Entry::count;
     };
 
     extern const std::array<StepSpec, static_cast<size_t>(Step::count)> kRecipe;
@@ -161,7 +164,8 @@ namespace enhancements
     };
 
     // Feeds one frame's events through kRecipe. Rules:
-    //  - a step matches at most once per frame, and only after its prerequisites;
+    //  - a step matches at most once per frame, and only after its prerequisites, except again at a draw into its again
+    //    entry's target;
     //  - a step whose prerequisites matched but which has not when its fallback matches falls back: the fallback's event
     //    is its moment too, and it matches no more that frame, so its passes never run twice;
     //  - a gbuffer bind with a different depth before combine restarts the frame (another camera drew first);

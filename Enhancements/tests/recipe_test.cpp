@@ -294,6 +294,33 @@ int main()
             fixture::replay(rows, tracker) == expected);
     }
     {
+        // Build 252 on the Deck, Highest preset, camera moving: every 13 to 26 frames a draw writes the tonemap target from
+        // the HDR scene before the game's bloom and real tone map, which writes the target again.
+        auto rows = walk;
+        fixture::drop(rows, 1088, 1088);
+        std::vector<fixture::Row> early = fixture::slice(walk, 1116, 1118);
+        for (fixture::Row &row : early)
+            row.seq += 20000;
+        fixture::insert_before(rows, 1116, early);
+        FrameTracker tracker;
+        std::vector<Moment> expected = k214859;
+        expected.erase(expected.end() - 2, expected.end());
+        expected.insert(expected.end(), { { 21118, Step::bloom }, { 21118, Step::tonemap }, { 1118, Step::tonemap } });
+        check("214859 with a draw into the tonemap target before the tonemap draw: tonemap again at 1118, bloom only at the first",
+            fixture::replay(rows, tracker) == expected && id(tracker.map(), Entry::tonemap_out) == 474);
+    }
+    {
+        auto rows = walk;
+        std::vector<fixture::Row> late = fixture::slice(walk, 1116, 1118);
+        for (fixture::Row &row : late)
+            row.seq += 20000;
+        late[0].targets.color[0].id = static_cast<ResourceId>(999);
+        fixture::insert_before(rows, 1119, late);
+        FrameTracker tracker;
+        check("214859 with a later draw from the HDR scene into another full-size target: no second tonemap moment",
+            fixture::replay(rows, tracker) == k214859);
+    }
+    {
         auto rows = walk;
         fixture::drop(rows, 892, 892);
         FrameTracker tracker;

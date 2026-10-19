@@ -219,7 +219,9 @@ namespace enhancements
         // lost it for up to a quarter second every 3 to 13 s while walking), the bloom step's passes still run before the
         // tone map reads the scene. Only the game's bloom of that frame misses them.
         { Step::bloom, "bloom", { Step::combine }, { Entry::bloom }, match_bloom, Step::tonemap },
-        { Step::tonemap, "tonemap", { Step::combine }, { Entry::tonemap_out, Entry::bloom_final }, match_tonemap },
+        // With the camera moving at the Highest preset (build 252 on the Deck), another draw writes the tonemap target
+        // from the HDR scene first, and the game's bloom and tone map follow it.
+        { Step::tonemap, "tonemap", { Step::combine }, { Entry::tonemap_out, Entry::bloom_final }, match_tonemap, Step::count, Entry::tonemap_out },
         { Step::forward, "forward", { Step::combine }, {}, match_forward },
         { Step::gbuffer_done, "gbuffer-done", { Step::gbuffer }, {}, match_gbuffer_done },
     } };
@@ -352,8 +354,14 @@ namespace enhancements
         StepSet moments;
         for (const StepSpec &spec : kRecipe)
         {
-            if (matched_.has(spec.step) || fell_back_.has(spec.step) || !matched_.contains(spec.after))
+            if (fell_back_.has(spec.step) || !matched_.contains(spec.after))
                 continue;
+            if (matched_.has(spec.step))
+            {
+                const Texture *rt = single_target(seen_.targets);
+                if (spec.again == Entry::count || !std::holds_alternative<Draw>(event) || !rt || rt->id != map_[spec.again]->id)
+                    continue;
+            }
             if (spec.match(seen_, event, map_))
             {
                 matched_.add(spec.step);
@@ -362,7 +370,8 @@ namespace enhancements
             }
         }
         for (const StepSpec &spec : kRecipe)
-            if (spec.fallback != Step::count && moments.has(spec.fallback) && !matched_.has(spec.step) && matched_.contains(spec.after))
+            if (spec.fallback != Step::count && moments.has(spec.fallback) && !matched_.has(spec.step) && !fell_back_.has(spec.step)
+                && matched_.contains(spec.after))
             {
                 fell_back_.add(spec.step);
                 moments.add(spec.step);
