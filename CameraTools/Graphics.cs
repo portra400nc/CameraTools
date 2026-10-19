@@ -97,9 +97,9 @@ namespace CameraTools
             ("ResolutionSlot2", new(2560, 1600)),
         };
 
-        // The interop has only a setter for shadowDistance, so it is written again every second instead of compared. Each
-        // knob names the game setting whose apply writes the same engine value, which hands the value back to the game, or
-        // none where no setting writes it.
+        // The interop has only a setter for shadowDistance, so it is written again when its owner's option changes instead of
+        // compared. Each knob names the game setting whose apply writes the same engine value, which hands the value back to
+        // the game, or none where no setting writes it.
         private static readonly IKnob[] Knobs =
         {
             new Knob<float>("innerResolutionScale", SettingKey.RenderResolution, wanted => wanted.RenderScale, ReadScale, WriteScale),
@@ -713,6 +713,7 @@ namespace CameraTools
             private readonly Action<T> write;
             private T? written;
             private T? original;
+            private int? writtenOption;     // a write-only knob's owner option at its last write
             private float next;
 
             public Knob(string name, SettingKey? owner, Func<Overrides, T?> wanted, Func<T?> read, Action<T> write)
@@ -736,8 +737,14 @@ namespace CameraTools
                 bool fresh = !Same(written, target);
                 if (read == null)
                 {
-                    if (fresh || time >= next)
+                    // Written again only when the owner's option changes, whose apply overwrites it: each write of
+                    // shadowDistance makes the game refit its far shadow cascades, which drops foliage shadows for a frame.
+                    int? option = owner is SettingKey key ? GameSettings.Get(key) : null;
+                    if (fresh || option != writtenOption)
+                    {
                         Write(target, time);
+                        writtenOption = option;
+                    }
                     return;
                 }
                 if (read() is not T now || Same(now, target) || !fresh && time < next)
