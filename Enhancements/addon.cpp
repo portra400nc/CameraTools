@@ -1715,6 +1715,12 @@ namespace enhancements
             log_trace_state();
         }
 
+        // The status line as the log last gave it. Each change goes to the log, at most kStatusNotes times a session, so a
+        // pass that drops out for a few frames shows why.
+        constexpr uint32_t kStatusNotes = 200;
+        std::string status_noted;
+        uint32_t status_notes = 0;
+
         void publish(uint32_t remaining)
         {
             Published published;
@@ -1755,6 +1761,12 @@ namespace enhancements
             s.shot_active = shot_frame ? 1 : 0;
             report.accumulated = accumulator.samples;
             published.line = describe(report);
+            if (report.armed && published.line != status_noted && status_notes < kStatusNotes)
+            {
+                log(reshade::log::level::info, "frame " + std::to_string(frames) + ": " + published.line);
+                status_noted = published.line;
+                status_notes++;
+            }
             status_box.put(published);
         }
 
