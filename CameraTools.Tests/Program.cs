@@ -323,8 +323,8 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     Check("the built-in Lowest lowers each setting and takes the frame rate to the menu's last option, 60",
         Show(Presets.Changes(lowest, lists, mine)) == "2:2>1 4:3>0 15:1>0");
     Check("the built-in presets hold the values past the game's limits, and leave the enhancements alone",
-        highest.Overrides == new Overrides(ShadowDistance: 300f) && highest.Lod == LodLevel.MostDetail && highest.Enhancements == null
-        && lowest.Overrides == new Overrides(0.5f, false, 20f, false, false, 0) && lowest.Lod == LodLevel.LeastDetail && lowest.Enhancements == null);
+        highest.Overrides == Overrides.None && highest.Lod == LodLevel.MostDetail && highest.Enhancements == null
+        && lowest.Overrides == new Overrides(0.5f, false, false, false, 0) && lowest.Lod == LodLevel.LeastDetail && lowest.Enhancements == null);
     Check("the line under a row says what each built-in preset sets it to",
         Presets.SettingNote(highest, RenderResolution, lists[RenderResolution], scales) == "1.5" && Presets.SettingNote(lowest, RenderResolution, lists[RenderResolution], scales) == "0.6"
         && Presets.SettingNote(highest, FrameRate, lists[FrameRate], rates) == "Keep" && Presets.SettingNote(lowest, FrameRate, lists[FrameRate], rates) == "60"
@@ -343,7 +343,7 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     Check("after the shot, what the preset changed goes back: the render resolution to 1.0 and Bloom on",
         Show(Presets.Back(mine, After(mine, Presets.Changes(saved, lists, mine)))) == "4:8>3 15:0>1" && Show(Presets.Back(mine, mine)) == "");
     Check("a saved preset takes every enhancement switch and value along", saved.Enhancements.Equals(shafts) && saved.Name == "Highest"
-        && saved.Overrides == new Overrides(ShadowDistance: 300f) && saved.Lod == LodLevel.MostDetail);
+        && saved.Overrides == Overrides.None && saved.Lod == LodLevel.MostDetail);
     Check("the lines then say what the saved preset sets: no row is kept, and each switch is On or Off",
         Presets.SettingNote(saved, Bloom, lists[Bloom], offOn) == "Off" && Presets.SettingNote(saved, FrameRate, lists[FrameRate], rates) == "45"
         && Presets.SettingNote(saved, RenderResolution, lists[RenderResolution], scales) == "1.5" && Presets.SwitchNote(saved, Enhancement.Enabled) == "On"
@@ -362,14 +362,17 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     var skipped = new List<string>();
     var read = Presets.Parse(PresetSlot.Highest, text, skipped);
     Check("a saved preset writes its settings, its values past the game's limits, its detail level and its enhancements",
-        text.StartsWith("2=2;4=8;15=0;ShadowDistance=300;Detail=MostDetail;Enabled=1;AmbientLight=0;") && text.Contains(";LightShafts=1;") && text.Contains(";MistHeight=12.5;"));
+        text.StartsWith("2=2;4=8;15=0;Detail=MostDetail;Enabled=1;AmbientLight=0;") && text.Contains(";LightShafts=1;") && text.Contains(";MistHeight=12.5;"));
     Check("and reads back the same", skipped.Count == 0 && Presets.Text(read) == text && Show(Presets.Changes(read, lists, mine)) == "4:3>8 15:1>0"
         && read.Overrides == saved.Overrides && read.Lod == saved.Lod && read.Enhancements.Equals(shafts));
     var all = Presets.Saved(PresetSlot.Lowest, new Dictionary<int, int>(), lowest.Overrides, lowest.Lod, null);
     Check("every value past the game's limits writes and reads, and a preset without enhancements keeps them",
-        Presets.Text(all) == "RenderScale=0.5;Shadows=Off;ShadowDistance=20;DistantShadows=Off;Fog=Off;Particles=0;Detail=LeastDetail"
+        Presets.Text(all) == "RenderScale=0.5;Shadows=Off;DistantShadows=Off;Fog=Off;Particles=0;Detail=LeastDetail"
         && Presets.Parse(PresetSlot.Lowest, Presets.Text(all), skipped) is { Enhancements: null, Lod: LodLevel.LeastDetail } low && low.Overrides == lowest.Overrides
         && low.Name == "Lowest" && skipped.Count == 0);
+    Check("a preset saved with a shadow distance reads without it and without a warning, and saves without it",
+        Presets.Parse(PresetSlot.Highest, "2=2;ShadowDistance=300;Detail=MostDetail", skipped) is { } old && skipped.Count == 0
+        && old.Overrides == Overrides.None && Presets.Text(old) == "2=2;Detail=MostDetail");
     Check("a render scale left to the game is left to the game by the saved preset",
         Presets.ScaleNote(saved) == "Game" && Presets.ScaleNote(saved with { Overrides = saved.Overrides with { RenderScale = 1.25f } }) == "1.25");
     Check("an empty entry stands for the built-in preset", Presets.Parse(PresetSlot.Highest, "", skipped) == null && Presets.Parse(PresetSlot.Highest, " ; ", skipped) == null);

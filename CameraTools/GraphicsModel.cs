@@ -15,7 +15,6 @@ namespace CameraTools
     public sealed record Overrides(
         float? RenderScale = null,
         bool? Shadows = null,
-        float? ShadowDistance = null,
         bool? DistantShadows = null,
         bool? Fog = null,
         int? Particles = null)
@@ -69,7 +68,7 @@ namespace CameraTools
     // The presets' decisions, apart from the game and the preferences, so tests run them.
     internal static class Presets
     {
-        private const string RenderScale = "RenderScale", Shadows = "Shadows", ShadowDistance = "ShadowDistance", DistantShadows = "DistantShadows",
+        private const string RenderScale = "RenderScale", Shadows = "Shadows", DistantShadows = "DistantShadows",
             Fog = "Fog", Particles = "Particles", Detail = "Detail", Off = "Off";
 
         // A built-in preset: picks holds what it picks of each game setting, by the setting's number. The game's own render
@@ -78,8 +77,8 @@ namespace CameraTools
         {
             var targets = picks.ToDictionary(pair => pair.Key, pair => new Target(pair.Value));
             return slot == PresetSlot.Highest
-                ? new Preset(slot, targets, new Overrides(ShadowDistance: 300f), LodLevel.MostDetail, null)
-                : new Preset(slot, targets, new Overrides(RenderScale: 0.5f, Shadows: false, ShadowDistance: 20f, DistantShadows: false, Fog: false, Particles: 0),
+                ? new Preset(slot, targets, Overrides.None, LodLevel.MostDetail, null)
+                : new Preset(slot, targets, new Overrides(RenderScale: 0.5f, Shadows: false, DistantShadows: false, Fog: false, Particles: 0),
                     LodLevel.LeastDetail, null);
         }
 
@@ -130,8 +129,6 @@ namespace CameraTools
                 parts.Add($"{RenderScale}={Number(scale)}");
             if (held.Shadows == false)
                 parts.Add($"{Shadows}={Off}");
-            if (held.ShadowDistance is float distance)
-                parts.Add($"{ShadowDistance}={Number(distance)}");
             if (held.DistantShadows == false)
                 parts.Add($"{DistantShadows}={Off}");
             if (held.Fog == false)
@@ -169,8 +166,8 @@ namespace CameraTools
                     held = held with { RenderScale = scale };
                 else if (name == Shadows && value == Off)
                     held = held with { Shadows = false };
-                else if (name == ShadowDistance && TryNumber(value, out float distance))
-                    held = held with { ShadowDistance = distance };
+                else if (name == "ShadowDistance")
+                    continue;   // Shadow distance was removed in build 254; presets saved before it still hold one
                 else if (name == DistantShadows && value == Off)
                     held = held with { DistantShadows = false };
                 else if (name == Fog && value == Off)

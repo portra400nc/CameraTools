@@ -97,16 +97,14 @@ namespace CameraTools
             ("ResolutionSlot2", new(2560, 1600)),
         };
 
-        // The interop has only a setter for shadowDistance, so it is written again when its owner's option changes instead of
-        // compared. Each knob names the game setting whose apply writes the same engine value, which hands the value back to
-        // the game, or none where no setting writes it.
+        // Each knob names the game setting whose apply writes the same engine value, which hands the value back to the game,
+        // or none where no setting writes it.
         private static readonly IKnob[] Knobs =
         {
             new Knob<float>("innerResolutionScale", SettingKey.RenderResolution, wanted => wanted.RenderScale, ReadScale, WriteScale),
             new Knob<ShadowQuality>("shadows", SettingKey.ShadowQuality, wanted => wanted.Shadows == false ? ShadowQuality.Disable : LightShadows(),
                 () => QualitySettings.shadows,
                 value => QualitySettings.shadows = value),
-            new Knob<float>("shadowDistance", SettingKey.ShadowQuality, wanted => wanted.ShadowDistance, null, QualitySettings.set_shadowDistance),
             new Knob<bool>("enableDistantShadow", SettingKey.ShadowQuality, wanted => wanted.DistantShadows, () => QualitySettings.enableDistantShadow,
                 value => QualitySettings.enableDistantShadow = value),
             new Knob<bool>("volumetricFogEnabled", SettingKey.VolumetricFog, wanted => wanted.Fog, () => QualitySettings.volumetricFogEnabled,
@@ -262,8 +260,6 @@ namespace CameraTools
                 () => new PresetNote(Presets.ScaleNote(Current(PresetSlot.Highest)), Presets.ScaleNote(Current(PresetSlot.Lowest))));
             yield return Beyond("Shadows", () => active.Shadows, value => Override(active with { Shadows = value }, "Shadows"),
                 preset => preset.Overrides.Shadows, ("Game", null), ("Off", false));
-            yield return Beyond("Shadow distance", () => active.ShadowDistance, value => Override(active with { ShadowDistance = value }, "Shadow distance"),
-                preset => preset.Overrides.ShadowDistance, ("Game", null), ("20 m", 20f), ("50 m", 50f), ("150 m", 150f), ("300 m", 300f));
             yield return Beyond("Distant shadows", () => active.DistantShadows, value => Override(active with { DistantShadows = value }, "Distant shadows"),
                 preset => preset.Overrides.DistantShadows, ("Game", null), ("Off", false));
             yield return Beyond("Fog and god rays", () => active.Fog, value => Override(active with { Fog = value }, "Fog and god rays"),
@@ -708,12 +704,10 @@ namespace CameraTools
             // Null when no game setting writes the value.
             private readonly SettingKey? owner;
             private readonly Func<Overrides, T?> wanted;
-            // Null when the interop has only the setter.
             private readonly Func<T?> read;
             private readonly Action<T> write;
             private T? written;
             private T? original;
-            private int? writtenOption;     // a write-only knob's owner option at its last write
             private float next;
 
             public Knob(string name, SettingKey? owner, Func<Overrides, T?> wanted, Func<T?> read, Action<T> write)
@@ -735,18 +729,6 @@ namespace CameraTools
                     return;
                 }
                 bool fresh = !Same(written, target);
-                if (read == null)
-                {
-                    // Written again only when the owner's option changes, whose apply overwrites it: each write of
-                    // shadowDistance makes the game refit its far shadow cascades, which drops foliage shadows for a frame.
-                    int? option = owner is SettingKey key ? GameSettings.Get(key) : null;
-                    if (fresh || option != writtenOption)
-                    {
-                        Write(target, time);
-                        writtenOption = option;
-                    }
-                    return;
-                }
                 if (read() is not T now || Same(now, target) || !fresh && time < next)
                     return;
                 if (!fresh)
@@ -755,13 +737,13 @@ namespace CameraTools
                 Write(target, time);
             }
 
-            // Puts back the value from before the override where the interop can read it, then has the game apply its own
-            // setting again, which covers a value that cannot be read and one the game changed in the meantime.
+            // Puts back the value from before the override, then has the game apply its own setting again, which covers one
+            // the game changed in the meantime.
             public void Release()
             {
                 if (written == null)
                     return;
-                if (original is T value && read?.Invoke() != null)
+                if (original is T value)
                     write(value);
                 if (owner is SettingKey key)
                     GameSettings.Reapply(key);
@@ -773,7 +755,7 @@ namespace CameraTools
             {
                 try
                 {
-                    return $"{Name}={(read == null ? "write-only" : read() is T now ? now.ToString() : "unavailable")}";
+                    return $"{Name}={(read() is T now ? now.ToString() : "unavailable")}";
                 }
                 catch (Exception e)
                 {
