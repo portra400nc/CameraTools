@@ -60,7 +60,7 @@ namespace enhancements
         atlas,          // b0 row 0 is not (1 / w, 1 / h, w, h), or the tiles it implies are not square
         tiles,          // a used cascade's tile center is not on the grid cascade 0's center implies
         radii_rows,     // b3 rows 8 and 9 do not repeat the spheres' squared radii
-        radii_order,    // the used cascades' radii do not grow
+        radius,         // a used cascade's sphere has no positive radius
         depth_range,    // b0 rows 12 to 19 .x do not match the matrices' depth ranges
         basis,          // the camera's right, up and forward are not orthonormal
         camera,         // the camera is not at cascade 0's sphere

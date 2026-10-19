@@ -108,13 +108,21 @@ int main()
             && close(c.camera[2], -26.7708664f));
     }
     {
+        // At shadow quality 3 the game refits its far cascades in turn, so for a few frames every ~33 cascade 4's sphere
+        // (20.38 m) is smaller than cascade 3's (27.13 m). Its own shadows read the first sphere that holds a point.
+        const SunParse p = parse_sun_shadows(load("deck-20261019-staggered"));
+        check("deck 20261019, a frame of refitted far cascades: the constants pass every check", p.check == SunCheck::ok);
+        check("deck 20261019: all 8 cascades used, cascade 3 at 27.13 m and cascade 4 at 20.38 m", p.constants.cascades == 8
+            && std::fabs(p.constants.cascade[3].radius - 27.126f) < 1e-3f && std::fabs(p.constants.cascade[4].radius - 20.379f) < 1e-3f);
+    }
+    {
         SunCbuffers bytes = normal;
         poke(bytes, B3 + 9, 1, 11000);
         check("a squared radius in row 9 that does not repeat cascade 5's: radii-rows", parsed(bytes) == SunCheck::radii_rows);
         bytes = normal;
-        poke(bytes, B3 + 2, 3, 40);
-        poke(bytes, B3 + 8, 2, 40);
-        check("cascade 2 smaller than cascade 1: radii-order", parsed(bytes) == SunCheck::radii_order);
+        poke(bytes, B3 + 2, 3, 0);
+        poke(bytes, B3 + 8, 2, 0);
+        check("cascade 2's radius 0: radius", parsed(bytes) == SunCheck::radius);
         bytes = normal;
         poke(bytes, B3 + 18 + 4 * 3, 0, 1.3f);
         const SunParse three = parse_sun_shadows(bytes);
@@ -160,7 +168,7 @@ int main()
         poke(bytes, B2 + 18, 0, 3);
         check("the last parse failed: its reason", sun_check(parse_sun_shadows(bytes), true, { 4096, 2048 }) == SunCheck::basis);
         check("the reasons' names", std::string(kSunCheckNames[static_cast<size_t>(SunCheck::atlas_changed)]) == "atlas-changed"
-            && std::string(kSunCheckNames[static_cast<size_t>(SunCheck::radii_order)]) == "radii-order");
+            && std::string(kSunCheckNames[static_cast<size_t>(SunCheck::radius)]) == "radius");
     }
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;

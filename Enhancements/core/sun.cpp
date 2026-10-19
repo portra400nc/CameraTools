@@ -42,7 +42,7 @@ namespace enhancements
     }
 
     const std::array<const char *, static_cast<size_t>(SunCheck::count)> kSunCheckNames = {
-        "ok", "unread", "signature", "atlas-changed", "not-finite", "atlas", "tiles", "radii-rows", "radii-order", "depth-range", "basis",
+        "ok", "unread", "signature", "atlas-changed", "not-finite", "atlas", "tiles", "radii-rows", "radius", "depth-range", "basis",
         "camera",
     };
 
@@ -99,8 +99,10 @@ namespace enhancements
             const Row sphere = row(bytes, kB3 + i);
             cascade.center = xyz(sphere);
             cascade.radius = std::sqrt(std::fmax(sphere[3], 0.0f));
-            if (!(cascade.radius > (i == 0 ? 0 : c.cascade[i - 1].radius)))
-                return reject(SunCheck::radii_order);
+            // The radii need not grow: at shadow quality 3 the game refits its far cascades in turn, and for a few frames
+            // one is smaller than the cascade before it. The game and the passes take the first sphere that holds a point.
+            if (!(cascade.radius > 0))
+                return reject(SunCheck::radius);
             for (uint32_t k = 0; k < 4; k++)
                 cascade.matrix[k] = row(bytes, kB3 + 15 + 4 * i + k);
             cascade.origin = xyz(row(bytes, kB3 + 49 + i));

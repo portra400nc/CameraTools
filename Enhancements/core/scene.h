@@ -79,7 +79,7 @@ namespace enhancements
 
     // The same camera from the shadow-mask draw's b1 row 5 and b2 rows 10 to 13 and 18 to 20 alone, checked on its own:
     // every value finite and the basis orthonormal. parse_sun_shadows also checks b3's cascades, which the camera does not
-    // use, and on the Deck in build 198 it refused every scene frame at radii-order, so every face fell back to the pushed
+    // use, and on the Deck in build 198 it refused every scene frame at a radii-order check since dropped, so every face fell back to the pushed
     // camera. Empty with why set to "not-finite", "basis" or "transform" when a check fails.
     std::optional<SceneCamera> scene_camera(const SunCbuffers &bytes, std::string &why);
 

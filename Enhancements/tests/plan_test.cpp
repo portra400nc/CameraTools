@@ -202,9 +202,9 @@ int main()
     }
     {
         auto rows = walk;
-        const FrameReport report = run_frame(rows, sun_shadows_on(true), Inputs { false, SunCheck::radii_order });
+        const FrameReport report = run_frame(rows, sun_shadows_on(true), Inputs { false, SunCheck::radius });
         check("constants that failed a check and no camera: both reasons", describe(report) == std::string(kAllSteps)
-            + "; skipped sun-shadows: no camera, sun constants radii-order; skipped contact-shadows: no camera; skipped ambient: no camera");
+            + "; skipped sun-shadows: no camera, sun constants radius; skipped contact-shadows: no camera; skipped ambient: no camera");
     }
     {
         auto rows = walk;

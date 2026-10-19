@@ -260,16 +260,14 @@ int main()
             alone && why.empty() && alone->clip_to_world == parsed.clip_to_world && alone->position == parsed.position);
     }
     {
-        // Cascade 2's sphere shrunk below cascade 1's, in rows 0 to 7 and in row 8 that repeats them: b3 starts at byte 1312.
+        // Cascade 2's sphere emptied, in rows 0 to 7 and in row 8 that repeats them: b3 starts at byte 1312.
         SunCbuffers bytes = load_sun("capture-20261010-111824");
-        float radius2;
-        std::memcpy(&radius2, bytes.data() + 1312 + 1 * 16 + 12, sizeof radius2);
-        radius2 /= 2;
+        const float radius2 = 0;
         std::memcpy(bytes.data() + 1312 + 2 * 16 + 12, &radius2, sizeof radius2);
         std::memcpy(bytes.data() + 1312 + 8 * 16 + 2 * 4, &radius2, sizeof radius2);
         std::string why;
         const std::optional<SceneCamera> camera = scene_camera(bytes, why);
-        check("cascades that fail radii-order for the sun pass still give the game's camera", parse_sun_shadows(bytes).check == SunCheck::radii_order
+        check("cascades that fail the radius check for the sun pass still give the game's camera", parse_sun_shadows(bytes).check == SunCheck::radius
             && camera && camera->source == SceneCamera::Source::game && why.empty());
         SunCbuffers skewed = bytes;
         const float two = 2;

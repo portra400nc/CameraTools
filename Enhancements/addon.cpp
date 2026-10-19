@@ -543,25 +543,14 @@ namespace enhancements
         // moves. The readback only decides whether they use them and gives the cascade layout, which changes only with
         // the graphics settings, and with it the atlas's size, which sun_check compares. A frame the scene capture replays
         // copies them too, so the capture can place its geometry with that frame's own camera.
-        // Each change of the parse's verdict saves the constants it read, at most kSunDumps times a session.
-        constexpr uint32_t kSunDumps = 16;
-        uint32_t sun_dumps = 0;
-
         void gather_sun(const FrameMap &map)
         {
             if (!(wants_sun(settings) || scene_frame || trace_tracing()) || !map[Entry::sun_atlas])
                 return;
             if (const std::optional<SunCbuffers> bytes = gpu.sun_constants(frames))
             {
-                const SunCheck before = sun_parse.check;
                 sun_parse = parse_sun_shadows(*bytes);
                 sun_bytes = bytes;
-                if (sun_parse.check != before && sun_dumps < kSunDumps)
-                {
-                    sun_dumps++;
-                    const fs::path path = output_root() / ("sun-" + std::to_string(frames) + "-" + kSunCheckNames[static_cast<size_t>(sun_parse.check)] + ".bin");
-                    worker.push([path, data = std::string(reinterpret_cast<const char *>(bytes->data()), bytes->size())] { write_file(path, data); });
-                }
             }
             sun_frame = sun_check(sun_parse, gpu.gather_sun(*map[Entry::sun_atlas], frames), map[Entry::sun_atlas]->size);
         }
@@ -1726,12 +1715,6 @@ namespace enhancements
             log_trace_state();
         }
 
-        // The status line as the log last gave it. Each change goes to the log, at most kStatusNotes times a session, so a
-        // pass that drops out for a few frames shows why.
-        constexpr uint32_t kStatusNotes = 200;
-        std::string status_noted;
-        uint32_t status_notes = 0;
-
         void publish(uint32_t remaining)
         {
             Published published;
@@ -1772,12 +1755,6 @@ namespace enhancements
             s.shot_active = shot_frame ? 1 : 0;
             report.accumulated = accumulator.samples;
             published.line = describe(report);
-            if (report.armed && published.line != status_noted && status_notes < kStatusNotes)
-            {
-                log(reshade::log::level::info, "frame " + std::to_string(frames) + ": " + published.line);
-                status_noted = published.line;
-                status_notes++;
-            }
             status_box.put(published);
         }
 
