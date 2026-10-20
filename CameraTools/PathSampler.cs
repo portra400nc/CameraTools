@@ -28,9 +28,11 @@ namespace CameraTools
         // On a pinned path, the rate of each rotation component and the field of view at each node, from one smooth curve
         // through all nodes; null on other paths, which take Catmull-Rom's rates.
         private readonly float[][] turns;
+        private readonly bool easeIn, easeOut;
 
-        public PathSampler(IReadOnlyList<CameraNode> path, bool constantSpeed, float duration)
+        public PathSampler(IReadOnlyList<CameraNode> path, bool constantSpeed, float duration, bool easeIn = false, bool easeOut = false)
         {
+            (this.easeIn, this.easeOut) = (easeIn, easeOut);
             if (path.Count == 0)
                 throw new ArgumentException("A path needs at least one node.", nameof(path));
             nodes = new CameraNode[path.Count];
@@ -89,11 +91,12 @@ namespace CameraTools
         public float NodeProgress(int index) => times[index];
 
         // The share of the duration at which the camera reaches each node, for the play bar's ticks.
-        public float[] NodeTimes(bool easeIn, bool easeOut)
+        public float[] NodeTimes()
             => Enumerable.Range(0, nodes.Length).Select(index => Pinned ? NodeProgress(index) : Unease(NodeProgress(index), easeIn, easeOut)).ToArray();
 
-        // The progress at a share of the duration. Easing would move a pinned node's moment, so a pinned path has none.
-        public float Progress(float share, bool easeIn, bool easeOut) => Pinned ? Math.Clamp(share, 0f, 1f) : Ease(share, easeIn, easeOut);
+        // The progress at a share of the duration. Easing the progress would move a pinned node's moment, so a pinned path
+        // eases by stopping the camera at its eased end nodes instead.
+        public float Progress(float share) => Pinned ? Math.Clamp(share, 0f, 1f) : Ease(share, easeIn, easeOut);
 
         // Seconds into the current pass after elapsed seconds of playback; a looping path starts again from its first node.
         public static float PassTime(float elapsed, float duration, bool loop)
@@ -204,8 +207,8 @@ namespace CameraTools
             var averages = Enumerable.Range(0, last)
                 .Select(segment => spans[segment] > 0f ? (Distance(segment + 1) - Distance(segment)) / spans[segment] : 0f).ToArray();
             var result = new float[nodes.Length];
-            result[0] = averages[0];
-            result[last] = averages[last - 1];
+            result[0] = Pinned && easeIn ? 0f : averages[0];
+            result[last] = Pinned && easeOut ? 0f : averages[last - 1];
             for (int index = 1; index < last; index++)
             {
                 float before = averages[index - 1], after = averages[index];
@@ -221,13 +224,15 @@ namespace CameraTools
 
         // The node speeds of the smooth curve through the nodes' distances, kept between half the slower and three times
         // the faster of the segments beside each node: the smooth curve alone could stop the camera, or run it backward,
-        // where a quick segment meets a slow one.
+        // where a quick segment meets a slow one. An eased end node keeps its stop.
         private float[] SmoothSpeeds()
         {
             int last = nodes.Length - 1;
             var result = Smooth(Enumerable.Range(0, nodes.Length).Select(Distance));
             for (int index = 0; index <= last; index++)
             {
+                if (index == 0 && easeIn || index == last && easeOut)
+                    continue;
                 float before = index > 0 ? (Distance(index) - Distance(index - 1)) / Span(index - 1) : float.MaxValue;
                 float after = index < last ? (Distance(index + 1) - Distance(index)) / Span(index) : float.MaxValue;
                 float slower = Math.Min(before, after);
@@ -236,8 +241,8 @@ namespace CameraTools
             return result;
         }
 
-        // The rates at each node of the natural cubic spline through values at the nodes' times: the curve whose rate and
-        // acceleration both carry on smoothly through every node, with no acceleration at either end.
+        // The rates at each node of the cubic spline through values at the nodes' times: the curve whose rate and
+        // acceleration both carry on smoothly through every node, with no rate at an eased end and no acceleration at the other.
         private float[] Smooth(IEnumerable<float> values)
         {
             var y = values.ToArray();
@@ -247,9 +252,9 @@ namespace CameraTools
             var above = new double[last + 1];
             var right = new double[last + 1];
             double Slope(int segment) => (y[segment + 1] - y[segment]) / (double)Span(segment);
-            diagonal[0] = 2;
-            above[0] = 1;
-            right[0] = 3 * Slope(0);
+            diagonal[0] = easeIn ? 1 : 2;
+            above[0] = easeIn ? 0 : 1;
+            right[0] = easeIn ? 0 : 3 * Slope(0);
             for (int index = 1; index < last; index++)
             {
                 double h0 = Span(index - 1), h1 = Span(index);
@@ -258,9 +263,9 @@ namespace CameraTools
                 above[index] = 1 / h1;
                 right[index] = 3 * (Slope(index - 1) / h0 + Slope(index) / h1);
             }
-            below[last] = 1;
-            diagonal[last] = 2;
-            right[last] = 3 * Slope(last - 1);
+            below[last] = easeOut ? 0 : 1;
+            diagonal[last] = easeOut ? 1 : 2;
+            right[last] = easeOut ? 0 : 3 * Slope(last - 1);
             for (int index = 1; index <= last; index++)
             {
                 double factor = below[index] / diagonal[index - 1];

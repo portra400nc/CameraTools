@@ -123,9 +123,8 @@ namespace CameraTools
         {
             if (ReplayPlayer.Editing is not { Look: true } editing || PathOf(editing.Replay) is not { Nodes.Count: >= 2 } path)
                 return false;
-            var options = CameraPaths.Options;
             var sampler = Sampler(path);
-            PathPlayback.Pose(freecam, sampler.Sample(sampler.Progress(PathTime(editing) / path.Duration, options.EaseIn, options.EaseOut)));
+            PathPlayback.Pose(freecam, sampler.Sample(sampler.Progress(PathTime(editing) / path.Duration)));
             return true;
         }
 
@@ -149,16 +148,17 @@ namespace CameraTools
         {
             if (path.Nodes.Count == 0)
                 return Array.Empty<float>();
-            var options = CameraPaths.Options;
-            return Sampler(path).NodeTimes(options.EaseIn, options.EaseOut).Select(share => share * path.Duration - editing.Replay.Offset).ToArray();
+            return Sampler(path).NodeTimes().Select(share => share * path.Duration - editing.Replay.Offset).ToArray();
         }
 
         private static float PathTime(PlayState.Editing editing) => editing.T + editing.Replay.Offset;
 
+        // Changing the options saves them, which raises the revision.
         private static PathSampler Sampler(CameraPath path)
         {
+            var options = CameraPaths.Options;
             if (cached.Path != path || cached.Revision != CameraPaths.Revision)
-                cached = (path, CameraPaths.Revision, new PathSampler(path.Nodes, CameraPaths.Options.ConstantSpeed, path.Duration));
+                cached = (path, CameraPaths.Revision, new PathSampler(path.Nodes, options.ConstantSpeed, path.Duration, options.EaseIn, options.EaseOut));
             return cached.Sampler;
         }
 

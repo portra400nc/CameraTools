@@ -1320,7 +1320,7 @@ namespace CameraTools
             if (PathPlayback.State is PlaybackState.Playing playing)
                 return new Bar(playing.Sampler, CamAction.PlayPath, false, PlayText(playing.Number, playing.Clock, playing.Shown),
                     PlayText(playing.Number, playing.Shown, playing.Shown), playing.Clock / playing.Shown,
-                    () => playing.Sampler.NodeTimes(playing.EaseIn, playing.EaseOut).Select(t => t * playing.Duration / playing.Shown).ToArray());
+                    () => playing.Sampler.NodeTimes().Select(t => t * playing.Duration / playing.Shown).ToArray());
             if (ReplayPlayer.Solo is { } solo)
             {
                 var replay = solo.Replay;

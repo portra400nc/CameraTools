@@ -14,7 +14,7 @@ namespace CameraTools
         // Everything that shapes the flight is fixed when it starts; only the shake follows the settings while it plays.
         // Repause: playback unpaused the game, so stopping pauses it again. Length is how long a path that does not loop
         // plays: past its last node, the camera holds there until the replays linked to it end.
-        public sealed record Playing(PathSampler Sampler, int Number, float Duration, float Length, bool Loop, bool EaseIn, bool EaseOut,
+        public sealed record Playing(PathSampler Sampler, int Number, float Duration, float Length, bool Loop,
             float Started, bool WasHidden, bool Repause) : PlaybackState
         {
             public float Elapsed => Time.unscaledTime - Started;
@@ -28,7 +28,7 @@ namespace CameraTools
 
             public bool Finished => !Loop && Elapsed >= Length;
 
-            public CameraNode Sample() => Sampler.Sample(Sampler.Progress(PassTime / Duration, EaseIn, EaseOut));
+            public CameraNode Sample() => Sampler.Sample(Sampler.Progress(PassTime / Duration));
         }
     }
 
@@ -212,8 +212,8 @@ namespace CameraTools
         {
             var path = CameraPaths.Current;
             var options = CameraPaths.Options;
-            return new PlaybackState.Playing(new PathSampler(path.Nodes, options.ConstantSpeed, path.Duration), CameraPaths.Active + 1, path.Duration,
-                Math.Max(path.Duration, ReplayPlayer.LinkedEnd(path)), options.Loop, options.EaseIn, options.EaseOut, Time.unscaledTime + lead, wasHidden, repause);
+            return new PlaybackState.Playing(new PathSampler(path.Nodes, options.ConstantSpeed, path.Duration, options.EaseIn, options.EaseOut), CameraPaths.Active + 1, path.Duration,
+                Math.Max(path.Duration, ReplayPlayer.LinkedEnd(path)), options.Loop, Time.unscaledTime + lead, wasHidden, repause);
         }
 
         private static bool Playable()

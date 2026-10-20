@@ -478,10 +478,24 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     var lurch = new PathSampler(new[] { Node(0, 0) with { Time = 0f }, Node(10, 0) with { Time = 2f }, Node(12, 0) with { Time = 6f }, Node(30, 0) with { Time = 7f } }, false, 7f);
     Check("a pinned path never stops or runs backward: at a node it keeps at least half the slower segment's speed",
         Speed(lurch, 2f) >= 0.25f && Speed(lurch, 6f) >= 0.25f && Enumerable.Range(1, 69).All(step => Speed(lurch, step * 0.1f) > 0f));
-    var eased = new PathSampler(two, false, 10f);
-    Check("a pinned path ignores Ease in and Ease out, in its progress and its ticks; a path without pins still eases",
-        eased.Progress(0.25f, true, true) == 0.25f && eased.NodeTimes(true, true).SequenceEqual(new[] { 0.2f, 0.6f })
-        && plain.Progress(0.25f, true, true) == 0.15625f && plain.NodeTimes(true, true)[0] == 0f && plain.NodeTimes(true, true)[3] == 1f);
+    var eased = new PathSampler(two, false, 10f, easeIn: true, easeOut: true);
+    var easedPlain = new PathSampler(four, false, 10f, easeIn: true, easeOut: true);
+    Check("easing keeps a pinned path's progress and ticks at its nodes' moments; a path without pins eases its progress",
+        eased.Progress(0.25f) == 0.25f && eased.NodeTimes().SequenceEqual(new[] { 0.2f, 0.6f })
+        && easedPlain.Progress(0.25f) == 0.15625f && easedPlain.NodeTimes()[0] == 0f && easedPlain.NodeTimes()[3] == 1f);
+    // The pinned path above, eased at either end or neither: the camera's speed and turn rate just inside its first and last nodes.
+    PathSampler Ends(bool easeIn, bool easeOut) => new(new[] { Node(0, 0) with { Time = 0f }, Node(10, 0) with { Time = 2f }, Node(18, 20) with { Time = 5f },
+        Node(26, 0) with { Time = 7f } }, false, 7f, easeIn, easeOut);
+    float Rate(PathSampler path, float seconds, bool turn) => Step(path, seconds / 7f, (seconds + 0.01f) / 7f, turn) / 7f;
+    var stops = Ends(true, true);
+    var runs = Ends(false, false);
+    Check("Ease in and Ease out start and stop a pinned path's camera at its first and last nodes, in speed and in turn",
+        Rate(stops, 0f, false) < 0.1f && Rate(stops, 6.99f, false) < 0.1f && Rate(stops, 6.99f, true) < 0.005f
+        && Rate(runs, 0f, false) > 3f && Rate(runs, 6.99f, false) > 3f);
+    var outOnly = Ends(false, true);
+    Check("Ease out alone leaves the start at speed, and the eased path never runs backward",
+        Rate(outOnly, 0f, false) > 3f && Rate(outOnly, 6.99f, false) < 0.1f
+        && Enumerable.Range(1, 69).All(step => Speed(stops, step * 0.1f) > 0f && Speed(outOnly, step * 0.1f) > 0f));
 }
 
 // A camera path's pinned times as its duration changes, nodes placed at a time, and CameraPaths.json.
