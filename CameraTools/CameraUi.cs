@@ -990,11 +990,9 @@ namespace CameraTools
             int row = RowAt(point);
             if (moved && row >= 0 && dragging == null)
                 selected = row;
-            // The wheel steps the slider under the pointer, and scrolls the list anywhere else in it.
+            // The wheel scrolls the list, even over a slider, so scrolling never changes a value.
             float wheel = Input.mouseScrollDelta.y;
-            if (wheel != 0f && row >= 0 && CurrentRows[row].Row is SliderRow { Usable: true } wheeled)
-                Step(wheeled, wheel > 0f ? 1 : -1);
-            else if (wheel != 0f && live.ShownTab == tab && Contains(live.List, point))
+            if (wheel != 0f && live.ShownTab == tab && Contains(live.List, point))
                 ScrollTo(live, live.Tabs[tab], live.Tabs[tab].Scroll - wheel * Style.WheelStep);
             else if (wheel != 0f && Contains(live.TabClip, point))
                 live.StripScroll -= wheel * Style.WheelStep;
