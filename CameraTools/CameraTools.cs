@@ -28,6 +28,9 @@ namespace CameraTools
         private static bool preCullSeen;
         private static readonly HashSet<string> logged = new();
         private static MelonPreferences_Entry<bool> pauseInFreecam;
+        // What player input was last set to. The game starts with it on, and it is set only when CameraTools' answer
+        // changes, so whatever else switches it is not undone every frame.
+        private static bool playerInput = true;
         // Set while the game is paused because the free camera started, so leaving it resumes only that pause.
         private static bool freecamPaused;
 
@@ -61,17 +64,15 @@ namespace CameraTools
         {
             Gamepad.Poll();
             Controls.Update();
-            if (Controls.OwnerSwitchPressed)
-                SetPadOwner(Controls.Owner == PadOwner.Game ? PadOwner.CameraTools : PadOwner.Game);
-            // A pad that disconnects while CameraTools owns it would leave the game's player input switched off.
-            if (Controls.Owner == PadOwner.CameraTools && !Gamepad.Connected)
-                SetPadOwner(PadOwner.Game);
-            if (Controls.Pressed(CamAction.Inject))
+            // Recording gives you the game, and the toggle that takes it back stops the recording.
+            if (Controls.Pressed(CamAction.ToggleFreecam))
             {
-                if (camera)
-                    LoggerInstance.Msg("Free camera is already injected.");
+                if (!ReplayRecorder.Idle)
+                    ReplayRecorder.Stop();
                 else
-                    InjectFreecam();
+                    SetFreecam(!freecamActive);
+                if (Controls.LastUsed == InputDevice.Pad)
+                    Gamepad.Rumble();
             }
             if (Controls.Pressed(CamAction.SetResolutionTo4K))
             {
@@ -92,10 +93,6 @@ namespace CameraTools
             if (Controls.Pressed(CamAction.ToggleDamage))
             {
                 DamageNumbers = !DamageNumbers;
-            }
-            if (Controls.Pressed(CamAction.ToggleFreecam))
-            {
-                SetFreecam(!freecamActive);
             }
             float speed = Time.timeScale;
             if (Controls.Pressed(CamAction.TogglePause))
@@ -166,6 +163,7 @@ namespace CameraTools
             }
             Lights.Update();
             Posing.Update();
+            SyncPlayerInput();
         }
 
         public override void OnGUI()
@@ -225,11 +223,10 @@ namespace CameraTools
 
         internal void SetFreecam(bool active)
         {
+            if (active && !camera)
+                InjectFreecam();
             if (!camera)
-            {
-                LoggerInstance.Msg("Free camera not found. Please inject it by pressing F9.");
                 return;
-            }
             if (active == freecamActive)
                 return;
             freecamActive = active;
@@ -261,35 +258,21 @@ namespace CameraTools
                 GameCamera.Attach();
         }
 
-        // Taking the pad turns the free camera on; giving it back leaves the free camera where it is, so the
-        // character can be walked through a fixed shot.
-        internal void SetPadOwner(PadOwner owner, bool announce = true)
+        // The game keeps player input while it owns input and no replay plays over the world.
+        private static void SyncPlayerInput()
         {
-            if (owner == PadOwner.CameraTools)
-            {
-                if (!camera)
-                    InjectFreecam();
-                if (camera)
-                    SetFreecam(true);
-            }
-            Controls.Owner = owner;
-            SetPlayerInput(owner == PadOwner.Game, "Controller");
-            if (!announce)
+            bool on = Controls.Owner == InputOwner.Game && ReplayPlayer.State is not PlayState.Playing;
+            if (on == playerInput)
                 return;
-            Gamepad.Rumble();
-            CameraUi.Toast($"Controller: {owner}");
-        }
-
-        internal static void SetPlayerInput(bool on, string why)
-        {
+            playerInput = on;
             try
             {
                 ActorUtils.EnablePlayerInput(on, false);
-                LogOnce($"{why}: EnablePlayerInput({on}, false) succeeded.");
+                LogOnce($"Input: EnablePlayerInput({on}, false) succeeded.");
             }
             catch (Exception e)
             {
-                LogOnce($"{why}: EnablePlayerInput({on}, false) failed: {e.Message}");
+                LogOnce($"Input: EnablePlayerInput({on}, false) failed: {e.Message}");
             }
         }
 

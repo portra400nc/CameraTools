@@ -197,13 +197,9 @@ namespace CameraTools
         public static void Update()
         {
             ReplayHooks.Update();
-            if (Controls.Pressed(CamAction.RecordReplay))
-            {
-                if (ReplayRecorder.Idle)
-                    Record();
-                else
-                    ReplayRecorder.Stop();
-            }
+            // A recording gives the game input, so the free camera's toggle stops it, not this.
+            if (Controls.Pressed(CamAction.RecordReplay) && ReplayRecorder.Idle)
+                Record();
             if (Controls.Pressed(CamAction.PlayReplay))
             {
                 if (ReplayPlayer.Idle || ReplayPlayer.Editing != null)

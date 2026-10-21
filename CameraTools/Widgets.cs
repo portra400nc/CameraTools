@@ -461,7 +461,11 @@ namespace CameraTools
             [KeyCode.Minus] = "-",
             [KeyCode.PageDown] = "Page Down",
             [KeyCode.PageUp] = "Page Up",
+            [KeyCode.LeftShift] = "Shift",
             [KeyCode.RightShift] = "Right Shift",
+            [KeyCode.LeftControl] = "Ctrl",
+            [KeyCode.LeftAlt] = "Alt",
+            [KeyCode.CapsLock] = "Caps Lock",
             [KeyCode.RightAlt] = "Right Alt",
             [KeyCode.UpArrow] = "Up",
             [KeyCode.DownArrow] = "Down",
@@ -592,18 +596,24 @@ namespace CameraTools
                 return GlyphHint(parent, button, label);
             var withBack = binding.Chord & ~PadButtons.Back;
             if (binding.Axis == PadAxis.None && withBack != binding.Chord && HasGlyph(withBack))
-                return Hint(parent, rect => Combo(rect, withBack), label);
+                return Hint(parent, rect => Combo(rect, PadButtons.Back, withBack), label);
+            // Two buttons pressed together, such as L3+R3.
+            var parts = binding.Axis == PadAxis.None
+                ? Enum.GetValues<PadButtons>().Where(part => part != PadButtons.None && (binding.Chord & part) != 0).ToArray()
+                : Array.Empty<PadButtons>();
+            if (parts.Length == 2 && parts.All(HasGlyph))
+                return Hint(parent, rect => Combo(rect, parts[0], parts[1]), label);
             return Hint(parent, null, $"{binding}  {label}");
         }
 
-        private void Combo(Transform parent, PadButtons button)
+        private void Combo(Transform parent, PadButtons first, PadButtons second)
         {
             var combo = Node("Combo", parent);
             combo.sizeDelta = V(0f, Style.HintHeight);
             Flow(combo.gameObject, Style.ComboGap, TextAnchor.MiddleCenter);
-            Glyph(combo, PadButtons.Back);
+            Glyph(combo, first);
             Label(combo, "Plus", "+", Style.ComboSize, Style.Dim, TextAnchor.MiddleCenter).rectTransform.sizeDelta = V(0f, Style.HintHeight);
-            Glyph(combo, button);
+            Glyph(combo, second);
         }
 
         public HintView GlyphHint(Transform parent, PadButtons button, string label) => Hint(parent, rect => Glyph(rect, button), label);

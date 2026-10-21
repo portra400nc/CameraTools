@@ -14,8 +14,8 @@ namespace CameraTools
         public sealed record Recording(RecordSession Session) : RecordState;
     }
 
-    // The free camera, pad owner and pause from before a recording took them, given back when it stops.
-    internal readonly record struct Handoff(bool Freecam, PadOwner Owner, bool Paused);
+    // The free camera and pause from before a recording took them, given back when it stops.
+    internal readonly record struct Handoff(bool Freecam, bool Paused);
 
     // What one recording builds and what it keeps between frames. Path is the number of the path it plays, or null.
     internal sealed class RecordSession
@@ -58,7 +58,7 @@ namespace CameraTools
 
         public static RecordSession Session => (State as RecordState.Recording)?.Session;
 
-        // Closes the panel and records, after the countdown when it is on. You act while recording, so the pad goes to the
+        // Closes the panel and records, after the countdown when it is on. You act while recording, so input goes to the
         // game and the game's camera follows you, unless a path to play flies the free camera.
         public static void Arm()
         {
@@ -73,12 +73,9 @@ namespace CameraTools
             // Playback first, so a frozen world's speed is back before the pause is read.
             ReplayPlayer.Stop(null);
             PathPlayback.Stop(null);
-            var before = new Handoff(CameraTools.freecamActive, Controls.Owner, Time.timeScale == 0f);
+            var before = new Handoff(CameraTools.freecamActive, Time.timeScale == 0f);
             CameraUi.ClosePanel();
-            var mod = Melon<CameraTools>.Instance;
-            mod.SetFreecam(Replays.PlayPath && CameraPaths.CanPlay);
-            if (Controls.Owner == PadOwner.CameraTools)
-                mod.SetPadOwner(PadOwner.Game, announce: false);
+            Melon<CameraTools>.Instance.SetFreecam(Replays.PlayPath && CameraPaths.CanPlay);
             // The free camera may have paused the game, and a path keeps it on.
             if (Time.timeScale == 0f)
                 CameraTools.SetPaused(false);
@@ -93,9 +90,6 @@ namespace CameraTools
 
         public static void Update()
         {
-            // Taking the pad back with L3+R3 stops the recording and keeps the free camera that taking it turns on.
-            if (!Idle && Controls.Owner == PadOwner.CameraTools)
-                Stop(restore: false);
             // Here rather than in the pre-cull callback, so the free camera does not come back in the middle of drawing.
             if (Session is { } session && session.Elapsed > Replays.Limit)
                 Stop();
@@ -151,11 +145,9 @@ namespace CameraTools
                 + $"{(session.Path is int path ? $", with path {path}" : "")}; enemies {(session.Enemies ? "on" : "off")}, effects {(session.Effects ? "on" : "off")}.");
         }
 
-        public static void Stop() => Stop(restore: true);
-
         // Keeps what was recorded as a new replay, unless it is too short to play. A path the recording started stops with it.
-        // restore gives back the free camera and pad as they were before the recording.
-        private static void Stop(bool restore)
+        // The free camera and pause come back as they were before the recording.
+        public static void Stop()
         {
             var state = State;
             State = new RecordState.Idle();
@@ -163,8 +155,7 @@ namespace CameraTools
             ReplayHooks.Watched = null;
             if (state is RecordState.Countdown countdown)
             {
-                if (restore)
-                    Restore(countdown.Before);
+                Restore(countdown.Before);
                 CameraUi.Toast("Recording cancelled");
                 return;
             }
@@ -172,8 +163,7 @@ namespace CameraTools
                 return;
             if (session.Path != null && PathPlayback.State is PlaybackState.Playing)
                 PathPlayback.Stop(null);
-            if (restore)
-                Restore(session.Before);
+            Restore(session.Before);
             var replay = session.Replay;
             replay.Duration = session.Elapsed;
             if (replay.Duration < MinDuration)
@@ -199,10 +189,7 @@ namespace CameraTools
 
         private static void Restore(Handoff before)
         {
-            var mod = Melon<CameraTools>.Instance;
-            if (before.Owner == PadOwner.CameraTools && Controls.Owner != PadOwner.CameraTools)
-                mod.SetPadOwner(PadOwner.CameraTools, announce: false);
-            mod.SetFreecam(before.Freecam);
+            Melon<CameraTools>.Instance.SetFreecam(before.Freecam);
             if (before.Paused && Time.timeScale != 0f)
                 CameraTools.SetPaused(true);
         }

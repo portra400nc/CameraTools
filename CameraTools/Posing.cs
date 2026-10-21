@@ -347,7 +347,7 @@ namespace CameraTools
                 return;
             var now = Gamepad.Current;
             var before = Gamepad.Previous;
-            bool pad = Controls.Owner == PadOwner.CameraTools;
+            bool pad = Controls.Owner == InputOwner.CameraTools;
             bool Pressed(PadBinding binding, KeyCode key) => pad && binding.Pressed(now, before) || Input.GetKeyDown(key);
             if (Pressed(PadA, KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
             {

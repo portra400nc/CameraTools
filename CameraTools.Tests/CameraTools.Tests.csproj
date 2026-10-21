@@ -29,6 +29,7 @@
     <Compile Include="../CameraTools/Exposure.cs" Link="Exposure.cs" />
     <Compile Include="../CameraTools/ReplayModel.cs" Link="ReplayModel.cs" />
     <Compile Include="../CameraTools/SupersamplingModel.cs" Link="SupersamplingModel.cs" />
+    <Compile Include="../CameraTools/ControlsModel.cs" Link="ControlsModel.cs" />
     <Compile Include="../Enhancements/csharp/Enhancements.cs" Link="Enhancements.cs" />
   </ItemGroup>
   <ItemGroup>
@@ -36,6 +37,7 @@
     <Reference Include="$(MelonLoaderNet6)\Il2CppInterop.Runtime.dll" Private="false" />
     <Reference Include="$(MelonLoaderNet6)\Il2CppInterop.Common.dll" Private="false" />
     <Reference Include="$(Il2CppAssemblies)\Il2Cppmscorlib.dll" Private="false" />
-    <Reference Include="$(Il2CppAssemblies)\UnityEngine.CoreModule.dll" Private="false" />
+    <!-- Copied, because the bindings' tests use its KeyCode enum. -->
+    <Reference Include="$(Il2CppAssemblies)\UnityEngine.CoreModule.dll" Private="true" />
   </ItemGroup>
 </Project>

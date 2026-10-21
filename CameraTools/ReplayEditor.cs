@@ -82,7 +82,7 @@ namespace CameraTools
                 editing.Look = false;
             var now = Gamepad.Current;
             var before = Gamepad.Previous;
-            bool pad = Controls.Owner == PadOwner.CameraTools;
+            bool pad = Controls.Owner == InputOwner.CameraTools;
             bool shift = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
             bool Pressed(PadBinding binding, KeyCode key = KeyCode.None) => pad && binding.Pressed(now, before) || key != KeyCode.None && Input.GetKeyDown(key);
 

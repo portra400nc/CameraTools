@@ -103,7 +103,6 @@ namespace CameraTools
                 restore = Time.timeScale;
                 Time.timeScale = 0f;
             }
-            CameraTools.SetPlayerInput(false, "Replays");
             foreach (var replay in replays)
             {
                 var dissolving = replay.Tracks.Where(track => track.Kind is TrackKind.Character or TrackKind.Monster && track.Materials != null).ToList();
@@ -135,7 +134,6 @@ namespace CameraTools
             }
             if (playing.RestoreScale is float scale)
                 Time.timeScale = scale;
-            CameraTools.SetPlayerInput(Controls.Owner == PadOwner.Game, "Replays");
             written.Clear();
             if (message != null)
                 CameraUi.Toast(message);

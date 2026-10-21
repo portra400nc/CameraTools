@@ -286,7 +286,7 @@ namespace CameraTools
 
         // Back with the right stick moves the focus point, so the camera does not also turn. A binding is a chord of
         // buttons or one stick direction and never both, so the pad is read here, as the panel's navigation reads it.
-        public static bool Steering => Marked && CameraUi.View == View.Hud && Controls.Owner == PadOwner.CameraTools
+        public static bool Steering => Marked && CameraUi.View == View.Hud && Controls.Owner == InputOwner.CameraTools
             && (Gamepad.Current.Buttons & PadButtons.Back) != 0;
 
         // The focus plane's paint is on, or may be: a set has not read back yet, or ReShade has only just loaded its

@@ -2,7 +2,8 @@
 // the add-on (CameraTools/EnhancementsModel.cs), the presets' decisions (CameraTools/GraphicsModel.cs), and the
 // Enhancements binding's layout against Enhancements/enhancements.h's literal sizes, and the camera path's motion
 // (CameraTools/PathSampler.cs), the long exposure's settings (CameraTools/Exposure.cs), and a replay's timeline and
-// words (CameraTools/ReplayModel.cs), and where a supersampled screenshot's samples fall (CameraTools/SupersamplingModel.cs). No game, no ReShade, no add-on: run with dotnet run.
+// words (CameraTools/ReplayModel.cs), and where a supersampled screenshot's samples fall (CameraTools/SupersamplingModel.cs), and the default bindings and
+// their migration (CameraTools/ControlsModel.cs). No game, no ReShade, no add-on: run with dotnet run.
 using System.Runtime.InteropServices;
 using CameraTools;
 using CameraToolsEnhancements;
@@ -633,6 +634,22 @@ var supersamples = Enumerable.Range(0, 32).Select(SupersamplingPattern.Offset).T
 Check("32 supersampling offsets stay inside the pixel, differ, and average within a 32nd of a pixel of its centre",
     supersamples.All(o => o.X >= -0.5f && o.X < 0.5f && o.Y >= -0.5f && o.Y < 0.5f) && supersamples.Distinct().Count() == 32
     && MathF.Abs(supersamples.Average(o => o.X)) < 1f / 32 && MathF.Abs(supersamples.Average(o => o.Y)) < 1f / 32);
+
+// The default bindings.
+Check("a file from before layout 2 moves to WASD, Tab, Z, X, H and the pad's L3+R3 toggle",
+    ControlsModel.Migrate(CamAction.Forward, UnityEngine.KeyCode.I, "LeftStickUp", 1) == (UnityEngine.KeyCode.W, "LeftStickUp")
+    && ControlsModel.Migrate(CamAction.ToggleGUI, UnityEngine.KeyCode.F10, "Start", 1) == (UnityEngine.KeyCode.Tab, "Start")
+    && ControlsModel.Migrate(CamAction.TogglePause, UnityEngine.KeyCode.Delete, "X", 1) == (UnityEngine.KeyCode.Z, "X")
+    && ControlsModel.Migrate(CamAction.ToggleHUD, UnityEngine.KeyCode.PageDown, "B", 1) == (UnityEngine.KeyCode.H, "B")
+    && ControlsModel.Migrate(CamAction.ToggleFreecam, UnityEngine.KeyCode.Insert, "a", 1) == (UnityEngine.KeyCode.Insert, "L3+R3"));
+Check("a binding the user changed stays, and a file already at layout 2 is left alone",
+    ControlsModel.Migrate(CamAction.Forward, UnityEngine.KeyCode.UpArrow, "RightStickUp", 1) == (UnityEngine.KeyCode.UpArrow, "RightStickUp")
+    && ControlsModel.Migrate(CamAction.Forward, UnityEngine.KeyCode.I, "LeftStickUp", 2) == (UnityEngine.KeyCode.I, "LeftStickUp")
+    && ControlsModel.Migrate(CamAction.ToggleSpeedTo5, UnityEngine.KeyCode.CapsLock, "Back+Y", 1) == (UnityEngine.KeyCode.CapsLock, "Back+Y"));
+var defaultKeys = ControlsModel.Defaults.Where(row => row.Key != UnityEngine.KeyCode.None).Select(row => row.Key).ToList();
+var defaultPads = ControlsModel.Defaults.Where(row => row.Pad != "").Select(row => row.Pad).ToList();
+Check("no two actions share a default key or controller binding",
+    defaultKeys.Distinct().Count() == defaultKeys.Count && defaultPads.Distinct().Count() == defaultPads.Count);
 
 Console.WriteLine($"CameraTools tests: {failures} failed");
 return failures == 0 ? 0 : 1;

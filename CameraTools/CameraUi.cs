@@ -443,9 +443,8 @@ namespace CameraTools
             target.PlayFillImage = Picture(target.PlayRail, "Fill", Shapes.Bar, Style.Cream);
             target.PlayFill = target.PlayFillImage.rectTransform;
             Place(target.PlayFill, V(0f, 0.5f), V(0f, 0.5f), V(0f, 0.5f), V(0f, 0f), V(0f, Style.RailHeight));
-            target.PlayStops = new[] { CamAction.PlayPath, CamAction.RecordReplay, CamAction.PlayReplay }
+            target.PlayStops = new[] { CamAction.PlayPath, CamAction.ToggleFreecam, CamAction.PlayReplay }
                 .Select(action => (action, BuildLegend(ui, bar, new Hint(action, "Stop")))).ToArray();
-            target.PlayTakeBack = ui.PadHint(bar, Controls.OwnerSwitchBinding, "Stop");
         }
 
         // Edit replay's timeline along the bottom, as in the mockup: the replay's line and the path's, a rail with the
@@ -681,7 +680,7 @@ namespace CameraTools
                 return;
             }
             seeking = false;
-            bool padOwned = Controls.Owner == PadOwner.CameraTools;
+            bool padOwned = Controls.Owner == InputOwner.CameraTools;
             if (Controls.Pressed(CamAction.ToggleGUI)
                 || panelOpen && padOwned && Controls.Binding(CamAction.ToggleGUI).Pad.Pressed(Gamepad.Current, Gamepad.Previous))
             {
@@ -738,7 +737,7 @@ namespace CameraTools
             openedOn = Time.frameCount;
         }
 
-        // The panel reads the pad with fixed buttons, like the L3+R3 switch, so rebinding camera actions cannot strand it.
+        // The panel reads the pad with fixed buttons, so rebinding camera actions cannot strand it.
         private static void Navigate()
         {
             if (Time.frameCount == openedOn)
@@ -903,8 +902,6 @@ namespace CameraTools
             editing = view;
             view.Buffer = view.Row is TextRow { StartsWithValue: { } start } ? start() ?? "" : "";
             Controls.TextCapture = true;
-            // The game reads the keyboard under the free camera too, and 1 to 4 would switch party members.
-            CameraTools.SetPlayerInput(false, "Typing");
         }
 
         private static void StopEditing()
@@ -914,7 +911,6 @@ namespace CameraTools
             editing.Buffer = null;
             editing = null;
             Controls.TextCapture = false;
-            CameraTools.SetPlayerInput(Controls.Owner == PadOwner.Game, "Typing");
         }
 
         private static void Type()
@@ -1315,7 +1311,7 @@ namespace CameraTools
         private static Bar CurrentBar()
         {
             if (ReplayRecorder.Session is { } recording)
-                return new Bar(recording, CamAction.RecordReplay, true, ReplayText.Recording(recording.Elapsed, Replays.PathLabel(recording.Path)),
+                return new Bar(recording, CamAction.ToggleFreecam, true, ReplayText.Recording(recording.Elapsed, Replays.PathLabel(recording.Path)),
                     ReplayText.Recording(Replays.Limit, Replays.PathLabel(recording.Path)), recording.Elapsed / Replays.Limit, Array.Empty<float>);
             if (PathPlayback.State is PlaybackState.Playing playing)
                 return new Bar(playing.Sampler, CamAction.PlayPath, false, PlayText(playing.Number, playing.Clock, playing.Shown),
@@ -1355,7 +1351,7 @@ namespace CameraTools
                 live.PlayFillImage.color = bar.Recording ? Style.Recording : Style.Cream;
                 live.PlayText = null;
             }
-            // While recording the game owns the pad, which stops a recording with the L3+R3 switch that takes it back.
+            // While recording the game owns input, and the free camera's toggle that takes it back stops the recording.
             var layout = bar.Recording ? Controls.LastUsed : live.Layout;
             var stop = (bar.Stop, layout);
             if (live.PlayStopShown != stop)
@@ -1364,10 +1360,9 @@ namespace CameraTools
                 bool pad = layout == InputDevice.Pad;
                 foreach (var (action, legend) in live.PlayStops)
                 {
-                    legend.Pad.Root.SetActive(action == bar.Stop && pad && legend.HasPad && !bar.Recording);
+                    legend.Pad.Root.SetActive(action == bar.Stop && pad && legend.HasPad);
                     legend.Key.Root.SetActive(action == bar.Stop && !pad && legend.HasKey);
                 }
-                live.PlayTakeBack.Root.SetActive(bar.Recording && pad);
             }
             if (bar.Text != live.PlayText)
             {
@@ -1731,7 +1726,6 @@ namespace CameraTools
             public object PlayShown;
             public (CamAction, InputDevice?)? PlayStopShown;
             public (CamAction Action, Legend Legend)[] PlayStops;
-            public HintView PlayTakeBack;
             public string PlayText;
             public GameObject HudBottom;
             public Fader Timeline;
