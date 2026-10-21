@@ -347,6 +347,9 @@ namespace CameraTools
                 uint generation = CameraToolsEnhancements.Enhancements.Status.AccumGeneration + 1;
                 string hold = Supersampling.Hold();
                 Supersampling.Accumulate(CameraToolsEnhancements.EnhancementsAccumulateMode.Add, generation);
+                // ReShade's effects draw on the finished frame, after the add-on's sum, so the samples need none of them;
+                // with RTGI on, they cost most of each 4K frame on the Deck (build 263: 64 frames in 40 s).
+                ReShade.SetEffects(false);
                 Melon<CameraTools>.Logger.Msg($"Screenshot: settled {now - settling.Started:0.0} s after the button; {hold}; "
                     + $"{Supersampling.Samples} samples for generation {generation}; window {Window}; {bridge}.");
                 State = new ShotState.Sampling(settling.Before, settling.Resized, settling.Started, now, generation, Supersampling.Samples, -1, 0);
@@ -417,6 +420,7 @@ namespace CameraTools
             {
                 Supersampling.Centre();
                 Supersampling.Accumulate(CameraToolsEnhancements.EnhancementsAccumulateMode.Present, sampling.Generation);
+                ReShade.SetEffects(true);
                 Melon<CameraTools>.Logger.Msg($"Screenshot: {sampling.Count} samples shown in {now - sampling.Since:0.0} s.");
                 State = new ShotState.Presenting(sampling.Before, sampling.Resized, sampling.Started, now, sampling.Generation, ReShade.Status.Presents);
                 return;
@@ -430,8 +434,11 @@ namespace CameraTools
             float now = Time.unscaledTime;
             var status = CameraToolsEnhancements.Enhancements.Status;
             var bridge = ReShade.Status;
+            // The effects came back on for the average, and RTGI's history and the depth of field's autofocus build up again
+            // from then: as long as the settle, and the autofocus's own time.
+            bool effectsSettled = focusing is float since && now - since >= Math.Max(SettleSeconds, DepthOfField.FocusSeconds);
             if (status.AccumMode == CameraToolsEnhancements.EnhancementsAccumulateMode.Present && status.AccumGeneration == presenting.Generation
-                && bridge.Presents >= presenting.Presents + PresentFrames)
+                && bridge.Presents >= presenting.Presents + PresentFrames && effectsSettled)
             {
                 if (status.AccumSamples == 0)
                 {
@@ -445,9 +452,13 @@ namespace CameraTools
                 State = new ShotState.Saving(presenting.Before, presenting.Resized, presenting.Started, now, bridge.Screenshots);
                 return;
             }
-            if (now - presenting.Since >= SampleTimeout)
-                Finish(presenting, "Screenshot failed: the Enhancements add-on did not show the average",
-                    $"the add-on did not show the average within {SampleTimeout:0} s; {CameraToolsEnhancements.Enhancements.Describe()}; {bridge}");
+            float timeout = SampleTimeout + Math.Max(SettleSeconds, DepthOfField.FocusSeconds);
+            if (now - presenting.Since < timeout)
+                return;
+            string waited = status.AccumMode != CameraToolsEnhancements.EnhancementsAccumulateMode.Present || status.AccumGeneration != presenting.Generation
+                ? "the Enhancements add-on to show the average" : "ReShade's effects to settle";
+            Finish(presenting, $"Screenshot failed: timed out waiting for {waited}",
+                $"timed out after {timeout:0} s waiting for {waited}; {CameraToolsEnhancements.Enhancements.Describe()}; {bridge}");
         }
 
         private static void Save(ShotState.Saving saving)
