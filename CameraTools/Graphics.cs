@@ -135,6 +135,9 @@ namespace CameraTools
         private static bool worldLogged;
         private static (float At, string When)? pendingLog;
         private static (float At, ScreenSize Wanted, bool Refreshed, bool Quiet)? pendingSize;
+        // The anti-aliasing option to put back once the game has drawn with it off after a size change.
+        private static (float At, int Index)? pendingAntiAliasing;
+        private const float AntiAliasingOffSeconds = 0.2f;
 
         // The unscaled time CameraTools last changed a game setting or the window size, or applied the render resolution
         // again after a size change.
@@ -222,6 +225,13 @@ namespace CameraTools
                 {
                     pendingSize = null;
                     CheckSize(wanted, refreshed, quiet);
+                }
+                if (pendingAntiAliasing is var (aaAt, aaIndex) && now >= aaAt)
+                {
+                    pendingAntiAliasing = null;
+                    GameSettings.Set(SettingKey.AntiAliasing, aaIndex);
+                    Changed = now;
+                    Melon<CameraTools>.Logger.Msg($"Graphics: anti-aliasing back to option {aaIndex} after the size change.");
                 }
             }
             catch (Exception e)
@@ -508,6 +518,11 @@ namespace CameraTools
             GameSettings.Reapply(SettingKey.RenderResolution);
             if (Layer() is { } found)
                 found.RefreshInnerResolution();
+            // Anti-aliasing chosen before a size change had no effect at the new size until the option changed again (4K
+            // screenshots on the Deck), so it goes off for a few frames and comes back.
+            if (pendingAntiAliasing == null && GameSettings.Get(SettingKey.AntiAliasing) is int antiAliasing and > 0
+                && GameSettings.Set(SettingKey.AntiAliasing, 0))
+                pendingAntiAliasing = (Time.unscaledTime + AntiAliasingOffSeconds, antiAliasing);
             Changed = Time.unscaledTime;
             pendingSize = (Changed + 1f, wanted, true, quiet);
         }
