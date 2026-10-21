@@ -9,6 +9,7 @@ ReShade effects turns all of ReShade's effects on or off. Turn it on to see the 
 These rows control one of two depth of field shaders:
 
 - [Otis_Inf's Cinematic DOF](https://github.com/FransBouma/OtisFX), `CinematicDOF.fx` (free)
+  - Use [my fork](https://github.com/portra400nc/OtisFX) if you want tilt-shift effect.
 - [iMMERSE Depth of Field](https://www.martysmods.com/physical-depth-of-field/), `MartysMods_DEPTHOFFIELD.fx` (paid)
 
 At least one of them must be installed in ReShade. While ReShade compiles its effects, or if neither shader is loaded, the rows are dimmed and the section header says why. CameraTools finds a shader by its technique, so with ReShade's "Load only enabled effects" option on, a shader has to be enabled in the preset to be found.
@@ -20,16 +21,18 @@ With both installed, the Shader row picks the one the rows drive, and only that 
 | Shader | iMMERSE or Cinematic DOF. Shown only while both are installed. |
 | Depth of field | Turns the shader on or off |
 | Focus mode | Focus point focuses on what is under the focus point. Manual distance focuses at the Focus distance. |
-| Focus distance | The distance that is in focus, from 0.002 at the camera to 1 at infinity. For a second after you change it, iMMERSE paints the plane that is in focus over the picture, and Cinematic DOF shows its blur instead of the picture: blue where it is in focus, red in front and grey behind. Manual distance only. |
+| Focus distance | The distance that is in focus, from 0.002 at the camera to 1 at infinity. For a second after you change it, iMMERSE paints the plane that is in focus over the picture, and Cinematic DOF shows its blur instead of the picture: blue where it is in focus, red in front and grey behind. Tilt changes show it too. Manual distance only. |
 | Aperture | f/0.95 to f/22 in third-stops. A lower number blurs more. |
 | Focal length | 10 to 350 mm on a full-frame camera. A longer lens blurs more. |
 | Link focal length to field of view | Keeps Focal length and the free camera's field of view in step, so the blur matches the lens that the field of view stands for. Zooming changes the focal length, and the Focal length row zooms. |
 | Show focus point | Draws the focus point on the picture. While it is off, the stick and the click do not move the point, and the focus stays where it was. The X and Y rows still move it. |
-| Focus point X, Focus point Y | Where the focus point is, from -1 at the left and the top to 1 at the right and the bottom. Focus point only. |
+| Focus point X, Focus point Y | Where the focus point is, from -1 at the left and the top to 1 at the right and the bottom. Focus point only, or Manual distance while Tilt is on. |
+| Tilt | Tilts the plane in focus like a tilt-shift lens, from -15° to 15°, off at 0. Positive keeps the ground sharp from near to far, negative gives the miniature look. The plane turns around the focus point. Far away, half a degree is already strong. Cinematic DOF only. |
+| Tilt direction | Turns the sharp band, from -90° to 90°. 0 is level, 90 and -90 are upright. Cinematic DOF only. |
 | Tangential scale, Sagittal scale | Stretch each bokeh disc around the picture's centre or toward it. Tangential gives the swirly look of Petzval lenses. 0 leaves the discs round. iMMERSE only. |
 | Anamorphic ratio | Squeezes the bokeh into the tall ovals of anamorphic lenses. 1 is off. |
 
-In Focus point mode, CameraTools draws the focus point on the screen while the depth of field is on, also while ReShade effects is off: four corner brackets around the square that the shader measures the distance in, and a cross at its middle. Cinematic DOF measures the one pixel under the cross, so its square is small. Hide UI hides it, and it is never in a screenshot. Move it in one of these ways:
+In Focus point mode, and in Manual distance while Tilt is on, CameraTools draws the focus point on the screen while the depth of field is on, also while ReShade effects is off: four corner brackets around the square that the shader measures the distance in, and a cross at its middle. Cinematic DOF measures the one pixel under the cross, so its square is small. Hide UI hides it, and it is never in a screenshot. Move it in one of these ways:
 
 - Hold Back and move the right stick. Back+R3 puts it back in the middle. The camera does not turn while Back is held.
 - Free the cursor with Quote ('), close the panel, and click where to focus.
