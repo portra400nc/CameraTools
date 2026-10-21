@@ -6,28 +6,36 @@ ReShade effects turns all of ReShade's effects on or off. Turn it on to see the 
 
 ## Depth of field
 
-These rows control iMMERSE's depth of field shader, `MartysMods_DEPTHOFFIELD.fx`. The shader must be installed in ReShade. While ReShade compiles its effects, or if the shader is missing, the rows are dimmed and the section header says why.
+These rows control one of two depth of field shaders:
+
+- [Otis_Inf's Cinematic DOF](https://github.com/FransBouma/OtisFX), `CinematicDOF.fx` (free)
+- [iMMERSE Depth of Field](https://www.martysmods.com/physical-depth-of-field/), `MartysMods_DEPTHOFFIELD.fx` (paid)
+
+At least one of them must be installed in ReShade. While ReShade compiles its effects, or if neither shader is loaded, the rows are dimmed and the section header says why. CameraTools finds a shader by its technique, so with ReShade's "Load only enabled effects" option on, a shader has to be enabled in the preset to be found.
+
+With both installed, the Shader row picks the one the rows drive, and only that one renders. Picking the other while the depth of field is on switches it on and the first one off. If both are switched on in ReShade's overlay, CameraTools switches off the one that is not picked. With one installed, the Shader row is hidden.
 
 | Row | What it does |
 |--|--|
+| Shader | iMMERSE or Cinematic DOF. Shown only while both are installed. |
 | Depth of field | Turns the shader on or off |
 | Focus mode | Focus point focuses on what is under the focus point. Manual distance focuses at the Focus distance. |
-| Focus distance | The distance that is in focus, from 0.002 at the camera to 1 at infinity. For a second after you change it, the shader paints the plane that is in focus over the picture. Manual distance only. |
+| Focus distance | The distance that is in focus, from 0.002 at the camera to 1 at infinity. For a second after you change it, iMMERSE paints the plane that is in focus over the picture, and Cinematic DOF shows its blur instead of the picture: blue where it is in focus, red in front and grey behind. Manual distance only. |
 | Aperture | f/0.95 to f/22 in third-stops. A lower number blurs more. |
 | Focal length | 10 to 350 mm on a full-frame camera. A longer lens blurs more. |
 | Link focal length to field of view | Keeps Focal length and the free camera's field of view in step, so the blur matches the lens that the field of view stands for. Zooming changes the focal length, and the Focal length row zooms. |
 | Show focus point | Draws the focus point on the picture. While it is off, the stick and the click do not move the point, and the focus stays where it was. The X and Y rows still move it. |
 | Focus point X, Focus point Y | Where the focus point is, from -1 at the left and the top to 1 at the right and the bottom. Focus point only. |
-| Tangential scale, Sagittal scale | Stretch each bokeh disc around the picture's centre or toward it. Tangential gives the swirly look of Petzval lenses. 0 leaves the discs round. |
+| Tangential scale, Sagittal scale | Stretch each bokeh disc around the picture's centre or toward it. Tangential gives the swirly look of Petzval lenses. 0 leaves the discs round. iMMERSE only. |
 | Anamorphic ratio | Squeezes the bokeh into the tall ovals of anamorphic lenses. 1 is off. |
 
-In Focus point mode, CameraTools draws the focus point on the screen while the depth of field is on, also while ReShade effects is off: four corner brackets around the square that the shader measures the distance in, and a cross at its middle. Hide UI hides it, and it is never in a screenshot. Move it in one of these ways:
+In Focus point mode, CameraTools draws the focus point on the screen while the depth of field is on, also while ReShade effects is off: four corner brackets around the square that the shader measures the distance in, and a cross at its middle. Cinematic DOF measures the one pixel under the cross, so its square is small. Hide UI hides it, and it is never in a screenshot. Move it in one of these ways:
 
 - Hold Back and move the right stick. Back+R3 puts it back in the middle. The camera does not turn while Back is held.
 - Free the cursor with Quote ('), close the panel, and click where to focus.
 - Change the Focus point X and Focus point Y rows.
 
-The focus point is a position relative to the screen, so it stays on the same part of the picture when the resolution changes.
+The focus point is a position relative to the screen, so it stays on the same part of the picture when the resolution changes. CameraTools keeps Cinematic DOF's mouse-driven auto-focus off, as it would focus on the cursor instead of the focus point.
 
 CameraTools saves your changes to ReShade's current preset: when the panel closes, a second after you last moved the focus point or zoomed with the link on, and before a screenshot. ReShade loads its effects again from the preset whenever the window changes size.
 
@@ -55,7 +63,7 @@ Take screenshot does this:
 1. Closes the panel and hides CameraTools' UI.
 2. Applies the Highest preset, your own if you saved one, and resolution slot 1, and turns ReShade's effects on.
 3. Counts down 3 seconds, if 3-second countdown is on.
-4. Waits until the picture has settled, ReShade has compiled its effects at the new size, and the depth of field has had time to focus. In Focus point mode the shader eases its focus toward the point, in up to 2 seconds depending on its Adjustment Speed setting, and starts over when the resolution changes. The first screenshot at a size can take many seconds.
+4. Waits until the picture has settled, ReShade has compiled its effects at the new size, and the depth of field has had time to focus. In Focus point mode the shader eases its focus toward the point, and starts over when the resolution changes. iMMERSE takes up to 2 seconds, depending on its Adjustment Speed setting. Cinematic DOF moves a share of the way each frame, set by its Auto-focus transition speed, so CameraTools waits as long as that takes at 8 frames per second: about 4 seconds at the default speed. The first screenshot at a size can take many seconds.
 5. With Long exposure on, records for the shutter time.
 6. Saves the screenshot to ReShade's screenshot folder.
 7. Puts the graphics settings, the enhancements and the resolution back as they were, turns ReShade's effects off, opens the panel again, and shows the file's name.
@@ -70,6 +78,7 @@ The `[CameraToolsReShade]` section of `MelonPreferences.cfg` holds:
 | `ScreenshotSettleSeconds` | `2` | The least time, in seconds, between changing the graphics settings and taking the screenshot, from 0 to 30 |
 | `LinkFocalLengthToFov` | `false` | Keep the depth of field's focal length and the free camera's field of view in step. The ReShade tab's switch changes it. |
 | `ShowFocusPoint` | `true` | Draw the focus point on the picture in Focus point mode. The ReShade tab's switch changes it. |
+| `DepthOfFieldShader` | `MartysMods_DEPTHOFFIELD.fx` | The depth of field shader the rows drive while both are installed: `MartysMods_DEPTHOFFIELD.fx` or `CinematicDOF.fx`. The Shader row changes it. |
 | `LongExposure` | `false` | Take screenshot records for the shutter time. The ReShade tab's switch changes it. |
 | `LongExposureShutter` | `8` | The shutter time in seconds, rounded to the nearest full stop from 1/8 s to 120 s |
 | `LongExposureIso` | `100` | 100, 200, 400, 800 or 1600 |
