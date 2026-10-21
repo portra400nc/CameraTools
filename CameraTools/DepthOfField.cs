@@ -5,15 +5,13 @@ using static CameraTools.CameraTools;
 namespace CameraTools
 {
     // The ReShade tab's depth of field rows and the focus point on the free camera's HUD. It is the only class that names
-    // the uniforms of iMMERSE's depth of field shader. Every value is read from the bridge each frame while the free
-    // camera is on, so what the rows show is what ReShade has, also after ReShade loads its effects again.
+    // the uniforms of the depth of field shaders: iMMERSE's, and Otis_Inf's free Cinematic DOF. With both installed the
+    // Shader row picks the one the rows drive, and only that one renders. Every value is read from the bridge each frame
+    // while the free camera is on, so what the rows show is what ReShade has, also after ReShade loads its effects again.
     internal static class DepthOfField
     {
-        private const string Effect = "MartysMods_DEPTHOFFIELD.fx";
         private const int ManualFocus = 0;
         private const int PointFocus = 1;
-        // FOCUS_DEBUG's "Enabled", which paints the plane that is in focus over the picture.
-        private const int Painted = 3;
         private const float PaintSeconds = 1f;
         private const float SaveDelay = 1f;
         private const float FocusMargin = 0.25f;
@@ -23,31 +21,22 @@ namespace CameraTools
         private const float SteerSpeed = 1f;
         // Presents until a set reads back: one applies it, and the next refreshes the bridge's copy if it had not yet.
         private const ulong SetPresents = 2;
+        // Cinematic DOF's autofocus samples the one pixel under the point, so the marker's square only frames it.
+        private const float PixelRange = 0.03f;
+        // Cinematic DOF eases its focus by a fraction per frame, so the wait for it assumes a slow screenshot's frame rate.
+        private const float SlowFrameRate = 8f;
 
         private enum Kind { Technique, Int, Float, Float2 }
 
-        private enum Id { Technique, FocusMode, FocusDepth, FocusDebug, FocusPoint, FocusRange, FocusSpeed, FocalLength, Aperture, Tangential, Sagittal, Anamorph }
+        private enum Id { Technique, FocusMode, FocusDepth, FocusDebug, FocusPoint, FocusRange, FocusSpeed, FocalLength, Aperture, Tangential, Sagittal, Anamorph, MouseFocus }
 
-        // In Id order.
-        private static readonly (Id Id, string Name, Kind Kind)[] Table =
-        {
-            (Id.Technique, "MartysMods_DOF", Kind.Technique),
-            (Id.FocusMode, "FOCUS_MODE", Kind.Int),
-            // The shader squares it.
-            (Id.FocusDepth, "RAW_FOCUS_PLANE_DEPTH", Kind.Float),
-            (Id.FocusDebug, "FOCUS_DEBUG", Kind.Int),
-            (Id.FocusPoint, "AUTOFOCUS_CENTER", Kind.Float2),
-            (Id.FocusRange, "AUTOFOCUS_RANGE", Kind.Float),
-            (Id.FocusSpeed, "AUTOFOCUS_SPEED", Kind.Float),
-            (Id.FocalLength, "FOCAL_LENGTH", Kind.Float),
-            (Id.Aperture, "FSTOPS", Kind.Float),
-            (Id.Tangential, "BOKEH_RATIO_TANGENTIAL", Kind.Float),
-            (Id.Sagittal, "BOKEH_RATIO_SAGITTAL", Kind.Float),
-            (Id.Anamorph, "BOKEH_ANAMORPH_RATIO", Kind.Float),
-        };
+        // How a shader keeps one of the rows' values. The rows use iMMERSE's units, and ToRow and ToShader convert each
+        // component of another shader's value.
+        private sealed record Uniform(string Name, Kind Kind, Func<float, float> ToRow = null, Func<float, float> ToShader = null);
 
-        // A value as the bridge last returned it or CameraTools last set it; a technique is 1 or 0. Known is false while
-        // the bridge cannot read it. Until is the bridge's present count from which a read replaces a value that was set.
+        // A value as the bridge last returned it or CameraTools last set it, in the rows' units; a technique is 1 or 0.
+        // Known is false while the bridge cannot read it. Until is the bridge's present count from which a read replaces a
+        // value that was set.
         private struct Cell
         {
             public bool Known;
@@ -56,9 +45,138 @@ namespace CameraTools
             public ulong Until;
         }
 
-        private static readonly EffectName[] names = Table.Select(row => new EffectName(Effect, row.Name)).ToArray();
-        private static readonly Cell[] cells = new Cell[Table.Length];
-        // Focus mode's options, as FOCUS_MODE values. The shader's own click-to-focus mode is not offered: it keeps the
+        // Uniforms is indexed by Id and holds null for a value the shader does not have. Painted is the debug value that
+        // paints the plane in focus over the picture. FocusSeconds is how long the autofocus takes at a speed, and
+        // DefaultSpeed the speed to assume while it cannot be read.
+        private sealed class Shader
+        {
+            public readonly string Label;
+            public readonly string File;
+            public readonly Uniform[] Uniforms;
+            public readonly int Painted;
+            public readonly Func<float, float> FocusSeconds;
+            public readonly float DefaultSpeed;
+            public readonly EffectName[] Names;
+            public readonly Cell[] Cells;
+
+            public Shader(string label, string file, int painted, Func<float, float> focusSeconds, float defaultSpeed, params (Id Id, Uniform Uniform)[] uniforms)
+            {
+                Label = label;
+                File = file;
+                Painted = painted;
+                FocusSeconds = focusSeconds;
+                DefaultSpeed = defaultSpeed;
+                Uniforms = new Uniform[Enum.GetValues<Id>().Length];
+                foreach (var (id, uniform) in uniforms)
+                    Uniforms[(int)id] = uniform;
+                Names = Uniforms.Select(uniform => uniform == null ? null : new EffectName(file, uniform.Name)).ToArray();
+                Cells = new Cell[Uniforms.Length];
+            }
+
+            public bool Offers(Id id) => Uniforms[(int)id] != null;
+
+            public bool Known(Id id) => Cells[(int)id].Known;
+
+            public float Value(Id id) => Cells[(int)id].X;
+
+            public bool On => Known(Id.Technique) && Value(Id.Technique) != 0f;
+
+            public void Read(int index)
+            {
+                ref var cell = ref Cells[index];
+                var uniform = Uniforms[index];
+                if (uniform == null || presents < cell.Until)
+                    return;
+                var name = Names[index];
+                float x, y = 0f;
+                switch (uniform.Kind)
+                {
+                    case Kind.Technique:
+                        cell.Known = ReShade.TryGetTechnique(name, out bool enabled);
+                        x = enabled ? 1f : 0f;
+                        break;
+                    case Kind.Int:
+                        cell.Known = ReShade.TryGetInt(name, out int value);
+                        x = value;
+                        break;
+                    case Kind.Float2:
+                        cell.Known = ReShade.TryGetFloat(name, out x, out y, 2);
+                        break;
+                    default:
+                        cell.Known = ReShade.TryGetFloat(name, out x, out y);
+                        break;
+                }
+                if (!cell.Known)
+                    return;
+                cell.X = uniform.ToRow?.Invoke(x) ?? x;
+                cell.Y = uniform.ToRow?.Invoke(y) ?? y;
+            }
+
+            // The bridge applies a set at ReShade's next present, so the value is kept here until it reads back.
+            // Otherwise a row would show the old value for a frame, and a held D-pad would step from it.
+            public void Write(Id id, float x, float y = 0f)
+            {
+                var uniform = Uniforms[(int)id];
+                var name = Names[(int)id];
+                float shaderX = uniform.ToShader?.Invoke(x) ?? x, shaderY = uniform.ToShader?.Invoke(y) ?? y;
+                switch (uniform.Kind)
+                {
+                    case Kind.Technique:
+                        ReShade.SetTechnique(name, x != 0f);
+                        break;
+                    case Kind.Int:
+                        ReShade.SetInt(name, (int)shaderX);
+                        break;
+                    case Kind.Float2:
+                        ReShade.SetFloat(name, shaderX, shaderY, 2);
+                        break;
+                    default:
+                        ReShade.SetFloat(name, shaderX);
+                        break;
+                }
+                Cells[(int)id] = new Cell { Known = true, X = x, Y = y, Until = presents + SetPresents };
+            }
+        }
+
+        // The autofocus eases toward the distance under the focus point and covers 99% of the way in 2 - 2 *
+        // AUTOFOCUS_SPEED seconds, starting from nothing each time ReShade loads its effects again. Half as long again
+        // covers the rest. FOCUS_DEBUG's 3, "Enabled", paints the plane in focus. The shader squares the focus depth.
+        private static readonly Shader Immerse = new("iMMERSE", "MartysMods_DEPTHOFFIELD.fx", 3,
+            speed => (2f - 2f * Math.Clamp(speed, 0f, 1f)) * 1.5f, 0f,
+            (Id.Technique, new("MartysMods_DOF", Kind.Technique)),
+            (Id.FocusMode, new("FOCUS_MODE", Kind.Int)),
+            (Id.FocusDepth, new("RAW_FOCUS_PLANE_DEPTH", Kind.Float)),
+            (Id.FocusDebug, new("FOCUS_DEBUG", Kind.Int)),
+            (Id.FocusPoint, new("AUTOFOCUS_CENTER", Kind.Float2)),
+            (Id.FocusRange, new("AUTOFOCUS_RANGE", Kind.Float)),
+            (Id.FocusSpeed, new("AUTOFOCUS_SPEED", Kind.Float)),
+            (Id.FocalLength, new("FOCAL_LENGTH", Kind.Float)),
+            (Id.Aperture, new("FSTOPS", Kind.Float)),
+            (Id.Tangential, new("BOKEH_RATIO_TANGENTIAL", Kind.Float)),
+            (Id.Sagittal, new("BOKEH_RATIO_SAGITTAL", Kind.Float)),
+            (Id.Anamorph, new("BOKEH_ANAMORPH_RATIO", Kind.Float)));
+
+        // The autofocus moves AutoFocusTransitionSpeed of the way each frame. Its manual focus plane is the linear depth
+        // times 1000, its point runs from 0 to 1, and its anamorphic factor is 1 over iMMERSE's ratio. Its booleans read
+        // and set as 0 and 1. ShowCoCValues paints the plane in focus blue, and the blur grey behind it and red in front. The shader's own
+        // overlay needs the left mouse button held, which the bridge cannot set. Its mouse-driven autofocus would ignore
+        // the focus point, so it is kept off.
+        private static readonly Shader Cinematic = new("Cinematic DOF", "CinematicDOF.fx", 1,
+            speed => speed >= 1f ? 0f : MathF.Log(0.01f) / MathF.Log(1f - Math.Clamp(speed, 0.001f, 1f)) / SlowFrameRate * 1.5f, 0.2f,
+            (Id.Technique, new("CinematicDOF", Kind.Technique)),
+            (Id.FocusMode, new("UseAutoFocus", Kind.Int)),
+            (Id.FocusDepth, new("ManualFocusPlane", Kind.Float, depth => MathF.Sqrt(Math.Max(depth, 0f) / 1000f), raw => raw * raw * 1000f)),
+            (Id.FocusDebug, new("ShowCoCValues", Kind.Int)),
+            (Id.FocusPoint, new("AutoFocusPoint", Kind.Float2, point => point * 2f - 1f, point => point * 0.5f + 0.5f)),
+            (Id.FocusSpeed, new("AutoFocusTransitionSpeed", Kind.Float)),
+            (Id.FocalLength, new("FocalLength", Kind.Float)),
+            (Id.Aperture, new("FNumber", Kind.Float)),
+            (Id.Anamorph, new("HighlightAnamorphicFactor", Kind.Float, factor => 1f / Math.Max(factor, 0.01f), ratio => 1f / ratio)),
+            (Id.MouseFocus, new("UseMouseDrivenAutoFocus", Kind.Int)));
+
+        private static readonly Shader[] Shaders = { Immerse, Cinematic };
+        private static readonly string[] ShaderLabels = Shaders.Select(shader => shader.Label).ToArray();
+        // Focus mode's options, as FOCUS_MODE values. iMMERSE's own click-to-focus mode is not offered: it keeps the
         // clicked point in a texture that a resize recreates, where the focus point is a uniform that the preset saves.
         private static readonly int[] Modes = { PointFocus, ManualFocus };
         private static readonly string[] ModeLabels = { "Focus point", "Manual distance" };
@@ -66,6 +184,7 @@ namespace CameraTools
 
         private static MelonPreferences_Entry<bool> link;
         private static MelonPreferences_Entry<bool> marker;
+        private static MelonPreferences_Entry<string> choice;
         private static ulong presents;
         private static bool ready;
         // The present count from which the values are ReShade's again after it loaded its effects.
@@ -81,6 +200,10 @@ namespace CameraTools
         public static readonly Row[] Rows =
         {
             new Section("Depth of field", () => Problem),
+            new ChoiceRow("Shader", ShaderLabels, () => Array.IndexOf(Shaders, Current), position => Choose(Shaders[position]), null)
+            {
+                Shown = () => Immerse.Known(Id.Technique) && Cinematic.Known(Id.Technique),
+            },
             new ToggleRow("Depth of field", () => Value(Id.Technique) != 0f, on => Change(Id.Technique, on ? 1f : 0f), Has(Id.Technique)),
             new ChoiceRow("Focus mode", ModeLabels, () => Known(Id.FocusMode) ? Array.IndexOf(Modes, Mode) : -1,
                 position => Change(Id.FocusMode, Modes[position]), null, Has(Id.FocusMode)),
@@ -93,8 +216,8 @@ namespace CameraTools
             new ToggleRow("Link focal length to field of view", () => Linked, on => Linked = on),
             new ToggleRow("Show focus point", () => ShowMarker, on => ShowMarker = on),
             new SliderRow("Focus point X", -1f, 1f, 0.02f, "0.00", () => Value(Id.FocusPoint),
-                x => Change(Id.FocusPoint, x, cells[(int)Id.FocusPoint].Y), Enabled: () => Aiming),
-            new SliderRow("Focus point Y", -1f, 1f, 0.02f, "0.00", () => cells[(int)Id.FocusPoint].Y,
+                x => Change(Id.FocusPoint, x, Current.Cells[(int)Id.FocusPoint].Y), Enabled: () => Aiming),
+            new SliderRow("Focus point Y", -1f, 1f, 0.02f, "0.00", () => Current.Cells[(int)Id.FocusPoint].Y,
                 y => Change(Id.FocusPoint, Value(Id.FocusPoint), y), Enabled: () => Aiming),
             new Section("Bokeh shape"),
             Shape("Tangential scale", Id.Tangential, -3f, 3f),
@@ -122,8 +245,23 @@ namespace CameraTools
             }
         }
 
+        // The shader the rows drive. With both installed, it is the one that is on, and otherwise the one last chosen.
+        private static Shader Current
+        {
+            get
+            {
+                if (!Cinematic.Known(Id.Technique))
+                    return Immerse;
+                if (!Immerse.Known(Id.Technique) || Cinematic.On && !Immerse.On)
+                    return Cinematic;
+                return Immerse.On && !Cinematic.On || choice.Value != Cinematic.File ? Immerse : Cinematic;
+            }
+        }
+
         // The focus point decides the focus: the autofocus mode with its point readable.
-        private static bool Aiming => Known(Id.FocusPoint) && Known(Id.FocusRange) && Mode == PointFocus;
+        private static bool Aiming => Known(Id.FocusPoint) && (!Current.Offers(Id.FocusRange) || Known(Id.FocusRange)) && Mode == PointFocus;
+
+        private static float Range => Current.Offers(Id.FocusRange) ? Value(Id.FocusRange) : PixelRange;
 
         // The focus point can be seen and moved while the depth of field is one of ReShade's effects, also with ReShade's
         // global switch off: effects cost frame rate, and the point is set for the screenshot, which turns them on.
@@ -141,23 +279,21 @@ namespace CameraTools
         {
             get
             {
-                var debug = cells[(int)Id.FocusDebug];
+                var debug = Current.Cells[(int)Id.FocusDebug];
                 return ready && presents < settled || debug.Known && (debug.X != 0f || presents < debug.Until);
             }
         }
 
-        // How long the shader must render before its focus has arrived, for the screenshot. The autofocus eases toward
-        // the distance under the focus point and covers 99% of the way in 2 - 2 * AUTOFOCUS_SPEED seconds, starting from
-        // nothing each time ReShade loads its effects again. Half as long again covers the rest. Manual distance and
+        // How long the shader must render before its focus has arrived, for the screenshot. Manual distance and
         // click-to-focus do not ease.
         public static float FocusSeconds
         {
             get
             {
-                if (!Known(Id.Technique) || Value(Id.Technique) == 0f || Known(Id.FocusMode) && Mode != PointFocus)
+                var shader = Current;
+                if (!shader.On || Known(Id.FocusMode) && Mode != PointFocus)
                     return 0f;
-                float speed = Known(Id.FocusSpeed) ? Math.Clamp(Value(Id.FocusSpeed), 0f, 1f) : 0f;
-                return (2f - 2f * speed) * 1.5f + FocusMargin;
+                return shader.FocusSeconds(Known(Id.FocusSpeed) ? Value(Id.FocusSpeed) : shader.DefaultSpeed) + FocusMargin;
             }
         }
 
@@ -177,14 +313,13 @@ namespace CameraTools
 
         public static void Load()
         {
-            for (int index = 0; index < Table.Length; index++)
-                if ((int)Table[index].Id != index)
-                    throw new InvalidOperationException($"DepthOfField.Table row {index} ({Table[index].Id}) is out of Id order.");
             var category = MelonPreferences.CreateCategory("CameraToolsReShade");
             link = category.CreateEntry("LinkFocalLengthToFov", false,
                 description: "Keep the depth of field's focal length and the free camera's field of view in step, as on a full-frame camera.");
             marker = category.CreateEntry("ShowFocusPoint", true,
                 description: "Draw the depth of field's focus point on the picture in Focus point mode.");
+            choice = category.CreateEntry("DepthOfFieldShader", Immerse.File,
+                description: $"The depth of field shader the ReShade tab drives while both are installed: {Immerse.File} or {Cinematic.File}.");
             MelonPreferences.Save();
         }
 
@@ -193,8 +328,8 @@ namespace CameraTools
         {
             if (!Marked)
                 return null;
-            var point = cells[(int)Id.FocusPoint];
-            return Lens.FocusWindow(point.X, point.Y, Value(Id.FocusRange), aspect);
+            var point = Current.Cells[(int)Id.FocusPoint];
+            return Lens.FocusWindow(point.X, point.Y, Range, aspect);
         }
 
         // Before the screenshot changes the window's size: a resize makes ReShade load its effects again from the preset,
@@ -215,7 +350,7 @@ namespace CameraTools
             bool loaded = status.Runtime == 1 && status.EffectsReady == 1;
             if (loaded && !ready)
             {
-                Array.Clear(cells);
+                Clear();
                 settled = presents + SetPresents;
             }
             ready = loaded;
@@ -224,8 +359,10 @@ namespace CameraTools
             float now = Time.unscaledTime;
             if (active)
             {
-                for (int index = 0; index < cells.Length; index++)
-                    Read(index);
+                foreach (var shader in Shaders)
+                    for (int index = 0; index < shader.Cells.Length; index++)
+                        shader.Read(index);
+                Exclude();
                 Steer();
                 Click();
                 Follow();
@@ -236,7 +373,7 @@ namespace CameraTools
                 // Leaving the free camera within a second of a focus distance change must not leave the paint on.
                 if (painting)
                     StopPainting();
-                Array.Clear(cells);
+                Clear();
             }
             // The panel's changes are saved when it closes, and changes made outside it once they stop. A screenshot in
             // progress is left alone: it saved before it started.
@@ -245,78 +382,66 @@ namespace CameraTools
             panelWas = panel;
         }
 
-        private static void Read(int index)
-        {
-            ref var cell = ref cells[index];
-            if (presents < cell.Until)
-                return;
-            var name = names[index];
-            float x, y = 0f;
-            switch (Table[index].Kind)
-            {
-                case Kind.Technique:
-                    cell.Known = ReShade.TryGetTechnique(name, out bool enabled);
-                    x = enabled ? 1f : 0f;
-                    break;
-                case Kind.Int:
-                    cell.Known = ReShade.TryGetInt(name, out int value);
-                    x = value;
-                    break;
-                case Kind.Float2:
-                    cell.Known = ReShade.TryGetFloat(name, out x, out y, 2);
-                    break;
-                default:
-                    cell.Known = ReShade.TryGetFloat(name, out x, out y);
-                    break;
-            }
-            if (!cell.Known)
-                return;
-            cell.X = x;
-            cell.Y = y;
-        }
-
-        // The bridge applies a set at ReShade's next present, so the value is kept here until it reads back. Otherwise a
-        // row would show the old value for a frame, and a held D-pad would step from it.
-        private static void Write(Id id, float x, float y = 0f)
-        {
-            var name = names[(int)id];
-            switch (Table[(int)id].Kind)
-            {
-                case Kind.Technique:
-                    ReShade.SetTechnique(name, x != 0f);
-                    break;
-                case Kind.Int:
-                    ReShade.SetInt(name, (int)x);
-                    break;
-                case Kind.Float2:
-                    ReShade.SetFloat(name, x, y, 2);
-                    break;
-                default:
-                    ReShade.SetFloat(name, x);
-                    break;
-            }
-            cells[(int)id] = new Cell { Known = true, X = x, Y = y, Until = presents + SetPresents };
-        }
-
         // A change the user made, which is saved to the preset later. A held mouse drag sets its slider every frame, so
         // a set to the same value is not a change.
-        private static bool Change(Id id, float x, float y = 0f)
+        private static bool Change(Id id, float x, float y = 0f) => Change(Current, id, x, y);
+
+        private static bool Change(Shader shader, Id id, float x, float y = 0f)
         {
-            var cell = cells[(int)id];
+            var cell = shader.Cells[(int)id];
             if (cell.Known && cell.X == x && cell.Y == y)
                 return false;
-            Write(id, x, y);
+            shader.Write(id, x, y);
             dirty = true;
             changed = Time.unscaledTime;
             return true;
         }
 
         private static SliderRow Shape(string label, Id id, float min, float max)
-            => new(label, min, max, 0.05f, "0.00", () => Value(id), value => Change(id, value), Enabled: Has(id));
+            => new(label, min, max, 0.05f, "0.00", () => Value(id), value => Change(id, value), Enabled: Has(id))
+            {
+                Shown = () => Current.Offers(id),
+            };
 
-        private static bool Known(Id id) => cells[(int)id].Known;
+        private static bool Known(Id id) => Current.Known(id);
 
-        private static float Value(Id id) => cells[(int)id].X;
+        private static float Value(Id id) => Current.Value(id);
+
+        private static void Clear()
+        {
+            foreach (var shader in Shaders)
+                Array.Clear(shader.Cells);
+        }
+
+        // Choosing the other shader while the depth of field is on switches the chosen one on and the other off.
+        private static void Choose(Shader next)
+        {
+            var previous = Current;
+            choice.Value = next.File;
+            MelonPreferences.Save();
+            if (next == previous || !previous.On)
+                return;
+            StopPainting();
+            Change(previous, Id.Technique, 0f);
+            Change(next, Id.Technique, 1f);
+        }
+
+        // Only one depth of field renders: one switched on in ReShade's overlay beside the other turns the other off.
+        // Cinematic DOF's mouse-driven autofocus is kept off, as it would focus wherever the cursor is.
+        private static void Exclude()
+        {
+            var shader = Current;
+            foreach (var other in Shaders)
+                if (other != shader && shader.On && other.On)
+                    Change(other, Id.Technique, 0f);
+            if (Cinematic.Known(Id.MouseFocus) && Cinematic.Value(Id.MouseFocus) != 0f)
+                Change(Cinematic, Id.MouseFocus, 0f);
+            if (shader.On && Immerse.Known(Id.Technique) && Cinematic.Known(Id.Technique) && choice.Value != shader.File)
+            {
+                choice.Value = shader.File;
+                MelonPreferences.Save();
+            }
+        }
 
         private static Func<bool> Has(Id id) => () => Known(id);
 
@@ -337,7 +462,7 @@ namespace CameraTools
 
         private static void Steer()
         {
-            var point = cells[(int)Id.FocusPoint];
+            var point = Current.Cells[(int)Id.FocusPoint];
             if (Marked && CameraUi.View == View.Hud && Controls.Pressed(CamAction.CenterFocusPoint))
                 Change(Id.FocusPoint, 0f, 0f);
             else if (Steering)
@@ -372,28 +497,32 @@ namespace CameraTools
         // screenshot is in progress, whoever turned the paint on.
         private static void Paint(float now)
         {
-            var debug = cells[(int)Id.FocusDebug];
+            var shader = Current;
+            var debug = shader.Cells[(int)Id.FocusDebug];
             if (!debug.Known)
                 return;
             bool hidden = CameraUi.View == View.Hidden || Screenshot.State is not ShotState.Idle;
             if (now < paintUntil && !hidden)
             {
                 painting = true;
-                if (debug.X != Painted)
-                    Write(Id.FocusDebug, Painted);
+                if (debug.X != shader.Painted)
+                    shader.Write(Id.FocusDebug, shader.Painted);
             }
             else if (debug.X == 0f)
                 painting = false;
             else if (painting || hidden)
-                Write(Id.FocusDebug, 0f);
+                shader.Write(Id.FocusDebug, 0f);
         }
 
         private static void StopPainting()
         {
             paintUntil = 0f;
-            var debug = cells[(int)Id.FocusDebug];
-            if (painting || debug.Known && debug.X != 0f)
-                Write(Id.FocusDebug, 0f);
+            foreach (var shader in Shaders)
+            {
+                var debug = shader.Cells[(int)Id.FocusDebug];
+                if (shader == Current && painting || debug.Known && debug.X != 0f)
+                    shader.Write(Id.FocusDebug, 0f);
+            }
             painting = false;
         }
 
