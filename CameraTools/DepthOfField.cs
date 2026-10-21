@@ -28,10 +28,10 @@ namespace CameraTools
 
         private enum Kind { Technique, Int, Float, Float2 }
 
-        private enum Id { Technique, FocusMode, FocusDepth, FocusDebug, FocusPoint, FocusRange, FocusSpeed, FocalLength, Aperture, Tangential, Sagittal, Anamorph, MouseFocus }
+        private enum Id { Technique, FocusMode, FocusDepth, FocusDebug, FocusPoint, FocusRange, FocusSpeed, FocalLength, Aperture, Tangential, Sagittal, Anamorph, MouseFocus, TiltAngle, TiltDirection }
 
-        // How a shader keeps one of the rows' values. The rows use iMMERSE's units, and ToRow and ToShader convert each
-        // component of another shader's value.
+        // How a shader keeps one of the rows' values. The rows use iMMERSE's units, or the shader's own for a value iMMERSE
+        // does not have, and ToRow and ToShader convert each component of another shader's value.
         private sealed record Uniform(string Name, Kind Kind, Func<float, float> ToRow = null, Func<float, float> ToShader = null);
 
         // A value as the bridge last returned it or CameraTools last set it, in the rows' units; a technique is 1 or 0.
@@ -160,7 +160,8 @@ namespace CameraTools
         // times 1000, its point runs from 0 to 1, and its anamorphic factor is 1 over iMMERSE's ratio. Its booleans read
         // and set as 0 and 1. ShowCoCValues paints the plane in focus blue, and the blur grey behind it and red in front. The shader's own
         // overlay needs the left mouse button held, which the bridge cannot set. Its mouse-driven autofocus would ignore
-        // the focus point, so it is kept off.
+        // the focus point, so it is kept off. Its tilt-shift leans the plane in focus by an angle in degrees, 0 for none,
+        // around the focus point, also in manual focus.
         private static readonly Shader Cinematic = new("Cinematic DOF", "CinematicDOF.fx", 1,
             speed => speed >= 1f ? 0f : MathF.Log(0.01f) / MathF.Log(1f - Math.Clamp(speed, 0.001f, 1f)) / SlowFrameRate * 1.5f, 0.2f,
             (Id.Technique, new("CinematicDOF", Kind.Technique)),
@@ -172,7 +173,9 @@ namespace CameraTools
             (Id.FocalLength, new("FocalLength", Kind.Float)),
             (Id.Aperture, new("FNumber", Kind.Float)),
             (Id.Anamorph, new("HighlightAnamorphicFactor", Kind.Float, factor => 1f / Math.Max(factor, 0.01f), ratio => 1f / ratio)),
-            (Id.MouseFocus, new("UseMouseDrivenAutoFocus", Kind.Int)));
+            (Id.MouseFocus, new("UseMouseDrivenAutoFocus", Kind.Int)),
+            (Id.TiltAngle, new("TiltShiftAngle", Kind.Float)),
+            (Id.TiltDirection, new("TiltShiftDirection", Kind.Float)));
 
         private static readonly Shader[] Shaders = { Immerse, Cinematic };
         private static readonly string[] ShaderLabels = Shaders.Select(shader => shader.Label).ToArray();
@@ -207,7 +210,7 @@ namespace CameraTools
             new ToggleRow("Depth of field", () => Value(Id.Technique) != 0f, on => Change(Id.Technique, on ? 1f : 0f), Has(Id.Technique)),
             new ChoiceRow("Focus mode", ModeLabels, () => Known(Id.FocusMode) ? Array.IndexOf(Modes, Mode) : -1,
                 position => Change(Id.FocusMode, Modes[position]), null, Has(Id.FocusMode)),
-            new SliderRow("Focus distance", 0.002f, 1f, 0.002f, "0.000", () => Value(Id.FocusDepth), SetFocusDepth,
+            new SliderRow("Focus distance", 0.002f, 1f, 0.002f, "0.000", () => Value(Id.FocusDepth), depth => Repaint(Id.FocusDepth, depth),
                 Enabled: () => Known(Id.FocusDepth) && Mode == ManualFocus),
             new ChoiceRow("Aperture", StopLabels, () => Known(Id.Aperture) ? Lens.NearestStop(Value(Id.Aperture)) : -1,
                 position => Change(Id.Aperture, Lens.Stops[position]), null, Has(Id.Aperture)),
@@ -219,6 +222,16 @@ namespace CameraTools
                 x => Change(Id.FocusPoint, x, Current.Cells[(int)Id.FocusPoint].Y), Enabled: () => Aiming),
             new SliderRow("Focus point Y", -1f, 1f, 0.02f, "0.00", () => Current.Cells[(int)Id.FocusPoint].Y,
                 y => Change(Id.FocusPoint, Value(Id.FocusPoint), y), Enabled: () => Aiming),
+            new SliderRow("Tilt", -15f, 15f, 0.5f, "0.0'°'", () => Value(Id.TiltAngle), tilt => Repaint(Id.TiltAngle, tilt),
+                Display: tilt => tilt == 0f ? "Off" : tilt.ToString("0.0'°'"), Enabled: Has(Id.TiltAngle))
+            {
+                Shown = () => Current.Offers(Id.TiltAngle),
+            },
+            new SliderRow("Tilt direction", -90f, 90f, 5f, "0'°'", () => Value(Id.TiltDirection), direction => Repaint(Id.TiltDirection, direction),
+                Enabled: () => Known(Id.TiltDirection) && Tilted)
+            {
+                Shown = () => Current.Offers(Id.TiltDirection),
+            },
             new Section("Bokeh shape"),
             Shape("Tangential scale", Id.Tangential, -3f, 3f),
             Shape("Sagittal scale", Id.Sagittal, -3f, 3f),
@@ -258,8 +271,11 @@ namespace CameraTools
             }
         }
 
-        // The focus point decides the focus: the autofocus mode with its point readable.
-        private static bool Aiming => Known(Id.FocusPoint) && (!Current.Offers(Id.FocusRange) || Known(Id.FocusRange)) && Mode == PointFocus;
+        // The focus point decides the focus, with its point readable: in the autofocus mode, or as the pivot of a tilted
+        // plane in focus, also at a manual distance.
+        private static bool Aiming => Known(Id.FocusPoint) && (!Current.Offers(Id.FocusRange) || Known(Id.FocusRange)) && (Mode == PointFocus || Tilted);
+
+        private static bool Tilted => Known(Id.TiltAngle) && Value(Id.TiltAngle) != 0f;
 
         private static float Range => Current.Offers(Id.FocusRange) ? Value(Id.FocusRange) : PixelRange;
 
@@ -370,7 +386,7 @@ namespace CameraTools
             }
             else
             {
-                // Leaving the free camera within a second of a focus distance change must not leave the paint on.
+                // Leaving the free camera within a second of a change that painted must not leave the paint on.
                 if (painting)
                     StopPainting();
                 Clear();
@@ -445,9 +461,10 @@ namespace CameraTools
 
         private static Func<bool> Has(Id id) => () => Known(id);
 
-        private static void SetFocusDepth(float depth)
+        // A change that moves the plane in focus paints it for a second.
+        private static void Repaint(Id id, float value)
         {
-            if (Change(Id.FocusDepth, depth))
+            if (Change(id, value))
                 paintUntil = Time.unscaledTime + PaintSeconds;
         }
 
@@ -493,8 +510,8 @@ namespace CameraTools
             Change(Id.FocalLength, MathF.Round(focalLength * 10f) / 10f);
         }
 
-        // The focus plane is painted for a second after the focus distance changed, and never while the UI is hidden or a
-        // screenshot is in progress, whoever turned the paint on.
+        // The focus plane is painted for a second after the focus distance or the tilt changed, and never while the UI is
+        // hidden or a screenshot is in progress, whoever turned the paint on.
         private static void Paint(float now)
         {
             var shader = Current;
