@@ -612,6 +612,7 @@ namespace CameraTools
                     : LongExposure.Active ? $"Records {LongExposure.Current.ShutterLabel}, then saves" : "",
             },
             new ToggleRow("3-second countdown", () => Screenshot.Countdown, on => Screenshot.Countdown = on),
+            new ToggleRow("Supersampling", () => Supersampling.Enabled, Supersampling.SetEnabled, () => CameraToolsEnhancements.Enhancements.Connected),
         }).ToArray());
 
         private static ToggleRow PathToggle(string label, Func<PathOptions, bool> get, Action<PathOptions, bool> set)

@@ -16,8 +16,8 @@ namespace CameraTools
         // The sky's light as last pushed, which a traced screenshot waits to hold still and compares a kept scene's with.
         public static SkyLight Light { get; private set; }
 
-        // Camera.onPreCull of the main camera, after the free camera applied its pose. The lens sample is zero: the frame
-        // renders from the camera's own position.
+        // Camera.onPreCull of the main camera, after the free camera applied its pose. The lens sample tells the
+        // accumulator which frames of a supersampled screenshot to add; it is zero otherwise.
         public static void Push(Camera camera)
         {
             if (!Enhancements.Connected)
@@ -33,7 +33,7 @@ namespace CameraTools
             Light = new SkyLight(new Vec3(towardSun.x, towardSun.y, towardSun.z), new Vec3(sunColor.r, sunColor.g, sunColor.b),
                 new Vec3(skyColor.r, skyColor.g, skyColor.b), wetness);
             Enhancements.SetCamera(camera.worldToCameraMatrix, GL.GetGPUProjectionMatrix(camera.nonJitteredProjectionMatrix, false), towardSun,
-                sunColor, skyColor, default, wetness);
+                sunColor, skyColor, Supersampling.Sample, wetness);
         }
     }
 }

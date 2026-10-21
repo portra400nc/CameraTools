@@ -2,7 +2,7 @@
 // the add-on (CameraTools/EnhancementsModel.cs), the presets' decisions (CameraTools/GraphicsModel.cs), and the
 // Enhancements binding's layout against Enhancements/enhancements.h's literal sizes, and the camera path's motion
 // (CameraTools/PathSampler.cs), the long exposure's settings (CameraTools/Exposure.cs), and a replay's timeline and
-// words (CameraTools/ReplayModel.cs). No game, no ReShade, no add-on: run with dotnet run.
+// words (CameraTools/ReplayModel.cs), and where a supersampled screenshot's samples fall (CameraTools/SupersamplingModel.cs). No game, no ReShade, no add-on: run with dotnet run.
 using System.Runtime.InteropServices;
 using CameraTools;
 using CameraToolsEnhancements;
@@ -625,6 +625,14 @@ Check("the recorded toast names the linked path", ReplayText.Recorded("Replay 3"
     && ReplayText.Recorded("Replay 2", 5f, null) == "Replay 2 recorded · 5.0 s");
 Check("a linked replay starts its offset into the path, holds its first frame before and its last frame after",
     ReplayText.LinkedTime(1f, 2f, 10f) == 0f && ReplayText.LinkedTime(5f, 2f, 10f) == 3f && ReplayText.LinkedTime(30f, 2f, 10f) == 10f);
+
+Check("the first supersampling offsets are Halton's in bases 2 and 3 about the pixel's centre",
+    SupersamplingPattern.Offset(0) == (0f, 1f / 3f - 0.5f) && SupersamplingPattern.Offset(1) == (-0.25f, 2f / 3f - 0.5f)
+    && SupersamplingPattern.Offset(2) == (0.25f, 1f / 9f - 0.5f));
+var supersamples = Enumerable.Range(0, 32).Select(SupersamplingPattern.Offset).ToArray();
+Check("32 supersampling offsets stay inside the pixel, differ, and average within a 32nd of a pixel of its centre",
+    supersamples.All(o => o.X >= -0.5f && o.X < 0.5f && o.Y >= -0.5f && o.Y < 0.5f) && supersamples.Distinct().Count() == 32
+    && MathF.Abs(supersamples.Average(o => o.X)) < 1f / 32 && MathF.Abs(supersamples.Average(o => o.Y)) < 1f / 32);
 
 Console.WriteLine($"CameraTools tests: {failures} failed");
 return failures == 0 ? 0 : 1;

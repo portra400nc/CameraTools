@@ -366,6 +366,21 @@ namespace CameraTools
 
         private static string Described(Preset preset) => $"{preset.Name} ({(ReferenceEquals(own[(int)preset.Slot], preset) ? "yours" : "built-in")})";
 
+        // A supersampled screenshot moves the camera within each pixel every frame, which FSR 2 would smear across its history
+        // and SMAA would blur on top of. The screenshot puts the setting back with the rest. Returns what it did, for the log.
+        public static string AntiAliasingOff()
+        {
+            const SettingKey key = SettingKey.AntiAliasing;
+            if (!OptionLists().TryGetValue((int)key, out var list) || GameSettings.Get(key) is not int now)
+                return "anti-aliasing unreadable";
+            if (now == list.Lowest)
+                return "anti-aliasing already off";
+            if (!GameSettings.Set(key, list.Lowest) || !GameSettings.Save())
+                return "switching anti-aliasing off failed";
+            Changed = Time.unscaledTime;
+            return $"anti-aliasing {now}->{list.Lowest}";
+        }
+
         public static GraphicsState Capture() => new(Indices(OptionLists()), active, Lod.Forced);
 
         // Unlike Restore, this returns to the captured moment, not to the user's own settings, and it leaves SavedSettings

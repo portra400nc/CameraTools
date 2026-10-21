@@ -151,11 +151,19 @@ namespace CameraTools
         }
 
         // Genshin's post-processing installs a jittered projection built from the game's field of view before this
-        // runs, and Unity ignores fieldOfView while a custom projection is set.
+        // runs, and Unity ignores fieldOfView while a custom projection is set. A supersampled screenshot's projection
+        // looks through another point of each pixel; the add-on reads the non-jittered one, so both get it.
         private void SetFieldOfView(float fov)
         {
             cam.fieldOfView = fov;
             cam.ResetProjectionMatrix();
+            if (Supersampling.Offset != null)
+            {
+                var projection = Supersampling.Projection(fov, cam.aspect, cam.nearClipPlane, cam.farClipPlane, cam.pixelWidth, cam.pixelHeight);
+                cam.projectionMatrix = projection;
+                cam.nonJitteredProjectionMatrix = projection;
+                return;
+            }
             cam.nonJitteredProjectionMatrix = Matrix4x4.Perspective(fov, cam.aspect, cam.nearClipPlane, cam.farClipPlane);
         }
 
