@@ -28,11 +28,12 @@ namespace CameraTools
 
         private enum Kind { Technique, Int, Float, Float2 }
 
-        private enum Id { Technique, FocusMode, FocusDepth, FocusDebug, FocusPoint, FocusRange, FocusSpeed, FocalLength, Aperture, Tangential, Sagittal, Anamorph, MouseFocus, TiltAngle, TiltDirection }
+        private enum Id { Technique, FocusMode, FocusDepth, FocusDebug, FocusPoint, FocusRange, FocusSpeed, FocalLength, Aperture, Tangential, Sagittal, Anamorph, MouseFocus, PhysicalBlur, TiltAngle, TiltDirection }
 
         // How a shader keeps one of the rows' values. The rows use iMMERSE's units, or the shader's own for a value iMMERSE
-        // does not have, and ToRow and ToShader convert each component of another shader's value.
-        private sealed record Uniform(string Name, Kind Kind, Func<float, float> ToRow = null, Func<float, float> ToShader = null);
+        // does not have, and ToRow and ToShader convert each component of another shader's value. Forced is a value that
+        // CameraTools sets back whenever the shader has another.
+        private sealed record Uniform(string Name, Kind Kind, Func<float, float> ToRow = null, Func<float, float> ToShader = null, float? Forced = null);
 
         // A value as the bridge last returned it or CameraTools last set it, in the rows' units; a technique is 1 or 0.
         // Known is false while the bridge cannot read it. Until is the bridge's present count from which a read replaces a
@@ -160,8 +161,8 @@ namespace CameraTools
         // times 1000, its point runs from 0 to 1, and its anamorphic factor is 1 over iMMERSE's ratio. Its booleans read
         // and set as 0 and 1. ShowCoCValues paints the plane in focus blue, and the blur grey behind it and red in front. The shader's own
         // overlay needs the left mouse button held, which the bridge cannot set. Its mouse-driven autofocus would ignore
-        // the focus point, so it is kept off. Its tilt-shift leans the plane in focus by an angle in degrees, 0 for none,
-        // around the focus point, also in manual focus.
+        // the focus point, so it is kept off, and its physical blur is kept on so the blur is the lens's. Its tilt-shift
+        // leans the plane in focus by an angle in degrees, 0 for none, around the focus point, also in manual focus.
         private static readonly Shader Cinematic = new("Cinematic DOF", "CinematicDOF.fx", 1,
             speed => speed >= 1f ? 0f : MathF.Log(0.01f) / MathF.Log(1f - Math.Clamp(speed, 0.001f, 1f)) / SlowFrameRate * 1.5f, 0.2f,
             (Id.Technique, new("CinematicDOF", Kind.Technique)),
@@ -173,7 +174,8 @@ namespace CameraTools
             (Id.FocalLength, new("FocalLength", Kind.Float)),
             (Id.Aperture, new("FNumber", Kind.Float)),
             (Id.Anamorph, new("HighlightAnamorphicFactor", Kind.Float, factor => 1f / Math.Max(factor, 0.01f), ratio => 1f / ratio)),
-            (Id.MouseFocus, new("UseMouseDrivenAutoFocus", Kind.Int)),
+            (Id.MouseFocus, new("UseMouseDrivenAutoFocus", Kind.Int, Forced: 0f)),
+            (Id.PhysicalBlur, new("UsePhysicalBlur", Kind.Int, Forced: 1f)),
             (Id.TiltAngle, new("TiltShiftAngle", Kind.Float)),
             (Id.TiltDirection, new("TiltShiftDirection", Kind.Float)));
 
@@ -443,15 +445,18 @@ namespace CameraTools
         }
 
         // Only one depth of field renders: one switched on in ReShade's overlay beside the other turns the other off.
-        // Cinematic DOF's mouse-driven autofocus is kept off, as it would focus wherever the cursor is.
+        // A forced value changed in ReShade's overlay is set back.
         private static void Exclude()
         {
             var shader = Current;
             foreach (var other in Shaders)
+            {
                 if (other != shader && shader.On && other.On)
                     Change(other, Id.Technique, 0f);
-            if (Cinematic.Known(Id.MouseFocus) && Cinematic.Value(Id.MouseFocus) != 0f)
-                Change(Cinematic, Id.MouseFocus, 0f);
+                for (int index = 0; index < other.Uniforms.Length; index++)
+                    if (other.Uniforms[index]?.Forced is float forced && other.Known((Id)index) && other.Value((Id)index) != forced)
+                        Change(other, (Id)index, forced);
+            }
             if (shader.On && Immerse.Known(Id.Technique) && Cinematic.Known(Id.Technique) && choice.Value != shader.File)
             {
                 choice.Value = shader.File;
