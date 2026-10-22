@@ -30,7 +30,7 @@
 
 ### Camera paths
 
-(WIP)
+https://github.com/user-attachments/assets/e898ae54-dfb5-4270-bfce-81479329b2ad
 
 ### The mod
 
