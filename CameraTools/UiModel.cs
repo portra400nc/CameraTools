@@ -493,10 +493,7 @@ namespace CameraTools
         private static readonly Tab PoseTab = new("Pose", new Row[]
         {
             new Section("Pose"),
-            new ToggleRow("Posing", () => Posing.On, Posing.SetOn)
-            {
-                Detail = () => Posing.On ? "The character holds still. Leaving the free camera ends posing" : "Freezes the active character in the game's current pose",
-            },
+            new ToggleRow("Posing", () => Posing.On, Posing.SetOn),
             new ActionRow("Back to the game's pose", Posing.ResetPose, "Reset", Posed),
             new ActionRow("Bring back last pose", Posing.RestoreLast, "Restore", () => Poses.Last != null)
             {
