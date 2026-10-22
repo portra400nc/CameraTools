@@ -28,6 +28,14 @@ namespace CameraTools
         // On a pinned path, the rate of each rotation component and the field of view at each node, from one smooth curve
         // through all nodes; null on other paths, which take Catmull-Rom's rates.
         private readonly float[][] turns;
+        // On a pinned path, the route's rate along each axis at each node, per unit of knot, and the knots: one smooth
+        // curve through the nodes, so the route bends as smoothly through a node as between them. Catmull-Rom's route keeps
+        // its direction through a node but changes how sharply it bends there, which a camera that keeps its speed through
+        // the node shows as a jolt sideways. The knots are centripetal, as Catmull-Rom's, so the shape does not depend on
+        // the timing. Null on other paths.
+        private readonly float[][] shape;
+        private readonly float[] knots;
+        private readonly float duration;
         private readonly bool easeIn, easeOut;
 
         public PathSampler(IReadOnlyList<CameraNode> path, bool constantSpeed, float duration, bool easeIn = false, bool easeOut = false)
@@ -44,9 +52,22 @@ namespace CameraTools
                     rotation = Quaternion.Negate(rotation);
                 nodes[index] = path[index] with { Rotation = rotation };
             }
+            Pinned = nodes.Any(node => node.Time != null);
+            if (Pinned && nodes.Length > 2)
+            {
+                knots = new float[nodes.Length];
+                for (int index = 1; index < nodes.Length; index++)
+                    knots[index] = knots[index - 1] + Knot(nodes[index - 1].Position, nodes[index].Position);
+                var origin = nodes[0].Position;
+                shape = new[]
+                {
+                    Natural(knots, nodes.Select(node => node.Position.X - origin.X).ToArray(), false, false),
+                    Natural(knots, nodes.Select(node => node.Position.Y - origin.Y).ToArray(), false, false),
+                    Natural(knots, nodes.Select(node => node.Position.Z - origin.Z).ToArray(), false, false),
+                };
+            }
             if (nodes.Length > 1)
                 lengths = MeasureLengths();
-            Pinned = nodes.Any(node => node.Time != null);
             times = Spread(constantSpeed, duration);
             // Pinned moments make segments of very different speeds, which a curve that only matches the speed at each
             // node turns into jolts there; a curve that also matches the acceleration keeps the motion smooth.
@@ -55,6 +76,7 @@ namespace CameraTools
                 EaseEnds();
             if (lengths != null)
                 speeds = constantSpeed && !Pinned ? Enumerable.Repeat(lengths[^1], nodes.Length).ToArray() : smooth ? SmoothSpeeds() : NodeSpeeds();
+            this.duration = duration;
             if (smooth)
                 turns = new[]
                 {
@@ -93,8 +115,11 @@ namespace CameraTools
         public float NodeProgress(int index) => times[index];
 
         // The share of the duration at which the camera reaches each node, for the play bar's ticks.
+        // A pinned node's is the moment it was placed at, which an eased end node may be reached a little before or after.
         public float[] NodeTimes()
-            => Enumerable.Range(0, nodes.Length).Select(index => Pinned ? NodeProgress(index) : Unease(NodeProgress(index), easeIn, easeOut)).ToArray();
+            => Enumerable.Range(0, nodes.Length)
+                .Select(index => nodes[index].Time is float time ? Math.Clamp(time / duration, 0f, 1f) : Pinned ? NodeProgress(index) : Unease(NodeProgress(index), easeIn, easeOut))
+                .ToArray();
 
         // The progress at a share of the duration. Easing the progress would move a pinned node's moment, so a pinned path
         // eases by stopping the camera at its eased end nodes instead.
@@ -238,9 +263,24 @@ namespace CameraTools
                 float before = index > 0 ? (Distance(index) - Distance(index - 1)) / Span(index - 1) : float.MaxValue;
                 float after = index < last ? (Distance(index + 1) - Distance(index)) / Span(index) : float.MaxValue;
                 float slower = Math.Min(before, after);
-                result[index] = Math.Clamp(result[index], 0.5f * slower, 3f * slower);
+                result[index] = Math.Clamp(result[index], 0.5f * slower, 3f * slower) * Corner(index);
             }
             return result;
+        }
+
+        // How much of its speed the camera keeps through a node, from how sharply the route turns there: all of it up to a
+        // right angle, then less, down to a stop where the route doubles back. At speed, a sharp turn swings the camera
+        // around in a few frames.
+        private float Corner(int index)
+        {
+            if (index == 0 || index == nodes.Length - 1)
+                return 1f;
+            var before = nodes[index].Position - nodes[index - 1].Position;
+            var after = nodes[index + 1].Position - nodes[index].Position;
+            if (before.LengthSquared() < 1e-6f || after.LengthSquared() < 1e-6f)
+                return 1f;
+            float cosine = Vector3.Dot(Vector3.Normalize(before), Vector3.Normalize(after));
+            return 1f + Math.Min(0f, cosine);
         }
 
         // The rates at each node of the cubic spline through values at the nodes' times: the curve whose rate and
@@ -271,11 +311,14 @@ namespace CameraTools
         }
 
         // rests: an eased end has no rate, else no end has acceleration.
-        private float[] Smooth(IEnumerable<float> values, bool rests = true)
+        private float[] Smooth(IEnumerable<float> values, bool rests = true) => Natural(times, values.ToArray(), rests && easeIn, rests && easeOut);
+
+        // The rates at each knot of the cubic spline through values at those knots: no rate at a resting end, else no
+        // acceleration there.
+        private static float[] Natural(float[] knots, float[] y, bool restIn, bool restOut)
         {
-            bool restIn = rests && easeIn, restOut = rests && easeOut;
-            var y = values.ToArray();
             int last = y.Length - 1;
+            float Span(int segment) => knots[segment + 1] - knots[segment];
             var below = new double[last + 1];
             var diagonal = new double[last + 1];
             var above = new double[last + 1];
@@ -333,6 +376,13 @@ namespace CameraTools
         private Vector3 Position(int segment, float u)
         {
             var origin = nodes[segment].Position;
+            if (shape != null)
+            {
+                var to = nodes[segment + 1].Position - origin;
+                float h = knots[segment + 1] - knots[segment];
+                float Axis(int axis, float end) => Hermite(0f, end, shape[axis][segment] * h, shape[axis][segment + 1] * h, u);
+                return origin + new Vector3(Axis(0, to.X), Axis(1, to.Y), Axis(2, to.Z));
+            }
             var p0 = PositionAt(segment - 1) - origin;
             var p1 = Vector3.Zero;
             var p2 = PositionAt(segment + 1) - origin;

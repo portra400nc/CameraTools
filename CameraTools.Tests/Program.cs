@@ -503,6 +503,22 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     Check("a camera reaching a short last segment fast stops on its node before the node's moment, and rests there through it",
         quickEnd.NodeProgress(1) == 0.2f && quickEnd.NodeProgress(2) == 0.4f && quickEnd.NodeProgress(3) > 0.4f && quickEnd.NodeProgress(3) < 0.6f
         && Vec3.Distance(quickEnd.Sample(0.6f).Position, new Vec3(22, 0, 0)) < 1e-3f);
+    Check("the timeline shows an eased end node at the moment it was placed, though the camera rests on it from earlier",
+        quickEnd.NodeTimes()[3] == 0.6f && quickEnd.NodeProgress(3) < 0.6f);
+    // A route that turns a corner at node 1 and doubles back at node 2.
+    CameraNode At3(float x, float z, float time) => new(new Vec3(x, 0, z), Quat.Identity, 45f) { Time = time };
+    var corner = new PathSampler(new[] { At3(0, 0, 0f), At3(10, 0, 2f), At3(15, 5, 3.4f), At3(15, 15, 5.4f), At3(5, 15, 7.4f) }, false, 7.4f);
+    Vec3 Velocity(PathSampler path, float duration, float seconds)
+        => (path.Sample((seconds + 0.05f) / duration).Position - path.Sample((seconds - 0.05f) / duration).Position) / 0.1f;
+    // A long straight segment into a short turn: the old route kept its direction through node 1 but bent sharply after it.
+    var bend = new PathSampler(new[] { At3(0, 0, 0f), At3(20, 0, 2f), At3(22, 2, 3f), At3(22, 22, 5f), At3(0, 30, 7f) }, false, 7f);
+    var bendBefore = (Velocity(bend, 7f, 2f) - Velocity(bend, 7f, 1.75f)) / 0.25f;
+    var bendAfter = (Velocity(bend, 7f, 2.25f) - Velocity(bend, 7f, 2f)) / 0.25f;
+    Check("a pinned path's route bends as smoothly through a node as between nodes",
+        Vec3.Distance(bendBefore, bendAfter) < 0.2f * Math.Max(bendBefore.Length(), bendAfter.Length()));
+    var hairpin = new PathSampler(new[] { At3(0, 0, 0f), At3(10, 0, 2f), At3(0, 1, 4f) }, false, 4f);
+    Check("the camera slows almost to a stop where the route doubles back at a node, and keeps its speed through a right angle",
+        Velocity(hairpin, 4f, 2f).Length() < 1f && Velocity(corner, 7.4f, 2f).Length() > 2.5f);
     var slowEnd = new PathSampler(new[] { Node(0, 0) with { Time = 0f }, Node(10, 0) with { Time = 2f }, Node(10.5f, 0) with { Time = 6f },
         Node(20, 0) with { Time = 7f } }, false, 10f, easeIn: false, easeOut: true);
     Check("a camera reaching a long last segment slowly takes at most half as long again to ease onto its node",
