@@ -28,12 +28,12 @@ namespace CameraTools
 
         private enum Kind { Technique, Int, Float, Float2 }
 
-        private enum Id { Technique, FocusMode, FocusDepth, FocusDebug, FocusPoint, FocusRange, FocusSpeed, FocalLength, Aperture, Tangential, Sagittal, Anamorph, MouseFocus, PhysicalBlur, TiltAngle, TiltDirection }
+        private enum Id { Technique, FocusMode, FocusDepth, FocusDebug, FocusPoint, FocusRange, FocusSpeed, FocalLength, Aperture, Tangential, Sagittal, Anamorph, MouseFocus, PhysicalBlur, NearPlane, TiltAngle, TiltDirection }
 
         // How a shader keeps one of the rows' values. The rows use iMMERSE's units, or the shader's own for a value iMMERSE
-        // does not have, and ToRow and ToShader convert each component of another shader's value. Forced is a value that
-        // CameraTools sets back whenever the shader has another.
-        private sealed record Uniform(string Name, Kind Kind, Func<float, float> ToRow = null, Func<float, float> ToShader = null, float? Forced = null);
+        // does not have, and ToRow and ToShader convert each component of another shader's value. Forced gives the value
+        // CameraTools keeps the shader at.
+        private sealed record Uniform(string Name, Kind Kind, Func<float, float> ToRow = null, Func<float, float> ToShader = null, Func<float> Forced = null);
 
         // A value as the bridge last returned it or CameraTools last set it, in the rows' units; a technique is 1 or 0.
         // Known is false while the bridge cannot read it. Until is the bridge's present count from which a read replaces a
@@ -161,8 +161,9 @@ namespace CameraTools
         // times 1000, its point runs from 0 to 1, and its anamorphic factor is 1 over iMMERSE's ratio. Its booleans read
         // and set as 0 and 1. ShowCoCValues paints the plane in focus blue, and the blur grey behind it and red in front. The shader's own
         // overlay needs the left mouse button held, which the bridge cannot set. Its mouse-driven autofocus would ignore
-        // the focus point, so it is kept off, and its physical blur is kept on so the blur is the lens's. Its tilt-shift
-        // leans the plane in focus by an angle in degrees, 0 for none, around the focus point, also in manual focus.
+        // the focus point, so it is kept off, and its physical blur is kept on so the blur is the lens's. Its depth near
+        // plane is the near clip of the camera that renders, which puts its depth in meters. Its tilt-shift leans the
+        // plane in focus by an angle in degrees, 0 for none, around the focus point, also in manual focus.
         private static readonly Shader Cinematic = new("Cinematic DOF", "CinematicDOF.fx", 1,
             speed => speed >= 1f ? 0f : MathF.Log(0.01f) / MathF.Log(1f - Math.Clamp(speed, 0.001f, 1f)) / SlowFrameRate * 1.5f, 0.2f,
             (Id.Technique, new("CinematicDOF", Kind.Technique)),
@@ -174,8 +175,9 @@ namespace CameraTools
             (Id.FocalLength, new("FocalLength", Kind.Float)),
             (Id.Aperture, new("FNumber", Kind.Float)),
             (Id.Anamorph, new("HighlightAnamorphicFactor", Kind.Float, factor => 1f / Math.Max(factor, 0.01f), ratio => 1f / ratio)),
-            (Id.MouseFocus, new("UseMouseDrivenAutoFocus", Kind.Int, Forced: 0f)),
-            (Id.PhysicalBlur, new("UsePhysicalBlur", Kind.Int, Forced: 1f)),
+            (Id.MouseFocus, new("UseMouseDrivenAutoFocus", Kind.Int, Forced: () => 0f)),
+            (Id.PhysicalBlur, new("UsePhysicalBlur", Kind.Int, Forced: () => 1f)),
+            (Id.NearPlane, new("DepthNearPlane", Kind.Float, Forced: () => NearPlane)),
             (Id.TiltAngle, new("TiltShiftAngle", Kind.Float)),
             (Id.TiltDirection, new("TiltShiftDirection", Kind.Float)));
 
@@ -322,6 +324,9 @@ namespace CameraTools
 
         private static int Mode => Known(Id.FocusMode) ? (int)Value(Id.FocusMode) : -1;
 
+        // The free camera renders with the Near clip row's value, and gives the game's back when it stops.
+        private static float NearPlane => freecamActive ? settings.NearClip : settings.GameNear;
+
         private static float Aspect => (float)Screen.width / Screen.height;
 
         // While linked, the row shows the field of view setting, and the shader follows the camera's smoothed one to it.
@@ -391,6 +396,8 @@ namespace CameraTools
                 // Leaving the free camera within a second of a change that painted must not leave the paint on.
                 if (painting)
                     StopPainting();
+                // The values are still known on the first frame after the free camera, which hands the game's near clip over.
+                Force();
                 Clear();
             }
             // The panel's changes are saved when it closes, and changes made outside it once they stop. A screenshot in
@@ -445,23 +452,27 @@ namespace CameraTools
         }
 
         // Only one depth of field renders: one switched on in ReShade's overlay beside the other turns the other off.
-        // A forced value changed in ReShade's overlay is set back.
         private static void Exclude()
         {
             var shader = Current;
             foreach (var other in Shaders)
-            {
                 if (other != shader && shader.On && other.On)
                     Change(other, Id.Technique, 0f);
-                for (int index = 0; index < other.Uniforms.Length; index++)
-                    if (other.Uniforms[index]?.Forced is float forced && other.Known((Id)index) && other.Value((Id)index) != forced)
-                        Change(other, (Id)index, forced);
-            }
+            Force();
             if (shader.On && Immerse.Known(Id.Technique) && Cinematic.Known(Id.Technique) && choice.Value != shader.File)
             {
                 choice.Value = shader.File;
                 MelonPreferences.Save();
             }
+        }
+
+        // A forced value that differs, changed in ReShade's overlay or followed from the camera, is set.
+        private static void Force()
+        {
+            foreach (var shader in Shaders)
+                for (int index = 0; index < shader.Uniforms.Length; index++)
+                    if (shader.Uniforms[index]?.Forced is { } forced && shader.Known((Id)index) && shader.Value((Id)index) != forced())
+                        Change(shader, (Id)index, forced());
         }
 
         private static Func<bool> Has(Id id) => () => Known(id);
