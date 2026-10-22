@@ -25,10 +25,11 @@ namespace CameraTools
 
         public static readonly PadBinding[] Buttons = { StepBack, StepOn, NodeBack, NodeOn, PlayPad, PlacePad, DeletePad, LookPad, DonePad };
 
+        // Left Shift, a modifier here, stays fast movement. Enter plays, because Space raises the camera.
         public static readonly KeyCode[] Keys =
         {
-            KeyCode.LeftArrow, KeyCode.RightArrow, KeyCode.LeftShift, KeyCode.RightShift, KeyCode.Space, KeyCode.N, KeyCode.Backspace,
-            KeyCode.V, KeyCode.Escape,
+            KeyCode.LeftArrow, KeyCode.RightArrow, KeyCode.RightShift, KeyCode.Return, KeyCode.N, KeyCode.Backspace, KeyCode.V,
+            KeyCode.Escape,
         };
 
         // The held frame step's direction, and since when it has been held.
@@ -99,7 +100,7 @@ namespace CameraTools
             else
                 Scrub(editing, pad && StepBack.Held(now) || !shift && Input.GetKey(KeyCode.LeftArrow),
                     pad && StepOn.Held(now) || !shift && Input.GetKey(KeyCode.RightArrow));
-            if (Pressed(PlayPad, KeyCode.Space))
+            if (Pressed(PlayPad, KeyCode.Return))
             {
                 if (!editing.Plays && editing.T >= editing.Replay.Duration)
                     editing.T = 0f;

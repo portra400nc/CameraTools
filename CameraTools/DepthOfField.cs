@@ -491,13 +491,17 @@ namespace CameraTools
             }
         }
 
-        // With the cursor free and the panel closed, a click on the picture puts the focus point there. The point is kept
-        // as the shader takes it, as a fraction of the screen, so it means the same place at every resolution.
+        // With the cursor free, a click on the picture puts the focus point there, also beside the open panel unless the
+        // click ends typing in a field. The point is kept as the shader takes it, as a fraction of the screen, so it means
+        // the same place at every resolution.
         private static void Click()
         {
-            if (!Marked || CameraUi.View != View.Hud || Freecam.Focused || !Input.GetMouseButtonDown(0))
+            if (!Marked || Freecam.Focused || !Input.GetMouseButtonDown(0))
                 return;
             var mouse = Input.mousePosition;
+            if (CameraUi.View != View.Hud
+                && (CameraUi.View != View.Panel || Controls.TextCapture || CameraUi.OverPanel(new Vector2 { x = mouse.x, y = mouse.y })))
+                return;
             Change(Id.FocusPoint, Math.Clamp(mouse.x / Screen.width * 2f - 1f, -1f, 1f), Math.Clamp(1f - mouse.y / Screen.height * 2f, -1f, 1f));
         }
 

@@ -49,7 +49,7 @@ namespace CameraTools
         {
             if (!Idle && !freecamActive)
                 Stop("Playback stopped");
-            if (Controls.Pressed(CamAction.PlayPath))
+            if (Controls.Pressed(CamAction.PlayPath) || !Idle && Controls.EscapePressed)
             {
                 if (Idle)
                     Play();

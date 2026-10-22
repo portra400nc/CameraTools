@@ -209,6 +209,9 @@ namespace CameraTools
                 else
                     ReplayPlayer.Stop("Playback stopped");
             }
+            // A replay linked to a path stops with the path.
+            else if (ReplayPlayer.Solo != null && Controls.EscapePressed)
+                ReplayPlayer.Stop("Playback stopped");
             Guard("starting the recording", ReplayRecorder.Update, ReplayRecorder.Stop);
             Guard("editing", ReplayEditor.Update, () => ReplayPlayer.Stop("Edit closed; see the log"));
             ReplayPlayer.Update();

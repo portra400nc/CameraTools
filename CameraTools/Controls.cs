@@ -90,6 +90,9 @@ namespace CameraTools
 
         public static (KeyCode Key, PadBinding Pad) Binding(CamAction action) => (keys[(int)action], pads[(int)action]);
 
+        // Esc stops playing a path or a replay. It is fixed, like the keys of Edit replay and Pose joints.
+        public static bool EscapePressed => !TextCapture && Owner == InputOwner.CameraTools && Input.GetKeyDown(KeyCode.Escape);
+
         // The device used last, read even while the game owns input.
         public static InputDevice LastUsed => lastUsed;
 

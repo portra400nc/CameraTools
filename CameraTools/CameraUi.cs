@@ -103,6 +103,8 @@ namespace CameraTools
 
         public static bool PanelOpen => panelOpen;
 
+        public static bool OverPanel(Vector2 point) => panelOpen && Contains(live.PanelArea, point);
+
         private static string MissingHint => Time.unscaledTime < nextBuild ? ReloadHint : WaitHint;
 
         public static void FreecamChanged(bool active)
@@ -304,7 +306,7 @@ namespace CameraTools
             ui.PadHint(pad, PadB, "Cancel");
             var keys = HintRow(move, "Keys", TextAnchor.MiddleRight);
             Pin(keys, 1f, 0f, -Style.Margin, Style.Margin, LegendWidth, Style.HintHeight);
-            ui.KeyHint(keys, Controls.Binding(CamAction.Forward).Key, "Move");
+            ui.KeysHint(keys, BoundKeys(CamAction.Forward, CamAction.Left, CamAction.Back, CamAction.Right), "Move");
             ui.KeyHint(keys, Controls.Binding(CamAction.Down).Key, "Lower");
             ui.KeyHint(keys, Controls.Binding(CamAction.Up).Key, "Raise");
             ui.KeyHint(keys, KeyCode.Return, "Done");
@@ -443,8 +445,12 @@ namespace CameraTools
             target.PlayFillImage = Picture(target.PlayRail, "Fill", Shapes.Bar, Style.Cream);
             target.PlayFill = target.PlayFillImage.rectTransform;
             Place(target.PlayFill, V(0f, 0.5f), V(0f, 0.5f), V(0f, 0.5f), V(0f, 0f), V(0f, Style.RailHeight));
+            // Esc stops playing a path or a replay, and the free camera's toggle stops a recording.
             target.PlayStops = new[] { CamAction.PlayPath, CamAction.ToggleFreecam, CamAction.PlayReplay }
-                .Select(action => (action, BuildLegend(ui, bar, new Hint(action, "Stop")))).ToArray();
+                .Select(action => (action, action == CamAction.ToggleFreecam ? BuildLegend(ui, bar, new Hint(action, "Stop"))
+                    : new Legend(ui.PadHint(bar, Controls.Binding(action).Pad, "Stop"), Controls.Binding(action).Pad != default,
+                        ui.KeysHint(bar, new[] { "Esc" }, "Stop"), true)))
+                .ToArray();
         }
 
         // Edit replay's timeline along the bottom, as in the mockup: the replay's line and the path's, a rail with the
@@ -492,7 +498,7 @@ namespace CameraTools
             Pin(keys, 0f, 0f, 0f, 0f, LegendWidth, Style.HintHeight);
             ui.KeysHint(keys, new[] { KeyName(KeyCode.LeftArrow), KeyName(KeyCode.RightArrow) }, "Frame (hold to scrub)");
             ui.KeysHint(keys, new[] { "Shift", KeyName(KeyCode.LeftArrow), KeyName(KeyCode.RightArrow) }, "Previous / next node");
-            var keysPlay = ui.KeyHint(keys, KeyCode.Space, "Play");
+            var keysPlay = ui.KeyHint(keys, KeyCode.Return, "Play");
             var keysPlace = ui.KeyHint(keys, KeyCode.N, "Place node");
             ui.KeyHint(keys, KeyCode.Backspace, "Delete node");
             ui.KeyHint(keys, KeyCode.V, "Look through path");
@@ -514,6 +520,7 @@ namespace CameraTools
             var panel = Node("Panel", root);
             Place(panel, V(0f, 0f), V(0f, 1f), V(0f, 0.5f), V(0f, 0f), V(Style.PanelWidth, 0f));
             target.Panel = new Fader(panel, V(-Style.PanelSlide, 0f), Style.PanelFade);
+            target.PanelArea = panel;
             var shadow = Picture(panel, "Shadow", Shapes.PanelShadow, Style.White);
             Place(shadow.rectTransform, V(1f, 0f), V(1f, 1f), V(0f, 0.5f), V(0f, 0f), V(Style.PanelShadowWidth, 0f));
             var edge = Picture(panel, "Edge", null, Style.PanelEdge);
@@ -1678,6 +1685,7 @@ namespace CameraTools
             public RectTransform FocusWindow;
             public ScreenBox? FocusShown;
             public Fader Panel;
+            public RectTransform PanelArea;
             public Fader Toast;
             public Fader Markers;
             public readonly List<MarkerView> MarkerViews = new();
