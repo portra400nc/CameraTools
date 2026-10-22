@@ -51,6 +51,8 @@ namespace CameraTools
             // Pinned moments make segments of very different speeds, which a curve that only matches the speed at each
             // node turns into jolts there; a curve that also matches the acceleration keeps the motion smooth.
             bool smooth = Pinned && nodes.Length > 1 && times.Zip(times.Skip(1)).All(pair => pair.Second > pair.First);
+            if (smooth && lengths != null)
+                EaseEnds();
             if (lengths != null)
                 speeds = constantSpeed && !Pinned ? Enumerable.Repeat(lengths[^1], nodes.Length).ToArray() : smooth ? SmoothSpeeds() : NodeSpeeds();
             if (smooth)
@@ -243,8 +245,35 @@ namespace CameraTools
 
         // The rates at each node of the cubic spline through values at the nodes' times: the curve whose rate and
         // acceleration both carry on smoothly through every node, with no rate at an eased end and no acceleration at the other.
-        private float[] Smooth(IEnumerable<float> values)
+        // An eased end node is reached at rest. At its own moment that could make the camera speed up through the end
+        // segment, or brake hard into it, so its moment moves as little as it must: the end segment should last 1.5 to 2
+        // times what it would at the speed the camera reaches it with, which slows it down smoothly. Shortening the segment
+        // keeps the camera resting on the end node through its moment; lengthening it misses the moment, so it stops at
+        // half as long again. The nodes between keep their moments. A path of one segment eases from rest to rest.
+        private void EaseEnds()
         {
+            int last = nodes.Length - 1;
+            if (last < 2)
+                return;
+            var rates = Smooth(Enumerable.Range(0, nodes.Length).Select(Distance), rests: false);
+            if (easeOut)
+                times[last] = Math.Min(1f, times[last - 1] + Fit(times[last] - times[last - 1], Distance(last) - Distance(last - 1), rates[last - 1]));
+            if (easeIn)
+                times[0] = Math.Max(0f, times[1] - Fit(times[1] - times[0], Distance(1) - Distance(0), rates[1]));
+
+            static float Fit(float span, float distance, float rate)
+            {
+                if (rate <= 0f || distance <= 0f)
+                    return span;
+                float gentle = 1.5f * distance / rate, firm = 2f * distance / rate;
+                return span > firm ? firm : span < gentle ? Math.Min(gentle, 1.5f * span) : span;
+            }
+        }
+
+        // rests: an eased end has no rate, else no end has acceleration.
+        private float[] Smooth(IEnumerable<float> values, bool rests = true)
+        {
+            bool restIn = rests && easeIn, restOut = rests && easeOut;
             var y = values.ToArray();
             int last = y.Length - 1;
             var below = new double[last + 1];
@@ -252,9 +281,9 @@ namespace CameraTools
             var above = new double[last + 1];
             var right = new double[last + 1];
             double Slope(int segment) => (y[segment + 1] - y[segment]) / (double)Span(segment);
-            diagonal[0] = easeIn ? 1 : 2;
-            above[0] = easeIn ? 0 : 1;
-            right[0] = easeIn ? 0 : 3 * Slope(0);
+            diagonal[0] = restIn ? 1 : 2;
+            above[0] = restIn ? 0 : 1;
+            right[0] = restIn ? 0 : 3 * Slope(0);
             for (int index = 1; index < last; index++)
             {
                 double h0 = Span(index - 1), h1 = Span(index);
@@ -263,9 +292,9 @@ namespace CameraTools
                 above[index] = 1 / h1;
                 right[index] = 3 * (Slope(index - 1) / h0 + Slope(index) / h1);
             }
-            below[last] = easeOut ? 0 : 1;
-            diagonal[last] = easeOut ? 1 : 2;
-            right[last] = easeOut ? 0 : 3 * Slope(last - 1);
+            below[last] = restOut ? 0 : 1;
+            diagonal[last] = restOut ? 1 : 2;
+            right[last] = restOut ? 0 : 3 * Slope(last - 1);
             for (int index = 1; index <= last; index++)
             {
                 double factor = below[index] / diagonal[index - 1];

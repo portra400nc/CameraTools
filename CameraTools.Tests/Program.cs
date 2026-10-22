@@ -497,6 +497,16 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     Check("Ease out alone leaves the start at speed, and the eased path never runs backward",
         Rate(outOnly, 0f, false) > 3f && Rate(outOnly, 6.99f, false) < 0.1f
         && Enumerable.Range(1, 69).All(step => Speed(stops, step * 0.1f) > 0f && Speed(outOnly, step * 0.1f) > 0f));
+    // An eased end node's moment moves only as far as a smooth stop needs; the nodes between keep theirs.
+    var quickEnd = new PathSampler(new[] { Node(0, 0) with { Time = 0f }, Node(10, 0) with { Time = 2f }, Node(20, 0) with { Time = 4f },
+        Node(22, 0) with { Time = 6f } }, false, 10f, easeIn: true, easeOut: true);
+    Check("a camera reaching a short last segment fast stops on its node before the node's moment, and rests there through it",
+        quickEnd.NodeProgress(1) == 0.2f && quickEnd.NodeProgress(2) == 0.4f && quickEnd.NodeProgress(3) > 0.4f && quickEnd.NodeProgress(3) < 0.6f
+        && Vec3.Distance(quickEnd.Sample(0.6f).Position, new Vec3(22, 0, 0)) < 1e-3f);
+    var slowEnd = new PathSampler(new[] { Node(0, 0) with { Time = 0f }, Node(10, 0) with { Time = 2f }, Node(10.5f, 0) with { Time = 6f },
+        Node(20, 0) with { Time = 7f } }, false, 10f, easeIn: false, easeOut: true);
+    Check("a camera reaching a long last segment slowly takes at most half as long again to ease onto its node",
+        slowEnd.NodeProgress(2) == 0.6f && slowEnd.NodeProgress(3) > 0.7f && slowEnd.NodeProgress(3) <= 0.75f + 1e-6f);
 }
 
 // A camera path's pinned times as its duration changes, nodes placed at a time, and CameraPaths.json.
