@@ -78,12 +78,8 @@ namespace CameraTools
                 speeds = constantSpeed && !Pinned ? Enumerable.Repeat(lengths[^1], nodes.Length).ToArray() : smooth ? SmoothSpeeds() : NodeSpeeds();
             this.duration = duration;
             if (smooth)
-                turns = new[]
-                {
-                    Smooth(nodes.Select(node => node.Rotation.X)), Smooth(nodes.Select(node => node.Rotation.Y)),
-                    Smooth(nodes.Select(node => node.Rotation.Z)), Smooth(nodes.Select(node => node.Rotation.W)),
-                    Smooth(nodes.Select(node => node.Fov)),
-                };
+                turns = new Func<CameraNode, float>[] { node => node.Rotation.X, node => node.Rotation.Y, node => node.Rotation.Z, node => node.Rotation.W, node => node.Fov }
+                    .Select(channel => Steady(nodes.Select(channel).ToArray())).ToArray();
         }
 
         public int Count => nodes.Length;
@@ -245,6 +241,26 @@ namespace CameraTools
                 result[index] = (w1 + w2) / (w1 / before + w2 / after);
             }
             return result;
+        }
+
+        // The smooth curve's rates for one channel of the turn, kept so that between two nodes the channel only moves from
+        // one node's value toward the other's, as Fritsch and Carlson keep a cubic monotone. Unkept, the curve winds up for
+        // a big turn ahead and first turns the camera the other way, away from both nodes.
+        private float[] Steady(float[] values)
+        {
+            var rates = Smooth(values);
+            int last = values.Length - 1;
+            for (int index = 0; index <= last; index++)
+            {
+                float before = index > 0 ? (values[index] - values[index - 1]) / Span(index - 1) : float.NaN;
+                float after = index < last ? (values[index + 1] - values[index]) / Span(index) : float.NaN;
+                rates[index] = index == 0 ? Keep(rates[index], after) : index == last ? Keep(rates[index], before)
+                    : before * after <= 0f ? 0f : Keep(Keep(rates[index], before), after);
+            }
+            return rates;
+
+            // A rate with the segment's direction and at most three times its average, which keeps the cubic monotone.
+            static float Keep(float rate, float slope) => slope == 0f ? 0f : Math.Sign(slope) * Math.Clamp(rate * Math.Sign(slope), 0f, 3f * Math.Abs(slope));
         }
 
         private float Span(int segment) => times[segment + 1] - times[segment];

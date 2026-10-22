@@ -466,8 +466,8 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     var spread = new PathSampler(ends, false, 10f);
     Check("unpinned ends count as pinned at 0 and at the duration, and the nodes after a pin share what is left evenly",
         spread.NodeProgress(0) == 0f && spread.NodeProgress(1) == 0.25f && Near(spread.NodeProgress(2), 0.625f, 1e-6f) && spread.NodeProgress(3) == 1f);
-    // Pinned moments 2 s, 3 s and 2 s apart: speed, acceleration and turn all carry on through the nodes between them.
-    var smooth = new PathSampler(new[] { Node(0, 0) with { Time = 0f }, Node(10, 0) with { Time = 2f }, Node(18, 20) with { Time = 5f }, Node(26, 0) with { Time = 7f } }, false, 7f);
+    // Pinned moments 2 s, 3 s and 2 s apart, turning one way: speed, acceleration and turn all carry on through the nodes between them.
+    var smooth = new PathSampler(new[] { Node(0, 0) with { Time = 0f }, Node(10, 10) with { Time = 2f }, Node(18, 20) with { Time = 5f }, Node(26, 35) with { Time = 7f } }, false, 7f);
     float X(PathSampler path, float seconds) => path.Sample(seconds / 7f).Position.X;
     float Speed(PathSampler path, float seconds) => (X(path, seconds + 0.05f) - X(path, seconds - 0.05f)) / 0.1f;
     float Accel(float from, float to) => (Speed(smooth, to) - Speed(smooth, from)) / (to - from);
@@ -519,6 +519,14 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     var hairpin = new PathSampler(new[] { At3(0, 0, 0f), At3(10, 0, 2f), At3(0, 1, 4f) }, false, 4f);
     Check("the camera slows almost to a stop where the route doubles back at a node, and keeps its speed through a right angle",
         Velocity(hairpin, 4f, 2f).Length() < 1f && Velocity(corner, 7.4f, 2f).Length() > 2.5f);
+    // A small turn between nodes 2 and 3 before a big quick turn after node 3.
+    var windUp = new PathSampler(new[] { Node(0, 0) with { Time = 0f }, Node(10, 10) with { Time = 2f }, Node(20, 20) with { Time = 4f },
+        Node(25, 170) with { Time = 5f } }, false, 5f);
+    float Apart(Quat a, Quat b) => 2f * MathF.Acos(Math.Min(1f, MathF.Abs(Quat.Dot(Quat.Normalize(a), Quat.Normalize(b))))) * 180f / MathF.PI;
+    var (node2, node3) = (Quat.CreateFromYawPitchRoll(10f * MathF.PI / 180f, 0, 0), Quat.CreateFromYawPitchRoll(20f * MathF.PI / 180f, 0, 0));
+    Check("between two nodes the camera turns from one node's view toward the other's, never away to wind up for a big turn after",
+        Enumerable.Range(1, 19).All(step => windUp.Sample((2f + step * 0.1f) / 5f).Rotation is var turn
+            && Apart(turn, node2) + Apart(turn, node3) - Apart(node2, node3) < 1f));
     var slowEnd = new PathSampler(new[] { Node(0, 0) with { Time = 0f }, Node(10, 0) with { Time = 2f }, Node(10.5f, 0) with { Time = 6f },
         Node(20, 0) with { Time = 7f } }, false, 10f, easeIn: false, easeOut: true);
     Check("a camera reaching a long last segment slowly takes at most half as long again to ease onto its node",
