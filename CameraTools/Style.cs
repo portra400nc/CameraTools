@@ -26,7 +26,6 @@ namespace CameraTools
         public static readonly Color Light = Hex(0xeae6de);
         public static readonly Color LightInk = Hex(0x22262e);
         public static readonly Color BackInk = Hex(0x2a2f3a);
-        public static readonly Color KeyFill = Hex(0x1c202a, 0.55f);
         public static readonly Color XboxA = Hex(0x6cbf3f);
         public static readonly Color XboxB = Hex(0xe0463c);
         public static readonly Color XboxX = Hex(0x3c8ee0);

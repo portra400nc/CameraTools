@@ -471,8 +471,12 @@ namespace CameraTools
             [KeyCode.DownArrow] = "Down",
             [KeyCode.LeftArrow] = "Left",
             [KeyCode.RightArrow] = "Right",
+            [KeyCode.Return] = "Enter",
+            [KeyCode.Escape] = "Esc",
             [KeyCode.KeypadEnter] = "Num Enter",
             [KeyCode.KeypadPlus] = "Num +",
+            [KeyCode.KeypadMinus] = "Num -",
+            [KeyCode.KeypadMultiply] = "Num *",
         };
 
         private readonly Font font;
@@ -583,7 +587,7 @@ namespace CameraTools
             group.padding.left = Style.KeyPadding;
             group.padding.right = Style.KeyPadding;
             image.gameObject.AddComponent<LayoutElement>().minWidth = Style.KeyMinWidth;
-            Label(rect, "Text", name, Style.KeySize, Style.Text, TextAnchor.MiddleCenter).rectTransform.sizeDelta = V(0f, Style.KeyHeight);
+            Label(rect, "Text", name, Style.KeySize, Style.LightInk, TextAnchor.MiddleCenter).rectTransform.sizeDelta = V(0f, Style.KeyHeight);
             return rect;
         }
 
@@ -620,11 +624,17 @@ namespace CameraTools
 
         public HintView KeyHint(Transform parent, KeyCode key, string label) => Hint(parent, rect => Keycap(rect, KeyName(key)), label);
 
-        // Several keys for one label, such as the four that bend and turn a joint, or a cap that names the mouse.
+        // Several keys for one label, such as the four that bend and turn a joint, or a cap that names the mouse. A "+"
+        // between caps is drawn as a plus, for a key held with the ones after it.
         public HintView KeysHint(Transform parent, string[] caps, string label) => Hint(parent, rect =>
         {
             foreach (var cap in caps)
-                Keycap(rect, cap);
+            {
+                if (cap == "+")
+                    Label(rect, "Plus", "+", Style.ComboSize, Style.Dim, TextAnchor.MiddleCenter).rectTransform.sizeDelta = V(0f, Style.HintHeight);
+                else
+                    Keycap(rect, cap);
+            }
         }, label);
 
         private HintView Hint(Transform parent, Action<Transform> mark, string label)
@@ -909,6 +919,7 @@ namespace CameraTools
         public static string KeyName(KeyCode key)
             => KeyNames.TryGetValue(key, out var name) ? name
                 : key is >= KeyCode.Alpha0 and <= KeyCode.Alpha9 ? ((int)(key - KeyCode.Alpha0)).ToString()
+                : key is >= KeyCode.Keypad0 and <= KeyCode.Keypad9 ? $"Num {(int)(key - KeyCode.Keypad0)}"
                 : key.ToString();
     }
 }

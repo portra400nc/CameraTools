@@ -449,7 +449,7 @@ namespace CameraTools
             target.PlayStops = new[] { CamAction.PlayPath, CamAction.ToggleFreecam, CamAction.PlayReplay }
                 .Select(action => (action, action == CamAction.ToggleFreecam ? BuildLegend(ui, bar, new Hint(action, "Stop"))
                     : new Legend(ui.PadHint(bar, Controls.Binding(action).Pad, "Stop"), Controls.Binding(action).Pad != default,
-                        ui.KeysHint(bar, new[] { "Esc" }, "Stop"), true)))
+                        ui.KeyHint(bar, KeyCode.Escape, "Stop"), true)))
                 .ToArray();
         }
 
@@ -497,12 +497,12 @@ namespace CameraTools
             var keys = HintRow(timeline, "Keys", TextAnchor.MiddleLeft);
             Pin(keys, 0f, 0f, 0f, 0f, LegendWidth, Style.HintHeight);
             ui.KeysHint(keys, new[] { KeyName(KeyCode.LeftArrow), KeyName(KeyCode.RightArrow) }, "Frame (hold to scrub)");
-            ui.KeysHint(keys, new[] { "Shift", KeyName(KeyCode.LeftArrow), KeyName(KeyCode.RightArrow) }, "Previous / next node");
+            ui.KeysHint(keys, new[] { "Shift", "+", KeyName(KeyCode.LeftArrow), KeyName(KeyCode.RightArrow) }, "Previous / next node");
             var keysPlay = ui.KeyHint(keys, KeyCode.Return, "Play");
             var keysPlace = ui.KeyHint(keys, KeyCode.N, "Place node");
             ui.KeyHint(keys, KeyCode.Backspace, "Delete node");
             ui.KeyHint(keys, KeyCode.V, "Look through path");
-            ui.KeysHint(keys, new[] { "Esc" }, "Done");
+            ui.KeyHint(keys, KeyCode.Escape, "Done");
             target.TimelinePad = pad.gameObject;
             target.TimelineKeys = keys.gameObject;
             target.TimelinePlay = new[] { padPlay.Label, keysPlay.Label };
