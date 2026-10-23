@@ -23,8 +23,6 @@ namespace CameraTools
         public static Freecam freecam;
         public static bool freecamActive;
         private static readonly Action<Camera> preCull = OnPreCull;
-        private static readonly Action<Camera> preRender = rendering => { if (rendering == maincam) ReplayRecorder.LaterInFrame("before drawing"); };
-        private static readonly Action<Camera> postRender = rendering => { if (rendering == maincam) ReplayRecorder.LaterInFrame("after drawing"); };
         private static readonly Action willRenderCanvases = OnWillRenderCanvases;
         private static bool callbacksRegistered;
         private static bool preCullSeen;
@@ -303,9 +301,6 @@ namespace CameraTools
             {
                 Camera.CameraCallback callback = preCull;
                 Camera.onPreCull = Camera.onPreCull == null ? callback : Camera.onPreCull + callback;
-                Camera.CameraCallback before = preRender, after = postRender;
-                Camera.onPreRender = Camera.onPreRender == null ? before : Camera.onPreRender + before;
-                Camera.onPostRender = Camera.onPostRender == null ? after : Camera.onPostRender + after;
                 callbacksRegistered = true;
                 try
                 {

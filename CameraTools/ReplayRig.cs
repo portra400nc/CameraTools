@@ -34,7 +34,6 @@ namespace CameraTools
 
         private static readonly int DissolveValue = Shader.PropertyToID("_DissolveValue");
         private static readonly int Dither = Shader.PropertyToID("_DitherAlpha");
-        private static readonly int MainTex = Shader.PropertyToID("_MainTex");
         private static readonly MaterialPropertyBlock scratch = new();
 
         public readonly string Name;
@@ -55,17 +54,14 @@ namespace CameraTools
         private readonly MeshFilter[] filters;
 
         // Particle systems simulated in world space that draw trails or ribbons, whose particles are recorded each frame.
-        // A copy re-simulates its particles at its current place, so particles the original laid along a path, as
-        // Neuvillette's charged attack beam is a ribbon through, all started from one point there and drew nothing.
+        // A copy re-simulates its particles at its current place, so particles the original laid along a path all started
+        // from one point there.
         private readonly ParticleSystem[] systems;
         private readonly int[] traced;
         private const int MaxParticles = 512;
 
-        // Diagnostic: the names of the systems whose particles are recorded.
-        public string TracedNames => string.Join(", ", traced.Select(i => systems[i] ? systems[i].name : "?"));
 
-        // Line renderers, whose points the game sets from code each frame: Neuvillette's charged attack beam is three lines
-        // from his hand to its target, and a copy kept the points it was made with.
+        // Line renderers, whose points the game may set from code each frame, while a copy kept the points it was made with.
         private readonly LineRenderer[] lines;
         private readonly bool hasLines;
         private const int MaxPoints = 64;
@@ -194,30 +190,6 @@ namespace CameraTools
             for (int k = 0; k < pose.Particles.Length; k++)
                 if (pose.ParticleSystems[k] < systems.Length && systems[pose.ParticleSystems[k]] is { } system && system && pose.Particles[k] is { } particles)
                     system.SetParticles(particles, particles.Length);
-        }
-
-        // Diagnostic: a line renderer's points, width, colour and space.
-        public string DescribeLine(int r)
-        {
-            if (r >= lines.Length || lines[r] is not { } line || !line)
-                return "no line";
-            var points = Enumerable.Range(0, Math.Min(line.positionCount, 4)).Select(p => line.GetPosition(p)).Select(p => $"({p.x:0.#},{p.y:0.#},{p.z:0.#})");
-            return $"{line.positionCount} points {string.Join(" ", points)} width {line.widthMultiplier:0.###} alpha {line.startColor.a:0.##}/{line.endColor.a:0.##} "
-                + $"{(line.useWorldSpace ? "world" : "local")} {(line.gameObject.activeInHierarchy ? "on" : "off")}/{(line.enabled ? "drawn" : "hidden")}";
-        }
-
-        // Diagnostic: one renderer's state, for comparing an original with its copy.
-        public string Describe(int r)
-        {
-            var renderer = Renderers[r];
-            if (!renderer)
-                return "gone";
-            var mesh = MeshOf(r);
-            var shaders = renderer.sharedMaterials.Select(material => !material ? "null" : !material.shader ? "no shader"
-                : material.shader.name.Split('/').Last() + (material.HasProperty(DissolveValue) ? $":{material.GetFloat(DissolveValue):0.##}" : "")
-                    + (material.HasProperty(MainTex) ? material.mainTexture is { } texture && texture ? $" tex {texture.name}/{texture.width}" : " tex none" : ""));
-            return $"{(renderer.gameObject.activeInHierarchy ? "on" : "off")}/{(renderer.enabled ? "drawn" : "hidden")} "
-                + $"mesh {(mesh ? $"{mesh.name}:{mesh.vertexCount}" : "none")} [{string.Join(", ", shaders)}]";
         }
 
         public Mesh MeshOf(int r) => !Renderers[r] ? null

@@ -165,7 +165,7 @@ namespace CameraTools
         public static readonly Dictionary<IntPtr, Dictionary<int, float>> CustomFloats = new();
         // Each renderer's last custom vector, colour, texture and per-material value, by kind, material (-1 for the whole
         // renderer) and property: the game gives characters some of these once, as it makes them, and a copy without
-        // them drew the game's snow cover on Neuvillette's hair. Neuvillette's beam is placed by some each frame.
+        // them drew the game's snow cover on Neuvillette's hair.
         public static readonly Dictionary<IntPtr, Dictionary<(CallKind Kind, int Material, int Id), (Vector4 Value, Texture Texture)>> CustomProps = new();
         // Each line renderer's last custom mesh.
         public static readonly Dictionary<IntPtr, LineMesh> LineMeshes = new();
@@ -313,10 +313,8 @@ namespace CameraTools
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void ObjectCall(IntPtr self, IntPtr value);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void KeywordIdCall(IntPtr self, int id, byte didModify);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void CustomCall(IntPtr self, int id, float value, byte updateHash);
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void GlobalFloatCall(int id, float value);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void LineMeshCall(IntPtr self, IntPtr triangles, int triangleCount, IntPtr positions,
             int positionCount, IntPtr normals, int normalCount, IntPtr uv0, int uv0Count, IntPtr colors, int colorCount, IntPtr uv1, int uv1Count);
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void GlobalPointerCall(int id, IntPtr value);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void CustomPointerCall(IntPtr self, int id, IntPtr value, byte updateHash);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void MaterialFloatCall(IntPtr self, int material, int id, float value, byte updateHash);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void MaterialPointerCall(IntPtr self, int material, int id, IntPtr value, byte updateHash);
@@ -339,33 +337,8 @@ namespace CameraTools
         private static NativeHook<CustomCall> setCustom;
         private static NativeHook<CustomPointerCall> setCustomVector, setCustomColor, setCustomTexture;
         private static NativeHook<MaterialFloatCall> setMaterialFloat;
-        private static NativeHook<GlobalFloatCall> setGlobalFloat;
         private static NativeHook<LineMeshCall> setLineMesh;
-        private static NativeHook<GlobalPointerCall> setGlobalVector, setGlobalTexture;
 
-        // Diagnostic: the global shader values set while recording, with when, to find what places Neuvillette's beam.
-        public readonly record struct GlobalSet(long Stamp, char Kind, int Id, Vector4 Value, IntPtr Texture);
-        private static readonly List<GlobalSet> Globals = new();
-
-        public static List<GlobalSet> TakeGlobals()
-        {
-            lock (gate)
-            {
-                var taken = new List<GlobalSet>(Globals);
-                Globals.Clear();
-                return taken;
-            }
-        }
-        private const int GlobalLimit = 400000;
-
-        private static void AddGlobal(char kind, int id, Vector4 value, IntPtr texture)
-        {
-            if (!Recording)
-                return;
-            lock (gate)
-                if (Globals.Count < GlobalLimit)
-                    Globals.Add(new GlobalSet(System.Diagnostics.Stopwatch.GetTimestamp(), kind, id, value, texture));
-        }
         private static NativeHook<MaterialPointerCall> setMaterialVector, setMaterialColor, setMaterialTexture;
 
         public static List<Raw> Drain()
@@ -493,7 +466,7 @@ namespace CameraTools
                 setTexture.Trampoline(self, id, value);
                 Add(new Raw { Self = self, Kind = CallKind.Texture, Id = id, Ref = value });
             }, report);
-            // A texture's offset and scale, which effects scroll each frame: Neuvillette's beam drew a still picture without them.
+            // A texture's offset and scale, which some effects scroll from code each frame.
             // Found with REA behind Material's INTERNAL_CALL_SetTextureOffsetImpl and SetTextureScaleImpl; the value comes
             // by pointer.
             setTextureOffset = Hook<PointerCall>(module, 0x143DA70, "48895c24104889742418574883ec3049", "SetTextureOffset", (self, id, value) =>
@@ -599,24 +572,6 @@ namespace CameraTools
                         LineMeshes[self] = mesh;
                     Add(new Raw { Self = self, Kind = CallKind.LineMesh, Line = mesh });
                 }, report);
-            // Shader.SetGlobalFloat and SetGlobalVector (and SetGlobalColor) reach these engine functions through one jump
-            // each, found with REA; SetGlobalTexture's binding is hooked directly.
-            setGlobalFloat = Hook<GlobalFloatCall>(module, 0x17BE290, "40534883ec300f297424208bd90f28f1", "Shader.SetGlobalFloat", (id, value) =>
-            {
-                setGlobalFloat.Trampoline(id, value);
-                AddGlobal('f', id, new Vector4(value, 0, 0, 0), IntPtr.Zero);
-            }, report);
-            setGlobalVector = Hook<GlobalPointerCall>(module, 0x17BE2C0, "48895c2408574883ec20488bfa8bd983", "Shader.SetGlobalVector", (id, value) =>
-            {
-                var read = ReadVector(value);
-                setGlobalVector.Trampoline(id, value);
-                AddGlobal('v', id, read, IntPtr.Zero);
-            }, report);
-            setGlobalTexture = Hook<GlobalPointerCall>(module, 0x143C240, "40534883ec208bd94885d2750e33c08b", "Shader.SetGlobalTexture", (id, value) =>
-            {
-                setGlobalTexture.Trampoline(id, value);
-                AddGlobal('t', id, default, value);
-            }, report);
             // Attached only once every field holds its hook, so no detour runs before its trampoline is reachable.
             int attached = 0;
             foreach (var (name, hook) in new (string, object)[]
@@ -629,7 +584,6 @@ namespace CameraTools
                 ("Renderer.SetCustomPropertyTexture", setCustomTexture), ("Renderer.SetPerMaterialCustomPropertyFloat", setMaterialFloat),
                 ("Renderer.SetPerMaterialCustomPropertyVector", setMaterialVector), ("Renderer.SetPerMaterialCustomPropertyColor", setMaterialColor),
                 ("Renderer.SetPerMaterialCustomPropertyTexture", setMaterialTexture),
-                ("Shader.SetGlobalFloat", setGlobalFloat), ("Shader.SetGlobalVector", setGlobalVector), ("Shader.SetGlobalTexture", setGlobalTexture),
                 ("LineRenderer.SetCustomMeshDataWithSize", setLineMesh),
             }.Concat(settable))
             {

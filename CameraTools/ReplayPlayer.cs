@@ -191,22 +191,6 @@ namespace CameraTools
                 }
         }
 
-        // Diagnostic: each character renderer the recording draws, once, as the copy has it then and as the original had it.
-        private static void Describe(Track track, RigPose pose, float t)
-        {
-            var rig = track.Copy.Rig;
-            track.Described ??= new bool[rig.Renderers.Length];
-            for (int r = 0; r < rig.Renderers.Length && r < pose.Drawn.Length; r++)
-            {
-                if (track.Described[r] || !pose.Drawn[r])
-                    continue;
-                track.Described[r] = true;
-                string name = rig.Renderers[r] ? rig.Renderers[r].name : "?";
-                Melon<CameraTools>.Logger.Msg($"Replays: note: {track.Source.Name} {name} at {t:0.00} s: copy {rig.Describe(r)}"
-                    + $" | at copy {track.AtCopy?.ElementAtOrDefault(r) ?? "-"} | at end {track.AtEnd?.ElementAtOrDefault(r) ?? "-"}");
-            }
-        }
-
         private static void Play(Track track, float t)
         {
             var copy = track.Copy;
@@ -234,58 +218,6 @@ namespace CameraTools
                 rig.Root.gameObject.SetActive(true);
             rig.WriteTransforms(a, b, blend);
             rig.WriteLooks(a, b, blend, opaque);
-            if (track.Kind == TrackKind.Effect && !track.LinesShown && t - track.Start >= 1f && rig.Name.Contains("WaterTornado"))
-            {
-                track.LinesShown = true;
-                foreach (var system in ReplayScene.All<ParticleSystem>(rig.Root))
-                    Melon<CameraTools>.Logger.Msg($"Replays: note: copy of {rig.Name} system plays at {t:0.00} s: {ReplayCopies.DescribeSystem(system)}");
-                for (int r = 0; r < rig.Renderers.Length; r++)
-                    if (rig.Renderers[r] is { } line && line && line.TryCast<LineRenderer>() != null)
-                        Melon<CameraTools>.Logger.Msg($"Replays: note: copy of {rig.Name} line {line.name} plays at {t:0.00} s: {rig.DescribeLine(r)}"
-                            + $"; calls on it: [{string.Join(", ", track.Calls.Where(call => CallTarget.IsRenderer(call.Kind) ? call.Slot == r : call.Slot < track.Source.Slots.Length && track.Source.Slots[call.Slot].Renderer == r).GroupBy(call => call.Kind).Select(group => $"{group.Key} x{group.Count()}"))}]"
-                            + $"; root at {rig.Root.position}");
-                for (int r = 0; r < rig.Renderers.Length; r++)
-                {
-                    var meshes = track.Calls.Where(call => call.Kind == CallKind.LineMesh && call.Slot == r && call.Line != null).Select(call => call.Line).ToList();
-                    if (meshes.Count == 0)
-                        continue;
-                    int Distinct(Func<LineMesh, byte[]> part) => meshes.Select(part).Select(bytes => bytes == null ? "-" : Convert.ToBase64String(System.Security.Cryptography.SHA1.HashData(bytes))).Distinct().Count();
-                    var first = meshes[0];
-                    var settings = track.Given?.ElementAtOrDefault(r)?.Values;
-                    Melon<CameraTools>.Logger.Msg($"Replays: note: {rig.Renderers[r].name} {meshes.Count} meshes: {Distinct(m => m.Positions)} position sets, {Distinct(m => m.Uv0)} uv0 sets, "
-                        + $"{Distinct(m => m.Colors)} colour sets, {Distinct(m => m.Uv1)} uv1 sets, {Distinct(m => m.Normals)} normal sets; first has {first.PositionCount} positions, "
-                        + $"{first.TriangleCount} indices, uv1 {first.Uv1Count}; settings at start [{string.Join(", ", settings?.Select(pair => $"{ReplayHooks.Setters[pair.Key].Name}={pair.Value.Int}/{pair.Value.Float:0.##}") ?? Array.Empty<string>())}]");
-                }
-                foreach (var group in track.Calls.Where(call => call.Kind is CallKind.Color or CallKind.Vector or CallKind.Float && call.Slot < track.Source.Slots.Length)
-                    .GroupBy(call => (call.Slot, call.Kind, call.Id)))
-                {
-                    var (r, m) = track.Source.Slots[group.Key.Slot];
-                    var renderer = r < rig.Renderers.Length ? rig.Renderers[r] : null;
-                    if (!renderer || renderer.TryCast<LineRenderer>() == null)
-                        continue;
-                    var material = m < renderer.sharedMaterials.Length ? renderer.sharedMaterials[m] : null;
-                    var calls = group.ToList();
-                    string Show(Vector4 v) => $"({v.x:0.###},{v.y:0.###},{v.z:0.###},{v.w:0.###})";
-                    string now = !material ? "no material" : group.Key.Kind == CallKind.Float ? $"{material.GetFloat(group.Key.Id):0.###}"
-                        : group.Key.Kind == CallKind.Color ? Show((Vector4)material.GetColor(group.Key.Id)) : Show(material.GetVector(group.Key.Id));
-                    Melon<CameraTools>.Logger.Msg($"Replays: note: {renderer.name} material {m} {group.Key.Kind} {group.Key.Id}: {calls.Count} calls, "
-                        + $"first {Show(calls[0].Value)} at {calls[0].Time - track.Start:0.00} s, last {Show(calls[^1].Value)} at {calls[^1].Time - track.Start:0.00} s; copy's material has {now}"
-                        + $" ({(material && track.Working?.ElementAtOrDefault(r)?.ElementAtOrDefault(m) is { } working && working.Pointer == material.Pointer ? "working" : "not the working material")})");
-                }
-            }
-            if (track.Kind == TrackKind.Character)
-            {
-                Describe(track, a, t);
-                track.FirstDrawn ??= t;
-                if (!track.MaterialsNoted && t - track.FirstDrawn >= 0.5f)
-                {
-                    track.MaterialsNoted = true;
-                    for (int r = 0; r < rig.Renderers.Length; r++)
-                        if (rig.Renderers[r] && rig.Renderers[r].enabled && rig.Renderers[r].gameObject.activeInHierarchy)
-                            Melon<CameraTools>.Logger.Msg($"Replays: note: {track.Source.Name} {rig.Renderers[r].name} at {t:0.00} s plays with {rig.Describe(r)}"
-                                + $"; recorded dissolve [{string.Join(", ", Enumerable.Range(0, rig.Slots.Length).Where(slot => rig.Slots[slot].Renderer == r).Select(slot => slot < a.Dissolve.Length ? $"{a.Dissolve[slot]:0.##}" : "-"))}]");
-                }
-            }
             // One copy plays every play of a pooled effect, so a new play moves it to where that play starts. A trail
             // would draw that jump: energy orbs left lines across the arena that came back with each orb.
             if (copy.Owner != track || jumped)

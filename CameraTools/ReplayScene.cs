@@ -63,17 +63,6 @@ namespace CameraTools
     // removed. Copies without the LOD components showed the characters' low-detail meshes.
     internal static class ReplayCopies
     {
-        // Diagnostic: a particle system's live count and the settings the game may tune when an effect starts.
-        public static string DescribeSystem(ParticleSystem system)
-        {
-            var main = system.main;
-            var shape = system.shape;
-            var renderer = system.GetComponent(Il2CppType.Of<ParticleSystemRenderer>())?.TryCast<ParticleSystemRenderer>();
-            return $"{system.name}: {system.particleCount} alive, size {main.startSizeXMultiplier:0.##}/{main.startSizeYMultiplier:0.##}/{main.startSizeZMultiplier:0.##}, "
-                + $"life {main.startLifetimeMultiplier:0.##}, speed {main.startSpeedMultiplier:0.##}, sim {main.simulationSpeed:0.##}, "
-                + $"shape {shape.shapeType} r {shape.radius:0.##} len {shape.length:0.##} scale {shape.scale}, {(renderer ? renderer.renderMode.ToString() : "no renderer")}";
-        }
-
         private static readonly HashSet<string> Kept = new()
         {
             "Transform", "RectTransform", "ParticleSystem", "ParticleSystemRenderer", "MeshRenderer", "MeshFilter",
