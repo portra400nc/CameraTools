@@ -19,8 +19,7 @@ namespace CameraTools
         public ReplayHooks.Given[] Given;
         public bool[] Described;
         public float? FirstDrawn;
-        public bool MaterialsNoted, GivenNoted, LinesNoted, LinesShown, CopySwapped, Framed;
-        public int ClockNotes;
+        public bool MaterialsNoted, GivenNoted, LinesNoted, LinesShown;
         public readonly Timeline<RigPose> Poses = new();
 
         // The materials captured for the copy, and the playback's own clones of them, which the recorded calls change.

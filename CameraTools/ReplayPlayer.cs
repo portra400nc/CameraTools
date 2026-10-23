@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using MelonLoader;
 using UnityEngine;
 
@@ -9,7 +8,7 @@ namespace CameraTools
         public sealed record Idle : PlayState;
 
         // Solo: one replay on its own clock, from Started, while the free camera stays the user's. Linked: the replays
-        // linked to the playing camera path, on the path's clock. RestoreScale is the game speed a frozen world returns to.
+        // linked to the playing camera path, on the path's clock. RestoreScale is the game speed to return to when playback changed it: a frozen world stops the game, a running one resumes a paused game.
         public abstract record Playing(Replay[] Replays, float? RestoreScale) : PlayState;
 
         public sealed record Solo(Replay Replay, float Started, float? RestoreScale) : Playing(new[] { Replay }, RestoreScale)
@@ -98,11 +97,14 @@ namespace CameraTools
                 hidden.Add((root, root.gameObject.activeSelf));
                 root.gameObject.SetActive(false);
             }
+            // A running world plays at the game's last speed even when the free camera paused it: the game's shaders animate
+            // by its clock, so a paused game left the copies' water and effects standing still, as Neuvillette's beam did.
             float? restore = null;
-            if (replays.Any(replay => replay.World == ReplayWorld.Frozen))
+            bool frozen = replays.Any(replay => replay.World == ReplayWorld.Frozen);
+            if (frozen != (Time.timeScale == 0f))
             {
                 restore = Time.timeScale;
-                Time.timeScale = 0f;
+                Time.timeScale = frozen ? 0f : CameraTools.lastTimeScale;
             }
             foreach (var replay in replays)
             {
@@ -115,7 +117,7 @@ namespace CameraTools
             }
             State = state(restore);
             Melon<CameraTools>.Logger.Msg($"Replays: playing {string.Join(", ", replays.Select(replay => replay.Name))}"
-                + $"{State switch { PlayState.Linked => " with its path", PlayState.Editing => " to edit", _ => " on its own" }}, world {(restore != null ? "frozen" : "running")}.");
+                + $"{State switch { PlayState.Linked => " with its path", PlayState.Editing => " to edit", _ => " on its own" }}, world {(frozen ? "frozen" : "running")}.");
         }
 
         // message is the toast to show, or null for none.
@@ -133,7 +135,8 @@ namespace CameraTools
                 copy.Rig.Root.gameObject.SetActive(false);
                 copy.Owner = null;
             }
-            if (playing.RestoreScale is float scale)
+            // The pause comes back only while the free camera that made it is still on; leaving it has already resumed the game.
+            if (playing.RestoreScale is float scale && (scale != 0f || CameraTools.freecamActive))
                 Time.timeScale = scale;
             written.Clear();
             if (message != null)
@@ -231,37 +234,9 @@ namespace CameraTools
                 rig.Root.gameObject.SetActive(true);
             rig.WriteTransforms(a, b, blend);
             rig.WriteLooks(a, b, blend, opaque);
-            if (ReplayRecorder.HeavyNotes && track.Kind == TrackKind.Effect && !track.LinesShown && t - track.Start >= 1f && rig.Name.Contains("WaterTornado"))
+            if (track.Kind == TrackKind.Effect && !track.LinesShown && t - track.Start >= 1f && rig.Name.Contains("WaterTornado"))
             {
                 track.LinesShown = true;
-                foreach (var tube in rig.Renderers)
-                    if (tube && tube.TryCast<LineRenderer>() != null && ReplayRecorder.RealNatives.TryGetValue(tube.name, out var real))
-                    {
-                        var mine = ReplayRecorder.NativeBytes(tube);
-                        var differ = new List<string>();
-                        for (int at = 0; at + 8 <= real.Length && at + 8 <= mine.Length; at += 8)
-                        {
-                            long a8 = BitConverter.ToInt64(real, at), b8 = BitConverter.ToInt64(mine, at);
-                            if (a8 == b8)
-                                continue;
-                            bool pointers = (a8 >> 40) is > 0 and < 0x8000 && (b8 >> 40) is > 0 and < 0x8000;
-                            differ.Add($"+0x{at:x}: {a8:x} / {b8:x}{(pointers ? " (pointers)" : $" ({BitConverter.ToSingle(real, at):0.###},{BitConverter.ToSingle(real, at + 4):0.###} / {BitConverter.ToSingle(mine, at):0.###},{BitConverter.ToSingle(mine, at + 4):0.###})")}");
-                        }
-                        Melon<CameraTools>.Logger.Msg($"Replays: note: engine {tube.name} real / copy: {differ.Count} of {real.Length / 8} qwords differ");
-                    }
-                if (ReplayRecorder.BeamAtOneSecond is { } recorded && rig.Name.EndsWith("WaterTornado"))
-                {
-                    var now = ReplayRecorder.ScanCustom(rig);
-                    var keys = recorded.Keys.Concat(now.Keys).Where(key => !key.StartsWith("global")).Distinct().ToList();
-                    var differ = keys.Where(key => recorded.TryGetValue(key, out var a) && now.TryGetValue(key, out var b) && a != b).ToList();
-                    var lost = keys.Where(key => !now.ContainsKey(key)).ToList();
-                    var gained = keys.Where(key => !recorded.ContainsKey(key)).ToList();
-                    Melon<CameraTools>.Logger.Msg($"Replays: note: copy beam against the recorded beam: {differ.Count} differ, {lost.Count} only recorded, {gained.Count} only on the copy, of {keys.Count}");
-                    foreach (var key in differ.Take(120))
-                        Melon<CameraTools>.Logger.Msg($"Replays: note: copy beam {key}: recorded {recorded[key]}, copy {now[key]}");
-                    foreach (var key in lost.Take(10).Concat(gained.Take(10)))
-                        Melon<CameraTools>.Logger.Msg($"Replays: note: copy beam key {key} on one side only");
-                }
                 foreach (var system in ReplayScene.All<ParticleSystem>(rig.Root))
                     Melon<CameraTools>.Logger.Msg($"Replays: note: copy of {rig.Name} system plays at {t:0.00} s: {ReplayCopies.DescribeSystem(system)}");
                 for (int r = 0; r < rig.Renderers.Length; r++)
@@ -280,10 +255,6 @@ namespace CameraTools
                     Melon<CameraTools>.Logger.Msg($"Replays: note: {rig.Renderers[r].name} {meshes.Count} meshes: {Distinct(m => m.Positions)} position sets, {Distinct(m => m.Uv0)} uv0 sets, "
                         + $"{Distinct(m => m.Colors)} colour sets, {Distinct(m => m.Uv1)} uv1 sets, {Distinct(m => m.Normals)} normal sets; first has {first.PositionCount} positions, "
                         + $"{first.TriangleCount} indices, uv1 {first.Uv1Count}; settings at start [{string.Join(", ", settings?.Select(pair => $"{ReplayHooks.Setters[pair.Key].Name}={pair.Value.Int}/{pair.Value.Float:0.##}") ?? Array.Empty<string>())}]");
-                    string Uv(LineMesh mesh) => mesh.Uv0 == null ? "-" : string.Join(" ", Enumerable.Range(0, 6).Select(i => $"({BitConverter.ToSingle(mesh.Uv0, i * 8):0.###},{BitConverter.ToSingle(mesh.Uv0, i * 8 + 4):0.###})"));
-                    string Colour(LineMesh mesh) => mesh.Colors == null ? "-" : string.Join(" ", Enumerable.Range(0, 4).Select(i => $"{mesh.Colors[i * 4]}/{mesh.Colors[i * 4 + 1]}/{mesh.Colors[i * 4 + 2]}/{mesh.Colors[i * 4 + 3]}"));
-                    foreach (int i in new[] { 0, 30, 31, 32, 60 }.Where(i => i < meshes.Count))
-                        Melon<CameraTools>.Logger.Msg($"Replays: note: {rig.Renderers[r].name} mesh {i}: {meshes[i].PositionCount} positions, uv0 {Uv(meshes[i])}, colours {Colour(meshes[i])}");
                 }
                 foreach (var group in track.Calls.Where(call => call.Kind is CallKind.Color or CallKind.Vector or CallKind.Float && call.Slot < track.Source.Slots.Length)
                     .GroupBy(call => (call.Slot, call.Kind, call.Id)))
@@ -306,7 +277,7 @@ namespace CameraTools
             {
                 Describe(track, a, t);
                 track.FirstDrawn ??= t;
-                if (ReplayRecorder.HeavyNotes && !track.MaterialsNoted && t - track.FirstDrawn >= 0.5f)
+                if (!track.MaterialsNoted && t - track.FirstDrawn >= 0.5f)
                 {
                     track.MaterialsNoted = true;
                     for (int r = 0; r < rig.Renderers.Length; r++)
@@ -317,8 +288,7 @@ namespace CameraTools
             }
             // One copy plays every play of a pooled effect, so a new play moves it to where that play starts. A trail
             // would draw that jump: energy orbs left lines across the arena that came back with each orb.
-            bool fresh = copy.Owner != track || jumped;
-            if (fresh)
+            if (copy.Owner != track || jumped)
             {
                 if (copy.Owner != track && (track.Working ?? track.Materials) is { } materials)
                     rig.UseMaterials(materials);
@@ -334,24 +304,12 @@ namespace CameraTools
             if ((track.Working ?? track.Materials) is { } current)
                 rig.WriteDissolve(a, b, blend, current);
             ApplyCalls(track, rig, t);
-
             if (track.Kind is TrackKind.Effect or TrackKind.Gadget)
             {
-                // Playing forward, the systems run on from the last frame, which grows their trails as the game's do: Neuvillette's
-                // beam flows by its particles' trails. Restarting them at each frame drew the trails from nothing every time, and
-                // the beam stood still. A jump, a rewind or a new play simulates them again from the start.
                 float local = t - track.Start;
-                float step = local - copy.SimulatedTo;
-                bool runOn = !fresh && step >= 0f && step < 0.25f;
                 foreach (var system in copy.Tops)
                     if (system)
-                    {
-                        if (!runOn)
-                            system.Simulate(local, true, true, true);
-                        else if (step > 0f)
-                            system.Simulate(step, true, false, false);
-                    }
-                copy.SimulatedTo = local;
+                        system.Simulate(local, true, true, true);
                 rig.WriteParticles(a);
             }
             shown.Add(copy);
@@ -475,5 +433,6 @@ namespace CameraTools
                 if (rig.Root)
                     rig.WriteLooks(a, b, blend, opaque);
         }, () => Stop("Playback stopped; see the log"));
+
     }
 }

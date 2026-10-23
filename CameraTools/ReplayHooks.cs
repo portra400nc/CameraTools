@@ -68,21 +68,16 @@ namespace CameraTools
             return array;
         }
 
-        private void Prepare()
+        public void Give(Renderer to)
         {
+            if (to.TryCast<LineRenderer>() is not { } line)
+                return;
             triangles ??= Array<ushort>(Triangles, 2);
             positions ??= Array<Vector3>(Positions, 12);
             normals ??= Array<Vector3>(Normals, 12);
             uv0 ??= Array<Vector2>(Uv0, 8);
             colors ??= Array<Color32>(Colors, 4);
             uv1 ??= Array<Vector2>(Uv1, 8);
-        }
-
-        public void Give(Renderer to)
-        {
-            if (to.TryCast<LineRenderer>() is not { } line)
-                return;
-            Prepare();
             line.SetCustomMeshDataWithSize(triangles, triangles == null ? 0 : TriangleCount, positions, positions == null ? 0 : PositionCount,
                 normals, normals == null ? 0 : NormalCount, uv0, uv0 == null ? 0 : Uv0Count, colors, colors == null ? 0 : ColorCount,
                 uv1, uv1 == null ? 0 : Uv1Count);
@@ -323,8 +318,6 @@ namespace CameraTools
             int positionCount, IntPtr normals, int normalCount, IntPtr uv0, int uv0Count, IntPtr colors, int colorCount, IntPtr uv1, int uv1Count);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void GlobalPointerCall(int id, IntPtr value);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void CustomPointerCall(IntPtr self, int id, IntPtr value, byte updateHash);
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void NativeVectorCall(IntPtr native, int id, IntPtr value, byte color, byte updateHash);
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void RenderersPointerCall(IntPtr renderers, int id, IntPtr value);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void MaterialFloatCall(IntPtr self, int material, int id, float value, byte updateHash);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void MaterialPointerCall(IntPtr self, int material, int id, IntPtr value, byte updateHash);
 
@@ -345,8 +338,6 @@ namespace CameraTools
         private static NativeHook<KeywordIdCall> enableKeywordId, disableKeywordId;
         private static NativeHook<CustomCall> setCustom;
         private static NativeHook<CustomPointerCall> setCustomVector, setCustomColor, setCustomTexture;
-        private static NativeHook<RenderersPointerCall> setRenderersVector;
-        private static NativeHook<NativeVectorCall> setNativeVector;
         private static NativeHook<MaterialFloatCall> setMaterialFloat;
         private static NativeHook<GlobalFloatCall> setGlobalFloat;
         private static NativeHook<LineMeshCall> setLineMesh;
@@ -390,13 +381,6 @@ namespace CameraTools
         // The pointers of the recorded objects' materials and renderers, set by the recorder each frame. Keeping every
         // call in the open world, thousands a frame, cost about 24 ms a frame to sort.
         public static volatile HashSet<IntPtr> Watched;
-
-        // The watched renderers by their engine objects, for the engine's own setter, which native code calls directly.
-        public static volatile Dictionary<IntPtr, IntPtr> WatchedNatives;
-        [ThreadStatic] private static bool inBinding;
-
-        // Diagnostic: every call to the engine's custom vector setter while recording.
-        public static readonly List<(IntPtr Native, int Id, Vector4 Value, bool Color, bool Binding)> NativeVectorLog = new();
 
         private static void Add(Raw raw)
         {
@@ -568,47 +552,13 @@ namespace CameraTools
             setCustomVector = Hook<CustomPointerCall>(module, 0x144C600, Prologue, "Renderer.SetCustomPropertyVector", (self, id, value, updateHash) =>
             {
                 var read = ReadVector(value);
-                inBinding = true;
                 setCustomVector.Trampoline(self, id, value, updateHash);
-                inBinding = false;
                 RememberCustom(self, CallKind.CustomVector, -1, id, read, IntPtr.Zero);
             }, report);
-            // Renderer.SetRenderersCustomPropertyVector sets one vector on a whole array of renderers and calls the engine's
-            // setter itself, past the binding above. Effects drive their animation through it.
-            setRenderersVector = Hook<RenderersPointerCall>(module, 0x144C6C0, "48895c241048896c2418565741564883", "Renderer.SetRenderersCustomPropertyVector",
-                (renderers, id, value) =>
-                {
-                    var read = ReadVector(value);
-                    inBinding = true;
-                    setRenderersVector.Trampoline(renderers, id, value);
-                    inBinding = false;
-                    if (renderers == IntPtr.Zero)
-                        return;
-                    long count = Marshal.ReadInt64(renderers, 0x18);
-                    for (int i = 0; i < count; i++)
-                        if (Marshal.ReadIntPtr(renderers, 0x20 + 8 * i) is var renderer && renderer != IntPtr.Zero)
-                            RememberCustom(renderer, CallKind.CustomVector, -1, id, read, IntPtr.Zero);
-                }, report);
-            // The engine's Renderer::SetCustomPropertyVector, which the bindings above call with a native renderer; color is 1
-            // for SetCustomPropertyColor. The game's native effect code calls it directly as well.
-            setNativeVector = Hook<NativeVectorCall>(module, 0x17993F0, "48895c241048896c2418574154415541", "Renderer::SetCustomPropertyVector (engine)",
-                (native, id, value, color, updateHash) =>
-                {
-                    var read = ReadVector(value);
-                    setNativeVector.Trampoline(native, id, value, color, updateHash);
-                    if (Recording)
-                        lock (NativeVectorLog)
-                            if (NativeVectorLog.Count < 200000)
-                                NativeVectorLog.Add((native, id, read, color != 0, inBinding));
-                    if (!inBinding && Recording && WatchedNatives is { } natives && natives.TryGetValue(native, out var renderer))
-                        RememberCustom(renderer, color != 0 ? CallKind.CustomColor : CallKind.CustomVector, -1, id, read, IntPtr.Zero);
-                }, report);
             setCustomColor = Hook<CustomPointerCall>(module, 0x144C740, Prologue, "Renderer.SetCustomPropertyColor", (self, id, value, updateHash) =>
             {
                 var read = ReadVector(value);
-                inBinding = true;
                 setCustomColor.Trampoline(self, id, value, updateHash);
-                inBinding = false;
                 RememberCustom(self, CallKind.CustomColor, -1, id, read, IntPtr.Zero);
             }, report);
             setCustomTexture = Hook<CustomPointerCall>(module, 0x144C830, Prologue, "Renderer.SetCustomPropertyTexture", (self, id, value, updateHash) =>
@@ -675,7 +625,7 @@ namespace CameraTools
                 ("SetTextureOffset", setTextureOffset), ("SetTextureScale", setTextureScale),
                 ("EnableKeyword", enableKeyword), ("DisableKeyword", disableKeyword), ("EnableKeywordID", enableKeywordId),
                 ("DisableKeywordID", disableKeywordId), ("Renderer.SetCustomPropertyFloat", setCustom),
-                ("Renderer.SetCustomPropertyVector", setCustomVector), ("Renderer.SetRenderersCustomPropertyVector", setRenderersVector), ("Renderer::SetCustomPropertyVector (engine)", setNativeVector), ("Renderer.SetCustomPropertyColor", setCustomColor),
+                ("Renderer.SetCustomPropertyVector", setCustomVector), ("Renderer.SetCustomPropertyColor", setCustomColor),
                 ("Renderer.SetCustomPropertyTexture", setCustomTexture), ("Renderer.SetPerMaterialCustomPropertyFloat", setMaterialFloat),
                 ("Renderer.SetPerMaterialCustomPropertyVector", setMaterialVector), ("Renderer.SetPerMaterialCustomPropertyColor", setMaterialColor),
                 ("Renderer.SetPerMaterialCustomPropertyTexture", setMaterialTexture),

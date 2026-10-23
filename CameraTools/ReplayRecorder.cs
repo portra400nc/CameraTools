@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using Il2CppInterop.Runtime;
 using MelonLoader;
 using UnityEngine;
@@ -161,7 +160,6 @@ namespace CameraTools
             State = new RecordState.Idle();
             ReplayHooks.Recording = false;
             ReplayHooks.Watched = null;
-            ReplayHooks.WatchedNatives = null;
             if (state is RecordState.Countdown countdown)
             {
                 Restore(countdown.Before);
@@ -198,7 +196,6 @@ namespace CameraTools
                 + $"{replay.Of(TrackKind.Gadget).Count()} gadgets, {replay.Tracks.Sum(track => track.Calls.Count)} look calls.");
             CameraUi.Toast(ReplayText.Recorded(replay.Name, replay.Duration, Replays.PathLabel(session.Path)));
             NoteGlobals(session, replay);
-            NoteNativeVectors(replay);
             foreach (var beam in replay.Of(TrackKind.Effect).Where(track => track.Source.Name.Contains("WaterTornado")))
                 for (int r = 0; r < beam.Source.Renderers.Length; r++)
                 {
@@ -349,41 +346,6 @@ namespace CameraTools
                 copy.Rig.UseMaterials(track.Materials);
         }
 
-        // Diagnostic: the first 0x800 bytes of a renderer's engine object, which playback compares with its copy's.
-        // Diagnostic notes that take long enough to stall the game for a second or more.
-        public const bool HeavyNotes = false;
-        public static readonly Dictionary<string, byte[]> RealNatives = new();
-
-        public static byte[] NativeBytes(Renderer renderer)
-        {
-            var bytes = new byte[0x800];
-            var native = Marshal.ReadIntPtr(renderer.Pointer, 0x10);
-            if (native != IntPtr.Zero)
-                Marshal.Copy(native, bytes, 0, bytes.Length);
-            return bytes;
-        }
-
-        // Diagnostic: the engine's custom vector calls on the beam's renderers, from any caller.
-        private static void NoteNativeVectors(Replay replay)
-        {
-            List<(IntPtr Native, int Id, Vector4 Value, bool Color, bool Binding)> calls;
-            lock (ReplayHooks.NativeVectorLog)
-            {
-                calls = new(ReplayHooks.NativeVectorLog);
-                ReplayHooks.NativeVectorLog.Clear();
-            }
-            var parts = new Dictionary<IntPtr, string>();
-            foreach (var track in replay.Of(TrackKind.Effect).Where(track => track.Source.Name.Contains("WaterTornado")))
-                foreach (var renderer in track.Source.Renderers)
-                    if (renderer && Marshal.ReadIntPtr(renderer.Pointer, 0x10) is var native && native != IntPtr.Zero)
-                        parts[native] = $"{track.Source.Name}/{renderer.name}";
-            var hits = calls.Where(call => parts.ContainsKey(call.Native)).ToList();
-            Melon<CameraTools>.Logger.Msg($"Replays: note: {calls.Count} engine custom vector calls while recording, {calls.Select(call => call.Native).Distinct().Count()} renderers, {hits.Count} on the beam's {parts.Count} renderers");
-            foreach (var group in hits.GroupBy(call => (call.Native, call.Id, call.Color)).Take(60))
-                Melon<CameraTools>.Logger.Msg($"Replays: note: beam {parts[group.Key.Native]} {(group.Key.Color ? "colour" : "vector")} {group.Key.Id}: {group.Count()} calls, {group.Count(call => call.Binding)} through a binding, "
-                    + $"first {group.First().Value}, last {group.Last().Value}");
-        }
-
         // Diagnostic: the global shader values that are set only while Neuvillette's beam plays, or that change only then.
         private static void NoteGlobals(RecordSession session, Replay replay)
         {
@@ -413,55 +375,21 @@ namespace CameraTools
             }
         }
 
-        // Diagnostic: every value that could carry the beam's animation time, read twice to find the ones that change: the
-        // lines' custom floats and textures, their property blocks, their materials' floats and vectors, and the globals.
-        private static (Rig Rig, Dictionary<string, string> Values, float At) customScan;
+        // Diagnostic: every custom float set on the beam's line renderers, by property ID, found by asking for each ID.
+        private static (Rig Rig, Dictionary<string, Dictionary<int, float>> Values, float At) customScan;
 
-        // The beam's values one second in, which playback compares its copy with.
-        public static Dictionary<string, string> BeamAtOneSecond;
-
-        public static Dictionary<string, string> ScanCustom(Rig rig)
+        private static Dictionary<string, Dictionary<int, float>> ScanCustom(Rig rig)
         {
-            var found = new Dictionary<string, string>();
-            var block = new MaterialPropertyBlock();
+            var found = new Dictionary<string, Dictionary<int, float>>();
             foreach (var renderer in rig.Renderers)
                 if (renderer && renderer.TryCast<LineRenderer>() != null)
                 {
-                    string name = renderer.name;
+                    var values = new Dictionary<int, float>();
                     for (int id = 0; id < 10000; id++)
-                    {
-                        found[$"{name} custom float {id}"] = renderer.GetCustomPropertyFloat(id).ToString("R");
-                        found[$"{name} custom texture {id}"] = renderer.GetCustomPropertyTexture(id)?.name;
-                    }
-                    var materials = renderer.sharedMaterials;
-                    for (int m = -1; m < materials.Length; m++)
-                    {
-                        if (m < 0)
-                            renderer.GetPropertyBlock(block);
-                        else
-                            renderer.GetPerMaterialPropertyBlock(block, m);
-                        if (block.isEmpty)
-                            continue;
-                        for (int id = 0; id < 10000; id++)
-                            found[$"{name} block {m} {id}"] = $"{block.GetFloat(id):R} {block.GetVector(id)}";
-                    }
-                    var line = renderer.TryCast<LineRenderer>();
-                    found[$"{name} line"] = $"enabled {renderer.enabled}, world {line.useWorldSpace}, layer {renderer.gameObject.layer}, sorting {renderer.sortingOrder}";
-                    foreach (var material in materials)
-                        if (material)
-                        {
-                            found[$"{name} material {material.name}"] = $"shader {material.shader?.name}, queue {material.renderQueue}, keywords [{string.Join(" ", material.shaderKeywords.OrderBy(word => word))}]";
-                            for (int id = 0; id < 10000; id++)
-                                if (material.HasProperty(id))
-                                {
-                                    found[$"{name} material {material.name} {id}"] = $"{material.GetFloat(id):R} {material.GetVector(id)}";
-                                    if (material.GetTexture(id) is { } texture && texture)
-                                        found[$"{name} material {material.name} texture {id}"] = $"{texture.name} {material.GetTextureOffset(id)} {material.GetTextureScale(id)}";
-                                }
-                        }
+                        if (renderer.GetCustomPropertyFloat(id) is var value && value != 0f)
+                            values[id] = value;
+                    found[renderer.name] = values;
                 }
-            for (int id = 0; id < 10000; id++)
-                found[$"global {id}"] = $"{Shader.GetGlobalFloat(id):R} {Shader.GetGlobalVector(id)}";
             return found;
         }
 
@@ -585,27 +513,16 @@ namespace CameraTools
                 }
                 track.LastAlive = t;
                 AddPose(session, track, t);
-                // Diagnostic: the real beam's tubes as the engine holds them, one second in.
-                if (HeavyNotes && effect.name.EndsWith("WaterTornado") && t - track.Start >= 1f && RealNatives.Count == 0)
-                    foreach (var tube in track.Source.Renderers)
-                        if (tube && tube.TryCast<LineRenderer>() != null)
-                            RealNatives[tube.name] = NativeBytes(tube);
-                if (HeavyNotes && effect.name.EndsWith("WaterTornado") && t - track.Start >= 1f && !track.LinesNoted)
+                if (!track.LinesNoted && t - track.Start >= 1f && effect.name.Contains("WaterTornado"))
                 {
                     track.LinesNoted = true;
-                    foreach (var (label, root) in new[] { ("real", track.Source.Root), ("copy", track.Copy?.Rig?.Root) })
-                        if (root)
-                            Melon<CameraTools>.Logger.Msg($"Replays: note: {label} beam components: {string.Join(", ", root.GetComponentsInChildren<Component>(true).GroupBy(component => ReplayScene.TypeName(component)).Select(group => $"{group.Key} x{group.Count()}"))}");
-                    foreach (var tube in track.Source.Renderers)
-                        if (tube && tube.TryCast<LineRenderer>() != null)
-                            foreach (var material in tube.sharedMaterials)
-                                if (material)
-                                    for (int id = 0; id < 10000; id++)
-                                        if (material.HasProperty(id) && material.GetTexture(id) is { } texture && texture)
-                                            Melon<CameraTools>.Logger.Msg($"Replays: note: {tube.name} {material.name} texture {id}: {texture.name} {ReplayScene.TypeName(texture)} {texture.width}x{texture.height}, "
-                                                + $"render texture {texture.TryCast<RenderTexture>() != null}, offset {material.GetTextureOffset(id)} scale {material.GetTextureScale(id)}");
+                    foreach (var system in ReplayScene.All<ParticleSystem>(effect))
+                        NoteName(session, $"effect {effect.name} system recorded at 1 s: {ReplayCopies.DescribeSystem(system)}");
+                    for (int r = 0; r < track.Source.Renderers.Length; r++)
+                        if (track.Source.Renderers[r] is { } line && line && line.TryCast<LineRenderer>() != null)
+                            NoteName(session, $"effect {effect.name} line {line.name} recorded at 1 s: {track.Source.DescribeLine(r)}, bounds {line.bounds.center} size {line.bounds.size}");
                 }
-                if (HeavyNotes && !track.MaterialsNoted && t - track.Start >= 0.5f && effect.name.Contains("ExtraAttack"))
+                if (!track.MaterialsNoted && t - track.Start >= 0.5f && effect.name.Contains("ExtraAttack"))
                 {
                     track.MaterialsNoted = true;
                     var rig = track.Source;
@@ -752,11 +669,6 @@ namespace CameraTools
             var watched = new HashSet<IntPtr>(slots.Keys);
             watched.UnionWith(renderers.Keys);
             ReplayHooks.Watched = watched;
-            var natives = new Dictionary<IntPtr, IntPtr>(renderers.Count);
-            foreach (var renderer in renderers.Keys)
-                if (Marshal.ReadIntPtr(renderer, 0x10) is var native && native != IntPtr.Zero)
-                    natives[native] = renderer;
-            ReplayHooks.WatchedNatives = natives;
             foreach (var raw in ReplayHooks.Drain())
             {
                 if (CallTarget.IsRenderer(raw.Kind))

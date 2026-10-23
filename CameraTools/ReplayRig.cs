@@ -174,7 +174,7 @@ namespace CameraTools
             lines = Renderers.Select(renderer => renderer ? renderer.TryCast<LineRenderer>() : null).ToArray();
             systems = ReplayScene.All<ParticleSystem>(root);
             traced = Enumerable.Range(0, systems.Length)
-                .Where(i => systems[i].trails.enabled).ToArray();
+                .Where(i => systems[i].main.simulationSpace == ParticleSystemSimulationSpace.World && systems[i].trails.enabled).ToArray();
             hasLines = lines.Any(line => line != null);
         }
 

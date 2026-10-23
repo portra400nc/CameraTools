@@ -144,8 +144,6 @@ namespace CameraTools
         public Rig Rig;
         // Playback simulates the systems at the top of the copy, with every system's seed fixed.
         public ParticleSystem[] Tops = Array.Empty<ParticleSystem>();
-        // The play time its systems were last simulated to.
-        public float SimulatedTo = float.NegativeInfinity;
         public TrailRenderer[] Trails = Array.Empty<TrailRenderer>();
         public bool Shown;
         // The track that last played this copy, so a new play can set its materials and clear its trails.
