@@ -9,20 +9,30 @@ namespace CameraTools
 
     // The game's setter calls a replay repeats: on one material slot, or, for CustomFloat, RendererSet, EnableProperty and
     // MeshSwap, on one renderer.
-    internal enum CallKind { Float, Int, Color, Vector, Shader, KeywordOn, KeywordOff, KeywordIdOn, KeywordIdOff, CustomFloat, Swap, RendererSet, EnableProperty, Texture, MeshSwap }
+    // The Custom kinds are Genshin's renderer custom properties: Int is the material index for one material's, -1 for the
+    // whole renderer's.
+    internal enum CallKind
+    {
+        Float, Int, Color, Vector, Shader, KeywordOn, KeywordOff, KeywordIdOn, KeywordIdOff, CustomFloat, Swap, RendererSet, EnableProperty,
+        Texture, MeshSwap, CustomVector, CustomColor, CustomTexture, LineMesh, TextureOffset, TextureScale,
+    }
 
     // What a call sets. A later call on the same target leaves an earlier one nothing to do.
     internal readonly record struct CallTarget(CallKind Kind, int Slot, int Id, string Text)
     {
-        public static CallTarget Of(CallKind kind, int slot, int id, string text) => kind switch
+        public static CallTarget Of(CallKind kind, int slot, int id, string text, int material = -1) => kind switch
         {
+            CallKind.CustomFloat or CallKind.CustomVector or CallKind.CustomColor or CallKind.CustomTexture => new(kind, slot, id, material.ToString()),
             CallKind.KeywordOn or CallKind.KeywordOff => new(CallKind.KeywordOn, slot, 0, text),
             CallKind.KeywordIdOn or CallKind.KeywordIdOff => new(CallKind.KeywordIdOn, slot, id, null),
             CallKind.Shader or CallKind.Swap or CallKind.MeshSwap or CallKind.EnableProperty => new(kind, slot, 0, null),
             _ => new(kind, slot, id, null),
         };
 
-        public bool OnRenderer => Kind is CallKind.CustomFloat or CallKind.RendererSet or CallKind.EnableProperty or CallKind.MeshSwap;
+        public bool OnRenderer => IsRenderer(Kind);
+
+        public static bool IsRenderer(CallKind kind) => kind is CallKind.CustomFloat or CallKind.CustomVector or CallKind.CustomColor or CallKind.CustomTexture
+            or CallKind.RendererSet or CallKind.EnableProperty or CallKind.MeshSwap or CallKind.LineMesh;
     }
 
     internal static class LookCalls

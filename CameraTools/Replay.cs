@@ -12,6 +12,15 @@ namespace CameraTools
         public Rig Source;
         public StandIn Copy;
         public float Start, End = float.MaxValue;
+        // Diagnostic: each renderer of a character as the copy was made and as the recording ended, and which the
+        // playback has logged.
+        public string[] AtCopy, AtEnd;
+        // An effect's renderers as the game had set them up when its play began, before the recorder watched them.
+        public ReplayHooks.Given[] Given;
+        public bool[] Described;
+        public float? FirstDrawn;
+        public bool MaterialsNoted, GivenNoted, LinesNoted, LinesShown, CopySwapped, Framed;
+        public int ClockNotes;
         public readonly Timeline<RigPose> Poses = new();
 
         // The materials captured for the copy, and the playback's own clones of them, which the recorded calls change.

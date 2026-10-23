@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using MelonLoader;
 using UnityEngine;
 
@@ -187,6 +188,22 @@ namespace CameraTools
                 }
         }
 
+        // Diagnostic: each character renderer the recording draws, once, as the copy has it then and as the original had it.
+        private static void Describe(Track track, RigPose pose, float t)
+        {
+            var rig = track.Copy.Rig;
+            track.Described ??= new bool[rig.Renderers.Length];
+            for (int r = 0; r < rig.Renderers.Length && r < pose.Drawn.Length; r++)
+            {
+                if (track.Described[r] || !pose.Drawn[r])
+                    continue;
+                track.Described[r] = true;
+                string name = rig.Renderers[r] ? rig.Renderers[r].name : "?";
+                Melon<CameraTools>.Logger.Msg($"Replays: note: {track.Source.Name} {name} at {t:0.00} s: copy {rig.Describe(r)}"
+                    + $" | at copy {track.AtCopy?.ElementAtOrDefault(r) ?? "-"} | at end {track.AtEnd?.ElementAtOrDefault(r) ?? "-"}");
+            }
+        }
+
         private static void Play(Track track, float t)
         {
             var copy = track.Copy;
@@ -205,19 +222,110 @@ namespace CameraTools
             {
                 copy.Shown = true;
                 ReplayCopies.Show(rig.Root.gameObject);
-                if (opaque)
+                if (track.Kind == TrackKind.Character)
+                    rig.HoldFullDetail();
+                else if (track.Kind == TrackKind.Weapon)
                     rig.ResumeLods();
             }
             if (!rig.Root.gameObject.activeSelf)
                 rig.Root.gameObject.SetActive(true);
             rig.WriteTransforms(a, b, blend);
             rig.WriteLooks(a, b, blend, opaque);
+            if (ReplayRecorder.HeavyNotes && track.Kind == TrackKind.Effect && !track.LinesShown && t - track.Start >= 1f && rig.Name.Contains("WaterTornado"))
+            {
+                track.LinesShown = true;
+                foreach (var tube in rig.Renderers)
+                    if (tube && tube.TryCast<LineRenderer>() != null && ReplayRecorder.RealNatives.TryGetValue(tube.name, out var real))
+                    {
+                        var mine = ReplayRecorder.NativeBytes(tube);
+                        var differ = new List<string>();
+                        for (int at = 0; at + 8 <= real.Length && at + 8 <= mine.Length; at += 8)
+                        {
+                            long a8 = BitConverter.ToInt64(real, at), b8 = BitConverter.ToInt64(mine, at);
+                            if (a8 == b8)
+                                continue;
+                            bool pointers = (a8 >> 40) is > 0 and < 0x8000 && (b8 >> 40) is > 0 and < 0x8000;
+                            differ.Add($"+0x{at:x}: {a8:x} / {b8:x}{(pointers ? " (pointers)" : $" ({BitConverter.ToSingle(real, at):0.###},{BitConverter.ToSingle(real, at + 4):0.###} / {BitConverter.ToSingle(mine, at):0.###},{BitConverter.ToSingle(mine, at + 4):0.###})")}");
+                        }
+                        Melon<CameraTools>.Logger.Msg($"Replays: note: engine {tube.name} real / copy: {differ.Count} of {real.Length / 8} qwords differ");
+                    }
+                if (ReplayRecorder.BeamAtOneSecond is { } recorded && rig.Name.EndsWith("WaterTornado"))
+                {
+                    var now = ReplayRecorder.ScanCustom(rig);
+                    var keys = recorded.Keys.Concat(now.Keys).Where(key => !key.StartsWith("global")).Distinct().ToList();
+                    var differ = keys.Where(key => recorded.TryGetValue(key, out var a) && now.TryGetValue(key, out var b) && a != b).ToList();
+                    var lost = keys.Where(key => !now.ContainsKey(key)).ToList();
+                    var gained = keys.Where(key => !recorded.ContainsKey(key)).ToList();
+                    Melon<CameraTools>.Logger.Msg($"Replays: note: copy beam against the recorded beam: {differ.Count} differ, {lost.Count} only recorded, {gained.Count} only on the copy, of {keys.Count}");
+                    foreach (var key in differ.Take(120))
+                        Melon<CameraTools>.Logger.Msg($"Replays: note: copy beam {key}: recorded {recorded[key]}, copy {now[key]}");
+                    foreach (var key in lost.Take(10).Concat(gained.Take(10)))
+                        Melon<CameraTools>.Logger.Msg($"Replays: note: copy beam key {key} on one side only");
+                }
+                foreach (var system in ReplayScene.All<ParticleSystem>(rig.Root))
+                    Melon<CameraTools>.Logger.Msg($"Replays: note: copy of {rig.Name} system plays at {t:0.00} s: {ReplayCopies.DescribeSystem(system)}");
+                for (int r = 0; r < rig.Renderers.Length; r++)
+                    if (rig.Renderers[r] is { } line && line && line.TryCast<LineRenderer>() != null)
+                        Melon<CameraTools>.Logger.Msg($"Replays: note: copy of {rig.Name} line {line.name} plays at {t:0.00} s: {rig.DescribeLine(r)}"
+                            + $"; calls on it: [{string.Join(", ", track.Calls.Where(call => CallTarget.IsRenderer(call.Kind) ? call.Slot == r : call.Slot < track.Source.Slots.Length && track.Source.Slots[call.Slot].Renderer == r).GroupBy(call => call.Kind).Select(group => $"{group.Key} x{group.Count()}"))}]"
+                            + $"; root at {rig.Root.position}");
+                for (int r = 0; r < rig.Renderers.Length; r++)
+                {
+                    var meshes = track.Calls.Where(call => call.Kind == CallKind.LineMesh && call.Slot == r && call.Line != null).Select(call => call.Line).ToList();
+                    if (meshes.Count == 0)
+                        continue;
+                    int Distinct(Func<LineMesh, byte[]> part) => meshes.Select(part).Select(bytes => bytes == null ? "-" : Convert.ToBase64String(System.Security.Cryptography.SHA1.HashData(bytes))).Distinct().Count();
+                    var first = meshes[0];
+                    var settings = track.Given?.ElementAtOrDefault(r)?.Values;
+                    Melon<CameraTools>.Logger.Msg($"Replays: note: {rig.Renderers[r].name} {meshes.Count} meshes: {Distinct(m => m.Positions)} position sets, {Distinct(m => m.Uv0)} uv0 sets, "
+                        + $"{Distinct(m => m.Colors)} colour sets, {Distinct(m => m.Uv1)} uv1 sets, {Distinct(m => m.Normals)} normal sets; first has {first.PositionCount} positions, "
+                        + $"{first.TriangleCount} indices, uv1 {first.Uv1Count}; settings at start [{string.Join(", ", settings?.Select(pair => $"{ReplayHooks.Setters[pair.Key].Name}={pair.Value.Int}/{pair.Value.Float:0.##}") ?? Array.Empty<string>())}]");
+                    string Uv(LineMesh mesh) => mesh.Uv0 == null ? "-" : string.Join(" ", Enumerable.Range(0, 6).Select(i => $"({BitConverter.ToSingle(mesh.Uv0, i * 8):0.###},{BitConverter.ToSingle(mesh.Uv0, i * 8 + 4):0.###})"));
+                    string Colour(LineMesh mesh) => mesh.Colors == null ? "-" : string.Join(" ", Enumerable.Range(0, 4).Select(i => $"{mesh.Colors[i * 4]}/{mesh.Colors[i * 4 + 1]}/{mesh.Colors[i * 4 + 2]}/{mesh.Colors[i * 4 + 3]}"));
+                    foreach (int i in new[] { 0, 30, 31, 32, 60 }.Where(i => i < meshes.Count))
+                        Melon<CameraTools>.Logger.Msg($"Replays: note: {rig.Renderers[r].name} mesh {i}: {meshes[i].PositionCount} positions, uv0 {Uv(meshes[i])}, colours {Colour(meshes[i])}");
+                }
+                foreach (var group in track.Calls.Where(call => call.Kind is CallKind.Color or CallKind.Vector or CallKind.Float && call.Slot < track.Source.Slots.Length)
+                    .GroupBy(call => (call.Slot, call.Kind, call.Id)))
+                {
+                    var (r, m) = track.Source.Slots[group.Key.Slot];
+                    var renderer = r < rig.Renderers.Length ? rig.Renderers[r] : null;
+                    if (!renderer || renderer.TryCast<LineRenderer>() == null)
+                        continue;
+                    var material = m < renderer.sharedMaterials.Length ? renderer.sharedMaterials[m] : null;
+                    var calls = group.ToList();
+                    string Show(Vector4 v) => $"({v.x:0.###},{v.y:0.###},{v.z:0.###},{v.w:0.###})";
+                    string now = !material ? "no material" : group.Key.Kind == CallKind.Float ? $"{material.GetFloat(group.Key.Id):0.###}"
+                        : group.Key.Kind == CallKind.Color ? Show((Vector4)material.GetColor(group.Key.Id)) : Show(material.GetVector(group.Key.Id));
+                    Melon<CameraTools>.Logger.Msg($"Replays: note: {renderer.name} material {m} {group.Key.Kind} {group.Key.Id}: {calls.Count} calls, "
+                        + $"first {Show(calls[0].Value)} at {calls[0].Time - track.Start:0.00} s, last {Show(calls[^1].Value)} at {calls[^1].Time - track.Start:0.00} s; copy's material has {now}"
+                        + $" ({(material && track.Working?.ElementAtOrDefault(r)?.ElementAtOrDefault(m) is { } working && working.Pointer == material.Pointer ? "working" : "not the working material")})");
+                }
+            }
+            if (track.Kind == TrackKind.Character)
+            {
+                Describe(track, a, t);
+                track.FirstDrawn ??= t;
+                if (ReplayRecorder.HeavyNotes && !track.MaterialsNoted && t - track.FirstDrawn >= 0.5f)
+                {
+                    track.MaterialsNoted = true;
+                    for (int r = 0; r < rig.Renderers.Length; r++)
+                        if (rig.Renderers[r] && rig.Renderers[r].enabled && rig.Renderers[r].gameObject.activeInHierarchy)
+                            Melon<CameraTools>.Logger.Msg($"Replays: note: {track.Source.Name} {rig.Renderers[r].name} at {t:0.00} s plays with {rig.Describe(r)}"
+                                + $"; recorded dissolve [{string.Join(", ", Enumerable.Range(0, rig.Slots.Length).Where(slot => rig.Slots[slot].Renderer == r).Select(slot => slot < a.Dissolve.Length ? $"{a.Dissolve[slot]:0.##}" : "-"))}]");
+                }
+            }
             // One copy plays every play of a pooled effect, so a new play moves it to where that play starts. A trail
             // would draw that jump: energy orbs left lines across the arena that came back with each orb.
-            if (copy.Owner != track || jumped)
+            bool fresh = copy.Owner != track || jumped;
+            if (fresh)
             {
                 if (copy.Owner != track && (track.Working ?? track.Materials) is { } materials)
                     rig.UseMaterials(materials);
+                if (copy.Owner != track && track.Given != null)
+                    for (int r = 0; r < track.Given.Length && r < rig.Renderers.Length; r++)
+                        if (track.Given[r] != null && rig.Renderers[r])
+                            ReplayHooks.Give(track.Given[r], rig.Renderers[r]);
                 copy.Owner = track;
                 foreach (var trail in copy.Trails)
                     if (trail)
@@ -226,12 +334,25 @@ namespace CameraTools
             if ((track.Working ?? track.Materials) is { } current)
                 rig.WriteDissolve(a, b, blend, current);
             ApplyCalls(track, rig, t);
+
             if (track.Kind is TrackKind.Effect or TrackKind.Gadget)
             {
+                // Playing forward, the systems run on from the last frame, which grows their trails as the game's do: Neuvillette's
+                // beam flows by its particles' trails. Restarting them at each frame drew the trails from nothing every time, and
+                // the beam stood still. A jump, a rewind or a new play simulates them again from the start.
                 float local = t - track.Start;
+                float step = local - copy.SimulatedTo;
+                bool runOn = !fresh && step >= 0f && step < 0.25f;
                 foreach (var system in copy.Tops)
                     if (system)
-                        system.Simulate(local, true, true, true);
+                    {
+                        if (!runOn)
+                            system.Simulate(local, true, true, true);
+                        else if (step > 0f)
+                            system.Simulate(step, true, false, false);
+                    }
+                copy.SimulatedTo = local;
+                rig.WriteParticles(a);
             }
             shown.Add(copy);
             written.Add((rig, a, b, blend, opaque));
@@ -253,7 +374,7 @@ namespace CameraTools
             if (count > 0)
             {
                 var calls = track.Calls;
-                foreach (int index in LookCalls.Live(count, index => CallTarget.Of(calls[index].Kind, calls[index].Slot, calls[index].Id, calls[index].Text), swaps: !character))
+                foreach (int index in LookCalls.Live(count, index => CallTarget.Of(calls[index].Kind, calls[index].Slot, calls[index].Id, calls[index].Text, calls[index].Int), swaps: !character))
                     Repeat(calls[index], track, rig, working, character);
                 track.Cursor = count;
             }
@@ -281,12 +402,15 @@ namespace CameraTools
                     if (call.Slot < rig.Renderers.Length && call.Mesh)
                         rig.SetMesh(call.Slot, call.Mesh);
                     return;
-                case CallKind.CustomFloat or CallKind.RendererSet or CallKind.EnableProperty:
+                case CallKind.CustomFloat or CallKind.CustomVector or CallKind.CustomColor or CallKind.CustomTexture or CallKind.RendererSet
+                    or CallKind.EnableProperty or CallKind.LineMesh:
                     var renderer = call.Slot < rig.Renderers.Length ? rig.Renderers[call.Slot] : null;
                     if (!renderer)
                         return;
-                    if (call.Kind == CallKind.CustomFloat)
-                        renderer.SetCustomPropertyFloat(call.Id, call.Value.x, true);
+                    if (call.Kind is CallKind.CustomFloat or CallKind.CustomVector or CallKind.CustomColor or CallKind.CustomTexture)
+                        ReplayHooks.SetCustom(renderer, call.Kind, call.Int, call.Id, call.Value, call.Texture);
+                    else if (call.Kind == CallKind.LineMesh)
+                        call.Line?.Give(renderer);
                     else if (call.Kind == CallKind.RendererSet)
                         ReplayHooks.Apply(call.Id, renderer.Pointer, call.Int, call.Value.x);
                     else
@@ -321,6 +445,12 @@ namespace CameraTools
                     break;
                 case CallKind.Texture:
                     material.SetTexture(call.Id, call.Texture);
+                    break;
+                case CallKind.TextureOffset:
+                    material.SetTextureOffset(call.Id, new Vector2(call.Value.x, call.Value.y));
+                    break;
+                case CallKind.TextureScale:
+                    material.SetTextureScale(call.Id, new Vector2(call.Value.x, call.Value.y));
                     break;
                 case CallKind.KeywordOn:
                     material.EnableKeyword(call.Text);

@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Il2CppInterop.Runtime;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using MelonLoader;
 using MelonLoader.NativeUtils;
 using UnityEngine;
@@ -21,6 +22,71 @@ namespace CameraTools
         public Material Snapshot;
         public Texture Texture;
         public Mesh Mesh;
+        public LineMesh Line;
+    }
+
+    // A mesh the game gave a line renderer through Genshin's LineRenderer.SetCustomMeshDataWithSize, as raw element bytes:
+    // Neuvillette's charged attack beam is such a mesh, built by the game's code, on line renderers whose own points are a
+    // stub at the world origin.
+    internal sealed class LineMesh
+    {
+        public byte[] Triangles, Positions, Normals, Uv0, Colors, Uv1;
+        public int TriangleCount, PositionCount, NormalCount, Uv0Count, ColorCount, Uv1Count;
+        private Il2CppStructArray<ushort> triangles;
+        private Il2CppStructArray<Vector3> positions, normals;
+        private Il2CppStructArray<Vector2> uv0, uv1;
+        private Il2CppStructArray<Color32> colors;
+
+        public static LineMesh Read(IntPtr triangles, int triangleCount, IntPtr positions, int positionCount, IntPtr normals, int normalCount,
+            IntPtr uv0, int uv0Count, IntPtr colors, int colorCount, IntPtr uv1, int uv1Count) => new()
+        {
+            Triangles = Bytes(triangles, triangleCount, 2), TriangleCount = triangleCount,
+            Positions = Bytes(positions, positionCount, 12), PositionCount = positionCount,
+            Normals = Bytes(normals, normalCount, 12), NormalCount = normalCount,
+            Uv0 = Bytes(uv0, uv0Count, 8), Uv0Count = uv0Count,
+            Colors = Bytes(colors, colorCount, 4), ColorCount = colorCount,
+            Uv1 = Bytes(uv1, uv1Count, 8), Uv1Count = uv1Count,
+        };
+
+        // An IL2CPP array's length sits at +0x18 and its elements from +0x20; count can be less than the length.
+        private static byte[] Bytes(IntPtr array, int count, int size)
+        {
+            if (array == IntPtr.Zero || count <= 0)
+                return null;
+            count = (int)Math.Min(count, Marshal.ReadInt64(array, 0x18));
+            var bytes = new byte[count * size];
+            Marshal.Copy(array + 0x20, bytes, 0, bytes.Length);
+            return bytes;
+        }
+
+        private static Il2CppStructArray<T> Array<T>(byte[] bytes, int size) where T : unmanaged
+        {
+            if (bytes == null)
+                return null;
+            var array = new Il2CppStructArray<T>(bytes.Length / size);
+            Marshal.Copy(bytes, 0, array.Pointer + 0x20, bytes.Length);
+            return array;
+        }
+
+        private void Prepare()
+        {
+            triangles ??= Array<ushort>(Triangles, 2);
+            positions ??= Array<Vector3>(Positions, 12);
+            normals ??= Array<Vector3>(Normals, 12);
+            uv0 ??= Array<Vector2>(Uv0, 8);
+            colors ??= Array<Color32>(Colors, 4);
+            uv1 ??= Array<Vector2>(Uv1, 8);
+        }
+
+        public void Give(Renderer to)
+        {
+            if (to.TryCast<LineRenderer>() is not { } line)
+                return;
+            Prepare();
+            line.SetCustomMeshDataWithSize(triangles, triangles == null ? 0 : TriangleCount, positions, positions == null ? 0 : PositionCount,
+                normals, normals == null ? 0 : NormalCount, uv0, uv0 == null ? 0 : Uv0Count, colors, colors == null ? 0 : ColorCount,
+                uv1, uv1 == null ? 0 : Uv1Count);
+        }
     }
 
     // Native hooks on the engine bindings behind Material's setters and Renderer.SetCustomPropertyFloat. The managed
@@ -38,6 +104,7 @@ namespace CameraTools
             public Vector4 Value;
             public string Text;
             public IntPtr Ref;
+            public LineMesh Line;
         }
 
         // Genshin's renderer settings that have a setter and no getter. Instantiate does not carry what the game set at
@@ -81,6 +148,10 @@ namespace CameraTools
             new("set_castHeightfieldDeformation", 0x144D340, "48895c2408574883ec200fb6fa488bd9", false),
             new("set_receiveHeightfieldDeformation", 0x144D390, "48895c2408574883ec200fb6fa488bd9", false),
             new("set_perObjectShadowZExtendScale", 0x144D3E0, "40534883ec400f297424300f28f1488b", true),
+            // Genshin's LineRenderer: whether it draws a mesh the game gives it instead of its points, and how.
+            new("LineRenderer.set_useCustomMeshData", 0x144DA00, "48895c2408574883ec200fb6fa488bd9", false),
+            new("LineRenderer.set_customUVMode", 0x144DA40, "48895c2408574883ec208bfa488bd948", false),
+            new("LineRenderer.set_customAddSegmentNum", 0x144DA80, "48895c2408574883ec208bfa488bd948", false),
         };
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void IntSetter(IntPtr self, int value);
@@ -97,6 +168,12 @@ namespace CameraTools
         public static readonly Dictionary<IntPtr, Dictionary<int, (int Int, float Float)>> Settings = new();
         public static readonly Dictionary<IntPtr, bool> Enabled = new();
         public static readonly Dictionary<IntPtr, Dictionary<int, float>> CustomFloats = new();
+        // Each renderer's last custom vector, colour, texture and per-material value, by kind, material (-1 for the whole
+        // renderer) and property: the game gives characters some of these once, as it makes them, and a copy without
+        // them drew the game's snow cover on Neuvillette's hair. Neuvillette's beam is placed by some each frame.
+        public static readonly Dictionary<IntPtr, Dictionary<(CallKind Kind, int Material, int Id), (Vector4 Value, Texture Texture)>> CustomProps = new();
+        // Each line renderer's last custom mesh.
+        public static readonly Dictionary<IntPtr, LineMesh> LineMeshes = new();
 
         // The setters may in principle run off the main thread, so the shared tables and buffer take a lock.
         private static readonly object gate = new();
@@ -121,14 +198,17 @@ namespace CameraTools
         }
 
         // What the game gave a renderer, as far as the hooks saw: its settings, custom floats and enable property.
-        public sealed record Given(Dictionary<int, (int Int, float Float)> Values, Dictionary<int, float> Floats, bool? Enabled);
+        public sealed record Given(Dictionary<int, (int Int, float Float)> Values, Dictionary<int, float> Floats, bool? Enabled,
+            Dictionary<(CallKind Kind, int Material, int Id), (Vector4 Value, Texture Texture)> Props = null, LineMesh Line = null);
 
         public static Given Remembered(Renderer from)
         {
             lock (gate)
                 return new Given(Settings.TryGetValue(from.Pointer, out var values) ? new Dictionary<int, (int, float)>(values) : null,
                     CustomFloats.TryGetValue(from.Pointer, out var floats) ? new Dictionary<int, float>(floats) : null,
-                    Enabled.TryGetValue(from.Pointer, out bool on) ? on : null);
+                    Enabled.TryGetValue(from.Pointer, out bool on) ? on : null,
+                    CustomProps.TryGetValue(from.Pointer, out var props) ? new Dictionary<(CallKind, int, int), (Vector4, Texture)>(props) : null,
+                    LineMeshes.TryGetValue(from.Pointer, out var line) ? line : null);
         }
 
         // Gives another renderer, such as a copy, what the game gave the original.
@@ -142,6 +222,74 @@ namespace CameraTools
                     to.SetCustomPropertyFloat(id, value, true);
             if (given.Enabled is bool on)
                 SetEnableProperty(to, on);
+            if (given.Props != null)
+                foreach (var ((kind, material, id), (value, texture)) in given.Props)
+                    SetCustom(to, kind, material, id, value, texture);
+            given.Line?.Give(to);
+        }
+
+        // Sets one custom property on a renderer, the whole renderer's for material -1, else that material's.
+        public static void SetCustom(Renderer to, CallKind kind, int material, int id, Vector4 value, Texture texture)
+        {
+            var color = new Color(value.x, value.y, value.z, value.w);
+            switch (kind)
+            {
+                case CallKind.CustomFloat when material < 0:
+                    to.SetCustomPropertyFloat(id, value.x, true);
+                    break;
+                case CallKind.CustomFloat:
+                    to.SetPerMaterialCustomPropertyFloat(material, id, value.x, true);
+                    break;
+                case CallKind.CustomVector when material < 0:
+                    to.SetCustomPropertyVector(id, value, true);
+                    break;
+                case CallKind.CustomVector:
+                    to.SetPerMaterialCustomPropertyVector(material, id, value, true);
+                    break;
+                case CallKind.CustomColor when material < 0:
+                    to.SetCustomPropertyColor(id, color, true);
+                    break;
+                case CallKind.CustomColor:
+                    to.SetPerMaterialCustomPropertyColor(material, id, color, true);
+                    break;
+                case CallKind.CustomTexture when material < 0:
+                    to.SetCustomPropertyTexture(id, texture, true);
+                    break;
+                case CallKind.CustomTexture:
+                    to.SetPerMaterialCustomPropertyTexture(material, id, texture, true);
+                    break;
+            }
+        }
+
+        // A texture is kept as its object, which holds it alive for the copies given it later.
+        private static void RememberCustom(IntPtr self, CallKind kind, int material, int id, Vector4 value, IntPtr texture)
+        {
+            var kept = texture != IntPtr.Zero ? new Texture(texture) : null;
+            lock (gate)
+            {
+                if (!CustomProps.TryGetValue(self, out var props))
+                    CustomProps[self] = props = new Dictionary<(CallKind, int, int), (Vector4, Texture)>();
+                props[(kind, material, id)] = (value, kept);
+            }
+            Add(new Raw { Self = self, Kind = kind, Id = id, Int = material, Value = value, Ref = texture });
+        }
+
+        private static Vector4 ReadVector2(IntPtr at)
+        {
+            if (at == IntPtr.Zero)
+                return default;
+            var floats = new float[2];
+            Marshal.Copy(at, floats, 0, 2);
+            return new Vector4(floats[0], floats[1], 0, 0);
+        }
+
+        private static Vector4 ReadVector(IntPtr at)
+        {
+            if (at == IntPtr.Zero)
+                return default;
+            var floats = new float[4];
+            Marshal.Copy(at, floats, 0, 4);
+            return new Vector4(floats[0], floats[1], floats[2], floats[3]);
         }
 
         public static void SetEnableProperty(Renderer renderer, bool on)
@@ -170,11 +318,19 @@ namespace CameraTools
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void ObjectCall(IntPtr self, IntPtr value);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void KeywordIdCall(IntPtr self, int id, byte didModify);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void CustomCall(IntPtr self, int id, float value, byte updateHash);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void GlobalFloatCall(int id, float value);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void LineMeshCall(IntPtr self, IntPtr triangles, int triangleCount, IntPtr positions,
+            int positionCount, IntPtr normals, int normalCount, IntPtr uv0, int uv0Count, IntPtr colors, int colorCount, IntPtr uv1, int uv1Count);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void GlobalPointerCall(int id, IntPtr value);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void CustomPointerCall(IntPtr self, int id, IntPtr value, byte updateHash);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void NativeVectorCall(IntPtr native, int id, IntPtr value, byte color, byte updateHash);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void RenderersPointerCall(IntPtr renderers, int id, IntPtr value);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void MaterialFloatCall(IntPtr self, int material, int id, float value, byte updateHash);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void MaterialPointerCall(IntPtr self, int material, int id, IntPtr value, byte updateHash);
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
         private static extern IntPtr GetModuleHandleW(string name);
 
-        private const string MainCameraPath = "/EntityRoot/MainCamera(Clone)";
         private const int BufferLimit = 50000;
         private static readonly List<Raw> buffer = new();
         private static readonly List<object> keep = new();
@@ -184,10 +340,42 @@ namespace CameraTools
 
         private static NativeHook<FloatCall> setFloat;
         private static NativeHook<IntCall> setInt;
-        private static NativeHook<PointerCall> setColor, setVector, setTexture;
+        private static NativeHook<PointerCall> setColor, setVector, setTexture, setTextureOffset, setTextureScale;
         private static NativeHook<ObjectCall> setShader, enableKeyword, disableKeyword;
         private static NativeHook<KeywordIdCall> enableKeywordId, disableKeywordId;
         private static NativeHook<CustomCall> setCustom;
+        private static NativeHook<CustomPointerCall> setCustomVector, setCustomColor, setCustomTexture;
+        private static NativeHook<RenderersPointerCall> setRenderersVector;
+        private static NativeHook<NativeVectorCall> setNativeVector;
+        private static NativeHook<MaterialFloatCall> setMaterialFloat;
+        private static NativeHook<GlobalFloatCall> setGlobalFloat;
+        private static NativeHook<LineMeshCall> setLineMesh;
+        private static NativeHook<GlobalPointerCall> setGlobalVector, setGlobalTexture;
+
+        // Diagnostic: the global shader values set while recording, with when, to find what places Neuvillette's beam.
+        public readonly record struct GlobalSet(long Stamp, char Kind, int Id, Vector4 Value, IntPtr Texture);
+        private static readonly List<GlobalSet> Globals = new();
+
+        public static List<GlobalSet> TakeGlobals()
+        {
+            lock (gate)
+            {
+                var taken = new List<GlobalSet>(Globals);
+                Globals.Clear();
+                return taken;
+            }
+        }
+        private const int GlobalLimit = 400000;
+
+        private static void AddGlobal(char kind, int id, Vector4 value, IntPtr texture)
+        {
+            if (!Recording)
+                return;
+            lock (gate)
+                if (Globals.Count < GlobalLimit)
+                    Globals.Add(new GlobalSet(System.Diagnostics.Stopwatch.GetTimestamp(), kind, id, value, texture));
+        }
+        private static NativeHook<MaterialPointerCall> setMaterialVector, setMaterialColor, setMaterialTexture;
 
         public static List<Raw> Drain()
         {
@@ -203,6 +391,13 @@ namespace CameraTools
         // call in the open world, thousands a frame, cost about 24 ms a frame to sort.
         public static volatile HashSet<IntPtr> Watched;
 
+        // The watched renderers by their engine objects, for the engine's own setter, which native code calls directly.
+        public static volatile Dictionary<IntPtr, IntPtr> WatchedNatives;
+        [ThreadStatic] private static bool inBinding;
+
+        // Diagnostic: every call to the engine's custom vector setter while recording.
+        public static readonly List<(IntPtr Native, int Id, Vector4 Value, bool Color, bool Binding)> NativeVectorLog = new();
+
         private static void Add(Raw raw)
         {
             if (!Recording || Watched is not { } watched || !watched.Contains(raw.Self))
@@ -212,15 +407,31 @@ namespace CameraTools
                     buffer.Add(raw);
         }
 
-        // Attached from the first frame the game camera exists, so the settings the game gives renderers when it makes
-        // them, before any recording, are already remembered.
+        // Attached as soon as the game's code is in place, so the settings the game gives renderers when it makes them,
+        // before any recording, are remembered. Waiting for the game camera missed those of characters set up before it,
+        // and their copies drew the game's snow cover on Neuvillette's hair.
         public static void Update()
         {
             if (Attached || Time.unscaledTime < nextLook)
                 return;
-            nextLook = Time.unscaledTime + 1f;
-            if (GameObject.Find(MainCameraPath))
+            nextLook = Time.unscaledTime + 0.25f;
+            if (Ready())
                 Attach();
+        }
+
+        // Whether the SetFloat binding holds the bytes the hooks expect, which they do once the game has unpacked its code.
+        private static bool Ready()
+        {
+            try
+            {
+                var bytes = new byte[16];
+                Marshal.Copy(GetModuleHandleW("GenshinImpact.exe") + 0x143CA50, bytes, 0, bytes.Length);
+                return Convert.ToHexString(bytes).ToLowerInvariant() == "48895c2408574883ec300f297424200f";
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static void Attach()
@@ -298,6 +509,21 @@ namespace CameraTools
                 setTexture.Trampoline(self, id, value);
                 Add(new Raw { Self = self, Kind = CallKind.Texture, Id = id, Ref = value });
             }, report);
+            // A texture's offset and scale, which effects scroll each frame: Neuvillette's beam drew a still picture without them.
+            // Found with REA behind Material's INTERNAL_CALL_SetTextureOffsetImpl and SetTextureScaleImpl; the value comes
+            // by pointer.
+            setTextureOffset = Hook<PointerCall>(module, 0x143DA70, "48895c24104889742418574883ec3049", "SetTextureOffset", (self, id, value) =>
+            {
+                var read = ReadVector2(value);
+                setTextureOffset.Trampoline(self, id, value);
+                Add(new Raw { Self = self, Kind = CallKind.TextureOffset, Id = id, Value = read });
+            }, report);
+            setTextureScale = Hook<PointerCall>(module, 0x143DB20, "48895c24104889742418574883ec3049", "SetTextureScale", (self, id, value) =>
+            {
+                var read = ReadVector2(value);
+                setTextureScale.Trampoline(self, id, value);
+                Add(new Raw { Self = self, Kind = CallKind.TextureScale, Id = id, Value = read });
+            }, report);
             setShader = Hook<ObjectCall>(module, 0x143C9F0, "48895c2408574883ec20488bd94885d2", "set_shader", (self, value) =>
             {
                 setShader.Trampoline(self, value);
@@ -334,15 +560,127 @@ namespace CameraTools
                         CustomFloats[self] = floats = new Dictionary<int, float>();
                     floats[id] = value;
                 }
-                Add(new Raw { Self = self, Kind = CallKind.CustomFloat, Id = id, Value = new Vector4(value, 0, 0, 0) });
+                Add(new Raw { Self = self, Kind = CallKind.CustomFloat, Id = id, Int = -1, Value = new Vector4(value, 0, 0, 0) });
+            }, report);
+            // The engine bindings behind Renderer's other custom property setters, found with REA from the managed methods'
+            // jumps. Vectors and colours come by pointer, textures as the object.
+            const string Prologue = "48895c240848896c2410488974241857";
+            setCustomVector = Hook<CustomPointerCall>(module, 0x144C600, Prologue, "Renderer.SetCustomPropertyVector", (self, id, value, updateHash) =>
+            {
+                var read = ReadVector(value);
+                inBinding = true;
+                setCustomVector.Trampoline(self, id, value, updateHash);
+                inBinding = false;
+                RememberCustom(self, CallKind.CustomVector, -1, id, read, IntPtr.Zero);
+            }, report);
+            // Renderer.SetRenderersCustomPropertyVector sets one vector on a whole array of renderers and calls the engine's
+            // setter itself, past the binding above. Effects drive their animation through it.
+            setRenderersVector = Hook<RenderersPointerCall>(module, 0x144C6C0, "48895c241048896c2418565741564883", "Renderer.SetRenderersCustomPropertyVector",
+                (renderers, id, value) =>
+                {
+                    var read = ReadVector(value);
+                    inBinding = true;
+                    setRenderersVector.Trampoline(renderers, id, value);
+                    inBinding = false;
+                    if (renderers == IntPtr.Zero)
+                        return;
+                    long count = Marshal.ReadInt64(renderers, 0x18);
+                    for (int i = 0; i < count; i++)
+                        if (Marshal.ReadIntPtr(renderers, 0x20 + 8 * i) is var renderer && renderer != IntPtr.Zero)
+                            RememberCustom(renderer, CallKind.CustomVector, -1, id, read, IntPtr.Zero);
+                }, report);
+            // The engine's Renderer::SetCustomPropertyVector, which the bindings above call with a native renderer; color is 1
+            // for SetCustomPropertyColor. The game's native effect code calls it directly as well.
+            setNativeVector = Hook<NativeVectorCall>(module, 0x17993F0, "48895c241048896c2418574154415541", "Renderer::SetCustomPropertyVector (engine)",
+                (native, id, value, color, updateHash) =>
+                {
+                    var read = ReadVector(value);
+                    setNativeVector.Trampoline(native, id, value, color, updateHash);
+                    if (Recording)
+                        lock (NativeVectorLog)
+                            if (NativeVectorLog.Count < 200000)
+                                NativeVectorLog.Add((native, id, read, color != 0, inBinding));
+                    if (!inBinding && Recording && WatchedNatives is { } natives && natives.TryGetValue(native, out var renderer))
+                        RememberCustom(renderer, color != 0 ? CallKind.CustomColor : CallKind.CustomVector, -1, id, read, IntPtr.Zero);
+                }, report);
+            setCustomColor = Hook<CustomPointerCall>(module, 0x144C740, Prologue, "Renderer.SetCustomPropertyColor", (self, id, value, updateHash) =>
+            {
+                var read = ReadVector(value);
+                inBinding = true;
+                setCustomColor.Trampoline(self, id, value, updateHash);
+                inBinding = false;
+                RememberCustom(self, CallKind.CustomColor, -1, id, read, IntPtr.Zero);
+            }, report);
+            setCustomTexture = Hook<CustomPointerCall>(module, 0x144C830, Prologue, "Renderer.SetCustomPropertyTexture", (self, id, value, updateHash) =>
+            {
+                setCustomTexture.Trampoline(self, id, value, updateHash);
+                RememberCustom(self, CallKind.CustomTexture, -1, id, default, value);
+            }, report);
+            setMaterialFloat = Hook<MaterialFloatCall>(module, 0x144C1D0, "48895c24084889742410574883ec400f", "Renderer.SetPerMaterialCustomPropertyFloat",
+                (self, material, id, value, updateHash) =>
+                {
+                    setMaterialFloat.Trampoline(self, material, id, value, updateHash);
+                    RememberCustom(self, CallKind.CustomFloat, material, id, new Vector4(value, 0, 0, 0), IntPtr.Zero);
+                }, report);
+            setMaterialVector = Hook<MaterialPointerCall>(module, 0x144C240, Prologue, "Renderer.SetPerMaterialCustomPropertyVector", (self, material, id, value, updateHash) =>
+            {
+                var read = ReadVector(value);
+                setMaterialVector.Trampoline(self, material, id, value, updateHash);
+                RememberCustom(self, CallKind.CustomVector, material, id, read, IntPtr.Zero);
+            }, report);
+            setMaterialColor = Hook<MaterialPointerCall>(module, 0x144C2B0, Prologue, "Renderer.SetPerMaterialCustomPropertyColor", (self, material, id, value, updateHash) =>
+            {
+                var read = ReadVector(value);
+                setMaterialColor.Trampoline(self, material, id, value, updateHash);
+                RememberCustom(self, CallKind.CustomColor, material, id, read, IntPtr.Zero);
+            }, report);
+            setMaterialTexture = Hook<MaterialPointerCall>(module, 0x144C320, Prologue, "Renderer.SetPerMaterialCustomPropertyTexture", (self, material, id, value, updateHash) =>
+            {
+                setMaterialTexture.Trampoline(self, material, id, value, updateHash);
+                RememberCustom(self, CallKind.CustomTexture, material, id, default, value);
+            }, report);
+            // Both SetCustomMeshDataWithSize overloads reach this binding, found with REA.
+            setLineMesh = Hook<LineMeshCall>(module, 0x144DAC0, "488bc4535556574881ec88000000488b", "LineRenderer.SetCustomMeshDataWithSize",
+                (self, triangles, triangleCount, positions, positionCount, normals, normalCount, uv0, uv0Count, colors, colorCount, uv1, uv1Count) =>
+                {
+                    var mesh = LineMesh.Read(triangles, triangleCount, positions, positionCount, normals, normalCount, uv0, uv0Count, colors, colorCount, uv1, uv1Count);
+                    setLineMesh.Trampoline(self, triangles, triangleCount, positions, positionCount, normals, normalCount, uv0, uv0Count, colors, colorCount, uv1, uv1Count);
+                    lock (gate)
+                        LineMeshes[self] = mesh;
+                    Add(new Raw { Self = self, Kind = CallKind.LineMesh, Line = mesh });
+                }, report);
+            // Shader.SetGlobalFloat and SetGlobalVector (and SetGlobalColor) reach these engine functions through one jump
+            // each, found with REA; SetGlobalTexture's binding is hooked directly.
+            setGlobalFloat = Hook<GlobalFloatCall>(module, 0x17BE290, "40534883ec300f297424208bd90f28f1", "Shader.SetGlobalFloat", (id, value) =>
+            {
+                setGlobalFloat.Trampoline(id, value);
+                AddGlobal('f', id, new Vector4(value, 0, 0, 0), IntPtr.Zero);
+            }, report);
+            setGlobalVector = Hook<GlobalPointerCall>(module, 0x17BE2C0, "48895c2408574883ec20488bfa8bd983", "Shader.SetGlobalVector", (id, value) =>
+            {
+                var read = ReadVector(value);
+                setGlobalVector.Trampoline(id, value);
+                AddGlobal('v', id, read, IntPtr.Zero);
+            }, report);
+            setGlobalTexture = Hook<GlobalPointerCall>(module, 0x143C240, "40534883ec208bd94885d2750e33c08b", "Shader.SetGlobalTexture", (id, value) =>
+            {
+                setGlobalTexture.Trampoline(id, value);
+                AddGlobal('t', id, default, value);
             }, report);
             // Attached only once every field holds its hook, so no detour runs before its trampoline is reachable.
             int attached = 0;
             foreach (var (name, hook) in new (string, object)[]
             {
                 ("SetFloat", setFloat), ("SetInt", setInt), ("SetColor", setColor), ("SetVector", setVector), ("SetTexture", setTexture), ("set_shader", setShader),
+                ("SetTextureOffset", setTextureOffset), ("SetTextureScale", setTextureScale),
                 ("EnableKeyword", enableKeyword), ("DisableKeyword", disableKeyword), ("EnableKeywordID", enableKeywordId),
                 ("DisableKeywordID", disableKeywordId), ("Renderer.SetCustomPropertyFloat", setCustom),
+                ("Renderer.SetCustomPropertyVector", setCustomVector), ("Renderer.SetRenderersCustomPropertyVector", setRenderersVector), ("Renderer::SetCustomPropertyVector (engine)", setNativeVector), ("Renderer.SetCustomPropertyColor", setCustomColor),
+                ("Renderer.SetCustomPropertyTexture", setCustomTexture), ("Renderer.SetPerMaterialCustomPropertyFloat", setMaterialFloat),
+                ("Renderer.SetPerMaterialCustomPropertyVector", setMaterialVector), ("Renderer.SetPerMaterialCustomPropertyColor", setMaterialColor),
+                ("Renderer.SetPerMaterialCustomPropertyTexture", setMaterialTexture),
+                ("Shader.SetGlobalFloat", setGlobalFloat), ("Shader.SetGlobalVector", setGlobalVector), ("Shader.SetGlobalTexture", setGlobalTexture),
+                ("LineRenderer.SetCustomMeshDataWithSize", setLineMesh),
             }.Concat(settable))
             {
                 if (hook == null)

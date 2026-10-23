@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Il2CppInterop.Runtime;
 using MelonLoader;
 using UnityEngine;
@@ -22,6 +23,7 @@ namespace CameraTools
     {
         public readonly Replay Replay = new();
         public float Start;
+        public long StartStamp;
         public Handoff Before;
         public int? Path;
         public string PathId;
@@ -33,6 +35,10 @@ namespace CameraTools
         public readonly List<Track> Posed = new();
         public readonly List<string> Party = new();
         public readonly Dictionary<(Track, int, int), IntPtr> LastTextures = new();
+        // Diagnostic lines left for this recording, so a character that changes every frame cannot flood the log.
+        public int Notes = 60;
+        // Diagnostic: effect and gadget names already noted as started or as too far.
+        public readonly HashSet<string> Named = new();
 
         // Real time since the recording started, which moves on inside a frame that copies: a clock of frame start times
         // lost the first seconds of a recording to the copying done in its first frame.
@@ -134,6 +140,8 @@ namespace CameraTools
                     session.Ignored.Add(gadget.Pointer);
             }
             session.Start = Time.realtimeSinceStartup;
+            session.StartStamp = System.Diagnostics.Stopwatch.GetTimestamp();
+            ReplayHooks.TakeGlobals();
             State = new RecordState.Recording(session);
             if (Replays.PlayPath && CameraPaths.CanPlay && PathPlayback.PlayNow((float)prepare.Elapsed.TotalSeconds))
             {
@@ -153,6 +161,7 @@ namespace CameraTools
             State = new RecordState.Idle();
             ReplayHooks.Recording = false;
             ReplayHooks.Watched = null;
+            ReplayHooks.WatchedNatives = null;
             if (state is RecordState.Countdown countdown)
             {
                 Restore(countdown.Before);
@@ -177,6 +186,9 @@ namespace CameraTools
             foreach (var track in replay.Tracks)
                 if (track.Materials == null && track.Kind is TrackKind.Character or TrackKind.Weapon && track.Source.Root)
                     Capture(track, false);
+            foreach (var track in replay.Of(TrackKind.Character))
+                if (track.Source.Root)
+                    track.AtEnd = Enumerable.Range(0, track.Source.Renderers.Length).Select(track.Source.Describe).ToArray();
             replay.Name = ReplayText.NextName(Replays.All.Select(each => each.Name));
             replay.Party = session.Party.ToArray();
             replay.PathId = session.PathId;
@@ -185,6 +197,24 @@ namespace CameraTools
                 + $"{replay.Of(TrackKind.Character).Count()} characters, {replay.Enemies} enemies, {replay.Of(TrackKind.Effect).Count()} effect plays, "
                 + $"{replay.Of(TrackKind.Gadget).Count()} gadgets, {replay.Tracks.Sum(track => track.Calls.Count)} look calls.");
             CameraUi.Toast(ReplayText.Recorded(replay.Name, replay.Duration, Replays.PathLabel(session.Path)));
+            NoteGlobals(session, replay);
+            NoteNativeVectors(replay);
+            foreach (var beam in replay.Of(TrackKind.Effect).Where(track => track.Source.Name.Contains("WaterTornado")))
+                for (int r = 0; r < beam.Source.Renderers.Length; r++)
+                {
+                    var meshes = beam.Calls.Where(call => call.Kind == CallKind.LineMesh && call.Slot == r && call.Line != null).Select(call => call.Line).ToList();
+                    if (meshes.Count == 0)
+                        continue;
+                    int Distinct(Func<LineMesh, byte[]> part) => meshes.Select(part).Select(bytes => bytes == null ? "-" : Convert.ToBase64String(System.Security.Cryptography.SHA1.HashData(bytes))).Distinct().Count();
+                    var first = meshes[0];
+                    var settings = beam.Given?.ElementAtOrDefault(r)?.Values;
+                    Melon<CameraTools>.Logger.Msg($"Replays: note: {(beam.Source.Renderers[r] ? beam.Source.Renderers[r].name : $"renderer {r}")} {meshes.Count} meshes: {Distinct(m => m.Positions)} position sets, {Distinct(m => m.Uv0)} uv0 sets, "
+                        + $"{Distinct(m => m.Colors)} colour sets, {Distinct(m => m.Uv1)} uv1 sets, {Distinct(m => m.Normals)} normal sets; first has {first.PositionCount} positions, "
+                        + $"{first.TriangleCount} indices, uv1 {first.Uv1Count}; settings at start [{string.Join(", ", settings?.Select(pair => $"{ReplayHooks.Setters[pair.Key].Name}={pair.Value.Int}/{pair.Value.Float:0.##}") ?? Array.Empty<string>())}]");
+                }
+            foreach (var kind in new[] { TrackKind.Weapon, TrackKind.Gadget })
+                Melon<CameraTools>.Logger.Msg($"Replays: note: {kind} tracks: "
+                    + string.Join(", ", replay.Of(kind).Select(track => $"{track.Source.Name} {track.Start:0.0}-{Math.Min(track.End, replay.Duration):0.0} s")));
         }
 
         private static void Restore(Handoff before)
@@ -216,6 +246,8 @@ namespace CameraTools
                     session.Current = track;
                 }
                 AddPose(session, track, t);
+                if (Time.frameCount % 10 == 0)
+                    NoteParts(session, track, t);
             }
             foreach (var weapon in ReplayScene.Children(ReplayScene.EquipRoot))
                 if (weapon.gameObject.activeSelf)
@@ -238,6 +270,7 @@ namespace CameraTools
             {
                 Kind = kind, Source = new Rig(root) { Watched = true }, Start = t,
                 Copy = kind == TrackKind.Character ? null : StandIns.Shared(root, kind),
+                Structure = kind == TrackKind.Character ? Rig.Structure(root) : default,
             };
             session.Replay.Tracks.Add(track);
             session.Held[root.Pointer] = track;
@@ -248,7 +281,21 @@ namespace CameraTools
 
         private static Track Begin(RecordSession session, Transform root, TrackKind kind, float t)
         {
-            var track = new Track { Kind = kind, Source = new Rig(root), Copy = StandIns.Shared(root, kind), Start = t, LastAlive = t };
+            // Effects watched like characters: the game fades and stretches some by setting their materials from code each
+            // frame, as Neuvillette's charged attack beam, and a copy on its own materials kept them hidden.
+            var source = new Rig(root) { Watched = true };
+            var track = new Track
+            {
+                Kind = kind, Source = source, Copy = StandIns.Shared(root, kind), Start = t, LastAlive = t, Materials = source.TakeMaterials(),
+                Given = source.Renderers.Select(renderer => renderer ? ReplayHooks.Remembered(renderer) : null).ToArray(),
+            };
+            if (root.name.Contains("WaterTornado"))
+                NoteName(session, $"effect {root.name} records the particles of [{source.TracedNames}]");
+            if (root.name.Contains("WaterTornado"))
+                for (int r = 0; r < source.Renderers.Length; r++)
+                    if (source.Renderers[r] is { } line && line && line.TryCast<LineRenderer>() != null && track.Given[r] is { } given)
+                        NoteName(session, $"effect {root.name} line {line.name} starts with {given.Values?.Count ?? 0} settings, custom floats [{string.Join(", ", given.Floats?.Select(pair => $"{pair.Key}={pair.Value:0.###}") ?? Array.Empty<string>())}], "
+                            + $"others [{string.Join(", ", given.Props?.Select(pair => $"{pair.Key.Kind}/{pair.Key.Material}/{pair.Key.Id}=({pair.Value.Value.x:0.##},{pair.Value.Value.y:0.##},{pair.Value.Value.z:0.##},{pair.Value.Value.w:0.##})") ?? Array.Empty<string>())}]");
             session.Replay.Tracks.Add(track);
             session.Live[root.Pointer] = track;
             return track;
@@ -283,11 +330,210 @@ namespace CameraTools
             if (track.Kind == TrackKind.Character)
             {
                 track.Copy?.Destroy();
-                track.Copy = StandIns.Own(track.Source.Root, TrackKind.Character);
+                track.Copy = StandIns.Own(track.Source.Root, TrackKind.Character, track.Source);
+                track.AtCopy = Enumerable.Range(0, track.Source.Renderers.Length).Select(track.Source.Describe).ToArray();
+                if (!track.GivenNoted)
+                {
+                    track.GivenNoted = true;
+                    foreach (var renderer in track.Source.Renderers)
+                        if (renderer && renderer.enabled && renderer.TryCast<SkinnedMeshRenderer>() != null && ReplayHooks.Remembered(renderer) is var given)
+                            Melon<CameraTools>.Logger.Msg($"Replays: note: {track.Source.Name} {renderer.name} remembered {given.Values?.Count ?? 0} settings, {given.Props?.Count ?? 0} other custom properties, custom floats "
+                                + $"[{string.Join(", ", given.Floats?.Select(pair => $"{pair.Key}={pair.Value:0.###}") ?? Array.Empty<string>())}]");
+                }
+                if (track.Copy?.Rig is { } made && (made.Bones.Length != track.Source.Bones.Length || made.Renderers.Length != track.Source.Renderers.Length))
+                    Melon<CameraTools>.Logger.Msg($"Replays: note: {track.Source.Name} was recorded with {track.Source.Bones.Length} parts and "
+                        + $"{track.Source.Renderers.Length} renderers, its copy has {made.Bones.Length} and {made.Renderers.Length}.");
             }
             track.Materials = track.Source.TakeMaterials();
             if (track.Copy is { Usable: true } copy)
                 copy.Rig.UseMaterials(track.Materials);
+        }
+
+        // Diagnostic: the first 0x800 bytes of a renderer's engine object, which playback compares with its copy's.
+        // Diagnostic notes that take long enough to stall the game for a second or more.
+        public const bool HeavyNotes = false;
+        public static readonly Dictionary<string, byte[]> RealNatives = new();
+
+        public static byte[] NativeBytes(Renderer renderer)
+        {
+            var bytes = new byte[0x800];
+            var native = Marshal.ReadIntPtr(renderer.Pointer, 0x10);
+            if (native != IntPtr.Zero)
+                Marshal.Copy(native, bytes, 0, bytes.Length);
+            return bytes;
+        }
+
+        // Diagnostic: the engine's custom vector calls on the beam's renderers, from any caller.
+        private static void NoteNativeVectors(Replay replay)
+        {
+            List<(IntPtr Native, int Id, Vector4 Value, bool Color, bool Binding)> calls;
+            lock (ReplayHooks.NativeVectorLog)
+            {
+                calls = new(ReplayHooks.NativeVectorLog);
+                ReplayHooks.NativeVectorLog.Clear();
+            }
+            var parts = new Dictionary<IntPtr, string>();
+            foreach (var track in replay.Of(TrackKind.Effect).Where(track => track.Source.Name.Contains("WaterTornado")))
+                foreach (var renderer in track.Source.Renderers)
+                    if (renderer && Marshal.ReadIntPtr(renderer.Pointer, 0x10) is var native && native != IntPtr.Zero)
+                        parts[native] = $"{track.Source.Name}/{renderer.name}";
+            var hits = calls.Where(call => parts.ContainsKey(call.Native)).ToList();
+            Melon<CameraTools>.Logger.Msg($"Replays: note: {calls.Count} engine custom vector calls while recording, {calls.Select(call => call.Native).Distinct().Count()} renderers, {hits.Count} on the beam's {parts.Count} renderers");
+            foreach (var group in hits.GroupBy(call => (call.Native, call.Id, call.Color)).Take(60))
+                Melon<CameraTools>.Logger.Msg($"Replays: note: beam {parts[group.Key.Native]} {(group.Key.Color ? "colour" : "vector")} {group.Key.Id}: {group.Count()} calls, {group.Count(call => call.Binding)} through a binding, "
+                    + $"first {group.First().Value}, last {group.Last().Value}");
+        }
+
+        // Diagnostic: the global shader values that are set only while Neuvillette's beam plays, or that change only then.
+        private static void NoteGlobals(RecordSession session, Replay replay)
+        {
+            var beams = replay.Of(TrackKind.Effect).Where(track => track.Source.Name.Contains("WaterTornado")).ToList();
+            var sets = ReplayHooks.TakeGlobals();
+            Melon<CameraTools>.Logger.Msg($"Replays: note: {sets.Count} global shader sets recorded, {sets.Select(set => (set.Kind, set.Id)).Distinct().Count()} globals, {beams.Count} beam plays");
+            if (beams.Count == 0 || sets.Count == 0)
+                return;
+            double frequency = System.Diagnostics.Stopwatch.Frequency;
+            float At(long stamp) => (float)((stamp - session.StartStamp) / frequency);
+            bool During(float t) => beams.Any(beam => t >= beam.Start - 0.05f && t <= Math.Min(beam.End, replay.Duration) + 0.05f);
+            foreach (var group in sets.GroupBy(set => (set.Kind, set.Id)))
+            {
+                var inside = group.Where(set => During(At(set.Stamp))).ToList();
+                if (inside.Count == 0)
+                    continue;
+                var outside = group.Where(set => !During(At(set.Stamp))).ToList();
+                var outsideValues = new HashSet<(Vector4, IntPtr)>(outside.Select(set => (set.Value, set.Texture)));
+                int fresh = inside.Count(set => !outsideValues.Contains((set.Value, set.Texture)));
+                // Globals that animate all the time, such as the time of day, have new values in any window.
+                if (outside.Count > 0 && (fresh == 0 || outsideValues.Count > 2))
+                    continue;
+                var first = inside[0];
+                var last = inside[^1];
+                string Show(ReplayHooks.GlobalSet set) => set.Kind == 't' ? $"tex 0x{set.Texture.ToInt64():x}" : $"({set.Value.x:0.###},{set.Value.y:0.###},{set.Value.z:0.###},{set.Value.w:0.###})";
+                NoteName(session, $"global {group.Key.Kind} {group.Key.Id}: {inside.Count} sets in the beam ({fresh} new values), {outside.Count} outside; first {Show(first)} at {At(first.Stamp):0.00} s, last {Show(last)} at {At(last.Stamp):0.00} s");
+            }
+        }
+
+        // Diagnostic: every value that could carry the beam's animation time, read twice to find the ones that change: the
+        // lines' custom floats and textures, their property blocks, their materials' floats and vectors, and the globals.
+        private static (Rig Rig, Dictionary<string, string> Values, float At) customScan;
+
+        // The beam's values one second in, which playback compares its copy with.
+        public static Dictionary<string, string> BeamAtOneSecond;
+
+        public static Dictionary<string, string> ScanCustom(Rig rig)
+        {
+            var found = new Dictionary<string, string>();
+            var block = new MaterialPropertyBlock();
+            foreach (var renderer in rig.Renderers)
+                if (renderer && renderer.TryCast<LineRenderer>() != null)
+                {
+                    string name = renderer.name;
+                    for (int id = 0; id < 10000; id++)
+                    {
+                        found[$"{name} custom float {id}"] = renderer.GetCustomPropertyFloat(id).ToString("R");
+                        found[$"{name} custom texture {id}"] = renderer.GetCustomPropertyTexture(id)?.name;
+                    }
+                    var materials = renderer.sharedMaterials;
+                    for (int m = -1; m < materials.Length; m++)
+                    {
+                        if (m < 0)
+                            renderer.GetPropertyBlock(block);
+                        else
+                            renderer.GetPerMaterialPropertyBlock(block, m);
+                        if (block.isEmpty)
+                            continue;
+                        for (int id = 0; id < 10000; id++)
+                            found[$"{name} block {m} {id}"] = $"{block.GetFloat(id):R} {block.GetVector(id)}";
+                    }
+                    var line = renderer.TryCast<LineRenderer>();
+                    found[$"{name} line"] = $"enabled {renderer.enabled}, world {line.useWorldSpace}, layer {renderer.gameObject.layer}, sorting {renderer.sortingOrder}";
+                    foreach (var material in materials)
+                        if (material)
+                        {
+                            found[$"{name} material {material.name}"] = $"shader {material.shader?.name}, queue {material.renderQueue}, keywords [{string.Join(" ", material.shaderKeywords.OrderBy(word => word))}]";
+                            for (int id = 0; id < 10000; id++)
+                                if (material.HasProperty(id))
+                                {
+                                    found[$"{name} material {material.name} {id}"] = $"{material.GetFloat(id):R} {material.GetVector(id)}";
+                                    if (material.GetTexture(id) is { } texture && texture)
+                                        found[$"{name} material {material.name} texture {id}"] = $"{texture.name} {material.GetTextureOffset(id)} {material.GetTextureScale(id)}";
+                                }
+                        }
+                }
+            for (int id = 0; id < 10000; id++)
+                found[$"global {id}"] = $"{Shader.GetGlobalFloat(id):R} {Shader.GetGlobalVector(id)}";
+            return found;
+        }
+
+        // Diagnostic: the beam's lines read again later in the frame they were noted in, before and after the camera draws.
+        private static (Rig Rig, int Left) pendingLines;
+
+        public static void LaterInFrame(string when)
+        {
+            if (pendingLines.Rig is not { } rig || Session is not { } session)
+                return;
+            for (int r = 0; r < rig.Renderers.Length; r++)
+                if (rig.Renderers[r] is { } line && line && line.TryCast<LineRenderer>() != null)
+                    NoteName(session, $"effect {rig.Name} line {line.name} {when}: {rig.DescribeLine(r)}, bounds {line.bounds.center} size {line.bounds.size}");
+            pendingLines = --pendingLines.Left > 0 ? pendingLines : default;
+        }
+
+        // Diagnostic: every enabled renderer within 30 m that no track records, to find what draws Neuvillette's beam.
+        private static void NoteUnrecorded(RecordSession session, Transform near)
+        {
+            var recorded = new HashSet<IntPtr>(session.Replay.Tracks.Where(track => track.Source.Root)
+                .SelectMany(track => track.Source.Renderers.Where(renderer => renderer).Select(renderer => renderer.Pointer)));
+            var center = near.position;
+            var found = new List<(float Distance, Renderer Renderer, Transform Root)>();
+            var all = UnityEngine.Object.FindObjectsOfType(Il2CppType.Of<Renderer>());
+            for (int i = 0; i < all.Length; i++)
+            {
+                var renderer = all[i]?.TryCast<Renderer>();
+                if (!renderer || !renderer.enabled || !renderer.gameObject.activeInHierarchy || recorded.Contains(renderer.Pointer))
+                    continue;
+                var bounds = renderer.bounds;
+                float distance = Math.Max(0f, (bounds.center - center).magnitude - bounds.extents.magnitude);
+                if (distance <= 30f)
+                    found.Add((distance, renderer, renderer.transform.root));
+            }
+            foreach (var root in found.GroupBy(each => each.Root.name).OrderByDescending(group => group.Count()))
+                NoteName(session, $"unrecorded renderers under /{root.Key}: {root.Count()}");
+            var counts = found.GroupBy(each => each.Root.Pointer).ToDictionary(group => group.Key, group => group.Count());
+            foreach (var (distance, renderer, root) in found.Where(each => each.Root.name == "EntityRoot").OrderBy(each => each.Distance).Take(120))
+            {
+                var path = new List<string>();
+                for (var at = renderer.transform; at; at = at.parent)
+                    path.Add(at.name);
+                path.Reverse();
+                var mesh = renderer.TryCast<SkinnedMeshRenderer>() is { } skinned ? skinned.sharedMesh
+                    : renderer.GetComponent(Il2CppType.Of<MeshFilter>())?.TryCast<MeshFilter>()?.sharedMesh;
+                var shaders = renderer.sharedMaterials.Select(material => material && material.shader ? material.shader.name.Split('/').Last() : "null");
+                NoteName(session, $"unrecorded {ReplayScene.TypeName(renderer)} {distance:0.0} m /{string.Join("/", path)} mesh {(mesh ? $"{mesh.name}:{mesh.vertexCount}" : "none")} "
+                    + $"size {renderer.bounds.size} [{string.Join(", ", shaders)}]");
+            }
+        }
+
+        // Diagnostic: a line for each effect or gadget name, once a recording.
+        private static void NoteName(RecordSession session, string note)
+        {
+            if (session.Named.Count < 600 && session.Named.Add(note))
+                Melon<CameraTools>.Logger.Msg($"Replays: note: {note} at {session.Elapsed:0.00} s");
+        }
+
+        // Diagnostic: a character whose parts change while recording, with what came and went.
+        private static void NoteParts(RecordSession session, Track track, float t)
+        {
+            if (session.Notes <= 0 || !track.Source.Root)
+                return;
+            var now = Rig.Structure(track.Source.Root);
+            if (now.Hash == track.Structure.Hash)
+                return;
+            var added = now.Parts.Except(track.Structure.Parts).Take(8);
+            var removed = track.Structure.Parts.Except(now.Parts).Take(8);
+            session.Notes--;
+            Melon<CameraTools>.Logger.Msg($"Replays: note: {track.Source.Name} parts changed at {t:0.00} s, {track.Structure.Parts.Length} -> {now.Parts.Length}"
+                + $" (recorded rig {track.Source.Bones.Length}); added [{string.Join(", ", added)}] removed [{string.Join(", ", removed)}]");
+            track.Structure = now;
         }
 
         // A pooled effect plays while one of its top particle systems is alive, or while it is active if it has none.
@@ -331,17 +577,60 @@ namespace CameraTools
                     if (!Near(effect, avatar, EffectRange))
                     {
                         session.Ignored.Add(effect.Pointer);
+                        NoteName(session, $"effect {effect.name} too far at {Vector3.Distance(effect.position, avatar.position):0} m");
                         continue;
                     }
                     track = Begin(session, effect, TrackKind.Effect, t);
+                    NoteName(session, $"effect {effect.name} started");
                 }
                 track.LastAlive = t;
                 AddPose(session, track, t);
+                // Diagnostic: the real beam's tubes as the engine holds them, one second in.
+                if (HeavyNotes && effect.name.EndsWith("WaterTornado") && t - track.Start >= 1f && RealNatives.Count == 0)
+                    foreach (var tube in track.Source.Renderers)
+                        if (tube && tube.TryCast<LineRenderer>() != null)
+                            RealNatives[tube.name] = NativeBytes(tube);
+                if (HeavyNotes && effect.name.EndsWith("WaterTornado") && t - track.Start >= 1f && !track.LinesNoted)
+                {
+                    track.LinesNoted = true;
+                    foreach (var (label, root) in new[] { ("real", track.Source.Root), ("copy", track.Copy?.Rig?.Root) })
+                        if (root)
+                            Melon<CameraTools>.Logger.Msg($"Replays: note: {label} beam components: {string.Join(", ", root.GetComponentsInChildren<Component>(true).GroupBy(component => ReplayScene.TypeName(component)).Select(group => $"{group.Key} x{group.Count()}"))}");
+                    foreach (var tube in track.Source.Renderers)
+                        if (tube && tube.TryCast<LineRenderer>() != null)
+                            foreach (var material in tube.sharedMaterials)
+                                if (material)
+                                    for (int id = 0; id < 10000; id++)
+                                        if (material.HasProperty(id) && material.GetTexture(id) is { } texture && texture)
+                                            Melon<CameraTools>.Logger.Msg($"Replays: note: {tube.name} {material.name} texture {id}: {texture.name} {ReplayScene.TypeName(texture)} {texture.width}x{texture.height}, "
+                                                + $"render texture {texture.TryCast<RenderTexture>() != null}, offset {material.GetTextureOffset(id)} scale {material.GetTextureScale(id)}");
+                }
+                if (HeavyNotes && !track.MaterialsNoted && t - track.Start >= 0.5f && effect.name.Contains("ExtraAttack"))
+                {
+                    track.MaterialsNoted = true;
+                    var rig = track.Source;
+                    for (int r = 0; r < rig.Renderers.Length; r++)
+                        if (rig.Renderers[r] is { } renderer && renderer)
+                            NoteName(session, $"effect {effect.name} part {renderer.name} {ReplayScene.TypeName(renderer)}"
+                                + (renderer.TryCast<LineRenderer>() is { } line ? $" {line.positionCount} points" : "") + $": {rig.Describe(r)}");
+                }
             }
             // The pool moves a finished effect out of /EffectPool; a play left open there kept its copy where the effect
             // was last seen, such as crystallize shields left behind at every switch.
             foreach (var (root, track) in session.Live.Where(pair => pair.Value.Kind == TrackKind.Effect && !seen.Contains(pair.Key)).ToList())
+            {
+                if (session.Notes > 0 && track.Source.Root is { } gone && gone)
+                {
+                    session.Notes--;
+                    var path = new List<string>();
+                    for (var at = gone.parent; at; at = at.parent)
+                        path.Add(at.name);
+                    path.Reverse();
+                    Melon<CameraTools>.Logger.Msg($"Replays: note: effect {gone.name} left the pool at {t:0.00} s after {t - track.Start:0.00} s, "
+                        + $"{(gone.gameObject.activeInHierarchy ? "active" : "inactive")}, playing {Playing(gone)}, now under /{string.Join("/", path)}");
+                }
                 Finish(session, root, track, track.LastAlive);
+            }
         }
 
         // Gadgets and bullets that appear during the recording, such as Lisa's burst.
@@ -362,6 +651,7 @@ namespace CameraTools
                 {
                     if (!Near(gadget, avatar, EffectRange))
                     {
+                        NoteName(session, $"gadget {gadget.name} too far at {Vector3.Distance(gadget.position, avatar.position):0} m");
                         session.Ignored.Add(gadget.Pointer);
                         continue;
                     }
@@ -462,12 +752,22 @@ namespace CameraTools
             var watched = new HashSet<IntPtr>(slots.Keys);
             watched.UnionWith(renderers.Keys);
             ReplayHooks.Watched = watched;
+            var natives = new Dictionary<IntPtr, IntPtr>(renderers.Count);
+            foreach (var renderer in renderers.Keys)
+                if (Marshal.ReadIntPtr(renderer, 0x10) is var native && native != IntPtr.Zero)
+                    natives[native] = renderer;
+            ReplayHooks.WatchedNatives = natives;
             foreach (var raw in ReplayHooks.Drain())
             {
-                if (raw.Kind is CallKind.CustomFloat or CallKind.RendererSet or CallKind.EnableProperty)
+                if (CallTarget.IsRenderer(raw.Kind))
                 {
                     if (renderers.TryGetValue(raw.Self, out var owner))
-                        owner.Track.Calls.Add(new LookCall { Time = t, Slot = owner.Renderer, Kind = raw.Kind, Id = raw.Id, Int = raw.Int, Value = raw.Value });
+                        owner.Track.Calls.Add(new LookCall
+                        {
+                            Time = t, Slot = owner.Renderer, Kind = raw.Kind, Id = raw.Id, Int = raw.Int, Value = raw.Value,
+                            Texture = raw.Kind == CallKind.CustomTexture && raw.Ref != IntPtr.Zero ? new Texture(raw.Ref) : null,
+                            Line = raw.Line,
+                        });
                     continue;
                 }
                 if (swapped.Contains(raw.Self) || !slots.TryGetValue(raw.Self, out var at))

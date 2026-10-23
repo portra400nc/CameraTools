@@ -63,6 +63,17 @@ namespace CameraTools
     // removed. Copies without the LOD components showed the characters' low-detail meshes.
     internal static class ReplayCopies
     {
+        // Diagnostic: a particle system's live count and the settings the game may tune when an effect starts.
+        public static string DescribeSystem(ParticleSystem system)
+        {
+            var main = system.main;
+            var shape = system.shape;
+            var renderer = system.GetComponent(Il2CppType.Of<ParticleSystemRenderer>())?.TryCast<ParticleSystemRenderer>();
+            return $"{system.name}: {system.particleCount} alive, size {main.startSizeXMultiplier:0.##}/{main.startSizeYMultiplier:0.##}/{main.startSizeZMultiplier:0.##}, "
+                + $"life {main.startLifetimeMultiplier:0.##}, speed {main.startSpeedMultiplier:0.##}, sim {main.simulationSpeed:0.##}, "
+                + $"shape {shape.shapeType} r {shape.radius:0.##} len {shape.length:0.##} scale {shape.scale}, {(renderer ? renderer.renderMode.ToString() : "no renderer")}";
+        }
+
         private static readonly HashSet<string> Kept = new()
         {
             "Transform", "RectTransform", "ParticleSystem", "ParticleSystemRenderer", "MeshRenderer", "MeshFilter",
@@ -133,6 +144,8 @@ namespace CameraTools
         public Rig Rig;
         // Playback simulates the systems at the top of the copy, with every system's seed fixed.
         public ParticleSystem[] Tops = Array.Empty<ParticleSystem>();
+        // The play time its systems were last simulated to.
+        public float SimulatedTo = float.NegativeInfinity;
         public TrailRenderer[] Trails = Array.Empty<TrailRenderer>();
         public bool Shown;
         // The track that last played this copy, so a new play can set its materials and clear its trails.
@@ -184,20 +197,25 @@ namespace CameraTools
 
         // A copy for one track alone: a character's, taken once it has settled on the field, and an enemy's, taken as its
         // structure is in that frame.
-        public static StandIn Own(Transform root, TrackKind kind)
+        // like: the rig the track records, which a character's copy matches part for part.
+        public static StandIn Own(Transform root, TrackKind kind, Rig like = null)
         {
-            var copy = Make(root, kind);
+            var copy = Make(root, kind, like);
             copy.Own = true;
             return copy;
         }
 
-        private static StandIn Make(Transform root, TrackKind kind)
+        private static StandIn Make(Transform root, TrackKind kind, Rig like = null)
         {
             var copy = new StandIn();
             try
             {
-                var source = new Rig(root);
-                var rig = new Rig(ReplayCopies.Strip(root.gameObject).transform);
+                var source = like ?? new Rig(root);
+                var made = ReplayCopies.Strip(root.gameObject).transform;
+                var rig = like != null ? Rig.Matching(made, like) : new Rig(made);
+                if (like != null)
+                    foreach (var extra in ReplayScene.All<Renderer>(made).Where(renderer => !rig.Renderers.Any(own => own && own.Pointer == renderer.Pointer)))
+                        extra.enabled = false;
                 if (rig.Bones.Length != source.Bones.Length || rig.Renderers.Length != source.Renderers.Length)
                 {
                     CameraTools.LogOnce($"Replays: the copy of {root.name} does not match it ({rig.Bones.Length} of {source.Bones.Length} transforms, "
@@ -205,11 +223,20 @@ namespace CameraTools
                     Object.Destroy(rig.Root.gameObject);
                     return copy;
                 }
+                // The real character is hidden while its copy plays, and the engine's texture streaming may then drop the
+                // textures they share, which left Neuvillette's hair white.
+                if (kind == TrackKind.Character)
+                    foreach (var renderer in rig.Renderers)
+                        if (renderer)
+                            renderer.set_streamingUseHighestMip(true);
                 if (kind is not (TrackKind.Effect or TrackKind.Gadget))
                 {
                     rig.TakeRendererState(source);
                     copy.Given = source.Renderers.Select(renderer => renderer ? ReplayHooks.Remembered(renderer) : null).ToArray();
-                    copy.Meshes = Enumerable.Range(0, rig.Renderers.Length).Select(rig.MeshOf).ToArray();
+                    // A character's LOD loader swaps its meshes and their bones together, so its meshes are left to it: the
+                    // copy's meshes put back on their own lost the bones they need, and parts of the body went missing.
+                    if (kind != TrackKind.Character)
+                        copy.Meshes = Enumerable.Range(0, rig.Renderers.Length).Select(rig.MeshOf).ToArray();
                 }
                 var systems = ReplayScene.All<ParticleSystem>(rig.Root);
                 var originals = ReplayScene.All<ParticleSystem>(root);
