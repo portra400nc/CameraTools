@@ -176,13 +176,16 @@ namespace CameraTools
         private enum Library { Untried, XInput14, XInput910, Missing }
 
         private static Library library;
-        private static int slot = -1;
+        // Every connected pad is read and their input combined, as the game reads them all: a second pad, such as a
+        // virtual one that drives the Deck remotely, took slot 0 and moved the Deck's own pad, and reading one slot
+        // then missed the other.
+        private static readonly bool[] connected = new bool[4];
         private static float nextScan;
         private static float rumbleUntil;
 
         public static PadState Current { get; private set; }
         public static PadState Previous { get; private set; }
-        public static bool Connected => slot >= 0;
+        public static bool Connected => Array.IndexOf(connected, true) >= 0;
 
         // Polling an empty slot is slow, so a missing pad is looked for at most every two seconds.
         public static void Poll()
@@ -193,18 +196,24 @@ namespace CameraTools
             if (library == Library.Missing)
                 return;
 
-            if (slot >= 0 && GetState((uint)slot, out var raw) == ErrorSuccess)
+            if (Time.unscaledTime >= nextScan)
+                Scan();
+            PadState? merged = null;
+            for (uint index = 0; index < connected.Length; index++)
             {
-                Current = Read(raw);
+                if (!connected[index])
+                    continue;
+                if (GetState(index, out var raw) != ErrorSuccess)
+                {
+                    connected[index] = false;
+                    continue;
+                }
+                var state = Read(raw);
+                merged = merged is { } other ? Merge(other, state) : state;
             }
-            else
-            {
-                slot = -1;
+            Current = merged ?? default;
+            if (merged == null)
                 rumbleUntil = 0;
-                Current = default;
-                if (Time.unscaledTime >= nextScan)
-                    Scan();
-            }
 
             if (rumbleUntil > 0 && Time.unscaledTime >= rumbleUntil)
                 StopRumble();
@@ -212,20 +221,31 @@ namespace CameraTools
 
         public static void Rumble()
         {
-            if (slot < 0)
+            if (!Connected)
                 return;
             var vibration = new XInputVibration { leftMotorSpeed = 24000, rightMotorSpeed = 24000 };
-            SetState((uint)slot, ref vibration);
+            for (uint index = 0; index < connected.Length; index++)
+                if (connected[index])
+                    SetState(index, ref vibration);
             rumbleUntil = Time.unscaledTime + 0.15f;
         }
 
         public static void StopRumble()
         {
             rumbleUntil = 0;
-            if (slot < 0)
-                return;
             var vibration = new XInputVibration();
-            SetState((uint)slot, ref vibration);
+            for (uint index = 0; index < connected.Length; index++)
+                if (connected[index])
+                    SetState(index, ref vibration);
+        }
+
+        // Buttons pressed on any pad, the further pushed stick of each pair and the further pulled trigger.
+        private static PadState Merge(PadState a, PadState b)
+        {
+            bool leftB = b.LeftX * b.LeftX + b.LeftY * b.LeftY > a.LeftX * a.LeftX + a.LeftY * a.LeftY;
+            bool rightB = b.RightX * b.RightX + b.RightY * b.RightY > a.RightX * a.RightX + a.RightY * a.RightY;
+            return new PadState(a.Buttons | b.Buttons, leftB ? b.LeftX : a.LeftX, leftB ? b.LeftY : a.LeftY, rightB ? b.RightX : a.RightX,
+                rightB ? b.RightY : a.RightY, Math.Max(a.LeftTrigger, b.LeftTrigger), Math.Max(a.RightTrigger, b.RightTrigger));
         }
 
         private static void LoadLibrary()
@@ -246,20 +266,18 @@ namespace CameraTools
             CameraTools.LogOnce("Controller: neither xinput1_4.dll nor xinput9_1_0.dll loaded; controller support is off.");
         }
 
+        // Empty slots are looked at every two seconds.
         private static void Scan()
         {
             nextScan = Time.unscaledTime + 2f;
-            for (uint index = 0; index < 4; index++)
-            {
-                if (GetState(index, out var raw) == ErrorSuccess)
+            for (uint index = 0; index < connected.Length; index++)
+                if (!connected[index] && GetState(index, out _) == ErrorSuccess)
                 {
-                    slot = (int)index;
-                    Current = Read(raw);
+                    connected[index] = true;
                     CameraTools.LogOnce($"Controller: found a pad in XInput slot {index}.");
-                    return;
                 }
-            }
-            CameraTools.LogOnce("Controller: no pad in XInput slots 0-3; looking again every 2 s.");
+            if (!Connected)
+                CameraTools.LogOnce("Controller: no pad in XInput slots 0-3; looking again every 2 s.");
         }
 
         private static uint GetState(uint index, out XInputState state)
