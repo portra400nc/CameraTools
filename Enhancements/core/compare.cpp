@@ -17,10 +17,12 @@ namespace enhancements
         // three fields follow, and the scene capture's three took the 4 bytes of padding after them and one more row, so a
         // caller of version 6 sends 88 and gets scene_face in its padding. The trace's five follow them, and the gather's four
         // follow those, the first in the 4 bytes of padding a caller of version 8 has. The restarts, their reason and the
-        // shot follow, the first in the 4 bytes of padding a caller of version 9 has after its 132.
+        // shot follow, the first in the 4 bytes of padding a caller of version 9 has after its 132. The saved frames follow,
+        // with 4 bytes of padding after them.
         static_assert(offsetof(EnhancementsStatus, compare_remaining) == 68 && offsetof(EnhancementsStatus, accum_generation) == 80
             && offsetof(EnhancementsStatus, scene_face) == 84 && offsetof(EnhancementsStatus, trace_state) == 96 && offsetof(EnhancementsStatus, trace_target) == 116
-            && offsetof(EnhancementsStatus, trace_restarts) == 132 && offsetof(EnhancementsStatus, shot_active) == 140 && sizeof(EnhancementsStatus) == 144);
+            && offsetof(EnhancementsStatus, trace_restarts) == 132 && offsetof(EnhancementsStatus, shot_active) == 140
+            && offsetof(EnhancementsStatus, frames_saved) == 144 && sizeof(EnhancementsStatus) == 152);
 
         constexpr uint32_t kPeriod = kSettlePresents + 2;
 

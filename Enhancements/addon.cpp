@@ -3,6 +3,7 @@
 #include "enhancements.h"
 #include "core/alpha_bake.h"
 #include "core/compare.h"
+#include "core/dof.h"
 #include "core/light.h"
 #include "core/plan.h"
 #include "core/png.h"
@@ -226,6 +227,16 @@ namespace enhancements
         std::atomic<uint64_t> trace_save_asked { 0 };   // presents at the request
         // Presents a save waits for a traced frame before it is given up.
         constexpr uint64_t kTraceSaveWait = 300;
+
+        // EnhancementsSaveFrame's request: set by the C# thread, cleared by the render thread once the frame is copied.
+        std::atomic<bool> frame_save_wanted { false };
+        std::atomic<uint64_t> frame_save_asked { 0 };   // presents at the request
+        // Presents a frame save waits for a bloom step before it is given up.
+        constexpr uint64_t kFrameSaveWait = 300;
+        // The frame whose images are being read back, without them yet; render thread only.
+        std::optional<FrameSave> frame_copy;
+        uint32_t frames_saved = 0;
+        std::string frame_saved;                    // the last saved folder's name, for the status line
 
         void log(reshade::log::level level, const std::string &message)
         {
@@ -756,6 +767,11 @@ namespace enhancements
                 if (scene_light)
                     scene_gpu.copy_hdr(map);
                 gpu.save_trace_hdr(map, trace_gpu);
+                if (frame_save_wanted.load() && !frame_copy && gpu.copy_frame(map))
+                {
+                    frame_copy = FrameSave { map.render, settings.flip, frames, camera, {}, {} };
+                    frame_save_wanted = false;
+                }
             }
             const Plan p = plan(step, map, settings, inputs());
             report.note(p);
@@ -1715,6 +1731,44 @@ namespace enhancements
             log_trace_state();
         }
 
+        // At present: once the frame save's copies are read back, the worker writes its folder.
+        void read_frame_save()
+        {
+            if (frame_copy)
+            {
+                std::vector<uint8_t> hdr, depth;
+                const Readback::Read read = gpu.read_frame(hdr, depth);
+                if (read == Readback::Read::not_ready)
+                    return;
+                FrameSave save = std::move(*frame_copy);
+                frame_copy.reset();
+                const size_t pixels = size_t(save.size.width) * save.size.height;
+                if (read != Readback::Read::ok || hdr.size() != pixels * 4 || depth.size() != pixels * 8)
+                {
+                    log(reshade::log::level::warning, "the frame save's images could not be read back.");
+                    return;
+                }
+                save.hdr.resize(pixels);
+                std::memcpy(save.hdr.data(), hdr.data(), hdr.size());
+                // The depth copy holds 8 bytes a texel: the float depth, then the stencil and padding.
+                save.depth.resize(pixels);
+                for (size_t i = 0; i < pixels; i++)
+                    std::memcpy(&save.depth[i], &depth[i * 8], 4);
+                fs::path folder = output_root() / ("frame-" + timestamp());
+                for (int i = 2; fs::exists(folder); i++)
+                    folder = output_root() / ("frame-" + timestamp() + "-" + std::to_string(i));
+                log(reshade::log::level::info, "saving frame " + std::to_string(save.frame) + " into " + folder.u8string() + ".");
+                frames_saved++;
+                frame_saved = folder.filename().u8string();
+                worker.push([folder, save = std::move(save)] { log_unwritten(write_frame_folder(folder, save)); });
+            }
+            else if (frame_save_wanted.load() && presents.load() - frame_save_asked.load() > kFrameSaveWait)
+            {
+                frame_save_wanted = false;
+                log(reshade::log::level::warning, "the frame save was given up: no bloom step came within " + std::to_string(kFrameSaveWait) + " presents.");
+            }
+        }
+
         void publish(uint32_t remaining)
         {
             Published published;
@@ -1753,6 +1807,7 @@ namespace enhancements
             s.trace_restarts = static_cast<uint32_t>(trace_gpu.starts());
             s.trace_restart_reason = static_cast<uint32_t>(trace_gpu.restart());
             s.shot_active = shot_frame ? 1 : 0;
+            s.frames_saved = frames_saved;
             report.accumulated = accumulator.samples;
             published.line = describe(report);
             status_box.put(published);
@@ -1767,7 +1822,10 @@ namespace enhancements
             frames++;
             presents.store(frames, std::memory_order_relaxed);
             if (gpu.ready())
+            {
                 read_depth();
+                read_frame_save();
+            }
             if (report.armed)
                 report.finish(tracker, settings, inputs());
             if (report.armed && report.fell_back.has(Step::bloom))
@@ -1807,6 +1865,7 @@ namespace enhancements
             report.scene_count = scene_count;
             report.scene_saved = scene_count - std::min(scene_left, scene_count);
             report.scene_stopped = scene_stopped;
+            report.frame_saved = frame_saved;
             publish(remaining);
 
             // A capture owns the settings until it ends; settings applied meanwhile take over after it, and so does a shot.
@@ -1838,8 +1897,8 @@ namespace enhancements
                 reading_depth = depth_ask.active;
             }
 
-            const bool arm = (settings.enabled || accumulate.mode != AccumulateMode::off || reading_depth || scene) && sticky_error == ENHANCEMENTS_ERROR_NONE
-                && gpu.ready();
+            const bool arm = (settings.enabled || accumulate.mode != AccumulateMode::off || reading_depth || scene || frame_save_wanted.load())
+                && sticky_error == ENHANCEMENTS_ERROR_NONE && gpu.ready();
             scene_frame &= arm;
             scene_gbuffer &= scene_frame;
             scene_light &= scene_frame;
@@ -2021,6 +2080,14 @@ extern "C" uint32_t EnhancementsSaveTrace(void)
     trace_save_asked = presents.load(std::memory_order_relaxed);
     trace_save_wanted = true;
     return 1;
+}
+
+extern "C" uint32_t EnhancementsSaveFrame(void)
+{
+    // The present first, so the render thread never sees the request with an older one.
+    frame_save_asked = presents.load(std::memory_order_relaxed);
+    bool idle = false;
+    return frame_save_wanted.compare_exchange_strong(idle, true) ? 1 : 0;
 }
 
 extern "C" void EnhancementsGetStatus(EnhancementsStatus *status)

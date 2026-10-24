@@ -336,6 +336,14 @@ namespace enhancements
         // At the bloom step, before any pass of ours: the HDR scene into the save the trace copied this frame.
         void save_trace_hdr(const FrameMap &map, TraceGpu &trace);
 
+        // At the bloom step, before any pass of ours: mirrors in the HDR scene and the main depth and copies them for
+        // read_frame. false when the map lacks one, a copy waits to be read, or a texture failed.
+        bool copy_frame(const FrameMap &map);
+        // The copies, once the GPU has them, read without waiting: R11G11B10_FLOAT and the depth's 8 bytes a texel, rows
+        // packed, row 0 first. not_ready until then, failed when nothing was copied or a map failed; either way after ok
+        // or failed the next copy_frame may copy again.
+        Readback::Read read_frame(std::vector<uint8_t> &hdr, std::vector<uint8_t> &depth);
+
         // At the pending view's snapshot step: copies the entry into pending. false when the copy could not be made.
         bool snapshot(const Texture &entry);
         // The same for the light-shafts view, from what run_light_shafts drew for it this frame.
@@ -422,6 +430,8 @@ namespace enhancements
         ComPtr<ID3D11Texture2D> depth_texel_;   // 1x1 R32G8X24_TYPELESS, CPU-readable
         bool depth_texel_pending_ = false;      // copied and not yet read
         Snapshot pending_, shown_;
+        Readback frame_hdr_, frame_depth_;  // EnhancementsSaveFrame's copies
+        bool frame_pending_ = false;        // copied and not yet read
         Staging copies_[3];         // the comparison capture's two frames, and its variant's view
         Scratch view_copy_;         // R8G8B8A8_UNORM at the back buffer's size: a comparison variant's view
     };

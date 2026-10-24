@@ -388,6 +388,7 @@ namespace enhancements
         uint32_t compare_saved = 0, compare_count = 0;  // a comparison capture's progress; count 0 when none runs
         uint32_t scene_saved = 0, scene_count = 0;      // a scene capture's faces written and requested; count 0 when none runs
         std::string scene_stopped;                      // why the last scene capture stopped, until the next one starts
+        std::string frame_saved;                        // the folder EnhancementsSaveFrame last saved into
         AccumulateMode accumulate = AccumulateMode::off;
         uint32_t accumulated = 0;   // the sum's frames, which present mode reports
 
@@ -422,7 +423,8 @@ namespace enhancements
     // "found nothing; skipped ambient: missing normals depth ambient-diffuse", or "...; skipped trace: scene building", or
     // "off; comparing 2/5", or
     // "1152x720 found ...; presenting 96 samples", or "...; scene 3/7" while a scene capture runs and
-    // "...; scene stopped: <reason>" after one stopped. Accumulating names no count, so the line does not change every frame.
+    // "...; scene stopped: <reason>" after one stopped, and "...; saved frame-<time>" after a frame save. Accumulating names no
+    // count, so the line does not change every frame.
     // Names come from kRecipe, kEntryNames, kPasses and kViews.
     std::string describe(const FrameReport &report);
 }

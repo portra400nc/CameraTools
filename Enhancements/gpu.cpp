@@ -1314,6 +1314,33 @@ namespace enhancements
         trace.copy_hdr_for_save(scene_in_.texture());
     }
 
+    bool Gpu::copy_frame(const FrameMap &map)
+    {
+        const std::optional<Texture> &scene = map[Entry::hdr_scene], &depth = map[Entry::depth];
+        ID3D11Device *d = device_.Get();
+        ID3D11DeviceContext1 *c = context_.Get();
+        if (frame_pending_ || !scene || !depth || !scene_in_.sync(d, native(*scene), static_cast<DXGI_FORMAT>(scene->format), false)
+            || !depth_.sync(d, native(*depth), static_cast<DXGI_FORMAT>(depth->format), false))
+            return false;
+        scene_in_.copy_from(c, native(*scene));
+        depth_.copy_from(c, native(*depth));
+        if (!frame_hdr_.copy_from(d, c, scene_in_.texture()) || !frame_depth_.copy_from(d, c, depth_.texture()))
+            return false;
+        frame_pending_ = true;
+        return true;
+    }
+
+    Readback::Read Gpu::read_frame(std::vector<uint8_t> &hdr, std::vector<uint8_t> &depth)
+    {
+        if (!frame_pending_)
+            return Readback::Read::failed;
+        const Readback::Read first = frame_hdr_.read(context_.Get(), hdr);
+        const Readback::Read read = first == Readback::Read::ok ? frame_depth_.read(context_.Get(), depth) : first;
+        if (read != Readback::Read::not_ready)
+            frame_pending_ = false;
+        return read;
+    }
+
     bool Gpu::copy_view(Size size, bool flip, const char *&moved)
     {
         moved = nullptr;

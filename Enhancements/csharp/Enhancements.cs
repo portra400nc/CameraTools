@@ -325,13 +325,14 @@ namespace CameraToolsEnhancements
         public uint TraceRestarts;  // times the samples have started; while it rises and TraceSamples stays 0, none accumulates
         public EnhancementsTraceRestart TraceRestartReason;    // why they last did
         public uint ShotActive;     // 1 when the last frame ran with SetShot's shot, so TraceConverged is the shot's
+        public uint FramesSaved;    // frames SaveFrame has saved since the add-on loaded
     }
 
     // The only class that knows CameraToolsEnhancements.addon64.
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 10;
+        private const uint Version = 11;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -368,8 +369,11 @@ namespace CameraToolsEnhancements
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void SetShotCall(ref EnhancementsShot shot);
 
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate uint SaveFrameCall();
+
         private sealed record AddOn(IntPtr Module, ApplyCall Apply, SetCameraCall SetCamera, GetStatusCall GetStatus, DescribeCall Describe, CompareCall Compare,
-            SetAccumulateCall SetAccumulate, DepthAtCall DepthAt, CaptureSceneCall CaptureScene, SaveTraceCall SaveTrace, SetShotCall SetShot);
+            SetAccumulateCall SetAccumulate, DepthAtCall DepthAt, CaptureSceneCall CaptureScene, SaveTraceCall SaveTrace, SetShotCall SetShot, SaveFrameCall SaveFrame);
 
         private static readonly float[] camera = new float[48];
         private static readonly byte[] line = new byte[512];
@@ -506,6 +510,11 @@ namespace CameraToolsEnhancements
         // (Status.TraceState), before its first full pass (Status.TraceSamples), or while a save waits.
         public static bool SaveTrace() => addOn != null && addOn.SaveTrace() != 0;
 
+        // Saves the next frame's HDR scene and depth before the add-on's passes, with the camera, for the Mac's depth of field
+        // harness, to <ReShade base path>\Enhancements\frame-<time>\; Status.FramesSaved rises once it is written. False
+        // while the add-on is not loaded or a save waits.
+        public static bool SaveFrame() => addOn != null && addOn.SaveFrame() != 0;
+
         // SceneFace reads None while the add-on is not loaded, so no caller turns the camera for a capture that is not there.
         public static EnhancementsStatus Status
         {
@@ -581,13 +590,14 @@ namespace CameraToolsEnhancements
                 || !TryExport<DepthAtCall>(module, "EnhancementsDepthAt", out var depthAt)
                 || !TryExport<CaptureSceneCall>(module, "EnhancementsCaptureScene", out var captureScene)
                 || !TryExport<SaveTraceCall>(module, "EnhancementsSaveTrace", out var saveTrace)
-                || !TryExport<SetShotCall>(module, "EnhancementsSetShot", out var setShot))
+                || !TryExport<SetShotCall>(module, "EnhancementsSetShot", out var setShot)
+                || !TryExport<SaveFrameCall>(module, "EnhancementsSaveFrame", out var saveFrame))
             {
                 MelonLogger.Warning($"Enhancements: {ModuleName} version {found} is missing an export.");
                 return;
             }
             rejected = IntPtr.Zero;
-            addOn = new AddOn(module, apply, setCamera, getStatus, describe, compare, setAccumulate, depthAt, captureScene, saveTrace, setShot);
+            addOn = new AddOn(module, apply, setCamera, getStatus, describe, compare, setAccumulate, depthAt, captureScene, saveTrace, setShot, saveFrame);
             Connections++;
             MelonLogger.Msg($"Enhancements: connected to {ModuleName} version {found}.");
         }

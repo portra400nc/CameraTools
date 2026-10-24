@@ -1,10 +1,16 @@
 // The depth of field's arithmetic: shaders/dof.hlsli compiled as C++ (core/dof.cpp), so the tests check the shaders'
 // own circles of confusion, aperture shape and light across the disc, and the shape's constants the shaders take from
-// the CPU. Pure C++17 like plan.h.
+// the CPU; and the frames EnhancementsSaveFrame writes for the Mac's harness. Pure C++17 like plan.h.
 #pragma once
+
+#include "plan.h"
 
 #include <array>
 #include <cstdint>
+#include <filesystem>
+#include <optional>
+#include <string>
+#include <vector>
 
 namespace enhancements
 {
@@ -54,4 +60,32 @@ namespace enhancements
     // The farthest the shape reaches from its center, in units of the radius, after the area scale: the gather's radius
     // grows by it.
     float dof_shape_reach(uint32_t blades, float roundness, float anamorphic);
+
+    // The coefficients that take a reversed depth d to 1 / view depth, -(x d + y) / (z d + w), from the inverse of the
+    // camera's projection. Empty when it does not invert.
+    std::optional<std::array<float, 4>> dof_depth_coefficients(const Camera &camera);
+
+    // The view depth in meters of a reversed depth through those coefficients: the near plane at 1, the far plane at 0.
+    float dof_view_depth(const std::array<float, 4> &coefficients, float reversed);
+
+    // A frame as EnhancementsSaveFrame keeps it: the HDR scene and the main depth at the bloom step before any pass of
+    // ours, and the camera that drew it.
+    struct FrameSave
+    {
+        Size size;                      // the render size; each image is size's pixels, row 0 first as stored
+        bool flip = true;               // stored rows run up the screen
+        uint64_t frame = 0;             // the add-on's frame count
+        Camera camera {};               // the pushed camera of the frame
+        std::vector<uint32_t> hdr;      // R11G11B10_FLOAT as stored
+        std::vector<float> depth;       // reversed depth as stored
+    };
+
+    // frame.tsv's text: the size, flip, frame, the camera's matrices, and its near and far planes.
+    std::string frame_tsv(const FrameSave &save);
+
+    // hdr.r11g11b10, depth.r32 and frame.tsv. Creates the folder. Returns the names of the files that could not be written.
+    std::vector<std::string> write_frame_folder(const std::filesystem::path &folder, const FrameSave &save);
+
+    // The folder back. Empty, with why, when a file is missing or of the wrong size.
+    std::optional<FrameSave> read_frame_folder(const std::filesystem::path &folder, std::string &why);
 }

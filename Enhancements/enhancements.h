@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 10
+#define ENHANCEMENTS_VERSION 11
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -506,6 +506,7 @@ typedef struct EnhancementsStatus
     uint32_t trace_restart_reason;  // ENHANCEMENTS_TRACE_RESTART_* of the last of them
     uint32_t shot_active;       // 1 when the last frame ran with an EnhancementsSetShot shot's settings, so trace_converged is that
                                 // shot's
+    uint32_t frames_saved;      // frames EnhancementsSaveFrame has saved since the add-on loaded; the status line names the last folder
 } EnhancementsStatus;
 
 ENHANCEMENTS_EXPORT uint32_t EnhancementsVersion(void);
@@ -546,6 +547,12 @@ ENHANCEMENTS_EXPORT void EnhancementsGetStatus(EnhancementsStatus *status);
 // first full pass, or while a save waits; a save that sees no traced frame within 300 presents is given up, which
 // ReShade.log says.
 ENHANCEMENTS_EXPORT uint32_t EnhancementsSaveTrace(void);
+
+// Saves the HDR scene and the main depth of the next frame's bloom step, before any pass of ours, with the camera, into
+// <ReShade base path>\Enhancements\frame-<YYYYMMDD-HHMMSS>\: hdr.r11g11b10 and depth.r32 as stored, and frame.tsv, for the
+// Mac's depth of field harness. It works whether settings.enabled is on or not. Returns 1 when accepted, 0 while a save
+// waits; a save that sees no bloom step within 300 presents is given up, which ReShade.log says.
+ENHANCEMENTS_EXPORT uint32_t EnhancementsSaveFrame(void);
 
 // Copies the accumulation's state; it takes effect at the next frame boundary, like EnhancementsApply. A null pointer, or a
 // size too small to hold mode, changes nothing. It works whether settings.enabled is on or not.

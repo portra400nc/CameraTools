@@ -737,6 +737,9 @@ int main()
         report.scene_stopped = "the camera moved at +Y: it was 0.250 m from the first saved face's";
         check("a stopped scene capture says why",
             describe(report) == "off; comparing 1/3; scene stopped: the camera moved at +Y: it was 0.250 m from the first saved face's; error shader");
+        report.frame_saved = "frame-20261024-101500";
+        check("a saved frame names its folder after the scene capture",
+            describe(report) == "off; comparing 1/3; scene stopped: the camera moved at +Y: it was 0.250 m from the first saved face's; saved frame-20261024-101500; error shader");
     }
     {
         auto rows = walk;
@@ -1223,10 +1226,11 @@ int main()
         check("a shot too short for active, an inactive one and a null one are no shot", !parse_shot(&shot).active && !parse_shot(nullptr).active
             && (shot = { sizeof shot, 0, 64, 100 }, !with_shot(on, parse_shot(&shot)).trace.enabled));
         // The status as a caller of each version reads it: it gets the bytes of its own size.
-        check("the status is 144 bytes: the restarts at 132, in a version 9 caller's padding, their reason at 136 and the shot at 140, and the shot is 16",
-            sizeof(EnhancementsStatus) == 144 && offsetof(EnhancementsStatus, trace_light) == 128 && offsetof(EnhancementsStatus, trace_restarts) == 132
-            && offsetof(EnhancementsStatus, trace_restart_reason) == 136 && offsetof(EnhancementsStatus, shot_active) == 140 && sizeof(EnhancementsShot) == 16
-            && ENHANCEMENTS_VERSION == 10);
+        check("the status is 152 bytes: the restarts at 132, in a version 9 caller's padding, their reason at 136, the shot at 140 and the saved frames "
+              "at 144, and the shot is 16",
+            sizeof(EnhancementsStatus) == 152 && offsetof(EnhancementsStatus, trace_light) == 128 && offsetof(EnhancementsStatus, trace_restarts) == 132
+            && offsetof(EnhancementsStatus, trace_restart_reason) == 136 && offsetof(EnhancementsStatus, shot_active) == 140
+            && offsetof(EnhancementsStatus, frames_saved) == 144 && sizeof(EnhancementsShot) == 16 && ENHANCEMENTS_VERSION == 11);
     }
     {
         // Unity's GL.GetGPUProjectionMatrix for a 60 degree, 16:10 camera with near 0.1 and far 1000, reversed Z.

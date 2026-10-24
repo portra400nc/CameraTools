@@ -692,6 +692,8 @@ namespace enhancements
             line += "; scene " + std::to_string(report.scene_saved) + "/" + std::to_string(report.scene_count);
         else if (!report.scene_stopped.empty())
             line += "; scene stopped: " + report.scene_stopped;
+        if (!report.frame_saved.empty())
+            line += "; saved " + report.frame_saved;
         if (report.error != ENHANCEMENTS_ERROR_NONE && report.error < std::size(kErrorNames))
             line += std::string("; error ") + kErrorNames[report.error];
         return line;

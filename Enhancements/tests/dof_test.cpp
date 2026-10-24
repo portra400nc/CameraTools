@@ -4,6 +4,8 @@
 
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
+#include <string>
 
 using namespace enhancements;
 
@@ -30,6 +32,22 @@ namespace
         return o;
     }
 
+    // Unity's GL.GetGPUProjectionMatrix for a camera of vertical field of view 2 atan(1 / b) and aspect b / a with near 0.1
+    // and far 1000, reversed Z, column-major.
+    Camera reversed_camera(float a, float b)
+    {
+        Camera c {};
+        const float n = 0.1f, f = 1000;
+        c.view_to_clip[0] = a;
+        c.view_to_clip[5] = b;
+        c.view_to_clip[10] = n / (f - n);
+        c.view_to_clip[11] = -1;
+        c.view_to_clip[14] = n * f / (f - n);
+        for (int i = 0; i < 4; i++)
+            c.world_to_view[i * 5] = 1;
+        return c;
+    }
+
     // The mean of the light across the unit disc, by the midpoint rule over 20,000 rings.
     double disc_mean(float aberration)
     {
@@ -44,7 +62,7 @@ namespace
     }
 }
 
-int main()
+int main(int argc, char **argv)
 {
     // f^2 / (N (S - f)) (z - S) / z / 2, in half-size pixels: 2500 / (2 x 1950) / 2 x 400 / 24 = 5.3419 at infinity.
     check("a point 30 m away with a 50 mm f/2 lens focused at 2 m has a CoC of 4.9858 half-size pixels",
@@ -119,6 +137,37 @@ int main()
           "outside, 6 pixels across it inside",
         dof_aperture(6 * ex, 6 * ey, 10, 1, 1, swirl) == 0 && dof_aperture(-6 * ey, 6 * ex, 10, 1, 1, swirl) == 1);
     check("and leaves a disc at the picture's center round", dof_aperture(9.5f, 0, 10, 0, 0, swirl) == 1 && dof_aperture(0, 9.5f, 10, 0, 0, swirl) == 1);
+
+    const Camera camera = reversed_camera(2.0f, 3.2f);
+    const std::optional<std::array<float, 4>> k = dof_depth_coefficients(camera);
+    check("the depth coefficients take reversed depth 1 to the near plane, 0 to the far one, and 0.0001 to 500.025 m",
+        k && near(dof_view_depth(*k, 1), 0.1f, 1e-6f) && near(dof_view_depth(*k, 0), 1000, 0.05f) && near(dof_view_depth(*k, 0.0001f), 500.025f, 0.01f));
+    check("a projection that does not invert has none", !dof_depth_coefficients(Camera {}));
+
+    FrameSave frame;
+    frame.size = { 3, 2 };
+    frame.flip = true;
+    frame.frame = 4242;
+    frame.camera = camera;
+    frame.hdr = { 1, 2, 3, 0xFFFFFFFFu, 5, 6 };
+    frame.depth = { 0, 0.5f, 1, 0.25f, 0.125f, 0.0001f };
+    const std::string tsv = frame_tsv(frame);
+    check("frame.tsv holds the size, flip, frame, matrices and the near and far planes",
+        tsv.find("width\t3\nheight\t2\nflip\t1\nframe\t4242\nworld_to_view\t1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1\nview_to_clip\t2,0,0,0,0,3.20000005,")
+                == 0
+            && tsv.find("\nnear\t0.099999994\nfar\t999.999939\n") != std::string::npos);
+    if (argc > 1)
+    {
+        const std::filesystem::path folder = std::filesystem::path(argv[1]) / "frame-roundtrip";
+        const std::vector<std::string> failed = write_frame_folder(folder, frame);
+        std::string why;
+        const std::optional<FrameSave> back = read_frame_folder(folder, why);
+        check("a frame folder reads back as written", failed.empty() && back && back->size == frame.size && back->flip && back->frame == 4242
+            && back->hdr == frame.hdr && back->depth == frame.depth && std::equal(camera.view_to_clip, camera.view_to_clip + 16, back->camera.view_to_clip));
+        std::filesystem::remove(folder / "depth.r32");
+        check("a frame folder without its depth reads as nothing, and says why", !read_frame_folder(folder, why)
+            && why == "hdr.r11g11b10 or depth.r32 is missing or not 6 pixels");
+    }
 
     std::printf("dof_test: %d failed\n", failures);
     return failures == 0 ? 0 : 1;
