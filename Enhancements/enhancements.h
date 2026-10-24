@@ -379,7 +379,7 @@ typedef struct EnhancementsDepthOfField
                                 // smooth and their rims and colors show; 0 gathers them with the rest
     float bokeh_contrast;       // how much what stands out of its own surroundings, a grass tip or a leaf's glint, outweighs
                                 // them behind focus, so it blurs into a disc as a real lens's would; each place keeps its
-                                // light. 0 keeps every source's own light; default 1, clamped to 0..2
+                                // light. 0 keeps every source's own light; default 0.5, clamped to 0..2
 } EnhancementsDepthOfField;
 
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller

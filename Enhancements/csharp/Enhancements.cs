@@ -212,7 +212,7 @@ namespace CameraToolsEnhancements
         // light by visibility, filtered twice, at full strength, with half the game's ambient light on the surfaces it meets,
         // and a depth of field at f/2.8 on a full-frame sensor that autofocuses at the center at 0.9 of the way a second, blurs at
         // most 0.03 of the height, has round discs with spherical aberration 0.6, gathers 49 samples a pixel, and draws highlights
-        // above twice the frame's mean luminance as sprites, growing small lamps at gain 2, at a bokeh contrast of 1.
+        // above twice the frame's mean luminance as sprites, growing small lamps at gain 2, at a bokeh contrast of 0.5.
         public static EnhancementsSettings Defaults => new()
         {
             Size = (uint)Marshal.SizeOf<EnhancementsSettings>(),
@@ -237,7 +237,7 @@ namespace CameraToolsEnhancements
             {
                 FNumber = 2.8f, SensorHeightMm = 24, FocusX = 0.5f, FocusY = 0.5f, FocusSpeed = 0.9f, MaxBlur = 0.03f, BladeRoundness = 0.5f,
                 SphericalAberration = 0.6f, Anamorphic = 1, Samples = 49, HighlightThreshold = 2, HighlightGain = 2, Scatter = 1,
-                BokehContrast = 1,
+                BokehContrast = 0.5f,
             },
         };
     }

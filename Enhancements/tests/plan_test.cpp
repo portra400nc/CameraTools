@@ -1142,18 +1142,18 @@ int main()
     }
     {
         EnhancementsSettings raw = raw_settings();
-        raw.depth_of_field = { 1, 1.4f, 36, 3, { 0.25f, 0.75f }, 0.5f, 0.05f, 7, 0.2f, 15, 1, 0.6f, 0.3f, 1.33f, 1, 256, 3, 1.5f, 0, 0.5f };
+        raw.depth_of_field = { 1, 1.4f, 36, 3, { 0.25f, 0.75f }, 0.5f, 0.05f, 7, 0.2f, 15, 1, 0.6f, 0.3f, 1.33f, 1, 256, 3, 1.5f, 0, 0.75f };
         const DepthOfFieldSettings whole = parse_settings(raw).depth_of_field;
         check("a whole 320-byte struct reads the depth of field: on, f/1.4 on a 36 mm sensor focused at 3 m, its point, speed, blur, 7 blades, "
-              "highlights from 3 times the mean at gain 1.5, no scatter, bokeh contrast 0.5 and the rest",
-            sizeof raw == 320 && !whole.scatter && whole.bokeh_contrast == 0.5f && whole.enabled && whole.f_number == 1.4f && whole.sensor_height_mm == 36 && whole.focus_distance == 3
+              "highlights from 3 times the mean at gain 1.5, no scatter, bokeh contrast 0.75 and the rest",
+            sizeof raw == 320 && !whole.scatter && whole.bokeh_contrast == 0.75f && whole.enabled && whole.f_number == 1.4f && whole.sensor_height_mm == 36 && whole.focus_distance == 3
                 && whole.focus_point[0] == 0.25f && whole.focus_point[1] == 0.75f && whole.focus_speed == 0.5f && whole.max_blur == 0.05f
                 && whole.blades == 7 && whole.blade_roundness == 0.2f && whole.blade_rotation == 15 && whole.spherical_aberration == 1
                 && whole.cat_eye == 0.6f && whole.swirl == 0.3f && whole.anamorphic == 1.33f && whole.chromatic == 1 && whole.samples == 256
                 && whole.highlight_threshold == 3 && whole.highlight_gain == 1.5f);
         raw.size = 316;     // a caller of version 13
         const DepthOfFieldSettings thirteen = parse_settings(raw).depth_of_field;
-        check("a 316-byte struct reads the scatter but keeps the bokeh contrast at 1", !thirteen.scatter && thirteen.bokeh_contrast == 1);
+        check("a 316-byte struct reads the scatter but keeps the bokeh contrast at 0.5", !thirteen.scatter && thirteen.bokeh_contrast == 0.5f);
         raw.size = 312;     // a caller of version 12
         const DepthOfFieldSettings twelve = parse_settings(raw).depth_of_field;
         check("a 312-byte struct reads the highlights but keeps the scatter on", twelve.highlight_threshold == 3 && twelve.highlight_gain == 1.5f
@@ -1182,7 +1182,7 @@ int main()
         const DepthOfFieldSettings bad = parse_settings(raw).depth_of_field;
         check("NaN and infinities fall back to the defaults, 99 blades to 16 and 5000 samples to 1089", bad.f_number == 2.8f && bad.sensor_height_mm == 24
             && bad.focus_point[0] == 0.5f && bad.focus_speed == 0.9f && bad.max_blur == 0.03f && bad.blades == 16 && bad.spherical_aberration == 0.6f
-            && bad.anamorphic == 1 && bad.samples == 1089 && bad.highlight_threshold == 2 && bad.highlight_gain == 2 && bad.bokeh_contrast == 1);
+            && bad.anamorphic == 1 && bad.samples == 1089 && bad.highlight_threshold == 2 && bad.highlight_gain == 2 && bad.bokeh_contrast == 0.5f);
         check("the depth of field runs last at the bloom step and wants it", wanted_steps(parse_settings(raw)).has(Step::bloom)
             && kPasses[7].id == PassId::depth_of_field && std::string(kPasses[7].name) == "depth-of-field");
     }
