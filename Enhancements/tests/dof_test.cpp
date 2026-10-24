@@ -1,6 +1,6 @@
 // The depth of field's arithmetic, shaders/dof.hlsli compiled as C++: the circle of confusion at known lens values, each
-// channel's under axial chromatic aberration, the aperture's shape at known points, the light across the disc, and the
-// highlights' curve.
+// channel's under axial chromatic aberration, the aperture's shape at known points, the light across the disc, the
+// highlights' growth, and which highlights become sprites and what their discs give.
 #include "../core/dof.h"
 
 #include <cmath>
@@ -88,9 +88,19 @@ namespace
         return s;
     }
 
-    bool near3(const std::array<float, 3> &a, const std::array<float, 3> &b, float tolerance = 1e-4f)
+    DepthOfFieldSettings lens_at2(float f_number, float focus, float aberration, float gain)
     {
-        return near(a[0], b[0], tolerance) && near(a[1], b[1], tolerance) && near(a[2], b[2], tolerance);
+        DepthOfFieldSettings s = lens_at(f_number, focus, aberration);
+        s.highlight_gain = gain;
+        return s;
+    }
+
+    double sum_green(const DofOutput &out)
+    {
+        double sum = 0;
+        for (size_t i = 1; i < out.rgb.size(); i += 3)
+            sum += out.rgb[i];
+        return sum;
     }
 
     // The mean of the light across the unit disc, by the midpoint rule over 20,000 rings.
@@ -141,36 +151,13 @@ int main(int argc, char **argv)
     check("the clamp's normalization is 0.91856 at -1 and 1 from -0.5 up", near(dof_bokeh_norm(-1), 0.918559f) && dof_bokeh_norm(-0.5f) == 1
         && dof_bokeh_norm(1) == 1);
 
-    check("a highlight of luminance 1.3 above a threshold of 0.8 grows at gain 2 to 0.8 + (e - 1) / 2 = 1.65914",
-        near3(dof_expand_highlight({ 1.3f, 1.3f, 1.3f }, 0.8f, 2), { 1.659141f, 1.659141f, 1.659141f }));
-    check("a colored one keeps its hue: (2, 1, 0.5) at gain 4 grows to (2.85111, 1.42555, 0.71278)",
-        near3(dof_expand_highlight({ 2, 1, 0.5f }, 0.8f, 4), { 2.851109f, 1.425555f, 0.712777f }));
-    check("below the threshold and at gain 0 a color stays as it was, to the bit",
-        dof_expand_highlight({ 0.5f, 0.9f, 0.2f }, 0.8f, 2) == std::array<float, 3> { 0.5f, 0.9f, 0.2f }
-            && dof_expand_highlight({ 2, 3, 1 }, 0.8f, 0) == std::array<float, 3> { 2, 3, 1 }
-            && dof_compress_highlight({ 0.5f, 0.9f, 0.2f }, 0.8f, 2) == std::array<float, 3> { 0.5f, 0.9f, 0.2f }
-            && dof_compress_highlight({ 2, 3, 1 }, 0.8f, 0) == std::array<float, 3> { 2, 3, 1 });
-    check("a highlight that would pass 8192 stops there: 2.53 at gain 8 grows to 8192, not 128,099",
-        near3(dof_expand_highlight({ 2.53f, 2.53f, 2.53f }, 0.8f, 8), { 8192, 8192, 8192 }, 0.01f));
-    {
-        bool round_trip = true, rising = true;
-        for (const float gain : { 0.5f, 2.0f, 4.0f })
-        {
-            float last_grown = 0, last_back = 0;
-            for (int i = 0; i <= 300; i++)
-            {
-                const float l = i * 0.01f;
-                const std::array<float, 3> c { l * 1.2f, l, l * 0.6f };
-                const std::array<float, 3> grown = dof_expand_highlight(c, 0.8f, gain);
-                round_trip &= near3(dof_compress_highlight(grown, 0.8f, gain), c, 2e-4f * (1 + l));
-                rising &= i == 0 || (grown[1] > last_grown && dof_compress_highlight({ l, l, l }, 0.8f, gain)[1] > last_back);
-                last_grown = grown[1];
-                last_back = dof_compress_highlight({ l, l, l }, 0.8f, gain)[1];
-            }
-        }
-        check("compressing what grew gives the color back, from luminance 0 to 3 at gains 0.5, 2 and 4", round_trip);
-        check("and both curves rise with the luminance", rising);
-    }
+    check("a highlight of luminance 1.5 and contrast 2.25 grows at gain 2 over a threshold of 1 by 0.08 x 16 pi (1 - e^-2) to 4.97702 for a "
+          "disc of radius 4",
+        near(dof_grow_highlight(1.5f, 2.25f, 1, 2, 4), 4.977024f));
+    check("however high its contrast, it adds at most 0.08 thresholds to each pixel of its disc: 5.52124 at radius 4, 17.58496 at 8",
+        near(dof_grow_highlight(1.5f, 100, 1, 2, 4), 5.521239f) && near(dof_grow_highlight(1.5f, 100, 1, 2, 8), 17.584955f, 1e-3f));
+    check("below a contrast of 1.25 and at gain 0 it keeps its own light, to the bit",
+        dof_grow_highlight(1.5f, 1.2f, 1, 2, 4) == 1.5f && dof_grow_highlight(1.5f, 3, 1, 0, 4) == 1.5f);
 
     DofShapeParams round;
     check("a round disc of radius 10 covers its center and 9.5 pixels out fully, its edge by half, and 11 pixels out not",
@@ -242,7 +229,12 @@ int main(int argc, char **argv)
         c.sampling[0] == 3 && near(c.sampling[1], 0.618034f) && c.sampling[2] == 1 && c.sampling[3] == 1.6f);
     check("the half size 640x400 in 80x50 tiles, a reach of 2 tiles, and depth samples 8 pixels apart", c.sizes[0] == 640 && c.sizes[1] == 400
         && c.sizes[2] == 80 && c.sizes[3] == 50 && c.counts[0] == 2 && c.counts[1] == 1280 && c.counts[2] == 800 && c.counts[3] == 8);
-    check("the highlights from twice the frame's mean luminance at gain 2 by default", c.highlight[0] == 2 && c.highlight[1] == 2);
+    check("the highlights from twice the frame's mean luminance at gain 2 by default, with as many sprites a field as 8 half-size pictures of "
+          "the largest quad, 12 x 1.125 + 1 pixels from its center, cover: 2435, and the near field's from slot 4096",
+        c.highlight[0] == 2 && c.highlight[1] == 2 && c.highlight[2] == 2435 && c.highlight[3] == 4096);
+    settings.scatter = false;
+    check("without scatter, no sprites", dof_constants(settings, lens, { 1280, 800 }, true, 0.5f, 1)->highlight[2] == 0);
+    settings.scatter = true;
     check("rings: 9 samples are 2, 64 are 4, 289 are 8 and 1089 are 16", dof_rings(9) == 2 && dof_rings(64) == 4 && dof_rings(289) == 8 && dof_rings(1089) == 16);
     settings.focus_speed = 0;
     check("a focus speed of 0 jumps", dof_constants(settings, lens, { 1280, 800 }, false, 0.5f, 0)->focus[3] == 1
@@ -297,29 +289,52 @@ int main(int argc, char **argv)
     }
 
     {
-        Scene flat(30);
-        std::fill(flat.image.rgb.begin(), flat.image.rgb.end(), 1.5f);
-        DepthOfFieldSettings strong = lens_at(2, 2, 1);
-        strong.highlight_gain = 4;
-        const DofOutput out = render(flat, strong);
-        check("the autofocus draw finds the mean luminance of a flat frame of 1.5", near(out.luminance, 1.5f));
-        check("which keeps its brightness through the highlights' curve at gain 4 although all of it lies above the threshold",
-            near(flat.green(out, 640, 400), 1.5f, 1e-3f) && near(flat.green(out, 100, 700), 1.5f, 1e-3f));
+        // A glint of 50 over 2x2 pixels, one half-size texel, on black 30 m away, which the threshold takes as 2 x 0.25.
+        const auto glint = [](float meters) {
+            Scene s(30);
+            for (uint32_t y = 400; y < 402; y++)
+                for (uint32_t x = 640; x < 642; x++)
+                    s.put(x, y, 50, meters);
+            return s;
+        };
+        const Scene far = glint(30);
+        DepthOfFieldSettings settings = lens_at(2, 2, 0);
+        const DofOutput sprite = render(far, settings);
+        settings.scatter = false;
+        const DofOutput gathered = render(far, settings);
+        check("a glint behind focus is one far sprite, and in front of focus one near sprite", sprite.sprites[0] == 1 && sprite.sprites[1] == 0
+            && render(glint(1), lens_at(2, 2, 0)).sprites[1] == 1 && render(glint(1), lens_at(2, 2, 0)).sprites[0] == 0);
+        check("a glint on the focus plane is none", render(glint(2), lens_at(2, 2, 0)).sprites[0] == 0 && render(glint(2), lens_at(2, 2, 0)).sprites[1] == 0);
+        check("at gain 0 the sprite keeps the glint's light within 1%, as the gather does within 4%: 201.63 and 193.92 of 200",
+            near(float(sum_green(sprite)), 201.626f, 0.01f) && near(float(sum_green(gathered)), 193.916f, 0.01f));
+        // Radius 4.9858 half-size pixels, 9.97 full-size: 50 / (pi 4.9858^2) a pixel inside, its edge smoothed over two pixels.
+        check("its disc is 0.6403 a pixel inside, 0.3814 and 0.2214 at 9 and 10 pixels out, 0.0738 at 11 and 0 at 13",
+            near(far.green(sprite, 641, 401), 0.6403f) && near(far.green(sprite, 648, 401), 0.6403f) && near(far.green(sprite, 650, 401), 0.3814f)
+                && near(far.green(sprite, 651, 401), 0.2214f) && near(far.green(sprite, 652, 401), 0.0738f) && far.green(sprite, 654, 401) == 0);
+        check("at gain 2 the lone glint grows: 0.6803 a pixel inside its disc", near(far.green(render(far, lens_at2(2, 2, 0, 2)), 641, 401), 0.6803f));
     }
     {
-        // A small light 30 m away on a dim background, which the curve takes as 0.25: highlights from 0.5 at gain 8.
+        Scene square(30);
+        for (uint32_t y = 300; y < 500; y++)
+            for (uint32_t x = 540; x < 740; x++)
+                square.put(x, y, 5, 30);
+        const DofOutput out = render(square, lens_at2(2, 2, 0, 2));
+        check("a flat bright square sends only the 16 texels of its corners, and keeps its light to 0.002%", out.sprites[0] == 16
+            && std::fabs(sum_green(out) / sum_green(render(square, lens_at2(2, 2, 0, 0))) - 1) < 2e-5);
+        Scene field(30);
+        for (uint32_t y = 200; y < 600; y += 4)
+            for (uint32_t x = 300; x < 900; x += 4)
+                field.put(x, y, 5, 30);
+        const DofOutput dense = render(field, lens_at2(2, 2, 0, 2));
+        check("a dense field of glints two texels apart fills the frame's 3029 sprites and does not grow at gain 2", dense.sprites[0] == 3029
+            && sum_green(dense) == sum_green(render(field, lens_at2(2, 2, 0, 0))));
         Scene lamp(30);
-        std::fill(lamp.image.rgb.begin(), lamp.image.rgb.end(), 0.1f);
-        for (uint32_t y = 399; y <= 401; y++)
-            for (uint32_t x = 639; x <= 641; x++)
+        for (uint32_t y = 398; y < 404; y++)
+            for (uint32_t x = 638; x < 644; x++)
                 lamp.put(x, y, 2, 30);
-        DepthOfFieldSettings settings = lens_at(2, 2, 1);
-        const float plain = lamp.green(render(lamp, settings), 648, 400);
-        settings.highlight_gain = 2;
-        const DofOutput grown = render(lamp, settings);
-        check("at gain 2 a small light's disc, 8 pixels from its center on its rim, stands over 4 times as far above the background",
-            grown.luminance < 0.25f && plain > 0.12f && grown.rgb.size() == lamp.image.rgb.size() && lamp.green(grown, 648, 400) - 0.1f > 4 * (plain - 0.1f));
-        check("and the background around it keeps its brightness", near(lamp.green(grown, 640, 700), 0.1f, 1e-4f));
+        const DofOutput grown = render(lamp, lens_at2(2, 2, 0, 2));
+        check("a small lamp alone in the dark is 9 sprites, which at gain 2 grow its disc from 0.2305 to 0.5905 a pixel", grown.sprites[0] == 9
+            && near(lamp.green(grown, 641, 401), 0.5905f) && near(lamp.green(render(lamp, lens_at2(2, 2, 0, 0)), 641, 401), 0.2305f));
     }
 
     FrameSave frame;

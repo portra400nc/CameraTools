@@ -54,9 +54,9 @@ namespace enhancements
     // 1 over the mean of 1 + aberration (3 rho^4 - 1) clamped at 0 over the unit disc: 1 for aberration from -0.5 up.
     float dof_bokeh_norm(float aberration);
 
-    // dof_expand_highlight and dof_compress_highlight on a linear color, threshold and gain in the scene's units.
-    std::array<float, 3> dof_expand_highlight(const std::array<float, 3> &rgb, float threshold, float gain);
-    std::array<float, 3> dof_compress_highlight(const std::array<float, 3> &rgb, float threshold, float gain);
+    // dof_grow_highlight: a sprite's luminance grown at gain from the contrast of its 3x3 texels to their surroundings, for
+    // a threshold in the scene's units and a disc of radius half-size pixels.
+    float dof_grow_highlight(float luminance, float contrast, float threshold, float gain, float radius);
 
     // The shape's area over the unit disc's, square-rooted: the blades, their roundness and the anamorphic squeeze.
     float dof_area_scale(uint32_t blades, float roundness, float anamorphic);
@@ -105,12 +105,18 @@ namespace enhancements
         float sampling[4];  // rings, the frame's turn of them, +1 when stored rows run up the screen else -1, width over height
         uint32_t sizes[4];  // the half size, and the tile count
         uint32_t counts[4]; // tiles the dilation reaches, the render size, pixels between the autofocus's depth samples
-        float highlight[4]; // the highlights' threshold and gain over the frame's mean luminance, 0, 0
+        float highlight[4]; // the highlights' threshold over the frame's mean luminance, gain, the sprites a field may draw (0: no
+                            // scatter), and the near field's first slot in the sprites' buffer
     };
     static_assert(sizeof(DofConstants) == 160);
 
     // Pixels a tile holds along each side of the half-size picture; shaders/dof.hlsli's tiles say the same.
     constexpr uint32_t kDofTile = 8;
+
+    // The sprites each field's buffer holds, and the half-size pictures' worth of pixels each field's sprites may cover at
+    // most: a frame draws no more sprites than both allow at its largest quad, and leaves the rest in the gather.
+    constexpr uint32_t kDofSpriteCap = 4096;
+    constexpr uint32_t kDofSpriteOverdraw = 8;
 
     // The k whose 4k (k + 1) + 1 samples, as many as rings of 8k around one, come nearest samples: at least 2, at most 16.
     uint32_t dof_rings(uint32_t samples);
@@ -134,10 +140,12 @@ namespace enhancements
         std::vector<float> rgb;     // the frame with depth of field, as stored
         float focus = 0;            // the focus distance the frame used, meters
         float luminance = 0;        // the frame's mean luminance, which scales the highlights' curve
+        uint32_t sprites[2] = {};   // the far and the near field's sprites
     };
 
     // Every pass of shaders/dof.hlsli over the image, as the GPU runs them, on the machine's threads: the autofocus from
-    // previous_focus, the prefilter and its levels, the tiles and their dilation, the gather, the post-filter and the
-    // composite.
+    // previous_focus, the prefilter, its highlights' detection into sprites, its levels, the tiles and their dilation, the
+    // gather, the post-filter, the sprites added into the fields, and the composite. The sprites take their buffers' slots
+    // in row order, where the GPU's take them in the order its threads come.
     DofOutput render_dof(const DofImage &image, const DofConstants &constants, float previous_focus);
 }

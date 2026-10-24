@@ -174,7 +174,8 @@ namespace CameraToolsEnhancements
         public float Chromatic;
         public uint Samples;
         public float HighlightThreshold;    // over the frame's mean luminance
-        public float HighlightGain;         // 0 off
+        public float HighlightGain;         // 0: highlights keep their own light
+        public uint Scatter;                // 1: highlights drawn as sprites of their disc
     }
 
     // EnhancementsSettings in enhancements.h, field for field.
@@ -209,8 +210,8 @@ namespace CameraToolsEnhancements
         // frame, applied with the ambient level, and when switched on a gather of one bounce, 64 samples a pixel, its sky
         // light by visibility, filtered twice, at full strength, with half the game's ambient light on the surfaces it meets,
         // and a depth of field at f/2.8 on a full-frame sensor that autofocuses at the center at 0.9 of the way a second, blurs at
-        // most 0.03 of the height, has round discs with spherical aberration 0.6, gathers 49 samples a pixel, and grows highlights
-        // above twice the frame's mean luminance at gain 2.
+        // most 0.03 of the height, has round discs with spherical aberration 0.6, gathers 49 samples a pixel, and draws highlights
+        // above twice the frame's mean luminance as sprites, growing small lamps at gain 2.
         public static EnhancementsSettings Defaults => new()
         {
             Size = (uint)Marshal.SizeOf<EnhancementsSettings>(),
@@ -234,7 +235,7 @@ namespace CameraToolsEnhancements
             DepthOfField = new EnhancementsDepthOfField
             {
                 FNumber = 2.8f, SensorHeightMm = 24, FocusX = 0.5f, FocusY = 0.5f, FocusSpeed = 0.9f, MaxBlur = 0.03f, BladeRoundness = 0.5f,
-                SphericalAberration = 0.6f, Anamorphic = 1, Samples = 49, HighlightThreshold = 2, HighlightGain = 2,
+                SphericalAberration = 0.6f, Anamorphic = 1, Samples = 49, HighlightThreshold = 2, HighlightGain = 2, Scatter = 1,
             },
         };
     }
@@ -366,7 +367,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 12;
+        private const uint Version = 13;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

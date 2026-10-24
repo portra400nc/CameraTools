@@ -33,16 +33,17 @@ bool Fails(Action read)
     }
 }
 
-// The binding: what enhancements.h's static_asserts say of version 12.
+// The binding: what enhancements.h's static_asserts say of version 13.
 Check("the binding's status is enhancements.h's 152 bytes, with the restarts at 132, their reason at 136, the shot at 140, the saved frames at 144 and the focus at 148",
     Marshal.SizeOf<EnhancementsStatus>() == 152 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceTarget)) == 116
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceLight)) == 128 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceRestarts)) == 132
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceRestartReason)) == 136 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.ShotActive)) == 140
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.FramesSaved)) == 144 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.DofFocusMeters)) == 148);
-Check("the binding's shot is 16 bytes, its settings 312 with the depth of field at 236 and its highlights at 68 in it, and its scene request 20",
-    Marshal.SizeOf<EnhancementsShot>() == 16 && Offset<EnhancementsShot>(nameof(EnhancementsShot.BudgetMs)) == 12 && Marshal.SizeOf<EnhancementsSettings>() == 312
-    && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.DepthOfField)) == 236 && Marshal.SizeOf<EnhancementsDepthOfField>() == 76
+Check("the binding's shot is 16 bytes, its settings 316 with the depth of field at 236 and its highlights at 68 and scatter at 76 in it, and its scene request 20",
+    Marshal.SizeOf<EnhancementsShot>() == 16 && Offset<EnhancementsShot>(nameof(EnhancementsShot.BudgetMs)) == 12 && Marshal.SizeOf<EnhancementsSettings>() == 316
+    && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.DepthOfField)) == 236 && Marshal.SizeOf<EnhancementsDepthOfField>() == 80
     && Offset<EnhancementsDepthOfField>(nameof(EnhancementsDepthOfField.HighlightThreshold)) == 68
+    && Offset<EnhancementsDepthOfField>(nameof(EnhancementsDepthOfField.Scatter)) == 76
     && Marshal.SizeOf<EnhancementsSceneRequest>() == 20);
 Check("the restart reasons and the scene states count as enhancements.h's", (uint)EnhancementsTraceRestart.Scene == 1 && (uint)EnhancementsTraceRestart.Camera == 4
     && (uint)EnhancementsTraceRestart.Light == 6 && (uint)EnhancementsTraceState.Ready == 3 && (uint)EnhancementsTraceState.Failed == 5

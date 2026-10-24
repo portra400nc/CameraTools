@@ -47,7 +47,8 @@ SHADERS = [
     ("kDofFocusPs", "dof_focus_ps.hlsl", "ps_5_0"), ("kDofPrefilterPs", "dof_prefilter_ps.hlsl", "ps_5_0"),
     ("kDofTilesPs", "dof_tiles_ps.hlsl", "ps_5_0"), ("kDofDilatePs", "dof_dilate_ps.hlsl", "ps_5_0"),
     ("kDofGatherPs", "dof_gather_ps.hlsl", "ps_5_0"), ("kDofPostPs", "dof_post_ps.hlsl", "ps_5_0"),
-    ("kDofCompositePs", "dof_composite_ps.hlsl", "ps_5_0"),
+    ("kDofCompositePs", "dof_composite_ps.hlsl", "ps_5_0"), ("kDofScatterCs", "dof_scatter_cs.hlsl", "cs_5_0"),
+    ("kDofSpriteVs", "dof_sprite_vs.hlsl", "vs_5_0"), ("kDofSpritePs", "dof_sprite_ps.hlsl", "ps_5_0"),
 ]
 WORKSPACE_VKD3D = Path(".work/build/reshade/vkd3d/vkd3d-compiler")
 DEPS = HERE / ".deps"

@@ -1,5 +1,5 @@
-// The depth of field's constants at b1, core/dof.h's DofConstants, shared by the dof_*_ps.hlsl draws. Registers stay
-// inside gpu.h's ranges: t0-t7, s0-s3, b0-b4.
+// The depth of field's constants at b1, core/dof.h's DofConstants, shared by the dof_*.hlsl shaders. Registers stay
+// inside gpu.h's ranges: t0-t7, s0-s3, b0-b4, u0-u3.
 
 cbuffer Dof : register(b1)
 {
@@ -12,7 +12,8 @@ cbuffer Dof : register(b1)
     float4 dof_sampling;    // rings, the frame's turn, +1 when stored rows run up the screen (flip) else -1, width over height
     uint4 dof_sizes;        // the half size, and the tile count
     uint4 dof_counts;       // tiles the dilation reaches, the render size, pixels between the autofocus's depth samples
-    float4 dof_highlight;   // the highlights' threshold and gain over the frame's mean luminance, 0, 0
+    float4 dof_highlight;   // the highlights' threshold over the frame's mean luminance, gain, the sprites a field may draw
+                            // (0: no scatter), and the near field's first slot
 };
 
 #define LOOP [loop]

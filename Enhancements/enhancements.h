@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 12
+#define ENHANCEMENTS_VERSION 13
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -371,8 +371,12 @@ typedef struct EnhancementsDepthOfField
     uint32_t samples;           // gather samples a pixel on a spiral, rounded to 4k (k + 1) + 1; default 49, clamped to 9..1089
     float highlight_threshold;  // highlights start at this many times the frame's mean luminance (at least 0.25); default 2,
                                 // clamped to 1..16
-    float highlight_gain;       // how steeply light above the threshold grows before the blur and shrinks back after, in units
-                                // of 1 over that mean, so a small light's disc keeps more of it; 0 off; default 2, clamped to 0..8
+    float highlight_gain;       // how readily a small light that stands out of everything around it grows into a bright disc,
+                                // as a real lamp's would; 0 keeps every light as bright as the game drew it; default 2, clamped
+                                // to 0..8. Needs scatter
+    uint32_t scatter;           // 1 (the default): highlights above the threshold that stand out of their surroundings, glints
+                                // and small lamps, are drawn as sprites of their disc instead of gathered, so their edges stay
+                                // smooth and their rims and colors show; 0 gathers them with the rest
 } EnhancementsDepthOfField;
 
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller

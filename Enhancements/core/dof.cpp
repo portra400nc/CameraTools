@@ -24,6 +24,7 @@ namespace enhancements::shader
     {
         const enhancements::DofImage *scene = nullptr;
         float2 focus;   // the autofocus's: meters and the frame's mean luminance
+        std::vector<float4> prefilter;  // the prefilter's level 0 before the sprites took their light out
         // The prefilter's levels: each rgb and the green CoC, row by row.
         std::vector<std::vector<float4>> source;
         std::vector<uint2> source_sizes;
@@ -60,6 +61,7 @@ namespace enhancements::shader
         return c;
     }
     float2 dof_load_focus() { return textures->focus; }
+    float4 dof_load_prefilter(int2 p) { return textures->prefilter[at(p, half_size())]; }
     float4 dof_load_source(int2 p) { return textures->source[0][at(p, half_size())]; }
     // SampleLevel with a linear sampler that clamps: bilinear in the two levels around lod.
     float3 dof_sample_source(float2 position, float lod)
@@ -94,10 +96,12 @@ namespace enhancements::shader
 
 #define DOF_FOCUS
 #define DOF_PREFILTER
+#define DOF_SCATTER
 #define DOF_TILES
 #define DOF_DILATE
 #define DOF_GATHER
 #define DOF_POST
+#define DOF_SPRITE
 #define DOF_COMPOSITE
 #define LOOP
 #define UNROLL
@@ -201,16 +205,9 @@ namespace enhancements
 
     float dof_bokeh_intensity(float rho, float aberration) { return shader::dof_bokeh_intensity(rho, aberration, dof_bokeh_norm(aberration)); }
 
-    std::array<float, 3> dof_expand_highlight(const std::array<float, 3> &rgb, float threshold, float gain)
+    float dof_grow_highlight(float luminance, float contrast, float threshold, float gain, float radius)
     {
-        const shader::float3 c = shader::dof_expand_highlight({ rgb[0], rgb[1], rgb[2] }, threshold, gain);
-        return { c.x, c.y, c.z };
-    }
-
-    std::array<float, 3> dof_compress_highlight(const std::array<float, 3> &rgb, float threshold, float gain)
-    {
-        const shader::float3 c = shader::dof_compress_highlight({ rgb[0], rgb[1], rgb[2] }, threshold, gain);
-        return { c.x, c.y, c.z };
+        return shader::dof_grow_highlight(luminance, contrast, { threshold, gain, shader::kDofHighlightDisc * threshold }, radius);
     }
 
     float dof_bokeh_norm(float aberration)
@@ -364,6 +361,10 @@ namespace enhancements
         std::copy(c_sampling, c_sampling + 4, c.sampling);
         c.highlight[0] = s.highlight_threshold;
         c.highlight[1] = s.highlight_gain;
+        // As many sprites as kDofSpriteOverdraw half-size pictures of the largest quad.
+        const float quad = 2 * (max_radius * margin + 1);
+        c.highlight[2] = s.scatter ? std::floor(std::min(float(kDofSpriteCap), float(kDofSpriteOverdraw) * half_w * half_h / (quad * quad))) : 0;
+        c.highlight[3] = float(kDofSpriteCap);
         const uint32_t sizes[4] = { half_w, half_h, (half_w + kDofTile - 1) / kDofTile, (half_h + kDofTile - 1) / kDofTile };
         const uint32_t counts[4] = { static_cast<uint32_t>(std::ceil(max_radius * margin / kDofTile)), render.width, render.height,
             std::max(1u, render.height / 100) };
@@ -424,6 +425,24 @@ namespace enhancements
         t.source.emplace_back(size_t(half.x) * half.y);
         t.source_sizes.push_back(half);
         draw(half.x, half.y, c, t, [&t, half](uint32_t x, uint32_t y) { t.source[0][size_t(y) * half.x + x] = dof_prefilter(int2(int(x), int(y))); });
+        // dof_scatter_cs.hlsl: each highlight takes the next slot of its field's buffer while one is free, and its light out
+        // of the gather's source.
+        const uint32_t cap = static_cast<uint32_t>(c.highlight[2]);
+        std::vector<DofSprite> sprites[2];
+        if (cap > 0)
+        {
+            t.prefilter = t.source[0];
+            std::vector<DofDetect> found(t.prefilter.size());
+            draw(half.x, half.y, c, t, [&found, half](uint32_t x, uint32_t y) { found[size_t(y) * half.x + x] = dof_detect(int2(int(x), int(y))); });
+            for (size_t i = 0; i < found.size(); i++)
+            {
+                std::vector<DofSprite> &field = sprites[found[i].as.at.z > 0 ? 0 : 1];
+                if (!found[i].sprite || field.size() >= cap)
+                    continue;
+                field.push_back(found[i].as);
+                t.source[0][i] = found[i].rest;
+            }
+        }
         // GenerateMips: each level halves, rounded down, each texel the mean of the 2x2 below it.
         while (t.source_sizes.back().x > 1 || t.source_sizes.back().y > 1)
         {
@@ -462,7 +481,35 @@ namespace enhancements
         });
         t.far = std::move(far_post);
         t.near = std::move(near_post);
+        // dof_sprite_vs.hlsl and dof_sprite_ps.hlsl: each sprite's quad added into its field, the pixels whose centers it
+        // covers.
+        for (int f = 0; f < 2; f++)
+        {
+            std::vector<std::vector<uint32_t>> rows(half.y);
+            for (uint32_t i = 0; i < sprites[f].size(); i++)
+            {
+                const float4 a = sprites[f][i].at;
+                for (int y = std::max(0, int(std::ceil(a.y - a.w - 0.5f))); y < int(half.y) && float(y) + 0.5f <= a.y + a.w; y++)
+                    rows[size_t(y)].push_back(i);
+            }
+            std::vector<float4> &field = f == 0 ? t.far : t.near;
+            std::vector<float4> added(field.size());
+            draw(half.x, half.y, c, t, [&](uint32_t x, uint32_t y) {
+                float3 sum;
+                for (const uint32_t i : rows[y])
+                {
+                    const float4 a = sprites[f][i].at;
+                    if (std::fabs(float(x) + 0.5f - a.x) <= a.w)
+                        sum = sum + dof_sprite_light(sprites[f][i], int2(int(x), int(y)));
+                }
+                added[size_t(y) * half.x + x] = float4(sum.x, sum.y, sum.z, 0.0f);
+            });
+            for (size_t i = 0; i < field.size(); i++)
+                field[i] = field[i] + added[i];
+        }
         DofOutput out;
+        out.sprites[0] = static_cast<uint32_t>(sprites[0].size());
+        out.sprites[1] = static_cast<uint32_t>(sprites[1].size());
         out.focus = t.focus.x;
         out.luminance = t.focus.y;
         out.rgb.resize(image.rgb.size());

@@ -152,7 +152,8 @@ namespace enhancements
         float chromatic = 0;
         uint32_t samples = 49;
         float highlight_threshold = 2;          // over the frame's mean luminance
-        float highlight_gain = 2;               // 0: off
+        float highlight_gain = 2;               // 0: highlights keep their own light
+        bool scatter = true;                    // highlights drawn as sprites
     };
 
     // Every value in range: non-finite floats take the default, the rest clamp, and 1 to 4 blades read as 5.
