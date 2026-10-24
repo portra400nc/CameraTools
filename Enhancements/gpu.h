@@ -285,7 +285,7 @@ namespace enhancements
         // The depth of field pass, last at the bloom step: mirror in the HDR scene and depth; draw the focus distance into
         // one of two 1x1 textures from the other, the setting's or the autofocus eased over seconds; the half-size source
         // with its mips, its tiles and their dilation, the gather's far and near fields, their post-filter, and the composite
-        // at full size; copy it over the game's HDR scene. frame turns the gather's rings. The focus is copied for
+        // at full size; copy it over the game's HDR scene. frame turns the gather's spiral. The focus is copied for
         // read_dof_focus when no copy waits. Empty when the projection has no focal length or a texture of ours failed.
         std::optional<GameCall> run_depth_of_field(const FrameMap &map, const DepthOfFieldSettings &settings, const Camera &camera, bool flip,
             float seconds, uint64_t frame);

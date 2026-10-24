@@ -368,7 +368,7 @@ typedef struct EnhancementsDepthOfField
     float swirl;                // 0 to 1: discs squeezed along the line from the center toward the corners; default 0
     float anamorphic;           // the aperture's width over its height is 1 / anamorphic; default 1, clamped to 0.5..2
     float chromatic;            // axial chromatic aberration: green fringes behind focus and magenta in front; default 0, clamped to 0..2
-    uint32_t samples;           // gather samples a pixel, in rings of 8k around one; default 49, clamped to 9..1089
+    uint32_t samples;           // gather samples a pixel on a spiral, rounded to 4k (k + 1) + 1; default 49, clamped to 9..1089
 } EnhancementsDepthOfField;
 
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller

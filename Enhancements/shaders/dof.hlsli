@@ -148,7 +148,7 @@ float3 dof_weights(float3 r, float d, float scale, float aberration, float norm)
     return w * scale;
 }
 
-// Interleaved gradient noise, Jimenez 2014: a per-pixel turn of the gather's rings.
+// Interleaved gradient noise, Jimenez 2014: a per-pixel turn of the gather's spiral.
 float dof_noise(int2 p) { return frac(52.9829189f * frac(0.06711056f * float(p.x) + 0.00583715f * float(p.y))); }
 
 // The lens of this frame, from the constants and the focus the autofocus draw wrote.
@@ -251,14 +251,15 @@ float2 dof_dilate(int2 tile)
 #endif
 
 #ifdef DOF_GATHER
-// Scatter as gather at a half-size pixel: dof_sampling.x rings of 8k samples each around it out to its tile's dilated
-// radius, turned by the frame's seed and the pixel's noise. Each sample is a source whose disc may cover the pixel: its
-// light per channel is coverage times the light across its disc over the disc's area, times the area the sample stands
-// for. Sources behind the focus plane go to the far field, normalized, and a source deeper than a pixel behind focus
-// spreads no wider than that pixel's own disc, so the background does not spill over a nearer blurred surface. Sources
-// in front go to the near field, premultiplied, whose coverage is their summed weight. At a pixel in front of focus the
-// far field is what shows through its blurred edge, so there every source not in front spreads at least as wide as the
-// pixel's own disc: the background around an out-of-focus foreground fills in behind it.
+// Scatter as gather at a half-size pixel: as many samples as dof_sampling.x rings of 8k around one would have, on a
+// golden-angle spiral out to half a ring past its tile's dilated radius, turned by the frame's seed and the pixel's
+// noise. Each sample is a source whose disc may cover the pixel: its light per channel is coverage times the light
+// across its disc over the disc's area, times the area the sample stands for. Sources behind the focus plane go to the
+// far field, normalized, and a source deeper than a pixel behind focus spreads no wider than that pixel's own disc, so
+// the background does not spill over a nearer blurred surface. Sources in front go to the near field, premultiplied,
+// whose coverage is their summed weight. At a pixel in front of focus the far field is what shows through its blurred
+// edge, so there every source not in front spreads at least as wide as the pixel's own disc: the background around an
+// out-of-focus foreground fills in behind it.
 DofFields dof_gather(int2 p)
 {
     DofFields o;
@@ -277,53 +278,52 @@ DofFields dof_gather(int2 p)
                                 : float3(100000.0f, 100000.0f, 100000.0f);
     float own_near = own < -kDofInFocus ? min(-own, lens.max_radius) : 0.0f;
     int rings = int(dof_sampling.x);
+    int count = 4 * rings * (rings + 1) + 1;
     float spacing = radius / float(rings);
-    float area = kDofPi * spacing * spacing * 0.25f;
+    float reach_px = radius + 0.5f * spacing;
+    float area = kDofPi * reach_px * reach_px / float(count);
     float turn = dof_sampling.y + dof_noise(p);
     float up = dof_sampling.z;
     float2 half_size = float2(float(dof_sizes.x), float(dof_sizes.y));
     float3 far_sum = float3(0.0f, 0.0f, 0.0f), far_w = float3(0.0f, 0.0f, 0.0f);
     float3 near_sum = float3(0.0f, 0.0f, 0.0f), near_w = float3(0.0f, 0.0f, 0.0f);
-    LOOP for (int k = 0; k <= rings; k++)
+    LOOP for (int i = 0; i < count; i++)
     {
-        int count = max(8 * k, 1);
-        float ring = spacing * float(k);
-        LOOP for (int i = 0; i < count; i++)
+        // The golden angle apart, at radii that split the disc into equal areas, so every sample has its own radius: rings
+        // put every pixel's samples at the same few radii, which blurs an edge into steps a ring apart.
+        float angle = 2.0f * kDofPi * (turn + float(i) * 0.38196601f);
+        float2 o_px = float2(cos(angle), sin(angle)) * (reach_px * sqrt((float(i) + 0.5f) / float(count)));
+        float2 q = float2(float(p.x) + 0.5f + o_px.x, float(p.y) + 0.5f + o_px.y);
+        float c = dof_load_source(int2(int(floor(q.x)), int(floor(q.y)))).w;
+        float3 cq = dof_channel_coc(c, lens);
+        float3 r = float3(max(abs(dof_clamp_coc(cq.x, lens)), 0.5f), max(abs(dof_clamp_coc(cq.y, lens)), 0.5f), max(abs(dof_clamp_coc(cq.z, lens)), 0.5f));
+        // A source within half a full-size pixel of focus belongs to neither field, the composite keeping it sharp, as its
+        // small disc's weight would swamp the fields' wider ones; but it fills in behind a pixel in front of focus.
+        if (abs(c) <= kDofInFocus && own_near == 0.0f)
+            continue;
+        bool behind = c > -kDofInFocus;
+        if (behind && c > own)
+            r = float3(min(r.x, own_far.x), min(r.y, own_far.y), min(r.z, own_far.z));
+        if (behind)
+            r = float3(max(r.x, own_near), max(r.y, own_near), max(r.z, own_near));
+        // Where the pixel lies in the source's disc, y up; a source in front of focus shows the aperture mirrored.
+        float2 u = behind ? float2(-o_px.x, -o_px.y * up) : float2(o_px.x, o_px.y * up);
+        float2 ndc = float2(q.x / half_size.x * 2.0f - 1.0f, up * (q.y / half_size.y * 2.0f - 1.0f));
+        float d = dof_shape_distance(u, ndc, shape);
+        if (d > max(max(r.x, r.y), r.z) + 0.5f)
+            continue;
+        float scale = dof_cat_eye_cut(u, r.y, ndc, shape) * dof_swirl_density(ndc, shape) * area;
+        float3 w = dof_weights(r, d, scale, behind ? dof_bokeh.x : -dof_bokeh.x, behind ? dof_bokeh.y : dof_bokeh.z);
+        float3 color = dof_sample_source(q, log2(clamp(min(spacing, r.y), 1.0f, 256.0f)));
+        if (behind)
         {
-            float angle = 2.0f * kDofPi * (turn + (float(i) + 0.5f * float(k)) / float(count));
-            float2 o_px = float2(cos(angle), sin(angle)) * ring;
-            float2 q = float2(float(p.x) + 0.5f + o_px.x, float(p.y) + 0.5f + o_px.y);
-            float c = dof_load_source(int2(int(floor(q.x)), int(floor(q.y)))).w;
-            float3 cq = dof_channel_coc(c, lens);
-            float3 r = float3(max(abs(dof_clamp_coc(cq.x, lens)), 0.5f), max(abs(dof_clamp_coc(cq.y, lens)), 0.5f), max(abs(dof_clamp_coc(cq.z, lens)), 0.5f));
-            // A source within half a full-size pixel of focus belongs to neither field, the composite keeping it sharp, as its
-            // small disc's weight would swamp the fields' wider ones; but it fills in behind a pixel in front of focus.
-            if (abs(c) <= kDofInFocus && own_near == 0.0f)
-                continue;
-            bool behind = c > -kDofInFocus;
-            if (behind && c > own)
-                r = float3(min(r.x, own_far.x), min(r.y, own_far.y), min(r.z, own_far.z));
-            if (behind)
-                r = float3(max(r.x, own_near), max(r.y, own_near), max(r.z, own_near));
-            // Where the pixel lies in the source's disc, y up; a source in front of focus shows the aperture mirrored.
-            float2 u = behind ? float2(-o_px.x, -o_px.y * up) : float2(o_px.x, o_px.y * up);
-            float2 ndc = float2(q.x / half_size.x * 2.0f - 1.0f, up * (q.y / half_size.y * 2.0f - 1.0f));
-            float d = dof_shape_distance(u, ndc, shape);
-            if (d > max(max(r.x, r.y), r.z) + 0.5f)
-                continue;
-            float scale = dof_cat_eye_cut(u, r.y, ndc, shape) * dof_swirl_density(ndc, shape) * area;
-            float3 w = dof_weights(r, d, scale, behind ? dof_bokeh.x : -dof_bokeh.x, behind ? dof_bokeh.y : dof_bokeh.z);
-            float3 color = dof_sample_source(q, log2(clamp(min(spacing, r.y), 1.0f, 256.0f)));
-            if (behind)
-            {
-                far_sum = far_sum + color * w;
-                far_w = far_w + w;
-            }
-            else
-            {
-                near_sum = near_sum + color * w;
-                near_w = near_w + w;
-            }
+            far_sum = far_sum + color * w;
+            far_w = far_w + w;
+        }
+        else
+        {
+            near_sum = near_sum + color * w;
+            near_w = near_w + w;
         }
     }
     if (far_w.y > 0.0f)

@@ -107,11 +107,11 @@ namespace enhancements
     // Pixels a tile holds along each side of the half-size picture; shaders/dof.hlsli's tiles say the same.
     constexpr uint32_t kDofTile = 8;
 
-    // The rings of 8k samples around one that come nearest samples in all: at least 2, at most 16.
+    // The k whose 4k (k + 1) + 1 samples, as many as rings of 8k around one, come nearest samples: at least 2, at most 16.
     uint32_t dof_rings(uint32_t samples);
 
     // The constants of one frame: the focal length from the camera's projection and the sensor, the focus point stored as
-    // flip says, the autofocus's step after seconds of real time, and the rings turned by the frame's count. Empty when
+    // flip says, the autofocus's step after seconds of real time, and the spiral turned by the frame's count. Empty when
     // the projection does not invert or has no focal length.
     std::optional<DofConstants> dof_constants(const DepthOfFieldSettings &settings, const Camera &camera, Size render, bool flip, float seconds,
         uint64_t frame);
