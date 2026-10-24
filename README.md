@@ -24,7 +24,7 @@
 | **Lights** | Point, spot and soft sphere lights, for the world or only characters |
 | **Posing** | Freeze the active character, turn their joints, shape hands and face, save poses |
 | **ReShade** | Depth of field with a movable focus point; one-button screenshots at your highest settings, also as long exposures |
-| **Input** | Configurable hotkeys; XInput controllers, including the Steam Deck |
+| **Input** | Hotkeys you change in the panel; XInput controllers, including the Steam Deck |
 
 ## Showcase
 
@@ -55,9 +55,11 @@ https://github.com/user-attachments/assets/e898ae54-dfb5-4270-bfce-81479329b2ad
 
 ## Getting started
 
-1. Press <kbd>F9</kbd> to inject the free camera, then <kbd>Insert</kbd> to turn it on. On a controller, press <kbd>L3</kbd>+<kbd>R3</kbd>.
-2. Press <kbd>F10</kbd> (<kbd>Start</kbd>) to open the settings panel. Click and drag with the mouse, or use the controller.
-3. Press <kbd>PageDown</kbd> (<kbd>B</kbd>) to hide CameraTools' hints for a clean shot. The free camera already hides the game's HUD.
+1. Press <kbd>Insert</kbd> to turn on the free camera. On a controller, press <kbd>L3</kbd>+<kbd>R3</kbd>. Press it again to leave.
+2. Press <kbd>Tab</kbd> (<kbd>Start</kbd>) to open the settings panel. Click and drag with the mouse, or use the controller.
+3. Press <kbd>H</kbd> (<kbd>B</kbd>) to hide CameraTools' hints for a clean shot. The free camera already hides the game's HUD.
+
+While the free camera is on, the game ignores the keyboard, mouse and controller, so <kbd>W</kbd> moves only the camera. While it is off, the game has them back, and only <kbd>Insert</kbd> and <kbd>L3</kbd>+<kbd>R3</kbd> reach CameraTools.
 
 ### Guides
 
@@ -70,7 +72,14 @@ https://github.com/user-attachments/assets/e898ae54-dfb5-4270-bfce-81479329b2ad
 
 ## Hotkeys
 
-Rebind any hotkey in `UserData/MelonPreferences.cfg` with a [Unity key code](https://docs.unity3d.com/ScriptReference/KeyCode.html).
+To change a hotkey, open the panel's **Keybinds** tab and click the key or the controller binding, then press the new key or buttons. On the controller, select the row and press <kbd>A</kbd>. A combination such as <kbd>Back</kbd>+<kbd>X</kbd> counts when you let go of the last button.
+
+- <kbd>Esc</kbd> cancels and <kbd>Backspace</kbd> clears the key. A controller rebind gives up after 5 seconds with nothing pressed.
+- A key that another hotkey uses swaps: that hotkey takes the old key, and a notice says so.
+- **Restore defaults**, at the top of the tab, puts every hotkey back. Press it twice.
+- Toggle free camera always keeps a key and a controller binding, so you can always leave the free camera. <kbd>Enter</kbd> cannot be bound, because Move light, Pose joints and Edit replay use it.
+
+The bindings are saved in `UserData/MelonPreferences.cfg`, under the hotkeys' names: keys in `[CameraTools]` as [Unity key codes](https://docs.unity3d.com/ScriptReference/KeyCode.html), and controller bindings in `[CameraToolsController]`.
 
 <table>
 <tr><th>Free camera</th><th>Game speed</th></tr>
@@ -78,38 +87,37 @@ Rebind any hotkey in `UserData/MelonPreferences.cfg` with a [Unity key code](htt
 
 | Key | Action |
 |--|--|
-| <kbd>F9</kbd> | Inject free camera |
 | <kbd>Insert</kbd> | Toggle free camera |
-| <kbd>I</kbd> <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd> | Move |
-| <kbd>O</kbd> <kbd>U</kbd> | Move vertically |
-| <kbd>,</kbd> <kbd>.</kbd> | Roll left / right |
-| <kbd>RShift</kbd> | Reset roll |
-| <kbd>;</kbd> | Slow movement (hold) |
-| <kbd>RAlt</kbd> | Fast movement (hold) |
-| <kbd>8</kbd> <kbd>9</kbd> | Field of view down / up |
-| <kbd>0</kbd> | Reset field of view |
+| <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> | Move |
+| <kbd>Space</kbd> <kbd>Ctrl</kbd> | Move up / down |
+| <kbd>Q</kbd> <kbd>E</kbd> | Roll left / right |
+| <kbd>Right Shift</kbd> | Reset roll |
+| <kbd>Shift</kbd> | Fast movement (hold) |
+| <kbd>Alt</kbd> | Slow movement (hold) |
+| <kbd>1</kbd> <kbd>2</kbd> | Field of view down / up |
+| <kbd>3</kbd> | Reset field of view |
 
 </td><td>
 
 | Key | Action |
 |--|--|
-| <kbd>Delete</kbd> | Toggle pause |
-| <kbd>End</kbd> | Reset game speed |
+| <kbd>Z</kbd> | Toggle pause |
+| <kbd>X</kbd> | Reset game speed |
 | <kbd>↑</kbd> <kbd>↓</kbd> | Speed +0.1 / −0.1 |
 | <kbd>→</kbd> <kbd>←</kbd> | Speed +0.5 / −0.5 |
-| <kbd>CapsLock</kbd> | Toggle speed 5.0 |
+| <kbd>Caps Lock</kbd> | Toggle speed 5.0 |
 
 </td></tr>
-<tr><th>Interface</th><th>Camera paths</th></tr>
+<tr><th>Interface</th><th>Camera paths and replays</th></tr>
 <tr valign="top"><td>
 
 | Key | Action |
 |--|--|
-| <kbd>F10</kbd> | Settings panel (free camera only) |
-| <kbd>'</kbd> | Focus cursor |
-| <kbd>PageDown</kbd> | Hide UI (CameraTools' with the free camera on, the game's HUD with it off) |
-| <kbd>]</kbd> | Toggle damage overlay |
-| <kbd>[</kbd> | Remove enemy HP overlay |
+| <kbd>Tab</kbd> | Settings panel |
+| <kbd>R</kbd> | Free the cursor |
+| <kbd>H</kbd> | Hide UI |
+| <kbd>]</kbd> | Toggle damage numbers |
+| <kbd>[</kbd> | Remove enemy HP bars |
 | <kbd>-</kbd> | Apply resolution slot 1 (1280x800) |
 | <kbd>=</kbd> | Apply resolution slot 2 (2560x1600) |
 
@@ -120,24 +128,27 @@ Rebind any hotkey in `UserData/MelonPreferences.cfg` with a [Unity key code](htt
 | <kbd>Num +</kbd> | Add a node to the selected path (starts one if there is none) |
 | <kbd>Num Enter</kbd> | Play or stop the selected path |
 | <kbd>Num 1</kbd>–<kbd>9</kbd> | Select path 1 to 9 (during playback, play it from the start) |
-| <kbd>Num −</kbd> | Record a replay, or stop recording |
+| <kbd>Num −</kbd> | Record a replay |
 | <kbd>Num *</kbd> | Play or stop the selected replay |
+| <kbd>Esc</kbd> | Stop a path or a replay while it plays |
 
 **Depth of field**
 
 | Key | Action |
 |--|--|
-| Left click | Put the focus point there (cursor free, panel closed) |
-| *unbound* | Center the focus point (`CenterFocusPoint`) |
+| Left click | Put the focus point there (cursor free, panel closed or beside it) |
+| *unbound* | Center the focus point |
 
 </td></tr>
 </table>
 
+<kbd>Esc</kbd> and the left click are fixed. Every other key above is a default you can change.
+
 ## Controller
 
-The game owns the controller until you press <kbd>L3</kbd>+<kbd>R3</kbd>. That hands it to CameraTools: the free camera injects and turns on if needed, the game stops reading the controller, it rumbles, and "Controller: CameraTools" shows at the top of the screen. Press <kbd>L3</kbd>+<kbd>R3</kbd> again to give it back. The free camera stays put, so you can walk the character through a fixed shot.
+<kbd>L3</kbd>+<kbd>R3</kbd> turns the free camera on, and with it hands the controller to CameraTools: the game stops reading it and it rumbles. Press <kbd>L3</kbd>+<kbd>R3</kbd> again to leave the free camera and give the controller back.
 
-Recording a replay hands the controller to the game and turns the free camera off, so you play as usual while it records. With **Play camera path while recording** on, the free camera stays on and flies the path instead. Press <kbd>L3</kbd>+<kbd>R3</kbd> to stop the recording and take the controller back, or <kbd>Num −</kbd> to stop it and return to the free camera and controller you had before.
+Recording a replay gives the controller to the game and turns the free camera off, so you play as usual while it records. With **Play camera path while recording** on, the free camera stays on and flies the path instead. Press <kbd>L3</kbd>+<kbd>R3</kbd> (<kbd>Insert</kbd>) to stop the recording and return to the free camera.
 
 Hold <kbd>Back</kbd> for the right-hand column. While it is held, <kbd>LT</kbd> and <kbd>RT</kbd> do not move the camera.
 
@@ -149,12 +160,12 @@ Hold <kbd>Back</kbd> for the right-hand column. While it is held, <kbd>LT</kbd> 
 | <kbd>LB</kbd> / <kbd>RB</kbd> | Roll left / right | Slow / fast movement (hold) |
 | <kbd>R3</kbd> | Reset roll | Center the focus point |
 | D-pad ↑ / ↓ | Field of view up / down | Speed +0.5 / −0.5 |
-| D-pad ← / → | Speed −0.1 / +0.1 | Record or stop a replay / play or stop the replay |
-| <kbd>A</kbd> | Toggle free camera | Reset field of view |
-| <kbd>B</kbd> | Hide UI | Toggle damage overlay |
-| <kbd>X</kbd> | Toggle pause | Remove enemy HP overlay |
+| D-pad ← / → | Speed −0.1 / +0.1 | Record a replay / play or stop the replay |
+| <kbd>A</kbd> | | Reset field of view |
+| <kbd>B</kbd> | Hide UI | Toggle damage numbers |
+| <kbd>X</kbd> | Toggle pause | Remove enemy HP bars |
 | <kbd>Y</kbd> | Reset game speed | Toggle speed 5.0 |
-| <kbd>Start</kbd> | Settings panel | Toggle max detail |
+| <kbd>Start</kbd> | Settings panel | |
 
 While the panel is open, the controller drives the panel instead:
 
@@ -162,17 +173,12 @@ While the panel is open, the controller drives the panel instead:
 |--|--|
 | D-pad ↑ / ↓, left stick | Previous / next setting (hold to repeat) |
 | D-pad ← / → | Change the value: slider, switch, option, camera path or node, resolution size (hold to repeat) |
-| <kbd>A</kbd> | Flip a switch, run an action, apply a resolution slot |
+| <kbd>A</kbd> | Flip a switch, run an action, apply a resolution slot, rebind a hotkey |
 | <kbd>Y</kbd> | Type a resolution slot's size |
 | <kbd>LB</kbd> / <kbd>RB</kbd> | Previous / next tab |
 | <kbd>B</kbd>, or the panel button (<kbd>Start</kbd>) | Close the panel, or cancel typing |
 
-<kbd>L3</kbd>+<kbd>R3</kbd>, <kbd>Back</kbd> with the right stick, and the panel buttons are fixed. Everything else is rebindable in the `[CameraToolsController]` section, under the hotkeys' names:
-
-- **Buttons**, joined with `+`, such as `Back+A`: `A` `B` `X` `Y` `LB` `RB` `LT` `RT` `Back` `Start` `L3` `R3` `DpadUp` `DpadDown` `DpadLeft` `DpadRight`
-- **One analog direction**: `LeftStickUp` `LeftStickDown` `LeftStickLeft` `LeftStickRight` `RightStickUp` `RightStickDown` `RightStickLeft` `RightStickRight` `LT` `RT`
-
-An empty binding does nothing. A binding that does not parse falls back to its default, and the log names it.
+<kbd>Back</kbd> with the right stick and the panel's buttons are fixed. Change the others in the Keybinds tab. The right stick always looks around, so it cannot be bound.
 
 ## Graphics
 

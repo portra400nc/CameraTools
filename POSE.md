@@ -38,14 +38,14 @@ Hair and cloth strands are joints too, at the end of the Joint list, with smalle
 |--|--|--|
 | D-pad up and down | Up and Down arrows | Previous and next joint |
 | D-pad left and right | Left and Right arrows | The same joint on the other side |
-| Left stick | I and K, J and L | Bend, and turn |
-| LB and RB | U and O | Twist |
+| Left stick | W and S, A and D | Bend, and turn |
+| LB and RB | Ctrl and Space | Twist |
 | Y | Backspace | Reset the joint |
 | X | M | Copy it to the other side |
 | A | Enter | Keep the pose |
-| B | Escape | Cancel, putting back the pose from before |
+| B | Esc | Cancel, putting back the pose from before |
 
-With the mouse, click near a marker to pick its joint. The keyboard uses the free camera's movement keys, so I, K, J, L, U and O follow your bindings. The free camera holds still while you pose joints.
+With the mouse, click near a marker to pick its joint. The keyboard uses the free camera's movement keys, so W, S, A, D, Ctrl and Space follow your bindings. The free camera holds still while you pose joints.
 
 ## Hands
 

@@ -24,7 +24,7 @@ New light places a light 1.5 m in front of the camera, facing where the camera l
 - Camera: it moves and turns with the camera.
 - Character: it keeps its place beside the active character as she moves and turns.
 
-Move light hides the panel. The left stick moves the light across the ground as the camera faces, LT and RT lower and raise it, and the right stick turns it, which aims a spot. A keeps the new place and B puts the light back. On the keyboard, the free camera's movement keys move it, the mouse turns it, Enter keeps it and Escape cancels.
+Move light hides the panel. The left stick moves the light across the ground as the camera faces, LT and RT lower and raise it, and the right stick turns it, which aims a spot. A keeps the new place and B puts the light back. On the keyboard, the free camera's movement keys move it, the mouse turns it, Enter keeps it and Esc cancels.
 
 Move in front of camera puts the light 1.5 m in front of the camera again.
 

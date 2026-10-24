@@ -75,7 +75,7 @@ Take screenshot does this:
 6. Saves the screenshot to ReShade's screenshot folder.
 7. Puts the graphics settings, the enhancements and the resolution back as they were, turns ReShade's effects off, opens the panel again, and shows the file's name.
 
-Hide UI (PageDown, or B), opening the settings panel, or leaving the free camera cancels the screenshot and puts everything back. If a wait takes too long, CameraTools gives up, names what it waited for, and puts everything back.
+Hide UI (H, or B), opening the settings panel, or leaving the free camera cancels the screenshot and puts everything back. If a wait takes too long, CameraTools gives up, names what it waited for, and puts everything back.
 
 The `[CameraToolsReShade]` section of `MelonPreferences.cfg` holds:
 

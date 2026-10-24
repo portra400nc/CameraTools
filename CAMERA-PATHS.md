@@ -10,7 +10,7 @@ You need the free camera working. The [README](README.md) covers setup and the f
 
 A node is one saved camera position. It keeps where the camera is, where it looks, and its field of view.
 
-1. Turn on the free camera. On the controller, press L3+R3. On the keyboard, press F9, then Insert.
+1. Turn on the free camera. On the controller, press L3+R3. On the keyboard, press Insert.
 2. Fly to where the shot should start, and frame the view.
 3. Press Back+LT (Numpad +).
 
@@ -32,7 +32,7 @@ A node is one saved camera position. It keeps where the camera is, where it look
 
 ## Adjust the shot
 
-1. Open the settings panel with Start (F10), and go to the **Paths** tab with LB or RB.
+1. Open the settings panel with Start (Tab), and go to the **Paths** tab with LB or RB.
 
    Under the **Path** row, the note says "3 nodes · 10.0 s".
 
