@@ -98,6 +98,10 @@ namespace CameraTools
                 Box(0f, FocusCorner - 3f, 2f * FocusCorner + Stretch, Stretch + 6f, 0f))));
         public static readonly Shape FocusCross = Shadowed("FocusCross", 14f, 0f, Union(Box(2f, 6f, 10f, 2f, 1f), Box(6f, 2f, 2f, 10f, 1f)));
 
+        // GitHub's mark, for the panel's credit line: its 16-unit path filled at 24 x 24 pixels in a browser, one alpha byte
+        // per pixel from the top left, which is this shape's own size at Density 2.
+        public static readonly Shape GitHub = Mask("GitHub", 12f, "AAAAAAAAABJmtdnz89mzZBEAAAAAAAAAAAAAAAAemvn///////////iVHAAAAAAAAAAAAFX5////////////////9UwAAAAAAAAAdv////////////////////9oAAAAAABT///////////////////////9RwAAACL4//+WD2Db/8rAwMf93mEQjP//8RYAAKz///9hAAAJGgAAAAASDQAAWv///5UAKf////9pAAAAAAAAAAAAAAAAZ/////sSe/////9mAAAAAAAAAAAAAAAAWv////9gw////9YCAAAAAAAAAAAAAAAAAM7///+o4P///3oAAAAAAAAAAAAAAAAAAHX////O9P///2UAAAAAAAAAAAAAAAAAAFr////t9f///3sAAAAAAAAAAAAAAAAAAHD////q4v///7UAAAAAAAAAAAAAAAAAAK3////Dtv////whAAAAAAAAAAAAAAAAH/r///+bcv/////MDgAAAAAAAAAAAAAQzv////9xGPv/0Pr/0VUTAAAAAAAAFljV//////kfAKL/tCTV////cgAAAABs/////////4sAABfv/50h6///LgAAAAAj////////8BAAAABO//ofCUAzAAAAAAAC/v/////6RgAAAAAAeP/cUEV9AAAAAAAA//////pKAAAAAAAAAGf7////AAAAAAAD/////E0AAAAAAAAAAAArwP//AQAAAAAD//6mJwAAAAAAAAAAAAAAADJiAAAAAAAAYCgAAAAAAAAA");
+
         public static readonly Shape HueRail = Gradient("HueRail", t => Colors.Hsv(t * 360f, 1f, 1f));
         public static readonly Shape TemperatureRail = Gradient("TemperatureRail", t => Colors.Kelvin(1000f + t * 11000f));
 
@@ -105,7 +109,7 @@ namespace CameraTools
         {
             Face, Bumper, Trigger, Menu, View, DpadUp, DpadDown, DpadLeft, DpadRight, DpadSides, DpadUpDown, Key, Toast, Pill, Bar,
             FovTrack, SwitchOff, SwitchOn, Knob, Disc, Check, Cross, Plus, Minus, Handle, TimelineNode, TimelineGlow, Arrow, Back, Chevron, FoldOpen, FoldClosed, StepLeft, StepRight, Button,
-            PanelFill, PanelShadow, FocusWindow, FocusCross, HueRail, TemperatureRail,
+            PanelFill, PanelShadow, FocusWindow, FocusCross, HueRail, TemperatureRail, GitHub,
         };
 
         private static readonly Dictionary<Shape, Sprite> sprites = new();
@@ -207,6 +211,18 @@ namespace CameraTools
 
         // A signed distance in units at a point measured from the top left: negative inside, positive outside.
         private delegate float Field(float x, float y);
+
+        // A white square whose alpha is a mask of size * Density pixels a side, sampled at the pixel Raster asks for.
+        private static Shape Mask(string name, float size, string base64)
+        {
+            var alpha = Convert.FromBase64String(base64);
+            int side = (int)MathF.Round(size * Density);
+            return new(name, size, size, 0f, (x, y) =>
+            {
+                int column = Math.Clamp((int)(x * Density), 0, side - 1), row = Math.Clamp((int)(y * Density), 0, side - 1);
+                return new Color { r = 1f, g = 1f, b = 1f, a = alpha[row * side + column] / 255f };
+            });
+        }
 
         private static Shape Solid(string name, float width, float height, float border, Field field, Color color)
             => new(name, width, height, border, Layers((field, color)));

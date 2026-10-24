@@ -8,6 +8,7 @@ namespace CameraTools
     {
         public static readonly Color Text = Hex(0xece5d8);
         public static readonly Color Dim = Hex(0xece5d8, 0.62f);
+        public static readonly Color Credit = Hex(0xece5d8, 0.45f);
         public static readonly Color Cream = Hex(0xd3bc8e);
         // A recording's time and fill on the play bar.
         public static readonly Color Recording = Hex(0xff6b6b);
@@ -121,6 +122,16 @@ namespace CameraTools
         public const float SliderHeight = 18f;
         public const float RailHeight = 4f;
         public const float ToggleRowHeight = 50f;
+        // The Keybinds tab's rows: a label, then a keyboard cell and a controller cell, as in the approved mockup.
+        public const float BindRowHeight = 38f;
+        public const float BindCellWidth = 96f;
+        public const float BindCellGap = 10f;
+        public const float BindCellHeight = 26f;
+        // The panel's last line: the mod's name, version and repository, small and dim under the footer's hints.
+        public const float CreditBottom = 8f;
+        public const float CreditHeight = 14f;
+        public const float CreditGap = 4f;
+        public const int CreditSize = 10;
         public const float ArrowX = 10f;
         public const float ArrowY = 16f;
         public const float SwitchWidth = 52f;

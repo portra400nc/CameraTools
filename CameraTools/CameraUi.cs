@@ -26,6 +26,8 @@ namespace CameraTools
         private const int MaxTyped = 11;
         // Lights past this many have no marker.
         private const int MarkerCount = 16;
+        // A controller rebind that sees no button for this long gives up.
+        private const float CaptureTimeout = 5f;
 
         private static readonly PadBinding PadA = new(PadButtons.A, PadAxis.None);
         private static readonly PadBinding PadB = new(PadButtons.B, PadAxis.None);
@@ -70,6 +72,14 @@ namespace CameraTools
         // The frame the panel last opened on, whose pad presses opened it: Edit replay's B both closes the edit and
         // reopens the panel, and must not also close the panel.
         private static int openedOn = -1;
+        private static Capture capture;
+        // A rebind changes what the HUD's legends name, and they are built once, so the UI is built again once the panel closes.
+        private static bool hintsStale;
+        // Esc cancels and Backspace clears, and Enter stays the Done and Play key of Move light, Pose joints and Edit replay.
+        private static readonly KeyCode[] BindableKeys = Enum.GetValues<KeyCode>()
+            .Where(key => key > KeyCode.None && key < KeyCode.Mouse0 && key is not (KeyCode.Escape or KeyCode.Backspace or KeyCode.Return))
+            .Distinct()
+            .ToArray();
 
         // A recording shows its bar with the free camera off too, since recording turns it off.
         public static View View => CameraTools.uiHidden ? View.Hidden
@@ -110,6 +120,7 @@ namespace CameraTools
         public static void FreecamChanged(bool active)
         {
             StopEditing();
+            StopCapture();
             panelOpen = false;
             hintPending = active;
         }
@@ -127,6 +138,12 @@ namespace CameraTools
                     return;
                 }
                 hintPending = false;
+                if (hintsStale && !panelOpen)
+                {
+                    step = "rebuild";
+                    hintsStale = false;
+                    Rebuild();
+                }
                 step = "input";
                 HandleInput();
                 step = "render";
@@ -575,6 +592,7 @@ namespace CameraTools
                         ActionRow action => ui.Action(tabRows, action, y),
                         ResolutionRow resolution => ui.Resolution(tabRows, resolution, y),
                         TextRow text => ui.TextField(tabRows, text, y),
+                        BindingRow binding => ui.Binding(tabRows, binding, y),
                         _ => throw new InvalidOperationException($"No widget for {row.GetType().Name}."),
                     };
                     built.Top = y;
@@ -595,6 +613,7 @@ namespace CameraTools
             target.Steps = ui.GlyphHint(footer, PadButtons.DpadLeft | PadButtons.DpadRight, "Change");
             target.Edit = ui.PadHint(footer, PadY, "Edit");
             target.Return = ui.PadHint(footer, PadB, "Return");
+            ui.Credit(panel, MelonLoader.Melon<CameraTools>.Instance.Info.Version);
         }
 
         private static void BuildToast(Builder ui, Live target, Transform root)
@@ -615,6 +634,7 @@ namespace CameraTools
         private static void ShowTab(int index, Live target)
         {
             StopEditing();
+            StopCapture();
             tab = index;
             target.StripReveal = true;
             dragging = null;
@@ -689,7 +709,7 @@ namespace CameraTools
             seeking = false;
             bool padOwned = Controls.Owner == InputOwner.CameraTools;
             if (Controls.Pressed(CamAction.ToggleGUI)
-                || panelOpen && padOwned && Controls.Binding(CamAction.ToggleGUI).Pad.Pressed(Gamepad.Current, Gamepad.Previous))
+                || panelOpen && padOwned && capture == null && Controls.Binding(CamAction.ToggleGUI).Pad.Pressed(Gamepad.Current, Gamepad.Previous))
             {
                 // Opening the panel brings back a hidden UI.
                 if (CameraTools.uiHidden)
@@ -703,7 +723,9 @@ namespace CameraTools
                 SetPanel(false);
             if (editing != null)
                 Type();
-            if (panelOpen && padOwned)
+            if (capture != null)
+                ReadCapture();
+            if (panelOpen && padOwned && capture == null)
                 Navigate();
             if (panelOpen && !Freecam.Focused)
                 HandleMouse();
@@ -714,16 +736,22 @@ namespace CameraTools
         {
             if (!live.MissingSettings || !Graphics.HasSettings)
                 return;
+            Rebuild();
+            CameraTools.LogOnce("UI: rebuilt the CameraTools UI now that the game's settings can be read.");
+        }
+
+        private static void Rebuild()
+        {
             var font = live.Font;
             live.Root.SetActive(false);
             Object.Destroy(live.Root);
             live = Build(font);
-            CameraTools.LogOnce("UI: rebuilt the CameraTools UI now that the game's settings can be read.");
         }
 
         private static void SetPanel(bool open)
         {
             StopEditing();
+            StopCapture();
             panelOpen = open;
             dragging = null;
             Freecam.Focused = !open;
@@ -822,7 +850,128 @@ namespace CameraTools
                 case TextRow when pressA || PadY.Pressed(now, before):
                     StartEditing((TextView)view);
                     break;
+                case BindingRow when pressA:
+                    StartCapture((BindingView)view, InputDevice.Pad);
+                    break;
             }
+        }
+
+        public static void RestoreKeybinds()
+        {
+            Controls.RestoreDefaults();
+            hintsStale = true;
+            Toast("Keybinds restored to defaults");
+        }
+
+        private static void StartCapture(BindingView view, InputDevice device)
+        {
+            StopEditing();
+            StopCapture();
+            capture = new Capture { View = view, Device = device };
+            view.Waiting = device;
+            if (device == InputDevice.Keyboard)
+                Controls.TextCapture = true;
+            else
+                Controls.PadCapture = true;
+            Toast(device == InputDevice.Keyboard ? "Press a key · Esc cancels · Backspace clears" : "Press the buttons · wait 5 s to cancel");
+        }
+
+        private static void StopCapture()
+        {
+            if (capture == null)
+                return;
+            capture.View.Waiting = null;
+            Controls.TextCapture = false;
+            Controls.PadCapture = false;
+            capture = null;
+        }
+
+        // A key binds at once. Buttons bind when the last is let go, as the chord of all that were held, so Back+X works;
+        // a lone trigger binds as its axis, for actions that read how far it is pulled. The button that started the rebind
+        // is let go first.
+        private static void ReadCapture()
+        {
+            if (Input.GetKeyDown(KeyCode.Escape))
+            {
+                StopCapture();
+                ClearToast();
+                return;
+            }
+            if (capture.Device == InputDevice.Keyboard)
+            {
+                if (Input.GetKeyDown(KeyCode.Backspace))
+                    Bind(KeyCode.None, default);
+                else if (Input.GetKeyDown(KeyCode.Return))
+                    Toast("Enter is kept for Done and Play");
+                else if (BindableKeys.FirstOrDefault(Input.GetKeyDown) is var key and not KeyCode.None)
+                    Bind(key, default);
+                return;
+            }
+            var state = Gamepad.Current;
+            var stick = Stick(state);
+            bool idle = state.Buttons == PadButtons.None && stick == PadAxis.None;
+            if (!capture.Armed)
+            {
+                capture.Armed = idle;
+                capture.Since = Time.unscaledTime;
+                return;
+            }
+            if (capture.Peak == PadButtons.None && capture.Stick == PadAxis.None && idle)
+            {
+                if (Time.unscaledTime - capture.Since > CaptureTimeout)
+                {
+                    StopCapture();
+                    Toast("Rebinding cancelled");
+                }
+                return;
+            }
+            capture.Peak |= state.Buttons;
+            if (capture.Peak == PadButtons.None && stick != PadAxis.None)
+                capture.Stick = stick;
+            if (!idle)
+                return;
+            var peak = capture.Peak;
+            Bind(KeyCode.None, peak switch
+            {
+                PadButtons.LT => new PadBinding(PadButtons.None, PadAxis.LT),
+                PadButtons.RT => new PadBinding(PadButtons.None, PadAxis.RT),
+                PadButtons.None => new PadBinding(PadButtons.None, capture.Stick),
+                _ => new PadBinding(peak, PadAxis.None),
+            });
+        }
+
+        // The left stick pushed past halfway, along its stronger direction. The right stick always aims the camera.
+        private static PadAxis Stick(PadState state)
+        {
+            float x = state.LeftX, y = state.LeftY;
+            if (Math.Max(Math.Abs(x), Math.Abs(y)) < 0.5f)
+                return PadAxis.None;
+            return Math.Abs(x) > Math.Abs(y) ? (x > 0f ? PadAxis.LeftStickRight : PadAxis.LeftStickLeft)
+                : y > 0f ? PadAxis.LeftStickUp : PadAxis.LeftStickDown;
+        }
+
+        private static void Bind(KeyCode key, PadBinding pad)
+        {
+            var device = capture.Device;
+            var action = ((BindingRow)capture.View.Row).Action;
+            StopCapture();
+            var result = device == InputDevice.Keyboard ? Controls.SetKey(action, key) : Controls.SetPad(action, pad);
+            if (!result.Done)
+            {
+                Toast(device == InputDevice.Keyboard ? "The free camera's toggle needs a key" : "The free camera's toggle needs a controller binding");
+                return;
+            }
+            hintsStale = true;
+            if (result.Swapped is not { } other)
+            {
+                ClearToast();
+                return;
+            }
+            var (otherKey, otherPad) = Controls.Binding(other);
+            string now = device == InputDevice.Keyboard ? (otherKey == KeyCode.None ? "unbound" : KeyName(otherKey))
+                : otherPad == default ? "unbound" : otherPad.ToString();
+            string moved = device == InputDevice.Keyboard ? KeyName(key) : pad.ToString();
+            Toast($"{moved} moved from {UiModel.ActionLabel(other)}, which is now {now}");
         }
 
         private static int NextRow(int direction)
@@ -1040,6 +1189,11 @@ namespace CameraTools
                 return;
             }
             selected = row;
+            if (CurrentRows[row] is BindingView binding && (Contains(binding.KeyCell, point) || Contains(binding.PadCell, point)))
+            {
+                StartCapture(binding, Contains(binding.KeyCell, point) ? InputDevice.Keyboard : InputDevice.Pad);
+                return;
+            }
             if (!CurrentRows[row].Row.Usable)
                 return;
             // A slot's label only selects it: its size starts typing, and its button applies it.
@@ -1495,8 +1649,11 @@ namespace CameraTools
             }
             // The footer names what the buttons do to the selected row.
             var chosen = selected >= 0 ? CurrentRows[selected].Row : null;
-            var footer = editing != null ? new Footer("Save", null, false, "Cancel") : (chosen is { Usable: true } ? chosen : null) switch
+            var footer = editing != null ? new Footer("Save", null, false, "Cancel")
+                : capture?.Device == InputDevice.Pad ? new Footer(null, null, false, null)
+                : (chosen is { Usable: true } ? chosen : null) switch
             {
+                BindingRow => new Footer("Rebind", null, false, "Return"),
                 FoldRow fold => new Footer(fold.Open() ? "Close" : "Open", null, false, "Return"),
                 ToggleRow toggle => new Footer(toggle.Get() ? "Off" : "On", null, false, "Return"),
                 ActionRow action => new Footer(action.Hint, null, false, "Return"),
@@ -1515,7 +1672,9 @@ namespace CameraTools
             if (footer.Steps != null)
                 live.Steps.Label.text = footer.Steps;
             live.Edit.Root.SetActive(footer.Edit);
-            live.Return.Label.text = footer.B;
+            live.Return.Root.SetActive(footer.B != null);
+            if (footer.B != null)
+                live.Return.Label.text = footer.B;
             live.FooterShown = footer;
         }
 
@@ -1609,7 +1768,7 @@ namespace CameraTools
         }
 
         // A: what A does, or null. Steps: what D-pad left and right do to the row, or null. Edit: Y starts typing. B: what B
-        // does.
+        // does, or null while a controller rebind reads B as a button to bind.
         private readonly record struct Footer(string A, string Steps, bool Edit, string B);
 
         private sealed class MarkerView
@@ -1668,6 +1827,18 @@ namespace CameraTools
 
         // A hint's controller and keyboard versions; only one shows, and only if the action has a binding for it.
         private sealed record Legend(HintView Pad, bool HasPad, HintView Key, bool HasKey);
+
+        // The keybind cell waiting for a new binding. For the controller: whether the button that started it has been let
+        // go, since when nothing is held, and the buttons or stick direction held since.
+        private sealed class Capture
+        {
+            public BindingView View;
+            public InputDevice Device;
+            public bool Armed;
+            public float Since;
+            public PadButtons Peak;
+            public PadAxis Stick;
+        }
 
         private sealed class Live
         {

@@ -30,6 +30,7 @@
     <Compile Include="../CameraTools/ReplayModel.cs" Link="ReplayModel.cs" />
     <Compile Include="../CameraTools/SupersamplingModel.cs" Link="SupersamplingModel.cs" />
     <Compile Include="../CameraTools/ControlsModel.cs" Link="ControlsModel.cs" />
+    <Compile Include="../CameraTools/PadBinding.cs" Link="PadBinding.cs" />
     <Compile Include="../Enhancements/csharp/Enhancements.cs" Link="Enhancements.cs" />
   </ItemGroup>
   <ItemGroup>

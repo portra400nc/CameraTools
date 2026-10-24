@@ -29,8 +29,15 @@ namespace CameraTools
         })?.Invoke() ?? true;
     }
 
-    // Note, when set, is read every frame for a line at the right of the header, or null for none.
-    public sealed record Section(string Label, Func<string> Note = null) : Row(Label);
+    // Note, when set, is read every frame for a line at the right of the header, or null for none. Columns names the
+    // Keybinds tab's keyboard and controller columns over their cells.
+    public sealed record Section(string Label, Func<string> Note = null) : Row(Label)
+    {
+        public bool Columns { get; init; }
+    }
+
+    // A hotkey's keyboard key and controller binding, each rebound by clicking it or, for the controller, with A.
+    public sealed record BindingRow(string Label, CamAction Action) : Row(Label);
 
     // A category's heading, which folds the category's rows away: A or a click runs Toggle, and the rows' own Shown hides
     // them. State is read every frame for the line at the heading's right, which shows folded or not.
@@ -647,8 +654,66 @@ namespace CameraTools
             rows.AddRange(gameSettings);
             rows.Add(new Section("Beyond the game's limits"));
             rows.AddRange(Graphics.BeyondRows());
-            return new[] { Camera, World, Paths, ReplaysTab, LightsTab, PoseTab, new Tab("Graphics", rows.ToArray()), ReShadeTab };
+            return new[] { Camera, World, Paths, ReplaysTab, LightsTab, PoseTab, new Tab("Graphics", rows.ToArray()), ReShadeTab, KeybindsTab };
         }
+
+        private static bool pathKeysOpen;
+
+        // The README's groups. Select path 1 to 9 folds away, so the list stays short.
+        private static readonly Tab KeybindsTab = new("Keybinds", new Row[]
+        {
+            new ActionRow("Restore defaults", CameraUi.RestoreKeybinds, "Restore", Confirm: () => "restore every keybind"),
+            new Section("Free camera") { Columns = true },
+            new BindingRow("Toggle free camera", CamAction.ToggleFreecam),
+            new BindingRow("Move forward", CamAction.Forward),
+            new BindingRow("Move back", CamAction.Back),
+            new BindingRow("Move left", CamAction.Left),
+            new BindingRow("Move right", CamAction.Right),
+            new BindingRow("Move up", CamAction.Up),
+            new BindingRow("Move down", CamAction.Down),
+            new BindingRow("Roll left", CamAction.RollLeft),
+            new BindingRow("Roll right", CamAction.RollRight),
+            new BindingRow("Reset roll", CamAction.ResetRoll),
+            new BindingRow("Fast movement (hold)", CamAction.FastMovement),
+            new BindingRow("Slow movement (hold)", CamAction.SlowMovement),
+            new BindingRow("Field of view down", CamAction.DecreaseFOV),
+            new BindingRow("Field of view up", CamAction.IncreaseFOV),
+            new BindingRow("Reset field of view", CamAction.ResetFOV),
+            new Section("Game speed") { Columns = true },
+            new BindingRow("Toggle pause", CamAction.TogglePause),
+            new BindingRow("Reset game speed", CamAction.ResetSpeed),
+            new BindingRow("Speed +0.1", CamAction.SpeedInc1),
+            new BindingRow("Speed -0.1", CamAction.SpeedDec1),
+            new BindingRow("Speed +0.5", CamAction.SpeedInc5),
+            new BindingRow("Speed -0.5", CamAction.SpeedDec5),
+            new BindingRow("Toggle speed 5.0", CamAction.ToggleSpeedTo5),
+            new Section("Interface") { Columns = true },
+            new BindingRow("Settings panel", CamAction.ToggleGUI),
+            new BindingRow("Free the cursor", CamAction.ToggleCursorFocus),
+            new BindingRow("Hide UI", CamAction.ToggleHUD),
+            new BindingRow("Toggle damage numbers", CamAction.ToggleDamage),
+            new BindingRow("Remove enemy HP bars", CamAction.RemoveHP),
+            new BindingRow("Apply resolution slot 1", CamAction.SetResolutionTo1080p),
+            new BindingRow("Apply resolution slot 2", CamAction.SetResolutionTo4K),
+            new Section("Camera paths and replays") { Columns = true },
+            new BindingRow("Add path node", CamAction.AddPathNode),
+            new BindingRow("Play or stop path", CamAction.PlayPath),
+            new FoldRow("Select path 1 to 9", () => pathKeysOpen, () => pathKeysOpen = !pathKeysOpen, () => pathKeysOpen ? "" : "9 keybinds"),
+        }
+            .Concat(Enumerable.Range(0, 9).Select(index =>
+                new BindingRow($"Select path {index + 1}", CamAction.SelectPath1 + index) { Sub = true, Shown = () => pathKeysOpen }))
+            .Concat(new Row[]
+            {
+                new BindingRow("Record replay", CamAction.RecordReplay),
+                new BindingRow("Play or stop replay", CamAction.PlayReplay),
+                new Section("Depth of field") { Columns = true },
+                new BindingRow("Center focus point", CamAction.CenterFocusPoint),
+            })
+            .ToArray());
+
+        // What the Keybinds tab calls an action, for the toast that names the action a swap changed.
+        public static string ActionLabel(CamAction action)
+            => KeybindsTab.Rows.OfType<BindingRow>().First(row => row.Action == action).Label;
 
         public static readonly Hint[] BottomHints =
         {

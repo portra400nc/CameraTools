@@ -51,6 +51,9 @@ namespace CameraTools
         PlayReplay,
     }
 
+    // Done is false when the change was refused. Swapped is the action that took the old binding, or null.
+    public readonly record struct Rebind(bool Done, CamAction? Swapped);
+
     public static class ControlsModel
     {
         public static readonly (CamAction Action, KeyCode Key, string Pad)[] Defaults =
@@ -127,6 +130,26 @@ namespace CameraTools
             (CamAction.FastMovement, KeyCode.RightAlt, "Back+RB"),
             (CamAction.SlowMovement, KeyCode.Semicolon, "Back+LB"),
         };
+
+        // Binds an action's key or controller binding in bindings, indexed by action. A binding another action had swaps:
+        // that action takes this one's old binding, and is returned. The free camera's toggle never loses its binding, so
+        // the free camera can always be left; such a change is refused and changes nothing.
+        public static Rebind Swap<T>(T[] bindings, CamAction action, T binding, T none)
+        {
+            var same = EqualityComparer<T>.Default;
+            int index = (int)action;
+            var old = bindings[index];
+            if (same.Equals(old, binding))
+                return new Rebind(true, null);
+            int other = same.Equals(binding, none) ? -1 : Array.FindIndex(bindings, each => same.Equals(each, binding));
+            const int toggle = (int)CamAction.ToggleFreecam;
+            if (index == toggle && same.Equals(binding, none) || other == toggle && same.Equals(old, none))
+                return new Rebind(false, null);
+            bindings[index] = binding;
+            if (other >= 0)
+                bindings[other] = old;
+            return new Rebind(true, other >= 0 ? (CamAction)other : null);
+        }
 
         // A binding still at its old default moves to the new one; a binding the user changed stays.
         public static (KeyCode Key, string Pad) Migrate(CamAction action, KeyCode key, string pad, int savedLayout)

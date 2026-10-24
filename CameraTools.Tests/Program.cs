@@ -685,5 +685,23 @@ var defaultPads = ControlsModel.Defaults.Where(row => row.Pad != "").Select(row 
 Check("no two actions share a default key or controller binding",
     defaultKeys.Distinct().Count() == defaultKeys.Count && defaultPads.Distinct().Count() == defaultPads.Count);
 
+// Rebinding.
+var bound = ControlsModel.Defaults.Select(row => row.Key).ToArray();
+var swap = ControlsModel.Swap(bound, CamAction.TogglePause, UnityEngine.KeyCode.H, UnityEngine.KeyCode.None);
+Check("putting H on Toggle pause swaps: Hide UI takes Z",
+    swap == new Rebind(true, CamAction.ToggleHUD) && bound[(int)CamAction.TogglePause] == UnityEngine.KeyCode.H
+    && bound[(int)CamAction.ToggleHUD] == UnityEngine.KeyCode.Z);
+var cleared = ControlsModel.Swap(bound, CamAction.TogglePause, UnityEngine.KeyCode.None, UnityEngine.KeyCode.None);
+Check("clearing a key unbinds only that action", cleared == new Rebind(true, null) && bound[(int)CamAction.TogglePause] == UnityEngine.KeyCode.None);
+var lockedOut = ControlsModel.Swap(bound, CamAction.ToggleFreecam, UnityEngine.KeyCode.None, UnityEngine.KeyCode.None);
+var stolen = ControlsModel.Swap(bound, CamAction.TogglePause, UnityEngine.KeyCode.Insert, UnityEngine.KeyCode.None);
+Check("the free camera's toggle keeps a key: clearing it, or taking it for an unbound action, is refused",
+    lockedOut == new Rebind(false, null) && stolen == new Rebind(false, null)
+    && bound[(int)CamAction.ToggleFreecam] == UnityEngine.KeyCode.Insert && bound[(int)CamAction.TogglePause] == UnityEngine.KeyCode.None);
+var pads = ControlsModel.Defaults.Select(row => PadBinding.TryParse(row.Pad, out var pad) ? pad : default).ToArray();
+var padSwap = ControlsModel.Swap(pads, CamAction.ResetSpeed, new PadBinding(PadButtons.B, PadAxis.None), default(PadBinding));
+Check("a controller binding swaps the same way: B on Reset speed gives Hide UI Y",
+    padSwap == new Rebind(true, CamAction.ToggleHUD) && pads[(int)CamAction.ToggleHUD] == new PadBinding(PadButtons.Y, PadAxis.None));
+
 Console.WriteLine($"CameraTools tests: {failures} failed");
 return failures == 0 ? 0 : 1;

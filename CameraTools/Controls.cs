@@ -19,6 +19,8 @@ namespace CameraTools
     {
         private static readonly KeyCode[] keys = new KeyCode[ControlsModel.Defaults.Length];
         private static readonly PadBinding[] pads = new PadBinding[ControlsModel.Defaults.Length];
+        private static readonly MelonPreferences_Entry<KeyCode>[] keyEntries = new MelonPreferences_Entry<KeyCode>[ControlsModel.Defaults.Length];
+        private static readonly MelonPreferences_Entry<string>[] padEntries = new MelonPreferences_Entry<string>[ControlsModel.Defaults.Length];
 
         private static InputDevice lastUsed;
 
@@ -31,6 +33,9 @@ namespace CameraTools
 
         // While a text field takes typing, the keyboard fires no actions, so typing 8 does not narrow the field of view.
         public static bool TextCapture { get; set; }
+
+        // While the Keybinds tab waits for new buttons, the pad fires no actions, the free camera's toggle included.
+        public static bool PadCapture { get; set; }
 
         // While the settings panel is open, the sticks move a light, or they turn a joint, the pad is read there, so the
         // camera ignores it.
@@ -56,6 +61,8 @@ namespace CameraTools
                 var keyEntry = keyboard.CreateEntry(name, key);
                 var padEntry = controller.CreateEntry(name, pad);
                 (keyEntry.Value, padEntry.Value) = ControlsModel.Migrate(action, keyEntry.Value, padEntry.Value, saved);
+                keyEntries[i] = keyEntry;
+                padEntries[i] = padEntry;
                 keys[i] = keyEntry.Value;
                 string text = padEntry.Value;
                 if (!PadBinding.TryParse(text, out pads[i]))
@@ -90,6 +97,44 @@ namespace CameraTools
 
         public static (KeyCode Key, PadBinding Pad) Binding(CamAction action) => (keys[(int)action], pads[(int)action]);
 
+        // Rebinds as ControlsModel.Swap does, and saves to MelonPreferences.cfg.
+        public static Rebind SetKey(CamAction action, KeyCode key)
+        {
+            var result = ControlsModel.Swap(keys, action, key, KeyCode.None);
+            if (result.Done)
+                Save();
+            return result;
+        }
+
+        public static Rebind SetPad(CamAction action, PadBinding pad)
+        {
+            var result = ControlsModel.Swap(pads, action, pad, default);
+            if (result.Done)
+                Save();
+            return result;
+        }
+
+        private static void Save()
+        {
+            for (int i = 0; i < keys.Length; i++)
+            {
+                keyEntries[i].Value = keys[i];
+                padEntries[i].Value = pads[i].ToString();
+            }
+            MelonPreferences.Save();
+        }
+
+        public static void RestoreDefaults()
+        {
+            for (int i = 0; i < ControlsModel.Defaults.Length; i++)
+            {
+                var (_, key, pad) = ControlsModel.Defaults[i];
+                keys[i] = key;
+                PadBinding.TryParse(pad, out pads[i]);
+            }
+            Save();
+        }
+
         // Esc stops playing a path or a replay. It is fixed, like the keys of Edit replay and Pose joints.
         public static bool EscapePressed => !TextCapture && Owner == InputOwner.CameraTools && Input.GetKeyDown(KeyCode.Escape);
 
@@ -117,6 +162,6 @@ namespace CameraTools
             => !TextCapture && (action == CamAction.ToggleFreecam || KeysActive) && !ReplayEditor.Reads(keys[(int)action]);
 
         private static bool PadOn(CamAction action)
-            => (action == CamAction.ToggleFreecam || PadActive) && !ReplayEditor.Reads(pads[(int)action]);
+            => !PadCapture && (action == CamAction.ToggleFreecam || PadActive) && !ReplayEditor.Reads(pads[(int)action]);
     }
 }

@@ -394,6 +394,26 @@ namespace CameraTools
         }
     }
 
+    // A hotkey's two cells. Waiting names the cell that waits for a new binding, set while CameraUi captures one.
+    internal sealed class BindingView : ItemView
+    {
+        public Builder Ui;
+        public RectTransform KeyCell;
+        public RectTransform PadCell;
+        public InputDevice? Waiting;
+        private (KeyCode Key, PadBinding Pad, InputDevice? Waiting)? shown;
+
+        public override void Sync(float step)
+        {
+            var (key, pad) = Controls.Binding(((BindingRow)Row).Action);
+            if (shown == (key, pad, Waiting))
+                return;
+            shown = (key, pad, Waiting);
+            Ui.Cell(KeyCell, Waiting == InputDevice.Keyboard ? "Press a key" : null, key == KeyCode.None ? null : cell => Ui.Keycap(cell, Builder.KeyName(key)));
+            Ui.Cell(PadCell, Waiting == InputDevice.Pad ? "Press buttons" : null, pad == default ? null : Ui.PadMark(pad) ?? (cell => Ui.CellText(cell, pad.ToString())));
+        }
+    }
+
     internal sealed class TabView
     {
         public RectTransform Button;
@@ -591,23 +611,90 @@ namespace CameraTools
             return rect;
         }
 
-        // A glyph for a binding that is one button, Back + a glyph for a Back chord of one other button, or the binding
-        // spelled out before the label.
+        // The binding spelled out before the label when it has no glyph.
         public HintView PadHint(Transform parent, PadBinding binding, string label)
+            => PadMark(binding) is { } mark ? Hint(parent, mark, label) : Hint(parent, null, $"{binding}  {label}");
+
+        // A glyph for a binding that is one button, Back + a glyph for a Back chord of one other button, two glyphs for two
+        // buttons pressed together such as L3+R3, the left stick's glyph and its direction, or null for none of these.
+        public Action<Transform> PadMark(PadBinding binding)
         {
             var button = GlyphButton(binding);
             if (HasGlyph(button))
-                return GlyphHint(parent, button, label);
+                return rect => Glyph(rect, button);
+            if (binding.Axis is PadAxis.LeftStickUp or PadAxis.LeftStickDown or PadAxis.LeftStickLeft or PadAxis.LeftStickRight)
+                return rect =>
+                {
+                    Glyph(rect, PadButtons.L3);
+                    CellText(rect, binding.Axis.ToString()["LeftStick".Length..]);
+                };
             var withBack = binding.Chord & ~PadButtons.Back;
             if (binding.Axis == PadAxis.None && withBack != binding.Chord && HasGlyph(withBack))
-                return Hint(parent, rect => Combo(rect, PadButtons.Back, withBack), label);
-            // Two buttons pressed together, such as L3+R3.
+                return rect => Combo(rect, PadButtons.Back, withBack);
             var parts = binding.Axis == PadAxis.None
                 ? Enum.GetValues<PadButtons>().Where(part => part != PadButtons.None && (binding.Chord & part) != 0).ToArray()
                 : Array.Empty<PadButtons>();
             if (parts.Length == 2 && parts.All(HasGlyph))
-                return Hint(parent, rect => Combo(rect, parts[0], parts[1]), label);
-            return Hint(parent, null, $"{binding}  {label}");
+                return rect => Combo(rect, parts[0], parts[1]);
+            return null;
+        }
+
+        // A keybind cell shows what waits for input, its binding's mark, or None. Its old content goes first: hidden at once,
+        // so this frame's layout leaves it out, and destroyed at the end of the frame.
+        public void Cell(RectTransform cell, string waiting, Action<Transform> mark)
+        {
+            for (int i = cell.childCount - 1; i >= 0; i--)
+            {
+                var child = cell.GetChild(i).gameObject;
+                child.SetActive(false);
+                UnityEngine.Object.Destroy(child);
+            }
+            if (waiting != null)
+                Label(cell, "Waiting", waiting, Style.NoteSize, Style.Cream, TextAnchor.MiddleCenter).rectTransform.sizeDelta = V(0f, Style.BindCellHeight);
+            else if (mark != null)
+                mark(cell);
+            else
+                CellText(cell, "None");
+        }
+
+        public void CellText(Transform cell, string text)
+            => Label(cell, "Text", text, Style.NoteSize, Style.Dim, TextAnchor.MiddleCenter).rectTransform.sizeDelta = V(0f, Style.BindCellHeight);
+
+        public BindingView Binding(Transform parent, BindingRow row, float y)
+        {
+            var view = new BindingView { Ui = this };
+            var rect = Item(parent, view, row, y, Style.BindRowHeight);
+            TopLeft(view.Arrow.GetComponent<RectTransform>(), Style.ArrowX + Left(row) - Style.RowLeft, (Style.BindRowHeight - Shapes.Arrow.Height) / 2f,
+                Shapes.Arrow.Width, Shapes.Arrow.Height);
+            float cells = 2f * Style.BindCellWidth + Style.BindCellGap;
+            var label = Label(rect, "Label", row.Label, Style.RowSize, Style.Text, TextAnchor.MiddleLeft);
+            TopLeft(label.rectTransform, Left(row), 0f, Width(row) - cells - Style.BindCellGap, Style.BindRowHeight);
+            view.PadCell = BindCell(rect, "Controller", Style.RowRight);
+            view.KeyCell = BindCell(rect, "Keyboard", Style.RowRight + Style.BindCellWidth + Style.BindCellGap);
+            view.Sync(1f);
+            return view;
+        }
+
+        private static RectTransform BindCell(Transform parent, string name, float right)
+        {
+            var cell = Node(name, parent);
+            Pin(cell, 1f, 0.5f, -right, 0f, Style.BindCellWidth, Style.BindCellHeight);
+            Flow(cell.gameObject, Style.ComboGap, TextAnchor.MiddleCenter);
+            return cell;
+        }
+
+        // The panel's last line: "Camera Tools 1.1.4 - ", GitHub's mark, and the repository.
+        public void Credit(Transform panel, string version)
+        {
+            var row = Node("Credit", panel);
+            Place(row, V(0f, 0f), V(1f, 0f), V(0.5f, 0f), V(0f, Style.CreditBottom), V(0f, Style.CreditHeight));
+            Flow(row.gameObject, Style.CreditGap, TextAnchor.MiddleCenter);
+            Label(row, "Name", $"Camera Tools {version} -", Style.CreditSize, Style.Credit, TextAnchor.MiddleCenter).rectTransform.sizeDelta = V(0f, Style.CreditHeight);
+            var mark = Picture(row, "GitHub", Shapes.GitHub, Style.Credit).rectTransform;
+            var element = mark.gameObject.AddComponent<LayoutElement>();
+            element.preferredWidth = Shapes.GitHub.Width;
+            element.preferredHeight = Shapes.GitHub.Height;
+            Label(row, "Repository", "portra400nc/CameraTools", Style.CreditSize, Style.Credit, TextAnchor.MiddleCenter).rectTransform.sizeDelta = V(0f, Style.CreditHeight);
         }
 
         private void Combo(Transform parent, PadButtons first, PadButtons second)
@@ -662,6 +749,15 @@ namespace CameraTools
             TopLeft(rect, 0f, y, Style.PanelWidth, Style.SectionHeight);
             var text = Label(rect, "Label", section.Label, Style.SectionSize, Style.Cream, TextAnchor.MiddleLeft);
             TopLeft(text.rectTransform, Style.SectionX, Style.SectionTextY, Style.PanelWidth - 2f * Style.SectionX, Style.SectionTextHeight);
+            if (section.Columns)
+            {
+                foreach (var (name, column) in new[] { ("Keyboard", 1), ("Controller", 0) })
+                {
+                    var heading = Label(rect, name, name, Style.NoteSize, Style.Dim, TextAnchor.MiddleCenter);
+                    Pin(heading.rectTransform, 1f, 1f, -(Style.RowRight + column * (Style.BindCellWidth + Style.BindCellGap)), -Style.SectionTextY,
+                        Style.BindCellWidth, Style.SectionTextHeight);
+                }
+            }
             if (section.Note == null)
                 return new RowView { Row = section, Rect = rect };
             var note = Label(rect, "Note", "", Style.NoteSize, Style.Dim, TextAnchor.MiddleRight);
