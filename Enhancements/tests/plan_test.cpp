@@ -1153,7 +1153,7 @@ int main()
                 && whole.highlight_threshold == 3 && whole.highlight_gain == 1.5f);
         raw.size = 316;     // a caller of version 13
         const DepthOfFieldSettings thirteen = parse_settings(raw).depth_of_field;
-        check("a 316-byte struct reads the scatter but keeps the bokeh contrast at 0.5", !thirteen.scatter && thirteen.bokeh_contrast == 0.5f);
+        check("a 316-byte struct reads the scatter but keeps the bokeh contrast off", !thirteen.scatter && thirteen.bokeh_contrast == 0);
         raw.size = 312;     // a caller of version 12
         const DepthOfFieldSettings twelve = parse_settings(raw).depth_of_field;
         check("a 312-byte struct reads the highlights but keeps the scatter on", twelve.highlight_threshold == 3 && twelve.highlight_gain == 1.5f
@@ -1182,7 +1182,7 @@ int main()
         const DepthOfFieldSettings bad = parse_settings(raw).depth_of_field;
         check("NaN and infinities fall back to the defaults, 99 blades to 16 and 5000 samples to 1089", bad.f_number == 2.8f && bad.sensor_height_mm == 24
             && bad.focus_point[0] == 0.5f && bad.focus_speed == 0.9f && bad.max_blur == 0.03f && bad.blades == 16 && bad.spherical_aberration == 0.6f
-            && bad.anamorphic == 1 && bad.samples == 1089 && bad.highlight_threshold == 2 && bad.highlight_gain == 2 && bad.bokeh_contrast == 0.5f);
+            && bad.anamorphic == 1 && bad.samples == 1089 && bad.highlight_threshold == 2 && bad.highlight_gain == 2 && bad.bokeh_contrast == 0);
         check("the depth of field runs last at the bloom step and wants it", wanted_steps(parse_settings(raw)).has(Step::bloom)
             && kPasses[7].id == PassId::depth_of_field && std::string(kPasses[7].name) == "depth-of-field");
     }
