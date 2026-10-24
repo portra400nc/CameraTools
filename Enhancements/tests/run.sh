@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds and runs the Enhancements core's tests, which replay recorded census frames through the frame recipe, with any
-# C++17 compiler, then decodes the PNG encoder's output with Python's zlib, checks the synthetic scene folder
-# scene_files_test writes with check_scene.py, which needs numpy, and the synthetic traced frame trace_test writes with
+# C++17 compiler, then decodes the PNG encoder's output with Python's zlib, renders the depth of field harness's synthetic
+# frame, checks the synthetic scene folder scene_files_test writes with check_scene.py, which needs numpy, and the synthetic traced frame trace_test writes with
 # trace_reference and check_trace.py, and its gathering save and three broken copies of it. No game, no ReShade, no D3D11. With vkd3d-compiler (ENHANCEMENTS_VKD3D_COMPILER, or
 # the melonloader workspace's .work/build/reshade/vkd3d/vkd3d-compiler in a folder above this one), check_kernel_size.py
 # holds the compiled trace kernel to build 203's size. When it finds build 199's whole deduplicated scene
@@ -15,6 +15,12 @@ for test in *_test.cpp; do
     "$out/${test%.cpp}" "$out"
 done
 python3 check_png.py "$out/roundtrip.png"
+# The depth of field's harness: the synthetic frame folder written, and rendered at spherical aberration 1 into a PNG of
+# its size.
+RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh --synthetic "$out/frame-synthetic" > /dev/null
+RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$out/frame-synthetic" "$out/dof.png" sa=1 > /dev/null
+python3 -c "import struct, sys; d = open(sys.argv[1], 'rb').read(); sys.exit(0 if d[12:24] == b'IHDR' + struct.pack('>II', 1280, 800) else 1)" "$out/dof.png"
+echo "PASS render_dof renders the synthetic frame into a 1280x800 PNG"
 python3 check_kernel_conditions.py ../shaders
 vkd3d=${ENHANCEMENTS_VKD3D_COMPILER:-}
 if [ -z "$vkd3d" ]; then
