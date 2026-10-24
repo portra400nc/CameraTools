@@ -356,6 +356,12 @@ namespace CameraTools
 
         private static float Aspect => (float)Screen.width / Screen.height;
 
+        // The full-frame focal length of what the free camera shows, reckoned as the Focal length row reckons it.
+        public static float ViewFocalLength => Lens.FocalLength(freecam.Pose.Fov, Aspect);
+
+        // The f-number the depth of field blurs with while it is on, or null while it is off or unknown.
+        public static float? Aperture => ReShade.Connected && Current.On && Known(Id.Aperture) ? Value(Id.Aperture) : null;
+
         // While linked, the row shows the field of view setting, and the shader follows the camera's smoothed one to it.
         private static float FocalLength => Linked
             ? Math.Min(Lens.FocalLength(settings.Fov.Value, Aspect), MaxFocalLength)

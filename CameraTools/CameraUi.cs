@@ -414,6 +414,45 @@ namespace CameraTools
 
         private static string[] BoundKeys(params CamAction[] actions) => actions.Select(action => KeyName(Controls.Binding(action).Key)).ToArray();
 
+        // "35 MM | F 2.8" on the bottom legends' line; the aperture and its divider show while the depth of field is on.
+        private static void BuildLens(Builder ui, Live target, Transform hud)
+        {
+            var lens = Node("Lens", hud);
+            Pin(lens, 0f, 0f, Style.Margin, Style.Margin, Style.LensWidth, Style.HintHeight);
+            Flow(lens.gameObject, Style.LensGap, TextAnchor.MiddleLeft);
+            target.Lens = lens.gameObject;
+            target.LensFocal = LensValue(ui, lens, null, "MM");
+            var bar = Picture(lens, "Divider", null, Style.LensBar);
+            bar.rectTransform.sizeDelta = V(1f, Style.LensBarHeight);
+            var element = bar.gameObject.AddComponent<LayoutElement>();
+            element.preferredWidth = 1f;
+            target.LensDivider = bar.gameObject;
+            target.LensAperture = LensValue(ui, lens, "F", null);
+        }
+
+        // A number with a small unit before or after it, sitting low as a camera's screen sets it.
+        private static Text LensValue(Builder ui, Transform parent, string before, string after)
+        {
+            var group = Node("Value", parent);
+            group.sizeDelta = V(0f, Style.HintHeight);
+            Flow(group.gameObject, Style.LensUnitGap, TextAnchor.MiddleLeft);
+            if (before != null)
+                LensUnit(ui, group, before);
+            var number = ui.Label(group, "Number", "", Style.LensNumberSize, Style.Text, TextAnchor.MiddleLeft);
+            number.rectTransform.sizeDelta = V(0f, Style.HintHeight);
+            DropShadow(number, Style.TextShadow);
+            if (after != null)
+                LensUnit(ui, group, after);
+            return number;
+        }
+
+        private static void LensUnit(Builder ui, Transform group, string text)
+        {
+            var unit = ui.Label(group, "Unit", text, Style.LensUnitSize, Style.Dim, TextAnchor.LowerLeft);
+            unit.rectTransform.sizeDelta = V(0f, Style.HintHeight - Style.LensUnitDrop);
+            DropShadow(unit, Style.TextShadow);
+        }
+
         private static void BuildHud(Builder ui, Live target, Transform root)
         {
             var hud = Node("Hud", root);
@@ -427,6 +466,8 @@ namespace CameraTools
             target.Legends = UiModel.BottomHints.Select(hint => BuildLegend(ui, bottom, hint))
                 .Concat(UiModel.TopHints.Select(hint => BuildLegend(ui, top, hint)))
                 .ToArray();
+
+            BuildLens(ui, target, hud);
 
             var fov = Node("Fov", hud);
             Pin(fov, 0f, 0.5f, Style.FovX, 0f, Style.FovWidth, Style.FovHeight);
@@ -1291,7 +1332,10 @@ namespace CameraTools
             // Edit replay keeps the free camera's legends at the top and the field of view bar; the timeline takes the bottom.
             live.Hud.Update(view is View.Hud or View.Editing, deltaTime);
             if (live.HudBottom.activeSelf != (view != View.Editing))
+            {
                 live.HudBottom.SetActive(view != View.Editing);
+                live.Lens.SetActive(view != View.Editing);
+            }
             RenderTimeline(view, deltaTime);
             live.Move.Update(view == View.Moving, deltaTime);
             live.PlayBar.Update(view == View.Playing, deltaTime);
@@ -1303,7 +1347,10 @@ namespace CameraTools
                 RenderLayout(layout == InputDevice.Pad);
             }
             if (live.Hud.Visible)
+            {
                 RenderFov();
+                RenderLens();
+            }
             if (live.PlayBar.Visible)
                 RenderPlayBar();
             if (live.Panel.Visible)
@@ -1454,6 +1501,22 @@ namespace CameraTools
         }
 
         // The + end is at the top, so a wide field of view moves the handle up.
+        private static void RenderLens()
+        {
+            if (CameraTools.freecam == null)
+                return;
+            var shown = (MathF.Round(DepthOfField.ViewFocalLength), DepthOfField.Aperture);
+            if (live.LensShown == shown)
+                return;
+            live.LensShown = shown;
+            live.LensFocal.text = shown.Item1.ToString("0");
+            bool aperture = shown.Aperture != null;
+            live.LensDivider.SetActive(aperture);
+            live.LensAperture.transform.parent.gameObject.SetActive(aperture);
+            if (aperture)
+                live.LensAperture.text = shown.Aperture.Value.ToString("0.##");
+        }
+
         private static void RenderFov()
         {
             var fov = CameraTools.settings.Fov;
@@ -1875,6 +1938,11 @@ namespace CameraTools
             public string ShownAngles;
             public Legend[] Legends;
             public RectTransform FovHandle;
+            public GameObject Lens;
+            public Text LensFocal;
+            public GameObject LensDivider;
+            public Text LensAperture;
+            public (float Focal, float? Aperture)? LensShown;
             public GameObject[] TabKeys;
             public RectTransform Back;
             public RectTransform TabClip;

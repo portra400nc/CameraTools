@@ -9,6 +9,7 @@ namespace CameraTools
         public static readonly Color Text = Hex(0xece5d8);
         public static readonly Color Dim = Hex(0xece5d8, 0.62f);
         public static readonly Color Credit = Hex(0xece5d8, 0.45f);
+        public static readonly Color LensBar = Hex(0xece5d8, 0.45f);
         public static readonly Color Cream = Hex(0xd3bc8e);
         // A recording's time and fill on the play bar.
         public static readonly Color Recording = Hex(0xff6b6b);
@@ -61,6 +62,14 @@ namespace CameraTools
         public static readonly Color TimelineSwitch = Hex(0x96c8ff, 0.8f);
 
         public const float Margin = 44f;
+        // The lens readout at the bottom left, as a camera's screen shows it: large numbers, small units, a divider.
+        public const int LensNumberSize = 20;
+        public const int LensUnitSize = 11;
+        public const float LensGap = 14f;
+        public const float LensUnitGap = 2f;
+        public const float LensUnitDrop = 3f;
+        public const float LensBarHeight = 18f;
+        public const float LensWidth = 300f;
         public const float TopLegendY = 28f;
         public const float LegendGap = 26f;
         public const float HintGap = 8f;
