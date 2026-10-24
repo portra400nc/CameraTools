@@ -35,7 +35,7 @@ namespace
         v.settings.trace = { 0, 0, ENHANCEMENTS_TRACE_CAST_CHARACTERS | ENHANCEMENTS_TRACE_CAST_ALPHA_CARDS, 2, 1, 0.0093f, 1, 64, 32, 20 };
         v.settings.gather = { 0, 128, ENHANCEMENTS_GATHER_SKY_VISIBILITY, 2, 1, 0.5f };
         v.settings.light_shafts = { 0, 1, 0.01f, 10, 0.6f, 150, 0.5f, 6, 1, 48 };
-        v.settings.depth_of_field = { 0, 2.8f, 24, 0, { 0.5f, 0.5f }, 0.9f, 0.03f, 0, 0.5f, 0, 0.6f, 0, 0, 1, 0, 49 };
+        v.settings.depth_of_field = { 0, 2.8f, 24, 0, { 0.5f, 0.5f }, 0.9f, 0.03f, 0, 0.5f, 0, 0.6f, 0, 0, 1, 0, 49, 2, 2 };
         return v;
     }
 
@@ -160,7 +160,7 @@ int main()
         raw[1].settings.light_shafts = { 1, 2, 0.02f, 25, 0.8f, 300, 0.25f, 12, 0.5f, 96 };
         raw[1].settings.trace = { 1, ENHANCEMENTS_TRACE_SUN, ENHANCEMENTS_TRACE_CAST_ALPHA_CARDS, 5, 0.5f, 0.03f, 0.75f, 16, 8, 30 };
         raw[1].settings.gather = { 1, 256, ENHANCEMENTS_GATHER_SKY_WEIGHTED, 1, 2, 0.25f };
-        raw[1].settings.depth_of_field = { 1, 1.4f, 36, 3, { 0.25f, 0.75f }, 0, 0.05f, 3, 1, 15, -1, 0.6f, 0.3f, 1.33f, 1, 100 };
+        raw[1].settings.depth_of_field = { 1, 1.4f, 36, 3, { 0.25f, 0.75f }, 0, 0.05f, 3, 1, 15, -1, 0.6f, 0.3f, 1.33f, 1, 100, 4, 0 };
         check("settings.tsv writes every parsed field, one row per variant", settings_tsv(*parse_variants(raw, 2))
             == "index\tname\tenabled\tview\tflip\tambient.enabled\tambient.level\tambient.ao_strength\tambient.ao_radius"
                "\tambient.foliage_ao_strength\tcontact_shadows.enabled\tcontact_shadows.length\tcontact_shadows.strength"
@@ -177,15 +177,16 @@ int main()
                "\tdepth_of_field.sensor_height_mm\tdepth_of_field.focus_distance\tdepth_of_field.focus_x\tdepth_of_field.focus_y"
                "\tdepth_of_field.focus_speed\tdepth_of_field.max_blur\tdepth_of_field.blades\tdepth_of_field.blade_roundness"
                "\tdepth_of_field.blade_rotation\tdepth_of_field.spherical_aberration\tdepth_of_field.cat_eye\tdepth_of_field.swirl"
-               "\tdepth_of_field.anamorphic\tdepth_of_field.chromatic\tdepth_of_field.samples\n"
+               "\tdepth_of_field.anamorphic\tdepth_of_field.chromatic\tdepth_of_field.samples\tdepth_of_field.highlight_threshold"
+               "\tdepth_of_field.highlight_gain\n"
                "0\toff\t0\toff\t1\t1\t0.6\t0.5\t1\t0.5\t0\t0.6\t1\t0.25\t0\t0\t0.000325\t0.02\t1\t0.7\t0\t0\tgame\t1\t1\t1"
                "\t0\t0.03\t0.02\t1\t0\t0\t0.35\t0.3\t0\t1\t0.01\t10\t0.6\t150\t0.5\t6\t1\t48"
                "\t0\t1\t1\t1\t1\t0\t2\t1\t0.0093\t1\t64\t32\t20\t0\t128\tvisibility\t2\t1\t0.5"
-               "\t0\t2.8\t24\t0\t0.5\t0.5\t0.9\t0.03\t0\t0.5\t0\t0.6\t0\t0\t1\t0\t49\n"
+               "\t0\t2.8\t24\t0\t0.5\t0.5\t0.9\t0.03\t0\t0.5\t0\t0.6\t0\t0\t1\t0\t49\t2\t2\n"
                "1\tshadows\t1\tshadow-mask\t1\t1\t0.6\t0.5\t1\t0.5\t1\t1.2\t0.7\t0.3\t0.4\t1\t0.001\t0.05\t2\t0.5\t1\t0.5\tagx\t1.5\t0.9\t1.2"
                "\t1\t0.05\t0.1\t0.8\t1\t0.75\t0.5\t0.6\t1\t2\t0.02\t25\t0.8\t300\t0.25\t12\t0.5\t96"
                "\t1\t0\t1\t0\t1\t0\t5\t0.5\t0.03\t0.75\t16\t8\t30\t1\t256\tweighted\t1\t2\t0.25"
-               "\t1\t1.4\t36\t3\t0.25\t0.75\t0\t0.05\t5\t1\t15\t-1\t0.6\t0.3\t1.33\t1\t100\n");
+               "\t1\t1.4\t36\t3\t0.25\t0.75\t0\t0.05\t5\t1\t15\t-1\t0.6\t0.3\t1.33\t1\t100\t4\t0\n");
     }
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;

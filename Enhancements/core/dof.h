@@ -54,6 +54,10 @@ namespace enhancements
     // 1 over the mean of 1 + aberration (3 rho^4 - 1) clamped at 0 over the unit disc: 1 for aberration from -0.5 up.
     float dof_bokeh_norm(float aberration);
 
+    // dof_expand_highlight and dof_compress_highlight on a linear color, threshold and gain in the scene's units.
+    std::array<float, 3> dof_expand_highlight(const std::array<float, 3> &rgb, float threshold, float gain);
+    std::array<float, 3> dof_compress_highlight(const std::array<float, 3> &rgb, float threshold, float gain);
+
     // The shape's area over the unit disc's, square-rooted: the blades, their roundness and the anamorphic squeeze.
     float dof_area_scale(uint32_t blades, float roundness, float anamorphic);
 
@@ -89,7 +93,7 @@ namespace enhancements
     // The folder back. Empty, with why, when a file is missing or of the wrong size.
     std::optional<FrameSave> read_frame_folder(const std::filesystem::path &folder, std::string &why);
 
-    // shaders/dof.cbuffer.hlsli's cbuffer Dof at b1: 144 bytes.
+    // shaders/dof.cbuffer.hlsli's cbuffer Dof at b1: 160 bytes.
     struct DofConstants
     {
         float optics[4];    // focal length in mm, f-number, half-size pixels per mm of sensor, largest CoC radius in half-size pixels
@@ -101,8 +105,9 @@ namespace enhancements
         float sampling[4];  // rings, the frame's turn of them, +1 when stored rows run up the screen else -1, width over height
         uint32_t sizes[4];  // the half size, and the tile count
         uint32_t counts[4]; // tiles the dilation reaches, the render size, pixels between the autofocus's depth samples
+        float highlight[4]; // the highlights' threshold and gain over the frame's mean luminance, 0, 0
     };
-    static_assert(sizeof(DofConstants) == 144);
+    static_assert(sizeof(DofConstants) == 160);
 
     // Pixels a tile holds along each side of the half-size picture; shaders/dof.hlsli's tiles say the same.
     constexpr uint32_t kDofTile = 8;
@@ -128,6 +133,7 @@ namespace enhancements
     {
         std::vector<float> rgb;     // the frame with depth of field, as stored
         float focus = 0;            // the focus distance the frame used, meters
+        float luminance = 0;        // the frame's mean luminance, which scales the highlights' curve
     };
 
     // Every pass of shaders/dof.hlsli over the image, as the GPU runs them, on the machine's threads: the autofocus from

@@ -7,9 +7,10 @@
 //
 // Keys, the depth of field's settings (enabled; the rest at their defaults): f (f-number), sensor (mm), focus (meters, 0
 // autofocus), x and y (the focus point, 0 to 1 from the top left), speed, max_blur, blades, roundness, rotation (degrees),
-// sa (spherical aberration), cat_eye, swirl, anamorphic, chromatic, samples; and frames (frames averaged, each with the
-// frame's own turn of the rings, as the accumulator averages a paused shot), exposure (0.985, the census's), and crop
-// (x,y,w,h in the picture's pixels from the top left) with zoom (a whole number) to write a magnified part.
+// sa (spherical aberration), cat_eye, swirl, anamorphic, chromatic, samples, and threshold and gain (the highlights');
+// and frames (frames averaged, each with the frame's own turn of the spiral, as the accumulator averages a paused shot),
+// exposure (0.985, the census's), and crop (x,y,w,h in the picture's pixels from the top left) with zoom (a whole number)
+// to write a magnified part.
 //
 // --synthetic writes a 1280x800 frame folder: a 50 mm lens's view of a sharp, striped subject 2 m away, a tree trunk at 6 m,
 // a leafy branch 1 m away at the bottom right, and foliage 30 m away full of small bright sky gaps and thin lit and dark
@@ -57,6 +58,8 @@ namespace
         else if (key == "anamorphic") s.anamorphic = v;
         else if (key == "chromatic") s.chromatic = v;
         else if (key == "samples") s.samples = static_cast<uint32_t>(v);
+        else if (key == "threshold") s.highlight_threshold = v;
+        else if (key == "gain") s.highlight_gain = v;
         else return false;
         return true;
     }
@@ -257,7 +260,7 @@ int main(int argc, char **argv)
     }
     const auto start = std::chrono::steady_clock::now();
     std::vector<float> sum(image.rgb.size(), 0.0f);
-    float focus = 0;
+    float focus = 0, luminance = 0;
     for (uint32_t f = 0; f < frames; f++)
     {
         const std::optional<DofConstants> constants = dof_constants(settings, frame->camera, frame->size, frame->flip, 0, f);
@@ -268,6 +271,7 @@ int main(int argc, char **argv)
         }
         const DofOutput out = render_dof(image, *constants, focus);
         focus = out.focus;
+        luminance = out.luminance;
         for (size_t i = 0; i < sum.size(); i++)
             sum[i] += out.rgb[i] / frames;
     }
@@ -288,6 +292,6 @@ int main(int argc, char **argv)
                 rgb[(size_t(y) * ow + x) * 3 + c] = static_cast<uint8_t>(tone(sum[at + c], exposure) * 255 + 0.5f);
         }
     std::ofstream(argv[2], std::ios::binary) << encode_png(rgb.data(), ow, oh);
-    std::printf("%s: focus %.3f m, %u frame%s in %.2f s\n", argv[2], focus, frames, frames == 1 ? "" : "s", seconds);
+    std::printf("%s: focus %.3f m, mean luminance %.3f, %u frame%s in %.2f s\n", argv[2], focus, luminance, frames, frames == 1 ? "" : "s", seconds);
     return 0;
 }

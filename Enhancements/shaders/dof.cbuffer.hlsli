@@ -12,6 +12,7 @@ cbuffer Dof : register(b1)
     float4 dof_sampling;    // rings, the frame's turn, +1 when stored rows run up the screen (flip) else -1, width over height
     uint4 dof_sizes;        // the half size, and the tile count
     uint4 dof_counts;       // tiles the dilation reaches, the render size, pixels between the autofocus's depth samples
+    float4 dof_highlight;   // the highlights' threshold and gain over the frame's mean luminance, 0, 0
 };
 
 #define LOOP [loop]

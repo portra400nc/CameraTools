@@ -112,6 +112,7 @@ namespace enhancements::shader
     inline float round(float x) { return std::nearbyint(x); }
     inline float exp2(float x) { return std::exp2(x); }
     inline float log2(float x) { return std::log2(x); }
+    inline float log(float x) { return std::log(x); }
     inline float asfloat(uint u)
     {
         float f;

@@ -1,5 +1,6 @@
 // The depth of field's arithmetic, shaders/dof.hlsli compiled as C++: the circle of confusion at known lens values, each
-// channel's under axial chromatic aberration, the aperture's shape at known points, and the light across the disc.
+// channel's under axial chromatic aberration, the aperture's shape at known points, the light across the disc, and the
+// highlights' curve.
 #include "../core/dof.h"
 
 #include <cmath>
@@ -83,7 +84,13 @@ namespace
         s.f_number = f_number;
         s.focus_distance = focus;
         s.spherical_aberration = aberration;
+        s.highlight_gain = 0;
         return s;
+    }
+
+    bool near3(const std::array<float, 3> &a, const std::array<float, 3> &b, float tolerance = 1e-4f)
+    {
+        return near(a[0], b[0], tolerance) && near(a[1], b[1], tolerance) && near(a[2], b[2], tolerance);
     }
 
     // The mean of the light across the unit disc, by the midpoint rule over 20,000 rings.
@@ -133,6 +140,37 @@ int main(int argc, char **argv)
         near(dof_bokeh_intensity(0, -1), 2 * 0.918559f) && near(dof_bokeh_intensity(0.5f, -1), 1.66489f) && dof_bokeh_intensity(0.91f, -1) == 0);
     check("the clamp's normalization is 0.91856 at -1 and 1 from -0.5 up", near(dof_bokeh_norm(-1), 0.918559f) && dof_bokeh_norm(-0.5f) == 1
         && dof_bokeh_norm(1) == 1);
+
+    check("a highlight of luminance 1.3 above a threshold of 0.8 grows at gain 2 to 0.8 + (e - 1) / 2 = 1.65914",
+        near3(dof_expand_highlight({ 1.3f, 1.3f, 1.3f }, 0.8f, 2), { 1.659141f, 1.659141f, 1.659141f }));
+    check("a colored one keeps its hue: (2, 1, 0.5) at gain 4 grows to (2.85111, 1.42555, 0.71278)",
+        near3(dof_expand_highlight({ 2, 1, 0.5f }, 0.8f, 4), { 2.851109f, 1.425555f, 0.712777f }));
+    check("below the threshold and at gain 0 a color stays as it was, to the bit",
+        dof_expand_highlight({ 0.5f, 0.9f, 0.2f }, 0.8f, 2) == std::array<float, 3> { 0.5f, 0.9f, 0.2f }
+            && dof_expand_highlight({ 2, 3, 1 }, 0.8f, 0) == std::array<float, 3> { 2, 3, 1 }
+            && dof_compress_highlight({ 0.5f, 0.9f, 0.2f }, 0.8f, 2) == std::array<float, 3> { 0.5f, 0.9f, 0.2f }
+            && dof_compress_highlight({ 2, 3, 1 }, 0.8f, 0) == std::array<float, 3> { 2, 3, 1 });
+    check("a highlight that would pass 8192 stops there: 2.53 at gain 8 grows to 8192, not 128,099",
+        near3(dof_expand_highlight({ 2.53f, 2.53f, 2.53f }, 0.8f, 8), { 8192, 8192, 8192 }, 0.01f));
+    {
+        bool round_trip = true, rising = true;
+        for (const float gain : { 0.5f, 2.0f, 4.0f })
+        {
+            float last_grown = 0, last_back = 0;
+            for (int i = 0; i <= 300; i++)
+            {
+                const float l = i * 0.01f;
+                const std::array<float, 3> c { l * 1.2f, l, l * 0.6f };
+                const std::array<float, 3> grown = dof_expand_highlight(c, 0.8f, gain);
+                round_trip &= near3(dof_compress_highlight(grown, 0.8f, gain), c, 2e-4f * (1 + l));
+                rising &= i == 0 || (grown[1] > last_grown && dof_compress_highlight({ l, l, l }, 0.8f, gain)[1] > last_back);
+                last_grown = grown[1];
+                last_back = dof_compress_highlight({ l, l, l }, 0.8f, gain)[1];
+            }
+        }
+        check("compressing what grew gives the color back, from luminance 0 to 3 at gains 0.5, 2 and 4", round_trip);
+        check("and both curves rise with the luminance", rising);
+    }
 
     DofShapeParams round;
     check("a round disc of radius 10 covers its center and 9.5 pixels out fully, its edge by half, and 11 pixels out not",
@@ -204,6 +242,7 @@ int main(int argc, char **argv)
         c.sampling[0] == 3 && near(c.sampling[1], 0.618034f) && c.sampling[2] == 1 && c.sampling[3] == 1.6f);
     check("the half size 640x400 in 80x50 tiles, a reach of 2 tiles, and depth samples 8 pixels apart", c.sizes[0] == 640 && c.sizes[1] == 400
         && c.sizes[2] == 80 && c.sizes[3] == 50 && c.counts[0] == 2 && c.counts[1] == 1280 && c.counts[2] == 800 && c.counts[3] == 8);
+    check("the highlights from twice the frame's mean luminance at gain 2 by default", c.highlight[0] == 2 && c.highlight[1] == 2);
     check("rings: 9 samples are 2, 64 are 4, 289 are 8 and 1089 are 16", dof_rings(9) == 2 && dof_rings(64) == 4 && dof_rings(289) == 8 && dof_rings(1089) == 16);
     settings.focus_speed = 0;
     check("a focus speed of 0 jumps", dof_constants(settings, lens, { 1280, 800 }, false, 0.5f, 0)->focus[3] == 1
@@ -255,6 +294,32 @@ int main(int argc, char **argv)
             && edge.green(focused, 640, 400) == 1 && edge.green(focused, 401, 400) == 1);
         autofocus.focus_point[0] = 0.1f;
         check("and at the left finds the background 30 m away", near(render(edge, autofocus).focus, 30, 0.01f));
+    }
+
+    {
+        Scene flat(30);
+        std::fill(flat.image.rgb.begin(), flat.image.rgb.end(), 1.5f);
+        DepthOfFieldSettings strong = lens_at(2, 2, 1);
+        strong.highlight_gain = 4;
+        const DofOutput out = render(flat, strong);
+        check("the autofocus draw finds the mean luminance of a flat frame of 1.5", near(out.luminance, 1.5f));
+        check("which keeps its brightness through the highlights' curve at gain 4 although all of it lies above the threshold",
+            near(flat.green(out, 640, 400), 1.5f, 1e-3f) && near(flat.green(out, 100, 700), 1.5f, 1e-3f));
+    }
+    {
+        // A small light 30 m away on a dim background, which the curve takes as 0.25: highlights from 0.5 at gain 8.
+        Scene lamp(30);
+        std::fill(lamp.image.rgb.begin(), lamp.image.rgb.end(), 0.1f);
+        for (uint32_t y = 399; y <= 401; y++)
+            for (uint32_t x = 639; x <= 641; x++)
+                lamp.put(x, y, 2, 30);
+        DepthOfFieldSettings settings = lens_at(2, 2, 1);
+        const float plain = lamp.green(render(lamp, settings), 648, 400);
+        settings.highlight_gain = 2;
+        const DofOutput grown = render(lamp, settings);
+        check("at gain 2 a small light's disc, 8 pixels from its center on its rim, stands over 4 times as far above the background",
+            grown.luminance < 0.25f && plain > 0.12f && grown.rgb.size() == lamp.image.rgb.size() && lamp.green(grown, 648, 400) - 0.1f > 4 * (plain - 0.1f));
+        check("and the background around it keeps its brightness", near(lamp.green(grown, 640, 700), 0.1f, 1e-4f));
     }
 
     FrameSave frame;

@@ -419,7 +419,8 @@ namespace enhancements
         switch (format)
         {
         case DXGI_FORMAT_R32G32B32A32_TYPELESS: case DXGI_FORMAT_R32G32B32A32_FLOAT: return 16;
-        case DXGI_FORMAT_R32G8X24_TYPELESS: case DXGI_FORMAT_R16G16B16A16_TYPELESS: case DXGI_FORMAT_R16G16B16A16_FLOAT: return 8;
+        case DXGI_FORMAT_R32G8X24_TYPELESS: case DXGI_FORMAT_R16G16B16A16_TYPELESS: case DXGI_FORMAT_R16G16B16A16_FLOAT: case DXGI_FORMAT_R32G32_FLOAT:
+            return 8;
         case DXGI_FORMAT_R10G10B10A2_TYPELESS: case DXGI_FORMAT_R10G10B10A2_UNORM: case DXGI_FORMAT_R11G11B10_FLOAT: case DXGI_FORMAT_R8G8B8A8_TYPELESS:
         case DXGI_FORMAT_R8G8B8A8_UNORM: case DXGI_FORMAT_B8G8R8A8_TYPELESS: case DXGI_FORMAT_R32_TYPELESS: case DXGI_FORMAT_R32_FLOAT:
             return 4;
@@ -1080,8 +1081,8 @@ namespace enhancements
         const Size half = { dof->sizes[0], dof->sizes[1] }, tiles = { dof->sizes[2], dof->sizes[3] }, one = { 1, 1 };
         ID3D11Device *d = device_.Get();
         if (!scene_in_.sync(d, native(scene), scene_format, false) || !scene_out_.sync(d, native(scene), scene_format, true)
-            || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false) || !dof_focus_[0].sync(d, one, DXGI_FORMAT_R32_FLOAT)
-            || !dof_focus_[1].sync(d, one, DXGI_FORMAT_R32_FLOAT) || !dof_source_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT, true)
+            || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false) || !dof_focus_[0].sync(d, one, DXGI_FORMAT_R32G32_FLOAT)
+            || !dof_focus_[1].sync(d, one, DXGI_FORMAT_R32G32_FLOAT) || !dof_source_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT, true)
             || !dof_tiles_.sync(d, tiles, DXGI_FORMAT_R16G16_FLOAT) || !dof_dilated_.sync(d, tiles, DXGI_FORMAT_R16G16_FLOAT)
             || !dof_far_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT) || !dof_near_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT)
             || !dof_far_post_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT) || !dof_near_post_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT))
@@ -1098,8 +1099,8 @@ namespace enhancements
         scene_in_.copy_from(c, native(scene));
         depth_.copy_from(c, native(depth));
         const Scratch &focus = dof_focus_[dof_focus_at_], &previous = dof_focus_[dof_focus_at_ ^ 1];
-        ID3D11ShaderResourceView *const focus_in[] = { depth_.srv(), previous.srv() };
-        draw_fullscreen(dof_focus_ps_.Get(), focus_in, 2, focus.rtv(), one);
+        ID3D11ShaderResourceView *const focus_in[] = { depth_.srv(), previous.srv(), scene_in_.srv() };
+        draw_fullscreen(dof_focus_ps_.Get(), focus_in, 3, focus.rtv(), one);
         ID3D11ShaderResourceView *const prefilter_in[] = { scene_in_.srv(), depth_.srv(), focus.srv() };
         draw_fullscreen(dof_prefilter_ps_.Get(), prefilter_in, 3, dof_source_.rtv(), half);
         c->OMSetRenderTargets(0, nullptr, nullptr);
@@ -1129,7 +1130,7 @@ namespace enhancements
         if (!dof_focus_pending_ || dof_focus_read_.read(context_.Get(), bytes) == Readback::Read::not_ready)
             return std::nullopt;
         dof_focus_pending_ = false;
-        if (bytes.size() != sizeof(float))
+        if (bytes.size() < sizeof(float))
             return std::nullopt;
         float meters;
         std::memcpy(&meters, bytes.data(), sizeof meters);

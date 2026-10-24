@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 11
+#define ENHANCEMENTS_VERSION 12
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -369,6 +369,10 @@ typedef struct EnhancementsDepthOfField
     float anamorphic;           // the aperture's width over its height is 1 / anamorphic; default 1, clamped to 0.5..2
     float chromatic;            // axial chromatic aberration: green fringes behind focus and magenta in front; default 0, clamped to 0..2
     uint32_t samples;           // gather samples a pixel on a spiral, rounded to 4k (k + 1) + 1; default 49, clamped to 9..1089
+    float highlight_threshold;  // highlights start at this many times the frame's mean luminance (at least 0.25); default 2,
+                                // clamped to 1..16
+    float highlight_gain;       // how steeply light above the threshold grows before the blur and shrinks back after, in units
+                                // of 1 over that mean, so a small light's disc keeps more of it; 0 off; default 2, clamped to 0..8
 } EnhancementsDepthOfField;
 
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller

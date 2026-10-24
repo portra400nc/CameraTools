@@ -444,7 +444,7 @@ namespace enhancements
         ComPtr<ID3D11Texture2D> depth_texel_;   // 1x1 R32G8X24_TYPELESS, CPU-readable
         bool depth_texel_pending_ = false;      // copied and not yet read
         Snapshot pending_, shown_;
-        Scratch dof_focus_[2];      // 1x1 R32_FLOAT: the focus distance in meters, this frame's and the last's in turn
+        Scratch dof_focus_[2];      // 1x1 R32G32_FLOAT: the focus distance in meters and the frame's mean luminance, this frame's and the last's in turn
         uint32_t dof_focus_at_ = 0; // the one this frame writes
         Readback dof_focus_read_;   // the focus for the status
         bool dof_focus_pending_ = false;

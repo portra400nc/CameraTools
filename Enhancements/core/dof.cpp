@@ -16,14 +16,14 @@
 
 namespace enhancements::shader
 {
-    thread_local float4 dof_optics, dof_focus, dof_depth, dof_shape, dof_lens, dof_bokeh, dof_sampling;
+    thread_local float4 dof_optics, dof_focus, dof_depth, dof_shape, dof_lens, dof_bokeh, dof_sampling, dof_highlight;
     thread_local uint4 dof_sizes, dof_counts;
 
     // The images the passes read on this thread, as the shaders' textures hold them.
     struct DofTextures
     {
         const enhancements::DofImage *scene = nullptr;
-        float focus = 0;
+        float2 focus;   // the autofocus's: meters and the frame's mean luminance
         // The prefilter's levels: each rgb and the green CoC, row by row.
         std::vector<std::vector<float4>> source;
         std::vector<uint2> source_sizes;
@@ -47,7 +47,19 @@ namespace enhancements::shader
         const float *c = &textures->scene->rgb[at(p, render_size()) * 3];
         return { c[0], c[1], c[2] };
     }
-    float dof_load_focus() { return textures->focus; }
+    // SampleLevel at level 0 with a linear sampler that clamps.
+    float3 dof_sample_scene(float2 position)
+    {
+        const float x = position.x - 0.5f, y = position.y - 0.5f;
+        const int x0 = int(floor(x)), y0 = int(floor(y));
+        const float fx = x - floor(x), fy = y - floor(y);
+        float3 c;
+        for (int j = 0; j < 2; j++)
+            for (int i = 0; i < 2; i++)
+                c = c + dof_load_scene({ x0 + i, y0 + j }) * ((i == 0 ? 1 - fx : fx) * (j == 0 ? 1 - fy : fy));
+        return c;
+    }
+    float2 dof_load_focus() { return textures->focus; }
     float4 dof_load_source(int2 p) { return textures->source[0][at(p, half_size())]; }
     // SampleLevel with a linear sampler that clamps: bilinear in the two levels around lod.
     float3 dof_sample_source(float2 position, float lod)
@@ -188,6 +200,18 @@ namespace enhancements
     }
 
     float dof_bokeh_intensity(float rho, float aberration) { return shader::dof_bokeh_intensity(rho, aberration, dof_bokeh_norm(aberration)); }
+
+    std::array<float, 3> dof_expand_highlight(const std::array<float, 3> &rgb, float threshold, float gain)
+    {
+        const shader::float3 c = shader::dof_expand_highlight({ rgb[0], rgb[1], rgb[2] }, threshold, gain);
+        return { c.x, c.y, c.z };
+    }
+
+    std::array<float, 3> dof_compress_highlight(const std::array<float, 3> &rgb, float threshold, float gain)
+    {
+        const shader::float3 c = shader::dof_compress_highlight({ rgb[0], rgb[1], rgb[2] }, threshold, gain);
+        return { c.x, c.y, c.z };
+    }
 
     float dof_bokeh_norm(float aberration)
     {
@@ -338,6 +362,8 @@ namespace enhancements
         std::copy(c_lens, c_lens + 4, c.lens);
         std::copy(c_bokeh, c_bokeh + 4, c.bokeh);
         std::copy(c_sampling, c_sampling + 4, c.sampling);
+        c.highlight[0] = s.highlight_threshold;
+        c.highlight[1] = s.highlight_gain;
         const uint32_t sizes[4] = { half_w, half_h, (half_w + kDofTile - 1) / kDofTile, (half_h + kDofTile - 1) / kDofTile };
         const uint32_t counts[4] = { static_cast<uint32_t>(std::ceil(max_radius * margin / kDofTile)), render.width, render.height,
             std::max(1u, render.height / 100) };
@@ -358,6 +384,7 @@ namespace enhancements
             shader::dof_lens = f4(c.lens);
             shader::dof_bokeh = f4(c.bokeh);
             shader::dof_sampling = f4(c.sampling);
+            shader::dof_highlight = f4(c.highlight);
             shader::dof_sizes = { c.sizes[0], c.sizes[1], c.sizes[2], c.sizes[3] };
             shader::dof_counts = { c.counts[0], c.counts[1], c.counts[2], c.counts[3] };
         }
@@ -392,7 +419,7 @@ namespace enhancements
         t.scene = &image;
         set_constants(c);
         textures = &t;
-        t.focus = dof_focus_next(previous_focus);
+        t.focus = dof_focus_pass(previous_focus);
         const uint2 half = { c.sizes[0], c.sizes[1] }, tiles = { c.sizes[2], c.sizes[3] };
         t.source.emplace_back(size_t(half.x) * half.y);
         t.source_sizes.push_back(half);
@@ -436,7 +463,8 @@ namespace enhancements
         t.far = std::move(far_post);
         t.near = std::move(near_post);
         DofOutput out;
-        out.focus = t.focus;
+        out.focus = t.focus.x;
+        out.luminance = t.focus.y;
         out.rgb.resize(image.rgb.size());
         const uint32_t width = image.size.width;
         draw(width, image.size.height, c, t, [&out, width](uint32_t x, uint32_t y) {

@@ -8,6 +8,7 @@
 // The pass functions read the Dof constants (dof.cbuffer.hlsli, core/dof.h's DofConstants), and a pass's block needs
 // its includer to define, before the include:
 //   DOF_FOCUS:      float dof_load_depth(int2 pixel)        the main depth, reversed, clamped to the render size
+//                   float3 dof_sample_scene(float2 at)      the HDR scene bilinear at full-size pixels (centers at .5)
 //   DOF_PREFILTER:  float3 dof_load_scene(int2 pixel), dof_load_depth
 //   DOF_TILES:      float4 dof_load_source(int2 pixel)      the prefilter's level 0: rgb and the green CoC, clamped to its size
 //   DOF_DILATE:     float2 dof_load_tile(int2 tile)         the tiles' far and near maxima, clamped to the tile count
@@ -15,7 +16,8 @@
 //                   .5), bilinear between the prefilter's levels; float2 dof_load_dilated(int2 tile)
 //   DOF_POST:       float4 dof_load_far(int2 pixel), float4 dof_load_near(int2 pixel), the gather's, clamped
 //   DOF_COMPOSITE:  dof_load_scene, dof_load_depth, dof_load_far, dof_load_near (the post-filter's)
-//   and every pass but DOF_FOCUS: float dof_load_focus()    the focus distance in meters the autofocus draw wrote
+//   and every pass but DOF_FOCUS: float2 dof_load_focus()   the focus distance in meters and the frame's mean luminance,
+//                                                           which the autofocus draw wrote
 // and LOOP and UNROLL for HLSL's [loop] and [unroll].
 #include "cat_eye.hlsli"
 
@@ -29,6 +31,12 @@ static const float kDofChromaticBlue = 0.02f;
 static const float kDofInFocus = 0.25f;
 // How much swirl at 1 compresses a disc's radial axis at the picture's corners.
 static const float kDofSwirl = 1.5f;
+static const float3 kDofLuma = float3(0.2126f, 0.7152f, 0.0722f);
+// The largest channel a highlight grows to, far enough below R16F's 65504 that the prefilter's texels hold it.
+static const float kDofHighlightMax = 8192.0f;
+// The least mean luminance the highlights' curve scales to. A night frame's mean falls with its dark sky and street while
+// its lamps and lit walls stay near day levels; scaled to that mean, a lit white shirt would glow like the lantern.
+static const float kDofHighlightKeyFloor = 0.25f;
 
 // The lens at one focus distance: each channel's CoC at infinity in half-size pixels, and its focus over green's.
 struct DofLens
@@ -148,6 +156,37 @@ float3 dof_weights(float3 r, float d, float scale, float aberration, float norm)
     return w * scale;
 }
 
+// Highlights. The game's HDR scene is shallow: lamps and sky gaps lie barely above the foliage around them, so their
+// discs drown in it. Before the gather a color of luminance L above the threshold t grows to luminance
+// t + (exp(s (L - t)) - 1) / s for gain s, and after it each field's color goes back through the inverse,
+// t + ln(1 + s (L' - t)) / s. A flat area comes back as it was; a highlight the gather spreads over darker sources keeps
+// more of its light. Both are the identity below t and at s = 0, and the growth stops where a channel reaches
+// kDofHighlightMax.
+float3 dof_expand_highlight(float3 c, float t, float s)
+{
+    float l = dot(c, kDofLuma);
+    if (s <= 0.0f || l <= t)
+        return c;
+    float grown = t + (exp(min(s * (l - t), 80.0f)) - 1.0f) / s;
+    return c * max(min(grown / l, kDofHighlightMax / max(max(c.x, c.y), c.z)), 1.0f);
+}
+
+float3 dof_compress_highlight(float3 c, float t, float s)
+{
+    float l = dot(c, kDofLuma);
+    if (s <= 0.0f || l <= t)
+        return c;
+    return c * ((t + log(1.0f + s * (l - t)) / s) / l);
+}
+
+// The curve's threshold and gain in the scene's units: the setting's scaled to the frame's mean luminance key, so the
+// same settings pick out the lamps of a dim hall and the sky of a bright meadow.
+float2 dof_highlight_curve(float key)
+{
+    float k = max(key, kDofHighlightKeyFloor);
+    return float2(dof_highlight.x * k, dof_highlight.y / k);
+}
+
 // Interleaved gradient noise, Jimenez 2014: a per-pixel turn of the gather's spiral.
 float dof_noise(int2 p) { return frac(52.9829189f * frac(0.06711056f * float(p.x) + 0.00583715f * float(p.y))); }
 
@@ -191,6 +230,17 @@ float dof_focus_target()
     return inverse > 0.0f ? 1.0f / inverse : 10000.0f;
 }
 
+// The frame's mean luminance over 16x9 points, each the mean of the 2x2 pixels around it.
+float dof_frame_luminance()
+{
+    float sum = 0.0f;
+    float2 size = float2(float(dof_counts.y), float(dof_counts.z));
+    LOOP for (int y = 0; y < 9; y++)
+        UNROLL for (int x = 0; x < 16; x++)
+            sum = sum + dot(dof_sample_scene(float2(floor((float(x) + 0.5f) / 16.0f * size.x), floor((float(y) + 0.5f) / 9.0f * size.y))), kDofLuma);
+    return sum / 144.0f;
+}
+
 // The focus distance this frame: the setting's, or the autofocus eased from previous toward its target by dof_focus.w,
 // and at once when previous is no distance yet.
 float dof_focus_next(float previous)
@@ -202,17 +252,24 @@ float dof_focus_next(float previous)
         return target;
     return lerp(previous, target, dof_focus.w);
 }
+
+// What the autofocus draw writes: the focus distance from the last frame's, and the frame's mean luminance.
+float2 dof_focus_pass(float previous) { return float2(dof_focus_next(previous), dof_frame_luminance()); }
 #endif
 
 #ifdef DOF_PREFILTER
-// A half-size pixel: the mean of its 2x2 full-size pixels, and the green CoC of the nearest of them, so a thin
-// foreground does not vanish into the background's CoC.
+// A half-size pixel: the mean of its 2x2 full-size pixels with their highlights grown, so one bright pixel outweighs
+// three dark ones, and the green CoC of the nearest of them, so a thin foreground does not vanish into the background's
+// CoC.
 float4 dof_prefilter(int2 h)
 {
     int2 p = int2(h.x * 2, h.y * 2);
-    float3 color = (dof_load_scene(p) + dof_load_scene(int2(p.x + 1, p.y)) + dof_load_scene(int2(p.x, p.y + 1)) + dof_load_scene(int2(p.x + 1, p.y + 1))) * 0.25f;
+    float2 lens_key = dof_load_focus();
+    float2 curve = dof_highlight_curve(lens_key.y);
+    float3 color = (dof_expand_highlight(dof_load_scene(p), curve.x, curve.y) + dof_expand_highlight(dof_load_scene(int2(p.x + 1, p.y)), curve.x, curve.y)
+        + dof_expand_highlight(dof_load_scene(int2(p.x, p.y + 1)), curve.x, curve.y) + dof_expand_highlight(dof_load_scene(int2(p.x + 1, p.y + 1)), curve.x, curve.y)) * 0.25f;
     float d = max(max(dof_load_depth(p), dof_load_depth(int2(p.x + 1, p.y))), max(dof_load_depth(int2(p.x, p.y + 1)), dof_load_depth(int2(p.x + 1, p.y + 1))));
-    float focus = dof_load_focus();
+    float focus = lens_key.x;
     float coc = dof_coc(dof_inverse_depth(d, dof_depth), focus, dof_frame_lens(focus));
     return float4(color.x, color.y, color.z, clamp(coc, -10000.0f, 10000.0f));
 }
@@ -269,7 +326,8 @@ DofFields dof_gather(int2 p)
     float radius = max(reach.x, reach.y) * dof_bokeh.w;
     if (radius < 0.5f)
         return o;
-    float focus = dof_load_focus();
+    float2 lens_key = dof_load_focus();
+    float focus = lens_key.x;
     DofLens lens = dof_frame_lens(focus);
     DofShape shape = dof_frame_shape();
     float own = dof_load_source(p).w;
@@ -326,9 +384,15 @@ DofFields dof_gather(int2 p)
             near_w = near_w + w;
         }
     }
+    // Both fields' colors through the highlights' inverse: the far field's mean, and the near field's before its coverage.
+    float2 curve = dof_highlight_curve(lens_key.y);
     if (far_w.y > 0.0f)
-        o.far = float4(far_w.x > 0.0f ? far_sum.x / far_w.x : 0.0f, far_sum.y / far_w.y, far_w.z > 0.0f ? far_sum.z / far_w.z : 0.0f, far_w.y);
-    o.near = float4(near_sum.x / max(near_w.x, 1.0f), near_sum.y / max(near_w.y, 1.0f), near_sum.z / max(near_w.z, 1.0f), min(near_w.y, 1.0f));
+    {
+        float3 far = dof_compress_highlight(float3(far_w.x > 0.0f ? far_sum.x / far_w.x : 0.0f, far_sum.y / far_w.y, far_w.z > 0.0f ? far_sum.z / far_w.z : 0.0f), curve.x, curve.y);
+        o.far = float4(far.x, far.y, far.z, far_w.y);
+    }
+    float3 near = dof_compress_highlight(float3(near_sum.x / max(near_w.x, 1e-20f), near_sum.y / max(near_w.y, 1e-20f), near_sum.z / max(near_w.z, 1e-20f)), curve.x, curve.y);
+    o.near = float4(near.x * min(near_w.x, 1.0f), near.y * min(near_w.y, 1.0f), near.z * min(near_w.z, 1.0f), min(near_w.y, 1.0f));
     return o;
 }
 #endif
@@ -393,7 +457,7 @@ DofFields dof_post(int2 p)
 float3 dof_composite(int2 pixel)
 {
     float3 sharp = dof_load_scene(pixel);
-    float focus = dof_load_focus();
+    float focus = dof_load_focus().x;
     float coc = 2.0f * dof_coc(dof_inverse_depth(dof_load_depth(pixel), dof_depth), focus, dof_frame_lens(focus));
     float2 at = float2((float(pixel.x) + 0.5f) * 0.5f - 0.5f, (float(pixel.y) + 0.5f) * 0.5f - 0.5f);
     int2 base = int2(int(floor(at.x)), int(floor(at.y)));

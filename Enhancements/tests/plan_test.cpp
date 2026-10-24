@@ -1142,13 +1142,19 @@ int main()
     }
     {
         EnhancementsSettings raw = raw_settings();
-        raw.depth_of_field = { 1, 1.4f, 36, 3, { 0.25f, 0.75f }, 0.5f, 0.05f, 7, 0.2f, 15, 1, 0.6f, 0.3f, 1.33f, 1, 256 };
+        raw.depth_of_field = { 1, 1.4f, 36, 3, { 0.25f, 0.75f }, 0.5f, 0.05f, 7, 0.2f, 15, 1, 0.6f, 0.3f, 1.33f, 1, 256, 3, 1.5f };
         const DepthOfFieldSettings whole = parse_settings(raw).depth_of_field;
-        check("a whole 304-byte struct reads the depth of field: on, f/1.4 on a 36 mm sensor focused at 3 m, its point, speed, blur, 7 blades and the rest",
-            sizeof raw == 304 && whole.enabled && whole.f_number == 1.4f && whole.sensor_height_mm == 36 && whole.focus_distance == 3
+        check("a whole 312-byte struct reads the depth of field: on, f/1.4 on a 36 mm sensor focused at 3 m, its point, speed, blur, 7 blades, "
+              "highlights from 3 times the mean at gain 1.5 and the rest",
+            sizeof raw == 312 && whole.enabled && whole.f_number == 1.4f && whole.sensor_height_mm == 36 && whole.focus_distance == 3
                 && whole.focus_point[0] == 0.25f && whole.focus_point[1] == 0.75f && whole.focus_speed == 0.5f && whole.max_blur == 0.05f
                 && whole.blades == 7 && whole.blade_roundness == 0.2f && whole.blade_rotation == 15 && whole.spherical_aberration == 1
-                && whole.cat_eye == 0.6f && whole.swirl == 0.3f && whole.anamorphic == 1.33f && whole.chromatic == 1 && whole.samples == 256);
+                && whole.cat_eye == 0.6f && whole.swirl == 0.3f && whole.anamorphic == 1.33f && whole.chromatic == 1 && whole.samples == 256
+                && whole.highlight_threshold == 3 && whole.highlight_gain == 1.5f);
+        raw.size = 304;     // a caller of version 11
+        const DepthOfFieldSettings eleven = parse_settings(raw).depth_of_field;
+        check("a 304-byte struct reads the depth of field but keeps the highlights at 2 times the mean and gain 2",
+            eleven.enabled && eleven.f_number == 1.4f && eleven.samples == 256 && eleven.highlight_threshold == 2 && eleven.highlight_gain == 2);
         raw.size = 236;     // a caller of version 10
         const DepthOfFieldSettings before = parse_settings(raw).depth_of_field;
         check("a 236-byte struct keeps the depth of field off at f/2.8, 24 mm, autofocus at the center, speed 0.9, blur 0.03, round, "
@@ -1157,18 +1163,19 @@ int main()
                 && before.focus_point[1] == 0.5f && before.focus_speed == 0.9f && before.max_blur == 0.03f && before.blades == 0
                 && before.spherical_aberration == 0.6f && before.anamorphic == 1 && before.chromatic == 0 && before.samples == 49);
         raw.size = sizeof raw;
-        raw.depth_of_field = { 1, 0, 1, -5, { -1, 2 }, 5, 1, 2, -1, 1000, -3, 7, -1, 0.1f, 9, 0 };
+        raw.depth_of_field = { 1, 0, 1, -5, { -1, 2 }, 5, 1, 2, -1, 1000, -3, 7, -1, 0.1f, 9, 0, 0.5f, -1 };
         const DepthOfFieldSettings low = parse_settings(raw).depth_of_field;
         check("the depth of field clamps: f/0 to f/1, a 1 mm sensor to 4, focus -5 to autofocus, the point into the picture, speed 5 to 0.999, "
-              "blur 1 to 0.1, 2 blades to 5, rotation 1000 to 360, aberration -3 to -1, anamorphic 0.1 to 0.5, chromatic 9 to 2, 0 samples to 9",
+              "blur 1 to 0.1, 2 blades to 5, rotation 1000 to 360, aberration -3 to -1, anamorphic 0.1 to 0.5, chromatic 9 to 2, 0 samples to 9, threshold 0.5 to 1, gain -1 to 0",
             low.f_number == 1 && low.sensor_height_mm == 4 && low.focus_distance == 0 && low.focus_point[0] == 0 && low.focus_point[1] == 1
                 && low.focus_speed == 0.999f && low.max_blur == 0.1f && low.blades == 5 && low.blade_roundness == 0 && low.blade_rotation == 360
-                && low.spherical_aberration == -1 && low.cat_eye == 1 && low.swirl == 0 && low.anamorphic == 0.5f && low.chromatic == 2 && low.samples == 9);
-        raw.depth_of_field = { 1, NAN, INFINITY, NAN, { NAN, NAN }, NAN, NAN, 99, NAN, NAN, NAN, NAN, NAN, NAN, NAN, 5000 };
+                && low.spherical_aberration == -1 && low.cat_eye == 1 && low.swirl == 0 && low.anamorphic == 0.5f && low.chromatic == 2 && low.samples == 9
+                && low.highlight_threshold == 1 && low.highlight_gain == 0);
+        raw.depth_of_field = { 1, NAN, INFINITY, NAN, { NAN, NAN }, NAN, NAN, 99, NAN, NAN, NAN, NAN, NAN, NAN, NAN, 5000, NAN, INFINITY };
         const DepthOfFieldSettings bad = parse_settings(raw).depth_of_field;
         check("NaN and infinities fall back to the defaults, 99 blades to 16 and 5000 samples to 1089", bad.f_number == 2.8f && bad.sensor_height_mm == 24
             && bad.focus_point[0] == 0.5f && bad.focus_speed == 0.9f && bad.max_blur == 0.03f && bad.blades == 16 && bad.spherical_aberration == 0.6f
-            && bad.anamorphic == 1 && bad.samples == 1089);
+            && bad.anamorphic == 1 && bad.samples == 1089 && bad.highlight_threshold == 2 && bad.highlight_gain == 2);
         check("the depth of field runs last at the bloom step and wants it", wanted_steps(parse_settings(raw)).has(Step::bloom)
             && kPasses[7].id == PassId::depth_of_field && std::string(kPasses[7].name) == "depth-of-field");
     }
@@ -1221,7 +1228,7 @@ int main()
     }
     {
         check("disabled settings want no step", wanted_steps(view_only(ENHANCEMENTS_VIEW_HDR_SCENE)).bits != 0
-            && wanted_steps(parse_settings(EnhancementsSettings { sizeof(EnhancementsSettings), 0, ENHANCEMENTS_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 8 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 2 }, { 1, 1, 1, 1, 1, 1 }, { 1, 2, 24, 0, { 0.5f, 0.5f }, 0, 0.03f, 0, 0, 0, 0, 0, 0, 1, 0, 49 } })).empty());
+            && wanted_steps(parse_settings(EnhancementsSettings { sizeof(EnhancementsSettings), 0, ENHANCEMENTS_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 8 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 2 }, { 1, 1, 1, 1, 1, 1 }, { 1, 2, 24, 0, { 0.5f, 0.5f }, 0, 0.03f, 0, 0, 0, 0, 0, 0, 1, 0, 49, 2, 2 } })).empty());
     }
     {
         // A traced shot over the applied settings.
@@ -1262,7 +1269,7 @@ int main()
               "at 144 and the focus at 148, and the shot is 16",
             sizeof(EnhancementsStatus) == 152 && offsetof(EnhancementsStatus, trace_light) == 128 && offsetof(EnhancementsStatus, trace_restarts) == 132
             && offsetof(EnhancementsStatus, trace_restart_reason) == 136 && offsetof(EnhancementsStatus, shot_active) == 140
-            && offsetof(EnhancementsStatus, frames_saved) == 144 && offsetof(EnhancementsStatus, dof_focus_meters) == 148 && sizeof(EnhancementsShot) == 16 && ENHANCEMENTS_VERSION == 11);
+            && offsetof(EnhancementsStatus, frames_saved) == 144 && offsetof(EnhancementsStatus, dof_focus_meters) == 148 && sizeof(EnhancementsShot) == 16 && ENHANCEMENTS_VERSION == 12);
     }
     {
         // Unity's GL.GetGPUProjectionMatrix for a 60 degree, 16:10 camera with near 0.1 and far 1000, reversed Z.
