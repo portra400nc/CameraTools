@@ -4,6 +4,8 @@
 //
 //     render_dof <frame folder> <out.png> [key=value ...]
 //     render_dof --synthetic <frame folder>
+//     render_dof --chromatic-sweep <frames folder> [key=value ...]
+//     render_dof --chromatic-check <frame folder> <most flagged> [key=value ...] [mask=<out.png>]
 //
 // Keys, the depth of field's settings (enabled; the rest at their defaults): f (f-number), sensor (mm), focus (meters, 0
 // autofocus), x and y (the focus point, 0 to 1 from the top left), speed, max_blur, blades, roundness, rotation (degrees),
@@ -11,11 +13,19 @@
 // scatter (0 or 1) and contrast (the bokeh contrast);
 // and frames (frames averaged, each with the frame's own turn of the spiral, as the accumulator averages a paused shot),
 // exposure (0.985, the census's), and crop (x,y,w,h in the picture's pixels from the top left) with zoom (a whole number)
-// to write a magnified part. Exits with 3 when a half-float target held infinity or NaN once stored as R16F.
+// to write a magnified part; mm sets the sensor that gives that focal length on the frame's projection where a full-frame
+// diagonal's readout (sensor 22.95) gives sensor_height / 2 P11. Exits with 3 when a half-float target held infinity or NaN
+// once stored as R16F.
 //
 // --synthetic writes a 1280x800 frame folder: a 50 mm lens's view of a sharp, striped subject 2 m away, a tree trunk at 6 m,
 // a leafy branch 1 m away at the bottom right, and foliage 30 m away full of small bright sky gaps and thin lit and dark
 // branches, the kind of background that shows soap-bubble bokeh.
+//
+// --chromatic-sweep renders every frame folder in the folder at chromatic 0 and 1 with the given settings (by default the
+// user's: f/2.8, spherical aberration 0.6, cat's eye 0.6, bokeh contrast 0.5, highlights from 2x at gain 2) at focal lengths
+// of 90, 120, 180 and 300 mm, focused at the autofocus's distance and at 0.98, 1.02, 0.85 and 1.3 times it, and counts the
+// pixels whose chromatic aberration is broken (chromatic_flags). --chromatic-check renders one frame so and exits with 1
+// when more than most flagged pixels are; mask, last, writes its chromatic render with them painted magenta (uncompressed).
 #include "../core/dof.h"
 #include "../core/light.h"
 #include "../core/png.h"
@@ -40,6 +50,11 @@ namespace
         const float curve = std::clamp(x * (1.36f * x + 0.047f) / (x * (0.93f * x + 0.56f) + 0.14f), 0.0f, 1.0f);
         return std::clamp(std::max(std::pow(curve, 1 / 2.4f) * 1.055f - 0.055f, 0.0f), 0.0f, 1.0f);
     }
+
+    constexpr float kReadoutSensor = 22.95f;
+
+    // The sensor height that gives mm on a projection of P11 p11.
+    float sensor_for(float mm, float p11) { return kReadoutSensor * mm / (kReadoutSensor * 0.5f * p11); }
 
     bool set(DepthOfFieldSettings &s, const std::string &key, float v)
     {
@@ -208,12 +223,241 @@ namespace
         std::printf("wrote %s: 1280x800, subject 2 m, trunk 6 m, branch 1 m, foliage 30 m\n", folder.c_str());
         return failed.empty() ? 0 : 1;
     }
+
+    DofImage image_of(const FrameSave &frame)
+    {
+        DofImage image;
+        image.size = frame.size;
+        image.depth = frame.depth;
+        image.rgb.resize(frame.hdr.size() * 3);
+        for (size_t i = 0; i < frame.hdr.size(); i++)
+        {
+            const Vec3f c = hdr_rgb(frame.hdr[i]);
+            std::copy(c.begin(), c.end(), &image.rgb[i * 3]);
+        }
+        return image;
+    }
+
+    // Applies key=value arguments from first on; mm needs the frame's P11. Returns the first it does not know, or empty.
+    std::string apply(DepthOfFieldSettings &s, float p11, int first, int argc, char **argv)
+    {
+        for (int i = first; i < argc; i++)
+        {
+            const std::string arg = argv[i];
+            const size_t eq = arg.find('=');
+            if (eq == std::string::npos)
+                return arg;
+            const std::string key = arg.substr(0, eq);
+            const float v = std::strtof(arg.substr(eq + 1).c_str(), nullptr);
+            if (key == "mm")
+                s.sensor_height_mm = sensor_for(v, p11);
+            else if (!set(s, key, v))
+                return arg;
+        }
+        return {};
+    }
+
+    struct ChromaticFlags
+    {
+        uint32_t dropped = 0;   // a channel near 0 where the others are not
+        uint32_t tiled = 0;     // a hue jump that fills most of a gather tile
+        uint32_t total() const { return dropped + tiled; }
+    };
+
+    // Pixels where chromatic aberration broke the picture: compared with both the render at chromatic 0 and the sharp frame,
+    // a channel's share of the pixel's light fell below 0.3 of the smaller of theirs, which is at least 0.1 (a channel
+    // dropped), or every channel's share moved by more than 0.08 in a 16x16 block of the full-size picture, a gather tile,
+    // where more than half the pixels moved so (a hue jump the size of a tile). Real fringes are a few pixels wide along
+    // depth edges and fill no tile. Pixels darker than 0.05 a channel in any of the three are not judged.
+    ChromaticFlags chromatic_flags(const std::vector<float> &sharp, const std::vector<float> &plain, const std::vector<float> &chromatic, Size size,
+        std::vector<uint8_t> *flagged = nullptr)
+    {
+        const uint32_t w = size.width, h = size.height, tiles_x = (w + 15) / 16;
+        std::vector<uint8_t> jumped(size_t(w) * h);
+        std::vector<uint32_t> tile(size_t(tiles_x) * ((h + 15) / 16));
+        ChromaticFlags f;
+        for (size_t i = 0; i < jumped.size(); i++)
+        {
+            const float *a = &chromatic[i * 3], *b = &plain[i * 3], *c = &sharp[i * 3];
+            const float sa = a[0] + a[1] + a[2], sb = b[0] + b[1] + b[2], sc = c[0] + c[1] + c[2];
+            if (!(std::min(std::min(sa, sb), sc) > 0.15f))
+                continue;
+            float from_plain = 0, from_sharp = 0;
+            bool dropped = false;
+            for (int k = 0; k < 3; k++)
+            {
+                const float share = a[k] / sa, reference = std::min(b[k] / sb, c[k] / sc);
+                from_plain = std::max(from_plain, std::fabs(share - b[k] / sb));
+                from_sharp = std::max(from_sharp, std::fabs(share - c[k] / sc));
+                dropped = dropped || (reference > 0.1f && share < 0.3f * reference);
+            }
+            if (dropped)
+            {
+                f.dropped++;
+                if (flagged)
+                    (*flagged)[i] = 1;
+            }
+            else if (std::min(from_plain, from_sharp) > 0.08f)
+            {
+                jumped[i] = 1;
+                tile[(i / w / 16) * tiles_x + (i % w) / 16]++;
+            }
+        }
+        for (size_t i = 0; i < jumped.size(); i++)
+            if (jumped[i] && tile[(i / w / 16) * tiles_x + (i % w) / 16] > 128)
+            {
+                f.tiled++;
+                if (flagged)
+                    (*flagged)[i] = 1;
+            }
+        return f;
+    }
+
+    DofOutput render_at(const DofImage &image, const FrameSave &frame, const DepthOfFieldSettings &settings)
+    {
+        return render_dof(image, *dof_constants(clamp_depth_of_field(settings), frame.camera, frame.size, frame.flip, 0, 0), 0);
+    }
+
+    // The picture through the tone curve, top row first, with the flagged pixels, when given, painted magenta.
+    void write_png(const char *path, const std::vector<float> &rgb, const FrameSave &frame, float exposure, const std::vector<uint8_t> *flagged = nullptr)
+    {
+        const uint32_t w = frame.size.width, h = frame.size.height;
+        std::vector<uint8_t> out(size_t(w) * h * 3);
+        for (uint32_t y = 0; y < h; y++)
+            for (uint32_t x = 0; x < w; x++)
+            {
+                const size_t at = size_t(frame.flip ? h - 1 - y : y) * w + x;
+                for (int c = 0; c < 3; c++)
+                    out[(size_t(y) * w + x) * 3 + c] = flagged && (*flagged)[at] ? (c == 1 ? 0 : 255) : static_cast<uint8_t>(tone(rgb[at * 3 + c], exposure) * 255 + 0.5f);
+            }
+        std::ofstream(path, std::ios::binary) << encode_png(out.data(), w, h);
+    }
+
+    // The flags of one setting, from renders at chromatic 0 and 1; with mask, the chromatic render with them painted.
+    ChromaticFlags flags_at(const DofImage &image, const FrameSave &frame, DepthOfFieldSettings settings, uint32_t &nonfinite, const char *mask = nullptr)
+    {
+        settings.chromatic = 0;
+        const DofOutput plain = render_at(image, frame, settings);
+        settings.chromatic = 1;
+        const DofOutput chromatic = render_at(image, frame, settings);
+        nonfinite += plain.nonfinite + chromatic.nonfinite;
+        std::vector<uint8_t> flagged(image.depth.size());
+        const ChromaticFlags f = chromatic_flags(image.rgb, plain.rgb, chromatic.rgb, frame.size, &flagged);
+        if (mask)
+            write_png(mask, chromatic.rgb, frame, 0.985f, &flagged);
+        return f;
+    }
+
+    DepthOfFieldSettings user_settings()
+    {
+        DepthOfFieldSettings s;
+        s.enabled = true;
+        s.f_number = 2.8f;
+        s.spherical_aberration = 0.6f;
+        s.cat_eye = 0.6f;
+        s.bokeh_contrast = 0.5f;
+        s.highlight_threshold = 2;
+        s.highlight_gain = 2;
+        s.focus_speed = 0;
+        return s;
+    }
+
+    int chromatic_check(int argc, char **argv)
+    {
+        std::string why;
+        const std::optional<FrameSave> frame = read_frame_folder(argv[2], why);
+        if (!frame || !dof_depth_coefficients(frame->camera))
+        {
+            std::fprintf(stderr, "%s: %s\n", argv[2], frame ? "the projection does not invert" : why.c_str());
+            return 2;
+        }
+        DepthOfFieldSettings settings = user_settings();
+        const char *mask = nullptr;
+        if (argc > 4 && std::string(argv[argc - 1]).rfind("mask=", 0) == 0)
+            mask = argv[--argc] + 5;
+        const std::string unknown = apply(settings, frame->camera.view_to_clip[5], 4, argc, argv);
+        if (!unknown.empty())
+        {
+            std::fprintf(stderr, "unknown argument %s\n", unknown.c_str());
+            return 2;
+        }
+        const uint32_t most = static_cast<uint32_t>(std::strtoul(argv[3], nullptr, 10));
+        uint32_t nonfinite = 0;
+        const ChromaticFlags f = flags_at(image_of(*frame), *frame, settings, nonfinite, mask);
+        std::printf("%s: %u pixels with a dropped channel, %u in tile-sized hue jumps, %u non-finite (at most %u flagged)\n", argv[2], f.dropped, f.tiled,
+            nonfinite, most);
+        return f.total() <= most && nonfinite == 0 ? 0 : 1;
+    }
+
+    int chromatic_sweep(int argc, char **argv)
+    {
+        std::vector<std::filesystem::path> folders;
+        std::error_code error;
+        for (const auto &entry : std::filesystem::directory_iterator(argv[2], error))
+            if (std::filesystem::exists(entry.path() / "frame.tsv"))
+                folders.push_back(entry.path());
+        std::sort(folders.begin(), folders.end());
+        uint32_t worst = 0, nonfinite = 0;
+        std::string worst_case = "none";
+        for (const std::filesystem::path &folder : folders)
+        {
+            std::string why;
+            const std::optional<FrameSave> frame = read_frame_folder(folder, why);
+            if (!frame || !dof_depth_coefficients(frame->camera))
+            {
+                std::fprintf(stderr, "%s: %s\n", folder.c_str(), frame ? "the projection does not invert" : why.c_str());
+                return 2;
+            }
+            const float p11 = frame->camera.view_to_clip[5];
+            DepthOfFieldSettings base = user_settings();
+            const std::string unknown = apply(base, p11, 3, argc, argv);
+            if (!unknown.empty())
+            {
+                std::fprintf(stderr, "unknown argument %s\n", unknown.c_str());
+                return 2;
+            }
+            const DofImage image = image_of(*frame);
+            base.focus_distance = 0;
+            const float autofocus = render_at(image, *frame, base).focus;
+            uint32_t frame_worst = 0;
+            std::string frame_case;
+            for (const float mm : { 90.0f, 120.0f, 180.0f, 300.0f })
+                for (const float times : { 1.0f, 0.98f, 1.02f, 0.85f, 1.3f })
+                {
+                    DepthOfFieldSettings s = base;
+                    s.sensor_height_mm = sensor_for(mm, p11);
+                    s.focus_distance = autofocus * times;
+                    const ChromaticFlags f = flags_at(image, *frame, s, nonfinite);
+                    char text[200];
+                    std::snprintf(text, sizeof text, "%s mm=%g (sensor %.2f, %.0f mm) focus=%.4g", folder.filename().c_str(), mm,
+                        clamp_depth_of_field(s).sensor_height_mm, clamp_depth_of_field(s).sensor_height_mm * 0.5f * p11, s.focus_distance);
+                    std::printf("%s: %u dropped, %u tiled\n", text, f.dropped, f.tiled);
+                    if (f.total() >= frame_worst)
+                    {
+                        frame_worst = f.total();
+                        frame_case = text;
+                    }
+                }
+            std::printf("frame %s: worst %u at %s\n", folder.filename().c_str(), frame_worst, frame_case.c_str());
+            if (frame_worst >= worst)
+            {
+                worst = frame_worst;
+                worst_case = frame_case;
+            }
+        }
+        std::printf("worst of %zu frames: %u flagged at %s, %u non-finite\n", folders.size(), worst, worst_case.c_str(), nonfinite);
+        return nonfinite == 0 ? 0 : 3;
+    }
 }
 
 int main(int argc, char **argv)
 {
     if (argc == 3 && std::string(argv[1]) == "--synthetic")
         return synthetic(argv[2]);
+    if (argc >= 3 && std::string(argv[1]) == "--chromatic-sweep")
+        return chromatic_sweep(argc, argv);
+    if (argc >= 4 && std::string(argv[1]) == "--chromatic-check")
+        return chromatic_check(argc, argv);
     if (argc < 3)
     {
         std::fprintf(stderr, "usage: render_dof <frame folder> <out.png> [key=value ...]\n       render_dof --synthetic <frame folder>\n");
@@ -245,22 +489,14 @@ int main(int argc, char **argv)
             zoom = std::max(1, std::atoi(value.c_str()));
         else if (key == "crop" && std::sscanf(value.c_str(), "%d,%d,%d,%d", &crop[0], &crop[1], &crop[2], &crop[3]) == 4)
             continue;
-        else if (eq == std::string::npos || !set(settings, key, std::strtof(value.c_str(), nullptr)))
+        else if (!apply(settings, frame->camera.view_to_clip[5], i, i + 1, argv).empty())
         {
             std::fprintf(stderr, "unknown argument %s\n", arg.c_str());
             return 2;
         }
     }
     settings = clamp_depth_of_field(settings);
-    DofImage image;
-    image.size = frame->size;
-    image.depth = frame->depth;
-    image.rgb.resize(frame->hdr.size() * 3);
-    for (size_t i = 0; i < frame->hdr.size(); i++)
-    {
-        const Vec3f c = hdr_rgb(frame->hdr[i]);
-        std::copy(c.begin(), c.end(), &image.rgb[i * 3]);
-    }
+    const DofImage image = image_of(*frame);
     const auto start = std::chrono::steady_clock::now();
     std::vector<float> sum(image.rgb.size(), 0.0f);
     float focus = 0, luminance = 0;
