@@ -469,13 +469,20 @@ DofFields dof_gather(int2 p)
     o.cover = float2(0.0f, 0.0f);
     float2 reach = dof_load_dilated(int2(p.x / 8, p.y / 8));
     float radius = max(reach.x, reach.y) * dof_bokeh.w;
+    float4 own_source = dof_load_source(p);
+    // Every disc a tile this small holds lies within its pixel, so all the gather would find is the pixel's own source.
+    // That is its far field then, so the post-filter treats the pixel as it does its neighbors in a wider tile.
     if (radius < 0.5f)
+    {
+        if (own_source.w > kDofInFocus)
+            o.far = float4(own_source.x, own_source.y, own_source.z, max(dot(float3(own_source.x, own_source.y, own_source.z), kDofLuma), 1e-4f));
         return o;
+    }
     float2 lens_key = dof_load_focus();
     float focus = lens_key.x;
     DofLens lens = dof_frame_lens(focus);
     DofShape shape = dof_frame_shape();
-    float own = dof_load_source(p).w;
+    float own = own_source.w;
     float3 own_c = dof_channel_coc(own, lens);
     float3 own_far = own > 0.0f ? float3(max(dof_clamp_coc(own_c.x, lens), 0.5f), max(dof_clamp_coc(own_c.y, lens), 0.5f), max(dof_clamp_coc(own_c.z, lens), 0.5f))
                                 : float3(100000.0f, 100000.0f, 100000.0f);
@@ -552,6 +559,35 @@ DofFields dof_gather(int2 p)
 #endif
 
 #ifdef DOF_POST
+// The cubic B-spline's two bilinear reads along one axis that make up its four texels' weights (Sigg and Hadwiger, GPU
+// Gems 2, ch. 20): at u in texels, centers at .5; returns the reads' positions in texels and the first's weight.
+float3 dof_bspline_axis(float u)
+{
+    float c = u - 0.5f;
+    float i = floor(c);
+    float f = c - i;
+    float w0 = (1.0f - f) * (1.0f - f) * (1.0f - f) / 6.0f;
+    float w1 = (4.0f - 6.0f * f * f + 3.0f * f * f * f) / 6.0f;
+    float w3 = f * f * f / 6.0f;
+    float w2 = 1.0f - w0 - w1 - w3;
+    float g0 = w0 + w1;
+    return float3(i - 0.5f + w1 / g0, i + 1.5f + w3 / (w2 + w3), g0);
+}
+
+// The far field's level at at, half-size pixels, through a cubic B-spline over its texels from four bilinear reads: smooth
+// across the texels' centers, where a bilinear read bends.
+float4 dof_far_smooth(float2 at, float level)
+{
+    float2 half_size = float2(float(dof_sizes.x), float(dof_sizes.y));
+    float2 size = float2(max(floor(half_size.x / exp2(level)), 1.0f), max(floor(half_size.y / exp2(level)), 1.0f));
+    float3 x = dof_bspline_axis(at.x / half_size.x * size.x);
+    float3 y = dof_bspline_axis(at.y / half_size.y * size.y);
+    float2 scale = float2(half_size.x / size.x, half_size.y / size.y);
+    float4 top = dof_sample_far(float2(x.x * scale.x, y.x * scale.y), level) * x.z + dof_sample_far(float2(x.y * scale.x, y.x * scale.y), level) * (1.0f - x.z);
+    float4 bottom = dof_sample_far(float2(x.x * scale.x, y.y * scale.y), level) * x.z + dof_sample_far(float2(x.y * scale.x, y.y * scale.y), level) * (1.0f - x.z);
+    return top * y.z + bottom * (1.0f - y.z);
+}
+
 // The gather's sampling holes filled: each channel of each field clamped to the least and most of its 8 neighbors, which
 // takes out a lone outlier but keeps the discs' rims and the light; the far field's neighbors without weight take the
 // pixel's own value. With the bokeh contrast, the far field then gives back what the lift added around it (see the
@@ -587,15 +623,22 @@ DofFields dof_post(int2 p)
     o.cover = float2(clamp(cover.x, c_lo.x, c_hi.x), clamp(cover.y, c_lo.y, c_hi.y));
     if (dof_contrast.x > 0.0f && o.far.w > 0.0f)
     {
-        // gain, what the lift multiplied the far field's light by over the span, from the mean of four bilinear reads half
-        // a texel of that level apart, which hides the level's grid. Past dof_contrast.y the lift's share of each
-        // pixel's light is cut to fit, from the lifted light toward the plain, whose luminance the gather kept in a.
-        float2 reach = dof_load_dilated(int2(p.x / 8, p.y / 8));
-        float lod = log2(max(reach.x, 1.0f)) + kDofContrastSpan;
-        float e = 0.5f * exp2(floor(lod));
+        // gain, what the lift multiplied the far field's light by over the span, from the far field's two levels around
+        // the span's, each through a cubic B-spline: a bilinear read bends at the texels' centers, and a bright source
+        // nearby turns each bend into a line, which on the span's usual levels lies on the tiles' grid. The span grows from the dilated far radius taken bilinearly between the
+        // tiles' centers: a tile's own radius would change the level, and so the gain, in a step at every tile's edge. Past
+        // dof_contrast.y the lift's share of each pixel's light is cut to fit, from the lifted light toward the plain, whose
+        // luminance the gather kept in a.
+        float2 tile = float2((float(p.x) + 0.5f) / 8.0f - 0.5f, (float(p.y) + 0.5f) / 8.0f - 0.5f);
+        int2 t = int2(int(floor(tile.x)), int(floor(tile.y)));
+        float tx = tile.x - floor(tile.x), ty = tile.y - floor(tile.y);
+        float reach = lerp(lerp(dof_load_dilated(t).x, dof_load_dilated(int2(t.x + 1, t.y)).x, tx),
+            lerp(dof_load_dilated(int2(t.x, t.y + 1)).x, dof_load_dilated(int2(t.x + 1, t.y + 1)).x, tx), ty);
+        float lod = log2(max(reach, 1.0f)) + kDofContrastSpan;
+        float level = floor(lod);
         float2 at = float2(float(p.x) + 0.5f, float(p.y) + 0.5f);
-        float4 m = (dof_sample_far(float2(at.x - e, at.y - e), lod) + dof_sample_far(float2(at.x + e, at.y - e), lod)
-            + dof_sample_far(float2(at.x - e, at.y + e), lod) + dof_sample_far(float2(at.x + e, at.y + e), lod)) * 0.25f;
+        float blend = lod - level;
+        float4 m = dof_far_smooth(at, level) * (1.0f - blend) + dof_far_smooth(at, level + 1.0f) * blend;
         float gain = max(dot(float3(m.x, m.y, m.z), kDofLuma) / max(m.w, 1e-4f), 1.0f);
         float share = gain > 1.0f + dof_contrast.y ? dof_contrast.y / (gain - 1.0f) : 1.0f;
         float3 lit = float3(o.far.x, o.far.y, o.far.z);

@@ -26,7 +26,9 @@ echo "PASS render_dof renders the synthetic frame into a 1280x800 PNG"
 # must stay finite as R16F stores it (render_dof exits 3 otherwise). The portrait through a 202 mm lens,
 # frame-20261024-195721: at the user's settings (f/2.8, spherical aberration 0.6, cat's eye 0.6, bokeh contrast 0.5,
 # autofocus) and at the chromatic sweep's worst case before the fix (300 mm focused at 2.713 m), chromatic aberration must
-# drop no channel and leave no tile-sized hue jump.
+# drop no channel and leave no tile-sized hue jump; and through a 300 mm lens focused on the face at 2.606 m, what the bokeh
+# contrast changes may step by at most 2 levels across a gather tile's edge (it stepped by 11.6 when the post-filter took its
+# span from each tile's own radius).
 dir=$(pwd)
 frames=
 while [ "$dir" != "/" ]; do
@@ -49,8 +51,10 @@ if [ -n "$frames" ] && [ -f "$portrait/frame.tsv" ]; then
     "$out/render_dof" --chromatic-check "$portrait" 0 sensor=22.95 > "$out/portrait.txt" || { cat "$out/portrait.txt"; echo "FAIL chromatic aberration broke the portrait through a 202 mm lens"; exit 1; }
     "$out/render_dof" --chromatic-check "$portrait" 0 mm=300 focus=2.713 > "$out/portrait-300.txt" || { cat "$out/portrait-300.txt"; echo "FAIL chromatic aberration broke the portrait through a 300 mm lens"; exit 1; }
     echo "PASS chromatic aberration drops no channel and leaves no tile-sized hue jump on the portrait through 202 and 300 mm lenses"
+    "$out/render_dof" --seam-check "$portrait" 2 mm=300 focus=2.606 chromatic=0 > "$out/portrait-seam.txt" || { cat "$out/portrait-seam.txt"; echo "FAIL the bokeh contrast steps on the gather tiles' edges in the portrait through a 300 mm lens"; exit 1; }
+    echo "PASS the bokeh contrast leaves no step on the gather tiles' edges in the portrait through a 300 mm lens"
 else
-    echo "SKIP the portrait's chromatic check: no .work/dof/frames/frame-20261024-195721"
+    echo "SKIP the portrait's chromatic and seam checks: no .work/dof/frames/frame-20261024-195721"
 fi
 python3 check_kernel_conditions.py ../shaders
 vkd3d=${ENHANCEMENTS_VKD3D_COMPILER:-}

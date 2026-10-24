@@ -6,6 +6,8 @@
 //     render_dof --synthetic <frame folder>
 //     render_dof --chromatic-sweep <frames folder> [key=value ...]
 //     render_dof --chromatic-check <frame folder> <most flagged> [key=value ...] [mask=<out.png>]
+//     render_dof --seam-sweep <frames folder> [key=value ...]
+//     render_dof --seam-check <frame folder> <most levels> [key=value ...]
 //
 // Keys, the depth of field's settings (enabled; the rest at their defaults): f (f-number), sensor (mm), focus (meters, 0
 // autofocus), x and y (the focus point, 0 to 1 from the top left), speed, max_blur, blades, roundness, rotation (degrees),
@@ -26,6 +28,12 @@
 // of 90, 120, 180 and 300 mm, focused at the autofocus's distance and at 0.98, 1.02, 0.85 and 1.3 times it, and counts the
 // pixels whose chromatic aberration is broken (chromatic_flags). --chromatic-check renders one frame so and exits with 1
 // when more than most flagged pixels are; mask, last, writes its chromatic render with them painted magenta (uncompressed).
+//
+// --seam-check renders one frame at the user's settings and the given ones, with their bokeh contrast and without, and
+// exits with 1 when what the contrast changes steps by more than most levels of the tone curve across a gather tile's edge
+// (worst_seam); it also prints the same measure across the tiles' middles, where no seam can be, as the control.
+// --seam-sweep does so for every frame folder at 50, 90, 180 and 300 mm, focused at the autofocus's distance and at 0.85
+// and 1.3 times it.
 #include "../core/dof.h"
 #include "../core/light.h"
 #include "../core/png.h"
@@ -36,6 +44,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <numeric>
 #include <random>
 #include <string>
 #include <vector>
@@ -448,6 +457,179 @@ namespace
         std::printf("worst of %zu frames: %u flagged at %s, %u non-finite\n", folders.size(), worst, worst_case.c_str(), nonfinite);
         return nonfinite == 0 ? 0 : 3;
     }
+
+    struct Seam
+    {
+        float step = 0;     // tone curve levels, 0 to 255
+        uint32_t x = 0, y = 0;  // the run's first pixel past the edge, in the picture from the top left
+        bool vertical = true;
+    };
+
+    // The largest step of what the bokeh contrast changes across a run of 16 pixels along a line offset pixels past a
+    // multiple of 16: offset 0 is a gather tile's edge (8 half-size pixels), offset 8 the middle of a tile, the control.
+    // The far field's bilinear upsample spreads a half-size step over the line's pixel on either side, so in each row and
+    // channel the step is the mean of the change d, in the tone curve's levels, over the 6 pixels after those less its mean
+    // over the 6 before, less what the sides' own slope accounts for. A seam steps between flat sides, while the contrast
+    // moves a disc's rim and the picture's own edges wherever they lie, and the far field steps with the pixels' own discs
+    // across a step in depth even where the blur hides it. So a row counts only where, on either side and in every
+    // channel, d varies by at most 1.5 levels and the render without the contrast by at most 3, and the depth by at most 1%
+    // over the row. The run's step is the median of its rows' when 12 or more count, the worst channel's.
+    Seam worst_seam(const std::vector<float> &plain, const std::vector<float> &contrast, const FrameSave &frame, uint32_t offset)
+    {
+        const int w = int(frame.size.width), h = int(frame.size.height);
+        const std::array<float, 4> k = *dof_depth_coefficients(frame.camera);
+        const auto range = [](const float *v) { return *std::max_element(v, v + 6) - *std::min_element(v, v + 6); };
+        Seam worst;
+        for (const bool vertical : { true, false })
+        {
+            const int across = vertical ? w : h, along = vertical ? h : w;
+            for (int e = 16 + int(offset); e + 6 < across; e += 16)
+                for (int run = 0; run + 16 <= along; run += 16)
+                {
+                    float steps[3][16];
+                    int count = 0;
+                    for (int at = run; at < run + 16; at++)
+                    {
+                        float d[3][14], p[3][14], nearest = INFINITY, farthest = 0;
+                        bool flat = true;
+                        for (int j = 0; j < 14; j++)
+                        {
+                            const int x = vertical ? e - 7 + j : at, y = vertical ? at : e - 7 + j;
+                            for (int c = 0; c < 3; c++)
+                            {
+                                const size_t i = (size_t(y) * w + x) * 3 + c;
+                                p[c][j] = 255 * tone(plain[i], 0.985f);
+                                d[c][j] = 255 * tone(contrast[i], 0.985f) - p[c][j];
+                            }
+                            const float z = dof_view_depth(k, frame.depth[size_t(y) * w + x]);
+                            nearest = std::min(nearest, z);
+                            farthest = std::max(farthest, z);
+                        }
+                        for (int c = 0; c < 3; c++)
+                            flat = flat && range(d[c]) <= 1.5f && range(d[c] + 8) <= 1.5f && range(p[c]) <= 3 && range(p[c] + 8) <= 3;
+                        if (!flat || !(farthest <= nearest * 1.01f))
+                            continue;
+                        for (int c = 0; c < 3; c++)
+                        {
+                            const float *v = d[c];
+                            const float left = std::accumulate(v, v + 6, 0.0f) / 6, right = std::accumulate(v + 8, v + 14, 0.0f) / 6;
+                            steps[c][count] = (right - left) - ((v[5] - v[0]) + (v[13] - v[8])) / 10 * 8;
+                        }
+                        count++;
+                    }
+                    if (count < 12)
+                        continue;
+                    for (int c = 0; c < 3; c++)
+                    {
+                        std::nth_element(steps[c], steps[c] + count / 2, steps[c] + count);
+                        const float step = std::fabs(steps[c][count / 2]);
+                        if (step <= worst.step)
+                            continue;
+                        worst.step = step;
+                        worst.vertical = vertical;
+                        worst.x = uint32_t(vertical ? e : run);
+                        const uint32_t y = uint32_t(vertical ? run : e);
+                        worst.y = frame.flip ? uint32_t(h) - (vertical ? y + 16 : y) : y;
+                    }
+                }
+        }
+        return worst;
+    }
+
+    std::string seam_text(const Seam &s)
+    {
+        char text[120];
+        std::snprintf(text, sizeof text, "%.2f levels on the %s edge at %u,%u", s.step, s.vertical ? "vertical" : "horizontal", s.x, s.y);
+        return text;
+    }
+
+    // The tile edges' and the controls' worst seams of one setting, from renders with and without the bokeh contrast.
+    std::pair<Seam, Seam> seams_at(const DofImage &image, const FrameSave &frame, DepthOfFieldSettings settings, uint32_t &nonfinite)
+    {
+        const DofOutput contrast = render_at(image, frame, settings);
+        settings.bokeh_contrast = 0;
+        const DofOutput plain = render_at(image, frame, settings);
+        nonfinite += plain.nonfinite + contrast.nonfinite;
+        return { worst_seam(plain.rgb, contrast.rgb, frame, 0), worst_seam(plain.rgb, contrast.rgb, frame, 8) };
+    }
+
+    int seam_check(int argc, char **argv)
+    {
+        std::string why;
+        const std::optional<FrameSave> frame = read_frame_folder(argv[2], why);
+        if (!frame || !dof_depth_coefficients(frame->camera))
+        {
+            std::fprintf(stderr, "%s: %s\n", argv[2], frame ? "the projection does not invert" : why.c_str());
+            return 2;
+        }
+        DepthOfFieldSettings settings = user_settings();
+        const std::string unknown = apply(settings, frame->camera.view_to_clip[5], 4, argc, argv);
+        if (!unknown.empty())
+        {
+            std::fprintf(stderr, "unknown argument %s\n", unknown.c_str());
+            return 2;
+        }
+        const float most = std::strtof(argv[3], nullptr);
+        uint32_t nonfinite = 0;
+        const auto [edge, control] = seams_at(image_of(*frame), *frame, settings, nonfinite);
+        std::printf("%s: bokeh contrast seam %s (inside tiles %s), %u non-finite (at most %.2f)\n", argv[2], seam_text(edge).c_str(),
+            seam_text(control).c_str(), nonfinite, most);
+        return edge.step <= most && nonfinite == 0 ? 0 : 1;
+    }
+
+    int seam_sweep(int argc, char **argv)
+    {
+        std::vector<std::filesystem::path> folders;
+        std::error_code error;
+        for (const auto &entry : std::filesystem::directory_iterator(argv[2], error))
+            if (std::filesystem::exists(entry.path() / "frame.tsv"))
+                folders.push_back(entry.path());
+        std::sort(folders.begin(), folders.end());
+        float worst = 0, worst_control = 0;
+        std::string worst_case = "none";
+        uint32_t nonfinite = 0;
+        for (const std::filesystem::path &folder : folders)
+        {
+            std::string why;
+            const std::optional<FrameSave> frame = read_frame_folder(folder, why);
+            if (!frame || !dof_depth_coefficients(frame->camera))
+            {
+                std::fprintf(stderr, "%s: %s\n", folder.c_str(), frame ? "the projection does not invert" : why.c_str());
+                return 2;
+            }
+            const float p11 = frame->camera.view_to_clip[5];
+            DepthOfFieldSettings base = user_settings();
+            const std::string unknown = apply(base, p11, 3, argc, argv);
+            if (!unknown.empty())
+            {
+                std::fprintf(stderr, "unknown argument %s\n", unknown.c_str());
+                return 2;
+            }
+            const DofImage image = image_of(*frame);
+            base.focus_distance = 0;
+            const float autofocus = render_at(image, *frame, base).focus;
+            for (const float mm : { 50.0f, 90.0f, 180.0f, 300.0f })
+                for (const float times : { 1.0f, 0.85f, 1.3f })
+                {
+                    DepthOfFieldSettings s = base;
+                    s.sensor_height_mm = sensor_for(mm, p11);
+                    s.focus_distance = autofocus * times;
+                    const auto [edge, control] = seams_at(image, *frame, s, nonfinite);
+                    char text[160];
+                    std::snprintf(text, sizeof text, "%s mm=%g focus=%.4g", folder.filename().c_str(), mm, s.focus_distance);
+                    std::printf("%s: seam %s (inside tiles %.2f)\n", text, seam_text(edge).c_str(), control.step);
+                    worst_control = std::max(worst_control, control.step);
+                    if (edge.step >= worst)
+                    {
+                        worst = edge.step;
+                        worst_case = std::string(text) + ": " + seam_text(edge);
+                    }
+                }
+        }
+        std::printf("worst of %zu frames: %s; inside tiles at most %.2f levels; %u non-finite\n", folders.size(), worst_case.c_str(), worst_control,
+            nonfinite);
+        return nonfinite == 0 ? 0 : 3;
+    }
 }
 
 int main(int argc, char **argv)
@@ -458,6 +640,10 @@ int main(int argc, char **argv)
         return chromatic_sweep(argc, argv);
     if (argc >= 4 && std::string(argv[1]) == "--chromatic-check")
         return chromatic_check(argc, argv);
+    if (argc >= 3 && std::string(argv[1]) == "--seam-sweep")
+        return seam_sweep(argc, argv);
+    if (argc >= 4 && std::string(argv[1]) == "--seam-check")
+        return seam_check(argc, argv);
     if (argc < 3)
     {
         std::fprintf(stderr, "usage: render_dof <frame folder> <out.png> [key=value ...]\n       render_dof --synthetic <frame folder>\n");

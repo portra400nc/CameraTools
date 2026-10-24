@@ -305,9 +305,9 @@ int main(int argc, char **argv)
                 sum_before += lawn.green(before, x, y);
                 sum_after += lawn.green(after, x, y);
             }
-        check("a lawn of tips 1.67 times its gray: at bokeh contrast 1 a tip's disc rises from 0.3032 to 0.3472 and the gaps darken from "
+        check("a lawn of tips 1.67 times its gray: at bokeh contrast 1 a tip's disc rises from 0.3032 to 0.3470 and the gaps darken from "
               "0.3000 to 0.2629, while the lawn keeps its light within 0.1%",
-            near(lawn.green(before, 637, 393), 0.303177f) && near(lawn.green(after, 637, 393), 0.347168f) && near(lawn.green(before, 649, 405), 0.300049f)
+            near(lawn.green(before, 637, 393), 0.303177f) && near(lawn.green(after, 637, 393), 0.346985f) && near(lawn.green(before, 649, 405), 0.300049f)
                 && near(lawn.green(after, 649, 405), 0.262939f) && std::fabs(sum_after / sum_before - 1) < 0.001);
     }
     {
