@@ -49,13 +49,15 @@ namespace
         return c;
     }
 
-    // A 1280x800 frame through a 50 mm lens (P11 = 50 / 12) at 16:10, everything at background meters, black, rows as stored.
+    // A 1280x800 frame at 16:10 through a projection of P11 p11 (50 / 12 by default: 50 mm on a 24 mm sensor), everything at
+    // background meters, black, rows as stored.
     struct Scene
     {
-        Camera camera = reversed_camera(50.0f / 12 / 1.6f, 50.0f / 12);
+        Camera camera;
         DofImage image;
         std::array<float, 4> k {};
-        explicit Scene(float background) : k(*dof_depth_coefficients(camera))
+        explicit Scene(float background, float p11 = 50.0f / 12)
+            : camera(reversed_camera(p11 / 1.6f, p11)), k(*dof_depth_coefficients(camera))
         {
             image.size = { 1280, 800 };
             image.rgb.assign(size_t(1280) * 800 * 3, 0.0f);
@@ -228,16 +230,16 @@ int main(int argc, char **argv)
         near(c.optics[0], 50) && near(c.optics[1], 2.8f) && near(c.optics[2], 16.6667f) && near(c.optics[3], 12));
     check("the focus point stored upside down, and the autofocus 1 - 0.1^0.5 of the way after half a second",
         c.focus[0] == 0 && c.focus[1] == 0.5f && c.focus[2] == 0.75f && near(c.focus[3], 0.683772f));
-    check("seven straight blades turned 90 degrees, grown by 1.0715 and the margin with chromatic 1 by 5% more",
-        c.shape[0] == 7 && c.shape[1] == 0 && near(c.shape[2], 1.570796f) && near(c.shape[3], 0.933288f) && near(c.bokeh[3], 1.07148f * 1.05f));
+    check("seven straight blades turned 90 degrees, grown by 1.0715, which the gather's radius grows by too, chromatic aberration or not",
+        c.shape[0] == 7 && c.shape[1] == 0 && near(c.shape[2], 1.570796f) && near(c.shape[3], 0.933288f) && near(c.bokeh[3], 1.07148f));
     check("spherical aberration -1 normalized in front of focus, where it is +1, and behind", c.bokeh[0] == -1 && near(c.bokeh[1], 0.918559f) && c.bokeh[2] == 1);
     check("49 samples are 3 rings, frame 1 turns them 0.618, flip makes stored rows run up, and the aspect is 1.6",
         c.sampling[0] == 3 && near(c.sampling[1], 0.618034f) && c.sampling[2] == 1 && c.sampling[3] == 1.6f);
     check("the half size 640x400 in 80x50 tiles, a reach of 2 tiles, and depth samples 8 pixels apart", c.sizes[0] == 640 && c.sizes[1] == 400
         && c.sizes[2] == 80 && c.sizes[3] == 50 && c.counts[0] == 2 && c.counts[1] == 1280 && c.counts[2] == 800 && c.counts[3] == 8);
     check("the highlights from twice the frame's mean luminance at gain 2 by default, with as many sprites a field as 8 half-size pictures of "
-          "the largest quad, 12 x 1.125 + 1 pixels from its center, cover: 2435, and the near field's from slot 4096",
-        c.highlight[0] == 2 && c.highlight[1] == 2 && c.highlight[2] == 2435 && c.highlight[3] == 4096);
+          "the largest quad, 12 x 1.0715 + 1 pixels from its center, cover: 2666, and the near field's from slot 4096",
+        c.highlight[0] == 2 && c.highlight[1] == 2 && c.highlight[2] == 2666 && c.highlight[3] == 4096);
     settings.scatter = false;
     check("without scatter, no sprites", dof_constants(settings, lens, { 1280, 800 }, true, 0.5f, 1)->highlight[2] == 0);
     settings.scatter = true;
@@ -330,6 +332,29 @@ int main(int argc, char **argv)
             }
         }
         check("a white frame stays white at every pixel and channel with chromatic 1 at spherical aberration 0.6, 1 and -1, in red's focus beside a far blur", least > 0.999f && most < 1.001f);
+    }
+    {
+        // A white frame through a 202 mm lens (P11 17.61 on a 22.95 mm sensor) at f/2.8 focused at 2.66 m, with cat's eye 0.6,
+        // spherical aberration 0.6 and chromatic 1: its top half 2.63 m away, where green's disc is 0.59 half-size pixels in
+        // front of focus and red's 2.6, its bottom half 2.70 m away, behind focus, and nothing farther, so no tile reaches
+        // past these small discs. Each channel's disc must be found whole and composited by its own coverage.
+        Scene white(30, 17.6105576f);
+        for (uint32_t y = 0; y < 800; y++)
+            for (uint32_t x = 0; x < 1280; x++)
+                white.put(x, y, 1, y < 400 ? 2.70f : 2.63f);
+        DepthOfFieldSettings settings = lens_at(2.8f, 2.66f, 0.6f);
+        settings.sensor_height_mm = 22.95f;
+        settings.cat_eye = 0.6f;
+        settings.chromatic = 1;
+        const DofOutput out = render(white, settings);
+        float least = 1, most = 1;
+        for (const float v : out.rgb)
+        {
+            least = std::min(least, v);
+            most = std::max(most, v);
+        }
+        check("a white frame stays white at every pixel and channel through a 202 mm lens at chromatic 1, just in front of focus and just behind",
+            least > 0.999f && most < 1.001f);
     }
     {
         Scene edge(30);

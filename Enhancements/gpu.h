@@ -466,6 +466,7 @@ namespace enhancements
         Scratch dof_tiles_, dof_dilated_;   // R16G16_FLOAT, one texel per 8x8 half-size pixels: far and near CoC maxima
         Scratch dof_far_, dof_near_, dof_far_post_, dof_near_post_;     // half size, R16G16B16A16_FLOAT: the gather's fields, the
                                                                         // far one with mips under the bokeh contrast
+        Scratch dof_cover_, dof_cover_post_;    // half size, R16G16_FLOAT: the near field's red and blue coverage
         Readback frame_hdr_, frame_depth_;  // EnhancementsSaveFrame's copies
         bool frame_pending_ = false;        // copied and not yet read
         Staging copies_[3];         // the comparison capture's two frames, and its variant's view

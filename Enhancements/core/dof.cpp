@@ -30,6 +30,7 @@ namespace enhancements::shader
         std::vector<uint2> source_sizes;
         std::vector<float2> tiles, dilated;
         std::vector<float4> far, near;
+        std::vector<float2> cover;
         // The lifted source's levels (dof_lift), and the gather's far field's, which the post-filter reads.
         std::vector<std::vector<float4>> lifted, far_levels;
         std::vector<uint2> lifted_sizes, far_sizes;
@@ -101,6 +102,7 @@ namespace enhancements::shader
     float2 dof_load_dilated(int2 t) { return textures->dilated[at(t, tile_size())]; }
     float4 dof_load_far(int2 p) { return textures->far[at(p, half_size())]; }
     float4 dof_load_near(int2 p) { return textures->near[at(p, half_size())]; }
+    float2 dof_load_cover(int2 p) { return textures->cover[at(p, half_size())]; }
     float4 dof_sample_far(float2 position, float lod) { return sample_levels(textures->far_levels, textures->far_sizes, position, lod); }
 
 #define DOF_FOCUS
@@ -353,7 +355,7 @@ namespace enhancements
         DofConstants c {};
         const uint32_t half_w = (render.width + 1) / 2, half_h = (render.height + 1) / 2;
         const float max_radius = s.max_blur * render.height * 0.5f;
-        const float margin = dof_shape_reach(s.blades, s.blade_roundness, s.anamorphic) * (1 + 0.05f * s.chromatic);
+        const float margin = dof_shape_reach(s.blades, s.blade_roundness, s.anamorphic);
         const float step = s.focus_speed <= 0 ? 1 : 1 - std::pow(1 - s.focus_speed, std::max(seconds, 0.0f));
         const float c_optics[4] = { s.sensor_height_mm * 0.5f * p11, s.f_number, render.height * 0.5f / s.sensor_height_mm, max_radius };
         const float c_focus[4] = { s.focus_distance, s.focus_point[0], flip ? 1 - s.focus_point[1] : s.focus_point[1], step };
@@ -544,14 +546,17 @@ namespace enhancements
         draw(tiles.x, tiles.y, c, t, [&t, tiles](uint32_t x, uint32_t y) { t.dilated[size_t(y) * tiles.x + x] = dof_dilate(int2(int(x), int(y))); });
         nonfinite += store_half(t.dilated);
         std::vector<float4> far(size_t(half.x) * half.y), near(far.size());
+        std::vector<float2> cover(far.size());
         draw(half.x, half.y, c, t, [&](uint32_t x, uint32_t y) {
             const DofFields f = dof_gather(int2(int(x), int(y)));
             far[size_t(y) * half.x + x] = f.far;
             near[size_t(y) * half.x + x] = f.near;
+            cover[size_t(y) * half.x + x] = f.cover;
         });
         t.far = std::move(far);
         t.near = std::move(near);
-        nonfinite += store_half(t.far) + store_half(t.near);
+        t.cover = std::move(cover);
+        nonfinite += store_half(t.far) + store_half(t.near) + store_half(t.cover);
         if (c.contrast[0] > 0)
         {
             t.far_levels = { t.far };
@@ -559,14 +564,17 @@ namespace enhancements
             nonfinite += generate_mips(t.far_levels, t.far_sizes);
         }
         std::vector<float4> far_post(t.far.size()), near_post(t.far.size());
+        std::vector<float2> cover_post(t.far.size());
         draw(half.x, half.y, c, t, [&](uint32_t x, uint32_t y) {
             const DofFields f = dof_post(int2(int(x), int(y)));
             far_post[size_t(y) * half.x + x] = f.far;
             near_post[size_t(y) * half.x + x] = f.near;
+            cover_post[size_t(y) * half.x + x] = f.cover;
         });
         t.far = std::move(far_post);
         t.near = std::move(near_post);
-        nonfinite += store_half(t.far) + store_half(t.near);
+        t.cover = std::move(cover_post);
+        nonfinite += store_half(t.far) + store_half(t.near) + store_half(t.cover);
         // dof_sprite_vs.hlsl and dof_sprite_ps.hlsl: each sprite's quad added into its field, the pixels whose centers it
         // covers.
         for (int f = 0; f < 2; f++)

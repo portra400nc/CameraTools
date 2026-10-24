@@ -1,4 +1,5 @@
-// The depth of field's gather at half size: the far field, normalized, and the near field, premultiplied (dof.hlsli).
+// The depth of field's gather at half size: the far field, normalized, and the near field, premultiplied, with red's and
+// blue's coverage of it (dof.hlsli).
 #include "dof.cbuffer.hlsli"
 
 SamplerState linear_clamp : register(s1);
@@ -20,6 +21,7 @@ struct Fields
 {
     float4 far : SV_Target0;
     float4 near : SV_Target1;
+    float2 cover : SV_Target2;
 };
 
 Fields main(float4 position : SV_Position)
@@ -28,5 +30,6 @@ Fields main(float4 position : SV_Position)
     Fields o;
     o.far = g.far;
     o.near = g.near;
+    o.cover = g.cover;
     return o;
 }

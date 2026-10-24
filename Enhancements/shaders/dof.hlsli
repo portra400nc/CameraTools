@@ -11,17 +11,19 @@
 //                   float3 dof_sample_scene(float2 at)      the HDR scene bilinear at full-size pixels (centers at .5)
 //   DOF_PREFILTER:  float3 dof_load_scene(int2 pixel), dof_load_depth
 //   DOF_SCATTER:    float4 dof_load_prefilter(int2 pixel)  the prefilter's texel, clamped to its size
-//   DOF_TILES:      float4 dof_load_source(int2 pixel)      the prefilter's level 0: rgb and the green CoC, clamped to its size
+//   DOF_TILES:      float4 dof_load_source(int2 pixel)      the prefilter's level 0: rgb and the green CoC, clamped to its size,
+//                   dof_load_focus
 //   DOF_DILATE:     float2 dof_load_tile(int2 tile)         the tiles' far and near maxima, clamped to the tile count
 //   DOF_LIFT:       dof_load_source, dof_sample_source
 //   DOF_GATHER:     dof_load_source, float3 dof_sample_source(float2 at, float lod), at in half-size pixels (centers at
 //                   .5), bilinear between the prefilter's levels; float4 dof_sample_lifted(float2 at, float lod), the same
 //                   over dof_lift's levels (read only with the bokeh contrast on); float2 dof_load_dilated(int2 tile)
-//   DOF_POST:       float4 dof_load_far(int2 pixel), float4 dof_load_near(int2 pixel), the gather's, clamped;
+//   DOF_POST:       float4 dof_load_far(int2 pixel), float4 dof_load_near(int2 pixel), float2 dof_load_cover(int2 pixel), the
+//                   gather's, clamped;
 //                   float4 dof_sample_far(float2 at, float lod), bilinear between the gather's far field's levels (read
 //                   only with the bokeh contrast on); dof_load_dilated
 //   DOF_SPRITE:     dof_load_source
-//   DOF_COMPOSITE:  dof_load_scene, dof_load_depth, dof_load_far, dof_load_near (the post-filter's)
+//   DOF_COMPOSITE:  dof_load_scene, dof_load_depth, dof_load_far, dof_load_near, dof_load_cover (the post-filter's)
 //   and every pass but DOF_FOCUS: float2 dof_load_focus()   the focus distance in meters and the frame's mean luminance,
 //                                                           which the autofocus draw wrote
 // and LOOP and UNROLL for HLSL's [loop] and [unroll].
@@ -167,6 +169,12 @@ float dof_cat_eye_cut(float2 u, float r, float2 ndc, DofShape s)
     return s.cat_eye > 0.0f ? cat_eye_weight(u / (r + 0.5f), ndc, s.aspect, s.cat_eye, 1.0f / (r + 0.5f)) : 1.0f;
 }
 
+// The cut of each channel's disc, of radii r: a channel whose disc is wider than green's is cut at its own radius.
+float3 dof_cat_eye_cuts(float2 u, float3 r, float2 ndc, DofShape s)
+{
+    return float3(dof_cat_eye_cut(u, r.x, ndc, s), dof_cat_eye_cut(u, r.y, ndc, s), dof_cat_eye_cut(u, r.z, ndc, s));
+}
+
 // The share of a source of radius r at ndc that reaches a receiver at u, both in pixels: inside the shape, its edge
 // smoothed over one pixel, and the cat's eye's cut.
 float dof_aperture(float2 u, float r, float2 ndc, DofShape s)
@@ -262,7 +270,8 @@ float dof_sprite_extent(float coc, DofLens l)
 struct DofFields
 {
     float4 far;     // rgb the far field's weighted mean, a the luminance of its mean without the lift (at least 1e-4 where it has weight)
-    float4 near;    // rgb premultiplied, a its coverage
+    float4 near;    // rgb premultiplied, a green's coverage
+    float2 cover;   // red's and blue's coverage of the near field: with chromatic aberration their discs differ from green's
 };
 
 #ifdef DOF_FOCUS
@@ -402,16 +411,24 @@ float4 dof_lift(int2 h)
 #endif
 
 #ifdef DOF_TILES
-// A tile's largest far CoC and largest near |CoC| over its 8x8 half-size pixels, clamped to the largest radius.
+// A tile's widest disc behind and in front of focus over its 8x8 half-size pixels, clamped to the largest radius: of each
+// out-of-focus source, its widest channel's. With chromatic aberration that is not green's in front of focus, nor near it,
+// where green's disc is under a pixel and red's spans several at a long focal length; a gather out to green's reach only
+// would find a fraction of red's and blue's discs, and so a fraction of their light and coverage.
 float2 dof_tile(int2 tile)
 {
+    DofLens lens = dof_frame_lens(dof_load_focus().x);
     float far = 0.0f, near = 0.0f;
     LOOP for (int y = 0; y < 8; y++)
         UNROLL for (int x = 0; x < 8; x++)
         {
             float c = dof_load_source(int2(tile.x * 8 + x, tile.y * 8 + y)).w;
-            far = max(far, c);
-            near = max(near, -c);
+            float3 r = dof_channel_coc(c, lens);
+            float widest = max(max(abs(r.x), abs(r.y)), abs(r.z));
+            if (c > kDofInFocus)
+                far = max(far, widest);
+            else if (c < -kDofInFocus)
+                near = max(near, widest);
         }
     return float2(min(far, dof_optics.w), min(near, dof_optics.w));
 }
@@ -449,6 +466,7 @@ DofFields dof_gather(int2 p)
     DofFields o;
     o.far = float4(0.0f, 0.0f, 0.0f, 0.0f);
     o.near = float4(0.0f, 0.0f, 0.0f, 0.0f);
+    o.cover = float2(0.0f, 0.0f);
     float2 reach = dof_load_dilated(int2(p.x / 8, p.y / 8));
     float radius = max(reach.x, reach.y) * dof_bokeh.w;
     if (radius < 0.5f)
@@ -502,8 +520,8 @@ DofFields dof_gather(int2 p)
         float d = dof_shape_distance(u, ndc, shape);
         if (d > max(max(r.x, r.y), r.z) + 0.5f)
             continue;
-        float scale = dof_cat_eye_cut(u, r.y, ndc, shape) * dof_swirl_density(ndc, shape) * area;
-        float3 w = dof_weights(r, d, scale, behind ? dof_bokeh.x : -dof_bokeh.x, behind ? dof_bokeh.y : dof_bokeh.z);
+        float3 w = dof_weights(r, d, dof_swirl_density(ndc, shape) * area, behind ? dof_bokeh.x : -dof_bokeh.x, behind ? dof_bokeh.y : dof_bokeh.z)
+            * dof_cat_eye_cuts(u, r, ndc, shape);
         float lod = log2(clamp(min(spacing, r.y), 1.0f, 256.0f));
         if (behind)
         {
@@ -528,6 +546,7 @@ DofFields dof_gather(int2 p)
             far_w.z > 0.0f ? far_sum.z / far_w.z : far_by_green.y / far_w.y, max(far_light / far_w.y, 1e-4f));
     float3 near = float3(near_sum.x / max(near_w.x, 1e-20f), near_sum.y / max(near_w.y, 1e-20f), near_sum.z / max(near_w.z, 1e-20f));
     o.near = float4(near.x * min(near_w.x, 1.0f), near.y * min(near_w.y, 1.0f), near.z * min(near_w.z, 1.0f), min(near_w.y, 1.0f));
+    o.cover = float2(min(near_w.x, 1.0f), min(near_w.z, 1.0f));
     return o;
 }
 #endif
@@ -542,6 +561,7 @@ DofFields dof_post(int2 p)
     float4 own = dof_load_far(p);
     float4 f_lo = float4(100000.0f, 100000.0f, 100000.0f, 100000.0f), f_hi = float4(0.0f, 0.0f, 0.0f, 0.0f);
     float4 n_lo = f_lo, n_hi = f_hi;
+    float2 c_lo = float2(1.0f, 1.0f), c_hi = float2(0.0f, 0.0f);
     UNROLL for (int i = 0; i < 9; i++)
     {
         if (i == 4)
@@ -551,6 +571,9 @@ DofFields dof_post(int2 p)
         if (f.w <= 0.0f)
             f = own;
         float4 n = dof_load_near(q);
+        float2 v = dof_load_cover(q);
+        c_lo = float2(min(c_lo.x, v.x), min(c_lo.y, v.y));
+        c_hi = float2(max(c_hi.x, v.x), max(c_hi.y, v.y));
         f_lo = float4(min(f_lo.x, f.x), min(f_lo.y, f.y), min(f_lo.z, f.z), min(f_lo.w, f.w));
         f_hi = float4(max(f_hi.x, f.x), max(f_hi.y, f.y), max(f_hi.z, f.z), max(f_hi.w, f.w));
         n_lo = float4(min(n_lo.x, n.x), min(n_lo.y, n.y), min(n_lo.z, n.z), min(n_lo.w, n.w));
@@ -560,6 +583,8 @@ DofFields dof_post(int2 p)
     DofFields o;
     o.far = float4(clamp(own.x, f_lo.x, f_hi.x), clamp(own.y, f_lo.y, f_hi.y), clamp(own.z, f_lo.z, f_hi.z), clamp(own.w, f_lo.w, f_hi.w));
     o.near = float4(clamp(near.x, n_lo.x, n_hi.x), clamp(near.y, n_lo.y, n_hi.y), clamp(near.z, n_lo.z, n_hi.z), clamp(near.w, n_lo.w, n_hi.w));
+    float2 cover = dof_load_cover(p);
+    o.cover = float2(clamp(cover.x, c_lo.x, c_hi.x), clamp(cover.y, c_lo.y, c_hi.y));
     if (dof_contrast.x > 0.0f && o.far.w > 0.0f)
     {
         // gain, what the lift multiplied the far field's light by over the span, from the mean of four bilinear reads half
@@ -602,15 +627,17 @@ float3 dof_sprite_light(DofSprite s, int2 p)
     float d = dof_shape_distance(u, ndc, shape);
     float own = dof_load_source(p).w;
     float reach = behind && own > kDofInFocus && own < c ? max(dof_clamp_coc(own, lens), 0.5f) : 100000.0f;
-    float scale = dof_cat_eye_cut(u, r.y, ndc, shape) * dof_swirl_density(ndc, shape) * saturate(reach - d + 0.5f);
-    float3 w = dof_weights(r, d, scale, behind ? dof_bokeh.x : -dof_bokeh.x, behind ? dof_bokeh.y : dof_bokeh.z);
+    float scale = dof_swirl_density(ndc, shape) * saturate(reach - d + 0.5f);
+    float3 w = dof_weights(r, d, scale, behind ? dof_bokeh.x : -dof_bokeh.x, behind ? dof_bokeh.y : dof_bokeh.z) * dof_cat_eye_cuts(u, r, ndc, shape);
     return float3(min(s.light.x * w.x, kDofSpriteMostAdded), min(s.light.y * w.y, kDofSpriteMostAdded), min(s.light.z * w.z, kDofSpriteMostAdded));
 }
 #endif
 
 #ifdef DOF_COMPOSITE
 // A full-size pixel: its sharp color while its own green CoC is under half a pixel, the far field blended in above that
-// (bilinear over the half-size texels with weight), and the near field over both by its coverage.
+// (bilinear over the half-size texels with weight), and the near field over both, each channel by its own coverage: one
+// coverage for all would hide a channel whose disc reaches less than green's, or add one whose disc reaches more, over
+// what lies behind.
 float3 dof_composite(int2 pixel)
 {
     float3 sharp = dof_load_scene(pixel);
@@ -622,6 +649,7 @@ float3 dof_composite(int2 pixel)
     float3 far = float3(0.0f, 0.0f, 0.0f);
     float far_weight = 0.0f;
     float4 near = float4(0.0f, 0.0f, 0.0f, 0.0f);
+    float2 cover = float2(0.0f, 0.0f);
     UNROLL for (int i = 0; i < 4; i++)
     {
         int2 q = int2(base.x + i % 2, base.y + i / 2);
@@ -631,9 +659,10 @@ float3 dof_composite(int2 pixel)
         far = far + float3(f.x, f.y, f.z) * w;
         far_weight = far_weight + w;
         near = near + dof_load_near(q) * b;
+        cover = cover + dof_load_cover(q) * b;
     }
     float t = saturate(abs(coc) - 0.5f);
     float3 color = far_weight > 0.0f ? sharp + (far / far_weight - sharp) * t : sharp;
-    return color * (1.0f - near.w) + float3(near.x, near.y, near.z);
+    return color * float3(1.0f - cover.x, 1.0f - near.w, 1.0f - cover.y) + float3(near.x, near.y, near.z);
 }
 #endif

@@ -21,24 +21,36 @@ RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh --synthetic "$out/frame-synthe
 RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$out/frame-synthetic" "$out/dof.png" sa=1 > /dev/null
 python3 -c "import struct, sys; d = open(sys.argv[1], 'rb').read(); sys.exit(0 if d[12:24] == b'IHDR' + struct.pack('>II', 1280, 800) else 1)" "$out/dof.png"
 echo "PASS render_dof renders the synthetic frame into a 1280x800 PNG"
-# With the workspace's saved night plaza (.work/dof/frames/frame-20261024-145312 in a folder above this one): rendered at
-# chromatic 1 and f/1.4 focused on the subject and just behind it, with a long lens, every half-float target must stay
-# finite as R16F stores it (render_dof exits 3 otherwise).
+# The workspace's saved frames (.work/dof/frames in a folder above this one). The night plaza, frame-20261024-145312:
+# rendered at chromatic 1 and f/1.4 focused on the subject and just behind it, with a long lens, every half-float target
+# must stay finite as R16F stores it (render_dof exits 3 otherwise). The portrait through a 202 mm lens,
+# frame-20261024-195721: at the user's settings (f/2.8, spherical aberration 0.6, cat's eye 0.6, bokeh contrast 0.5,
+# autofocus) and at the chromatic sweep's worst case before the fix (300 mm focused at 2.713 m), chromatic aberration must
+# drop no channel and leave no tile-sized hue jump.
 dir=$(pwd)
-plaza=
+frames=
 while [ "$dir" != "/" ]; do
-    if [ -f "$dir/.work/dof/frames/frame-20261024-145312/frame.tsv" ]; then
-        plaza="$dir/.work/dof/frames/frame-20261024-145312"
+    if [ -d "$dir/.work/dof/frames" ]; then
+        frames="$dir/.work/dof/frames"
         break
     fi
     dir=$(dirname "$dir")
 done
-if [ -n "$plaza" ]; then
+plaza=$frames/frame-20261024-145312
+if [ -n "$frames" ] && [ -f "$plaza/frame.tsv" ]; then
     RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$plaza" "$out/plaza.png" f=1.4 chromatic=1 crop=0,0,8,8 > /dev/null
     RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$plaza" "$out/plaza.png" f=1.4 chromatic=1 sensor=72 focus=2.25 max_blur=0.05 crop=0,0,8,8 > /dev/null
     echo "PASS render_dof keeps every half-float target finite on the night plaza at chromatic 1"
 else
     echo "SKIP the night plaza's chromatic render: no .work/dof/frames/frame-20261024-145312"
+fi
+portrait=$frames/frame-20261024-195721
+if [ -n "$frames" ] && [ -f "$portrait/frame.tsv" ]; then
+    "$out/render_dof" --chromatic-check "$portrait" 0 sensor=22.95 > "$out/portrait.txt" || { cat "$out/portrait.txt"; echo "FAIL chromatic aberration broke the portrait through a 202 mm lens"; exit 1; }
+    "$out/render_dof" --chromatic-check "$portrait" 0 mm=300 focus=2.713 > "$out/portrait-300.txt" || { cat "$out/portrait-300.txt"; echo "FAIL chromatic aberration broke the portrait through a 300 mm lens"; exit 1; }
+    echo "PASS chromatic aberration drops no channel and leaves no tile-sized hue jump on the portrait through 202 and 300 mm lenses"
+else
+    echo "SKIP the portrait's chromatic check: no .work/dof/frames/frame-20261024-195721"
 fi
 python3 check_kernel_conditions.py ../shaders
 vkd3d=${ENHANCEMENTS_VKD3D_COMPILER:-}

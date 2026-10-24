@@ -1134,7 +1134,8 @@ namespace enhancements
             || !dof_tiles_.sync(d, tiles, DXGI_FORMAT_R16G16_FLOAT) || !dof_dilated_.sync(d, tiles, DXGI_FORMAT_R16G16_FLOAT)
             || (lift && !dof_lifted_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT, true))
             || !dof_far_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT, lift) || !dof_near_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT)
-            || !dof_far_post_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT) || !dof_near_post_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT))
+            || !dof_far_post_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT) || !dof_near_post_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT)
+            || !dof_cover_.sync(d, half, DXGI_FORMAT_R16G16_FLOAT) || !dof_cover_post_.sync(d, half, DXGI_FORMAT_R16G16_FLOAT))
             return std::nullopt;
         ID3D11DeviceContext1 *c = context_.Get();
         D3D11_MAPPED_SUBRESOURCE mapped;
@@ -1177,19 +1178,19 @@ namespace enhancements
             c->OMSetRenderTargets(0, nullptr, nullptr);
             c->GenerateMips(dof_lifted_.srv());
         }
-        ID3D11ShaderResourceView *const tiles_in[] = { dof_source_.srv() };
-        draw_fullscreen(dof_tiles_ps_.Get(), tiles_in, 1, dof_tiles_.rtv(), tiles);
+        ID3D11ShaderResourceView *const tiles_in[] = { dof_source_.srv(), focus.srv() };
+        draw_fullscreen(dof_tiles_ps_.Get(), tiles_in, 2, dof_tiles_.rtv(), tiles);
         ID3D11ShaderResourceView *const dilate_in[] = { dof_tiles_.srv() };
         draw_fullscreen(dof_dilate_ps_.Get(), dilate_in, 1, dof_dilated_.rtv(), tiles);
         ID3D11ShaderResourceView *const gather_in[] = { dof_source_.srv(), dof_dilated_.srv(), focus.srv(), lift ? dof_lifted_.srv() : nullptr };
-        ID3D11RenderTargetView *const fields[] = { dof_far_.rtv(), dof_near_.rtv() };
-        draw_fullscreen(dof_gather_ps_.Get(), gather_in, 4, fields, 2, half);
+        ID3D11RenderTargetView *const fields[] = { dof_far_.rtv(), dof_near_.rtv(), dof_cover_.rtv() };
+        draw_fullscreen(dof_gather_ps_.Get(), gather_in, 4, fields, 3, half);
         c->OMSetRenderTargets(0, nullptr, nullptr);
         if (lift)
             c->GenerateMips(dof_far_.srv());
-        ID3D11ShaderResourceView *const post_in[] = { dof_far_.srv(), dof_near_.srv(), dof_dilated_.srv() };
-        ID3D11RenderTargetView *const filtered[] = { dof_far_post_.rtv(), dof_near_post_.rtv() };
-        draw_fullscreen(dof_post_ps_.Get(), post_in, 3, filtered, 2, half);
+        ID3D11ShaderResourceView *const post_in[] = { dof_far_.srv(), dof_near_.srv(), dof_dilated_.srv(), dof_cover_.srv() };
+        ID3D11RenderTargetView *const filtered[] = { dof_far_post_.rtv(), dof_near_post_.rtv(), dof_cover_post_.rtv() };
+        draw_fullscreen(dof_post_ps_.Get(), post_in, 4, filtered, 3, half);
         if (scatter)
         {
             // Each field's sprites added into it: draw_fullscreen's state with the sprites' shaders, a strip of 4 vertices an
@@ -1215,8 +1216,9 @@ namespace enhancements
             c->VSSetShaderResources(0, 1, no_list);
             c->OMSetRenderTargets(0, nullptr, nullptr);
         }
-        ID3D11ShaderResourceView *const composite_in[] = { scene_in_.srv(), depth_.srv(), focus.srv(), dof_far_post_.srv(), dof_near_post_.srv() };
-        draw_fullscreen(dof_composite_ps_.Get(), composite_in, 5, scene_out_.rtv(), map.render);
+        ID3D11ShaderResourceView *const composite_in[] = { scene_in_.srv(), depth_.srv(), focus.srv(), dof_far_post_.srv(), dof_near_post_.srv(),
+            dof_cover_post_.srv() };
+        draw_fullscreen(dof_composite_ps_.Get(), composite_in, 6, scene_out_.rtv(), map.render);
         scene_out_.copy_to(c, native(scene));
         if (!dof_focus_pending_)
             dof_focus_pending_ = dof_focus_read_.copy_from(d, c, focus.texture());
