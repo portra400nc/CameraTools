@@ -28,7 +28,7 @@ namespace CameraTools
 
         private enum Kind { Technique, Int, Float, Float2 }
 
-        private enum Id { Technique, FocusMode, FocusDepth, FocusDebug, FocusPoint, FocusRange, FocusSpeed, FocalLength, Aperture, Tangential, Sagittal, Anamorph, MouseFocus, PhysicalBlur, NearPlane, TiltAngle, TiltDirection }
+        private enum Id { Technique, FocusMode, FocusDepth, FocusDebug, FocusPoint, FocusRange, FocusSpeed, FocalLength, Aperture, Tangential, Sagittal, Anamorph, MouseFocus, PhysicalBlur, NearPlane, FarBlur, NearBlur, TiltAngle, TiltDirection }
 
         // How a shader keeps one of the rows' values. The rows use iMMERSE's units, or the shader's own for a value iMMERSE
         // does not have, and ToRow and ToShader convert each component of another shader's value. Forced gives the value
@@ -162,7 +162,8 @@ namespace CameraTools
         // and set as 0 and 1. ShowCoCValues paints the plane in focus blue, and the blur grey behind it and red in front. The shader's own
         // overlay needs the left mouse button held, which the bridge cannot set. Its mouse-driven autofocus would ignore
         // the focus point, so it is kept off, and its physical blur is kept on so the blur is the lens's. Its depth near
-        // plane is the near clip of the camera that renders, which puts its depth in meters. Its tilt-shift leans the
+        // plane is the near clip of the camera that renders, which puts its depth in meters, divided by the miniature
+        // scale, which makes every distance it sees that much smaller. Its tilt-shift leans the
         // plane in focus by an angle in degrees, 0 for none, around the focus point, also in manual focus.
         private static readonly Shader Cinematic = new("Cinematic DOF", "CinematicDOF.fx", 1,
             speed => speed >= 1f ? 0f : MathF.Log(0.01f) / MathF.Log(1f - Math.Clamp(speed, 0.001f, 1f)) / SlowFrameRate * 1.5f, 0.2f,
@@ -177,7 +178,9 @@ namespace CameraTools
             (Id.Anamorph, new("HighlightAnamorphicFactor", Kind.Float, factor => 1f / Math.Max(factor, 0.01f), ratio => 1f / ratio)),
             (Id.MouseFocus, new("UseMouseDrivenAutoFocus", Kind.Int, Forced: () => 0f)),
             (Id.PhysicalBlur, new("UsePhysicalBlur", Kind.Int, Forced: () => 1f)),
-            (Id.NearPlane, new("DepthNearPlane", Kind.Float, Forced: () => NearPlane)),
+            (Id.NearPlane, new("DepthNearPlane", Kind.Float, Forced: () => NearPlane / Miniature)),
+            (Id.FarBlur, new("FarPlaneMaxBlur", Kind.Float)),
+            (Id.NearBlur, new("NearPlaneMaxBlur", Kind.Float)),
             (Id.TiltAngle, new("TiltShiftAngle", Kind.Float)),
             (Id.TiltDirection, new("TiltShiftDirection", Kind.Float)));
 
@@ -188,10 +191,14 @@ namespace CameraTools
         private static readonly int[] Modes = { PointFocus, ManualFocus };
         private static readonly string[] ModeLabels = { "Focus point", "Manual distance" };
         private static readonly string[] StopLabels = Lens.Stops.Select(stop => $"f/{stop:0.##}").ToArray();
+        // Miniature scale's options: the blur of a 1:N model of the scene.
+        private static readonly int[] Scales = { 1, 10, 25, 50, 100, 200, 500 };
+        private static readonly string[] ScaleLabels = Scales.Select(scale => scale == 1 ? "Off" : $"1:{scale}").ToArray();
 
         private static MelonPreferences_Entry<bool> link;
         private static MelonPreferences_Entry<bool> marker;
         private static MelonPreferences_Entry<string> choice;
+        private static MelonPreferences_Entry<int> miniature;
         private static ulong presents;
         private static bool ready;
         // The present count from which the values are ReShade's again after it loaded its effects.
@@ -226,6 +233,15 @@ namespace CameraTools
                 x => Change(Id.FocusPoint, x, Current.Cells[(int)Id.FocusPoint].Y), Enabled: () => Aiming),
             new SliderRow("Focus point Y", -1f, 1f, 0.02f, "0.00", () => Current.Cells[(int)Id.FocusPoint].Y,
                 y => Change(Id.FocusPoint, Value(Id.FocusPoint), y), Enabled: () => Aiming),
+            new ChoiceRow("Miniature scale", ScaleLabels, () => Known(Id.NearPlane) ? Array.IndexOf(Scales, Miniature) : -1,
+                position => Miniature = Scales[position], null, Has(Id.NearPlane))
+            {
+                Shown = () => Current.Offers(Id.NearPlane),
+            },
+            new SliderRow("Max blur", 1f, 8f, 0.5f, "0.0", () => Value(Id.FarBlur), SetMaxBlur, Enabled: Has(Id.FarBlur))
+            {
+                Shown = () => Current.Offers(Id.FarBlur),
+            },
             new SliderRow("Tilt", -15f, 15f, 0.5f, "0.0'°'", () => Value(Id.TiltAngle), tilt => Repaint(Id.TiltAngle, tilt),
                 Display: tilt => tilt == 0f ? "Off" : tilt.ToString("0.0'°'"), Enabled: Has(Id.TiltAngle))
             {
@@ -248,6 +264,17 @@ namespace CameraTools
             set
             {
                 link.Value = value;
+                MelonPreferences.Save();
+            }
+        }
+
+        // The 1:N scale the shader blurs the scene at; the next frame forces its near plane to match.
+        private static int Miniature
+        {
+            get => Array.IndexOf(Scales, miniature.Value) >= 0 ? miniature.Value : 1;
+            set
+            {
+                miniature.Value = value;
                 MelonPreferences.Save();
             }
         }
@@ -343,6 +370,8 @@ namespace CameraTools
                 description: "Draw the depth of field's focus point on the picture in Focus point mode.");
             choice = category.CreateEntry("DepthOfFieldShader", Immerse.File,
                 description: $"The depth of field shader the ReShade tab drives while both are installed: {Immerse.File} or {Cinematic.File}.");
+            miniature = category.CreateEntry("MiniatureScale", 1,
+                description: $"Cinematic DOF blurs the scene as a 1:N model: {string.Join(", ", Scales)}. 1 is real size.");
             MelonPreferences.Save();
         }
 
@@ -420,6 +449,13 @@ namespace CameraTools
             dirty = true;
             changed = Time.unscaledTime;
             return true;
+        }
+
+        // One cap for both planes, as the far plane's.
+        private static void SetMaxBlur(float blur)
+        {
+            Change(Id.FarBlur, blur);
+            Change(Id.NearBlur, blur);
         }
 
         private static SliderRow Shape(string label, Id id, float min, float max)
