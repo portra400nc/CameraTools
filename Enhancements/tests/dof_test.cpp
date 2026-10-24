@@ -152,6 +152,16 @@ int main(int argc, char **argv)
     check("through a 200 mm lens the shift grows with the focal length, over 4 times the 50 mm lens's: green's CoC 86.4198 at 30 m, "
           "red's 0.4627 less and blue's 1.1098",
         near(long_lens[1], 86.4198f, 2e-3f) && near(long_lens[1] - long_lens[0], 0.46273f, 2e-4f) && near(long_lens[1] - long_lens[2], 1.10978f, 2e-4f));
+    // A sensor 10 times taller on the same projection is a 500 mm lens with a tenth of the pixels a mm, the whole lens scaled
+    // by 10, which images as the 50 mm lens does with every distance divided by 10: a 1:10 miniature.
+    DofOptics model = lens50(1);
+    model.focal_mm = 500;
+    model.pixels_per_mm = 400.0f / 240.0f;
+    const std::array<float, 3> miniature = dof_channel_cocs(30, 2, model), scaled = dof_channel_cocs(3, 0.2f, lens50(1));
+    check("a 10 times taller sensor focused at 2 m gives a point 30 m away the CoCs of the 50 mm lens at 3 m focused at 0.2 m: 64.6760, "
+          "64.8148 and 64.4819",
+        near(miniature[0], 64.6760f, 2e-3f) && near(miniature[1], 64.8148f, 2e-3f) && near(miniature[2], 64.4819f, 2e-3f)
+            && near(scaled[0], 64.6760f, 2e-3f) && near(scaled[1], 64.8148f, 2e-3f) && near(scaled[2], 64.4819f, 2e-3f));
 
     check("the light across the disc averages 1 at spherical aberration 1 behind focus (soap bubble)", std::fabs(disc_mean(1) - 1) < 1e-4);
     check("and at 1 in front of focus, where the clamp at 0 cuts the rim", std::fabs(disc_mean(-1) - 1) < 1e-4);

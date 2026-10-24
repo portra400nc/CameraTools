@@ -159,7 +159,7 @@ namespace CameraToolsEnhancements
     {
         public uint Enabled;
         public float FNumber;
-        public float SensorHeightMm;
+        public float SensorHeightMm;    // 4 to 20000; N times taller blurs as a 1:N miniature
         public float FocusDistance;     // meters; 0 autofocuses at the focus point
         public float FocusX, FocusY;    // 0 to 1 from the top left
         public float FocusSpeed;        // the share of the way the autofocus goes in a second; 0 jumps

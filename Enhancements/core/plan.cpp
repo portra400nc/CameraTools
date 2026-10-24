@@ -394,7 +394,7 @@ namespace enhancements
         DepthOfFieldSettings s;
         s.enabled = d.enabled;
         s.f_number = finite_or(d.f_number, defaults.f_number, 1.0f, 22.0f);
-        s.sensor_height_mm = finite_or(d.sensor_height_mm, defaults.sensor_height_mm, 4.0f, 100.0f);
+        s.sensor_height_mm = finite_or(d.sensor_height_mm, defaults.sensor_height_mm, 4.0f, 20000.0f);
         s.focus_distance = finite_or(d.focus_distance, defaults.focus_distance, 0.0f, 10000.0f);
         s.focus_point[0] = finite_or(d.focus_point[0], defaults.focus_point[0], 0.0f, 1.0f);
         s.focus_point[1] = finite_or(d.focus_point[1], defaults.focus_point[1], 0.0f, 1.0f);
