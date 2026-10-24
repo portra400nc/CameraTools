@@ -4,10 +4,10 @@ using UnityEngine;
 
 namespace CameraTools
 {
-    // The Graphics tab's Enhancements category, and the only owner of the add-on's settings. Each switch and value is an
-    // entry of the CameraToolsEnhancements preferences: a change goes to the add-on at once and is saved a moment later,
-    // and the add-on gets the saved values whenever ReShade loads it, which is some time after the game starts.
-    // EnhancementsModel holds the rows and the rules.
+    // The Graphics tab's Enhancements category, and the only owner of the add-on's settings, CameraTools' own depth of
+    // field's among them, whose rows DepthOfField has. Each switch and value is an entry of the CameraToolsEnhancements
+    // preferences: a change goes to the add-on at once and is saved a moment later, and the add-on gets the saved values
+    // whenever ReShade loads it, which is some time after the game starts. EnhancementsModel holds the rows and the rules.
     internal static class EnhancementsControl
     {
         private const string Category = "CameraToolsEnhancements";
@@ -21,6 +21,8 @@ namespace CameraTools
         // The user's own values, which the preferences keep, and a screenshot's preset's while it runs them.
         private static EnhancementRun run = new(EnhancementValues.Defaults);
         private static int connections;
+        // What the depth of field's block was last made for.
+        private static LensView lens;
         private static float? saveAt;
         private static bool unsaved;
         // The heading's text for the values it was made from.
@@ -51,7 +53,7 @@ namespace CameraTools
         public static IEnumerable<Row> Rows()
         {
             yield return new FoldRow("Enhancements", () => !Folded, () => SetFolded(!Folded), () => State);
-            foreach (var field in EnhancementsModel.Fields)
+            foreach (var field in EnhancementsModel.Fields.Where(field => !field.Lens))
             {
                 Func<bool> shown = () => EnhancementsModel.Shown(field, Values, Folded);
                 Func<bool> usable = field.Id == Enhancement.Enabled ? null : () => EnhancementsModel.Usable(field, Values);
@@ -98,14 +100,23 @@ namespace CameraTools
             Log($"the preferences hold {Describe(Values)}.");
         }
 
-        // Once a frame, after Enhancements.Update. An add-on that ReShade loaded has none of the settings yet.
+        // Once a frame, after Enhancements.Update. An add-on that ReShade loaded has none of the settings yet. The depth
+        // of field's block follows the free camera, the picture's shape, the miniature scale and the screenshot.
         public static void Update()
         {
+            var now = DepthOfField.Frame;
             if (connections != Enhancements.Connections)
             {
                 connections = Enhancements.Connections;
-                ulong generation = Enhancements.Apply(EnhancementsModel.Settings(Running));
+                lens = now;
+                ulong generation = Enhancements.Apply(EnhancementsModel.Settings(Running, lens));
                 Log($"the add-on connected and runs {Describe(Running)}, as its settings {generation}.");
+            }
+            else if (now != lens)
+            {
+                lens = now;
+                if (Enhancements.Connected)
+                    Enhancements.Apply(EnhancementsModel.Settings(Running, lens));
             }
             if (saveAt is not float at || Time.unscaledTime < at)
                 return;
@@ -133,10 +144,11 @@ namespace CameraTools
 
         private static void Change(Enhancement id, float value) => Set(Values.With(id, value));
 
-        // Every switch and value back to its default: everything off.
+        // Every switch and value of the category back to its default: everything off. The depth of field has no row here
+        // and stays.
         private static void Reset()
         {
-            Set(EnhancementValues.Defaults);
+            Set(EnhancementValues.Defaults.WithLensOf(Values));
             Log("every switch and value is back at its default.");
             CameraUi.Toast("Enhancements are back to their defaults");
         }
@@ -167,7 +179,7 @@ namespace CameraTools
         {
             saveAt = Time.unscaledTime + SaveDelay;
             if (Enhancements.Connected)
-                Enhancements.Apply(EnhancementsModel.Settings(Running));
+                Enhancements.Apply(EnhancementsModel.Settings(Running, lens));
         }
 
         // A field's entry: a switch is true or false, a choice its option's label, and a slider its number.
@@ -178,8 +190,10 @@ namespace CameraTools
             {
                 case EnhancementKind.Switch:
                     var on = category.CreateEntry(field.Name, field.Default != 0f, description: field.Id == Enhancement.Enabled
-                        ? "The Enhancements switch. While it is off, no effect runs."
-                        : $"The {field.Label} effect, which runs while Enabled is on.");
+                        ? "The Enhancements switch. While it is off, no effect runs but the depth of field."
+                        : field.Id == Enhancement.DepthOfField ? "CameraTools' own depth of field, which runs in the free camera whatever Enabled says."
+                        : field.IsEffect ? $"The {field.Label} effect, which runs while Enabled is on."
+                        : $"{effect}: {field.Label}, on or off.");
                     return (() => on.Value ? 1f : 0f, value => on.Value = value != 0f);
                 case EnhancementKind.Choice:
                     string fallback = field.Options[(int)field.Default];

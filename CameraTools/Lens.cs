@@ -22,6 +22,15 @@ namespace CameraTools
         public static float FocalLength(float fieldOfView, float aspect)
             => HalfDiagonal / (MathF.Tan(fieldOfView * MathF.PI / 360f) * MathF.Sqrt(1f + aspect * aspect));
 
+        // The height in mm of a full-frame diagonal's sensor in the picture's shape, as FocalLength reckons it.
+        public static float SensorHeight(float aspect) => 2f * HalfDiagonal / MathF.Sqrt(1f + aspect * aspect);
+
+        // A rail from 0 to 1 over meters from near to far on a logarithmic scale, so a near focus, where centimeters
+        // matter, gets as much of the rail as a far one.
+        public static float Meters(float rail, float near, float far) => near * MathF.Pow(far / near, rail);
+
+        public static float Rail(float meters, float near, float far) => MathF.Log(meters / near) / MathF.Log(far / near);
+
         public static float FieldOfView(float focalLength, float aspect)
             => MathF.Atan(HalfDiagonal / (focalLength * MathF.Sqrt(1f + aspect * aspect))) * 360f / MathF.PI;
 

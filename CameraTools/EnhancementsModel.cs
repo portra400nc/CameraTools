@@ -3,8 +3,9 @@ using CameraToolsEnhancements;
 
 namespace CameraTools
 {
-    // Every switch and value of the Graphics tab's Enhancements category, in the rows' order. A name is also its entry in
-    // the CameraToolsEnhancements preferences and its key in a saved preset.
+    // Every switch and value of the Graphics tab's Enhancements category, in the rows' order, and then those of CameraTools'
+    // own depth of field, whose rows are in the ReShade tab. A name is also its entry in the CameraToolsEnhancements
+    // preferences and its key in a saved preset.
     public enum Enhancement
     {
         Enabled,
@@ -16,20 +17,27 @@ namespace CameraTools
         MistSkyLight, LightShaftQuality,
         WetSurfaces, Wetness, WetDarkening, Puddles,
         ToneMap, ToneMapCurve, ToneMapExposure, ToneMapBloom, ToneMapSaturation, ToneMapContrast,
+        DepthOfField, DepthOfFieldFocusMode, DepthOfFieldFocusDistance, DepthOfFieldAperture, DepthOfFieldFocusX, DepthOfFieldFocusY, DepthOfFieldMaxBlur,
+        BokehShape, BladeRoundness, BladeRotation, SoapBubble, BokehChromaticAberration, CatsEye, Swirl, AnamorphicRatio,
+        HighlightDiscs, HighlightBoost, HighlightThreshold, BokehContrast,
     }
 
     public enum EnhancementKind { Switch, Slider, Choice }
 
     // One row of the category. A switch is 0 or 1, a choice is its option's position, and a slider is a number from Min to
     // Max with the Decimals its row shows. Effect is the switch a row sits under: the master switch for itself and for
-    // each effect's switch, and the effect's switch for the effect's own rows.
+    // each effect's switch, and the effect's switch for the effect's own rows. The depth of field's switch sits under
+    // itself, since it runs whatever the master switch says.
     public sealed record EnhancementField(Enhancement Id, EnhancementKind Kind, string Label, Enhancement Effect, float Default, float Min = 0f, float Max = 1f,
         float Step = 1f, int Decimals = 0, string Unit = "", string[] Options = null)
     {
         public string Name => Id.ToString();
 
         // One of the seven effects' switches.
-        public bool IsEffect => Kind == EnhancementKind.Switch && Id != Enhancement.Enabled;
+        public bool IsEffect => Kind == EnhancementKind.Switch && Effect == Enhancement.Enabled && Id != Enhancement.Enabled;
+
+        // One of the depth of field's, whose rows are in the ReShade tab.
+        public bool Lens => Effect == Enhancement.DepthOfField;
 
         // A slider row's number format, such as 0.00' m'.
         public string Format => "0" + (Decimals > 0 ? "." + new string('0', Decimals) : "") + (Unit.Length > 0 ? $"'{Unit}'" : "");
@@ -72,6 +80,16 @@ namespace CameraTools
 
         public bool On(Enhancement id) => values[(int)id] != 0f;
 
+        // These values with the depth of field's taken from other.
+        public EnhancementValues WithLensOf(EnhancementValues other)
+        {
+            var next = (float[])values.Clone();
+            foreach (var field in EnhancementsModel.Fields)
+                if (field.Lens)
+                    next[(int)field.Id] = other.values[(int)field.Id];
+            return next.AsSpan().SequenceEqual(values) ? this : new EnhancementValues(next);
+        }
+
         public EnhancementValues With(Enhancement id, float value)
         {
             float cleaned = EnhancementsModel.Field(id).Clean(value);
@@ -104,20 +122,38 @@ namespace CameraTools
     }
 
     // The values the add-on runs: the user's own, which the preferences keep, or those of a screenshot's preset until the
-    // screenshot puts its settings back.
+    // screenshot puts its settings back. The depth of field is always the user's own: it is part of the picture the user
+    // framed, where the preset is about quality.
     public sealed record EnhancementRun(EnhancementValues Own, EnhancementValues Shot = null)
     {
-        public EnhancementValues Running => Shot ?? Own;
+        public EnhancementValues Running => Shot?.WithLensOf(Own) ?? Own;
 
         // A screenshot's preset holds these values. A preset that holds none, or the ones that run, changes nothing.
-        public EnhancementRun Hold(EnhancementValues values) => values == null || values.Equals(Running) ? this : this with { Shot = values };
+        public EnhancementRun Hold(EnhancementValues values)
+            => values == null || values.WithLensOf(Own).Equals(Running) ? this : this with { Shot = values };
 
         public EnhancementRun Release() => Shot == null ? this : this with { Shot = null };
     }
 
+    // What the depth of field's block needs beside the values: whether the free camera is on, which it runs in only; the
+    // picture's width over its height, which gives the sensor; the miniature scale's N, which makes the sensor N times
+    // taller; and whether a screenshot is being taken, which gathers more samples.
+    public readonly record struct LensView(bool FreeCamera, float Aspect, int Miniature, bool Shot);
+
     // The Enhancements category's rules, apart from the game, the preferences and the add-on, so tests run them.
     internal static class EnhancementsModel
     {
+        // The depth of field's Focus mode: the autofocus at the focus point, or the Focus distance.
+        public const int FocusPoint = 0, ManualFocus = 1;
+        // Focus distance's range in meters.
+        public const float NearFocus = 0.3f, FarFocus = 50f;
+        // Gather samples a pixel while composing, and in a screenshot.
+        public const uint LiveSamples = 49, ShotSamples = 289;
+        // The depth of field's Aperture: the third stops the add-on takes, from f/1 to f/22.
+        public static readonly float[] Stops = Lens.Stops.Where(stop => stop >= 1f).ToArray();
+        private static readonly string[] Shapes = { "Round", "5 blades", "6 blades", "7 blades", "8 blades", "9 blades" };
+        // Aperture shape's options as blades: 0 is round.
+        private const uint FewestBlades = 5;
         // Light shafts' Quality: Low, Medium and High as samples along each ray.
         private static readonly uint[] ShaftSteps = { 24, 48, 96 };
         // Wet surfaces' Wetness: 0 follows the weather, and 1 is soaked.
@@ -166,6 +202,25 @@ namespace CameraTools
             Slider(Enhancement.ToneMapBloom, Enhancement.ToneMap, "Bloom", 0f, 2f, 1f, 0.05f, 2),
             Slider(Enhancement.ToneMapSaturation, Enhancement.ToneMap, "Saturation", 0f, 2f, 1f, 0.05f, 2),
             Slider(Enhancement.ToneMapContrast, Enhancement.ToneMap, "Contrast", 0.5f, 2f, 1f, 0.05f, 2),
+            new(Enhancement.DepthOfField, EnhancementKind.Switch, "Depth of field", Enhancement.DepthOfField, 0f),
+            Choice(Enhancement.DepthOfFieldFocusMode, Enhancement.DepthOfField, "Focus mode", FocusPoint, "Focus point", "Manual distance"),
+            Slider(Enhancement.DepthOfFieldFocusDistance, Enhancement.DepthOfField, "Focus distance", NearFocus, FarFocus, 2f, 0.01f, 2, " m"),
+            Choice(Enhancement.DepthOfFieldAperture, Enhancement.DepthOfField, "Aperture", Array.IndexOf(Stops, 2.8f), Stops.Select(stop => $"f/{stop:0.##}").ToArray()),
+            Slider(Enhancement.DepthOfFieldFocusX, Enhancement.DepthOfField, "Focus point X", -1f, 1f, 0f, 0.02f, 3),
+            Slider(Enhancement.DepthOfFieldFocusY, Enhancement.DepthOfField, "Focus point Y", -1f, 1f, 0f, 0.02f, 3),
+            Slider(Enhancement.DepthOfFieldMaxBlur, Enhancement.DepthOfField, "Max blur", 1f, 8f, 3f, 0.5f, 1),
+            Choice(Enhancement.BokehShape, Enhancement.DepthOfField, "Aperture shape", 0, Shapes),
+            Slider(Enhancement.BladeRoundness, Enhancement.DepthOfField, "Blade roundness", 0f, 1f, 0.5f, 0.05f, 2),
+            Slider(Enhancement.BladeRotation, Enhancement.DepthOfField, "Blade rotation", 0f, 90f, 0f, 1f, 0, "°"),
+            Slider(Enhancement.SoapBubble, Enhancement.DepthOfField, "Soap bubble", -1f, 1f, 0.6f, 0.05f, 2),
+            Slider(Enhancement.BokehChromaticAberration, Enhancement.DepthOfField, "Chromatic aberration", 0f, 2f, 0f, 0.05f, 2),
+            Slider(Enhancement.CatsEye, Enhancement.DepthOfField, "Cat's eye", 0f, 1f, 0f, 0.05f, 2),
+            Slider(Enhancement.Swirl, Enhancement.DepthOfField, "Swirl", 0f, 1f, 0f, 0.05f, 2),
+            Slider(Enhancement.AnamorphicRatio, Enhancement.DepthOfField, "Anamorphic ratio", 1f, 2f, 1f, 0.05f, 2, "x"),
+            new(Enhancement.HighlightDiscs, EnhancementKind.Switch, "Highlight discs", Enhancement.DepthOfField, 1f),
+            Slider(Enhancement.HighlightBoost, Enhancement.DepthOfField, "Highlight boost", 0f, 4f, 2f, 0.1f, 1),
+            Slider(Enhancement.HighlightThreshold, Enhancement.DepthOfField, "Highlight threshold", 1.5f, 4f, 2f, 0.1f, 1, "x average"),
+            Slider(Enhancement.BokehContrast, Enhancement.DepthOfField, "Bokeh contrast", 0f, 1f, 0f, 0.05f, 2),
         };
 
         public static readonly EnhancementField[] Effects = Fields.Where(field => field.IsEffect).ToArray();
@@ -173,8 +228,9 @@ namespace CameraTools
         public static EnhancementField Field(Enhancement id) => Fields[(int)id];
 
         // What the add-on runs for these values. The path tracer has no row, so its trace and gather stay off, and every
-        // other field without a row keeps the add-on's default.
-        public static EnhancementsSettings Settings(EnhancementValues values)
+        // other field without a row keeps the add-on's default. The depth of field runs also while the master switch is
+        // off, and then alone.
+        public static EnhancementsSettings Settings(EnhancementValues values, LensView lens)
         {
             uint Bit(Enhancement id) => values.On(id) ? 1u : 0u;
             var settings = EnhancementsSettings.Defaults;
@@ -218,7 +274,51 @@ namespace CameraTools
             settings.Tonemap.Contrast = values[Enhancement.ToneMapContrast];
             settings.Trace.Enabled = 0;
             settings.Gather.Enabled = 0;
+            settings.DepthOfField = DepthOfField(values, lens);
+            if (settings.Enabled == 0 && settings.DepthOfField.Enabled != 0)
+            {
+                settings.Enabled = 1;
+                settings.Ambient.Enabled = 0;
+                settings.ContactShadows.Enabled = 0;
+                settings.SunShadows.Enabled = 0;
+                settings.Atmosphere.Enabled = 0;
+                settings.LightShafts.Enabled = 0;
+                settings.Wetness.Enabled = 0;
+                settings.Tonemap.Enabled = 0;
+            }
             return settings;
+        }
+
+        // The depth of field's block. The sensor is the one the focal length readout assumes, a full-frame diagonal in the
+        // picture's shape, so the readout's millimeters and the blur describe the same lens; N times taller, the whole
+        // lens grows with it and images as a 1:N miniature. The focus point's rows run from -1 at the left and the top to
+        // 1, the add-on's from 0 at the top left. Max blur is the largest disc's radius in hundredths of the picture's
+        // height.
+        public static EnhancementsDepthOfField DepthOfField(EnhancementValues values, LensView lens)
+        {
+            var dof = EnhancementsSettings.Defaults.DepthOfField;
+            dof.Enabled = values.On(Enhancement.DepthOfField) && lens.FreeCamera ? 1u : 0u;
+            dof.FNumber = Stops[(int)values[Enhancement.DepthOfFieldAperture]];
+            dof.SensorHeightMm = Lens.SensorHeight(lens.Aspect) * Math.Max(lens.Miniature, 1);
+            dof.FocusDistance = values[Enhancement.DepthOfFieldFocusMode] == ManualFocus ? values[Enhancement.DepthOfFieldFocusDistance] : 0f;
+            dof.FocusX = (values[Enhancement.DepthOfFieldFocusX] + 1f) * 0.5f;
+            dof.FocusY = (values[Enhancement.DepthOfFieldFocusY] + 1f) * 0.5f;
+            dof.MaxBlur = values[Enhancement.DepthOfFieldMaxBlur] / 100f;
+            int shape = (int)values[Enhancement.BokehShape];
+            dof.Blades = shape == 0 ? 0u : FewestBlades + (uint)shape - 1u;
+            dof.BladeRoundness = values[Enhancement.BladeRoundness];
+            dof.BladeRotation = values[Enhancement.BladeRotation];
+            dof.SphericalAberration = values[Enhancement.SoapBubble];
+            dof.Chromatic = values[Enhancement.BokehChromaticAberration];
+            dof.CatEye = values[Enhancement.CatsEye];
+            dof.Swirl = values[Enhancement.Swirl];
+            dof.Anamorphic = values[Enhancement.AnamorphicRatio];
+            dof.Scatter = values.On(Enhancement.HighlightDiscs) ? 1u : 0u;
+            dof.HighlightGain = values[Enhancement.HighlightBoost];
+            dof.HighlightThreshold = values[Enhancement.HighlightThreshold];
+            dof.BokehContrast = values[Enhancement.BokehContrast];
+            dof.Samples = lens.Shot ? ShotSamples : LiveSamples;
+            return dof;
         }
 
         // A folded category shows only its heading. Open, every switch shows, and an effect's own rows show while its

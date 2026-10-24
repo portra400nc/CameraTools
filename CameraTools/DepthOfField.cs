@@ -1,13 +1,16 @@
+using CameraToolsEnhancements;
 using MelonLoader;
 using UnityEngine;
 using static CameraTools.CameraTools;
 
 namespace CameraTools
 {
-    // The ReShade tab's depth of field rows and the focus point on the free camera's HUD. It is the only class that names
-    // the uniforms of the depth of field shaders: iMMERSE's, and Otis_Inf's free Cinematic DOF. With both installed the
-    // Shader row picks the one the rows drive, and only that one renders. Every value is read from the bridge each frame
-    // while the free camera is on, so what the rows show is what ReShade has, also after ReShade loads its effects again.
+    // The ReShade tab's depth of field rows and the focus point on the free camera's HUD. Three shaders blur: CameraTools'
+    // own, which the Enhancements add-on runs from EnhancementsControl's values without any ReShade effect, and ReShade's
+    // iMMERSE and Otis_Inf's free Cinematic DOF, whose uniforms only this class names. With more than one installed the
+    // Shader row picks the one the rows drive, and only that one renders. The ReShade shaders' values are read from the
+    // bridge each frame while the free camera is on, so what the rows show is what ReShade has, also after ReShade loads
+    // its effects again.
     internal static class DepthOfField
     {
         private const int ManualFocus = 0;
@@ -25,6 +28,15 @@ namespace CameraTools
         private const float PixelRange = 0.03f;
         // Cinematic DOF eases its focus by a fraction per frame, so the wait for it assumes a slow screenshot's frame rate.
         private const float SlowFrameRate = 8f;
+        // The add-on's autofocus reads the nearest of 3x3 depths 1% of the height apart; the marker's square frames them.
+        private const float OwnRange = 0.03f;
+        // The add-on's autofocus has focused once its distance has stayed within this share for FocusStill seconds. A
+        // screenshot waits for that at most FocusLimit seconds, since the focus on swaying grass never holds still.
+        private const float FocusTolerance = 0.005f;
+        private const float FocusStill = 0.5f;
+        private const float FocusLimit = 5f;
+        // Of the Focus distance row's logarithmic rail: 200 steps from near to far.
+        private const float RailStep = 0.005f;
 
         private enum Kind { Technique, Int, Float, Float2 }
 
@@ -185,7 +197,16 @@ namespace CameraTools
             (Id.TiltDirection, new("TiltShiftDirection", Kind.Float)));
 
         private static readonly Shader[] Shaders = { Immerse, Cinematic };
-        private static readonly string[] ShaderLabels = Shaders.Select(shader => shader.Label).ToArray();
+
+        // One of the Shader row's choices, the preference's value Key; Shader is null for CameraTools' own.
+        private sealed record Choice(string Label, string Key, Shader Shader);
+
+        private static readonly Choice Own = new("CameraTools", "CameraTools", null);
+        private static readonly Choice[] Choices = { Own, new(Immerse.Label, Immerse.File, Immerse), new(Cinematic.Label, Cinematic.File, Cinematic) };
+        // By a mask of the installed choices, bit i for Choices[i]: those choices, and their labels for the Shader row.
+        private static readonly Choice[][] InstalledBy = Enumerable.Range(0, 1 << Choices.Length)
+            .Select(mask => Choices.Where((_, at) => (mask >> at & 1) != 0).ToArray()).ToArray();
+        private static readonly string[][] LabelsBy = InstalledBy.Select(choices => choices.Select(choice => choice.Label).ToArray()).ToArray();
         // Focus mode's options, as FOCUS_MODE values. iMMERSE's own click-to-focus mode is not offered: it keeps the
         // clicked point in a texture that a resize recreates, where the focus point is a uniform that the preset saves.
         private static readonly int[] Modes = { PointFocus, ManualFocus };
@@ -210,52 +231,86 @@ namespace CameraTools
         private static float paintUntil;
         // CameraTools turned the focus plane's paint on and has not seen it off since.
         private static bool painting;
+        // The add-on's autofocus distance, and since when it has held there.
+        private static float focusMeters;
+        private static float focusSince;
 
         public static readonly Row[] Rows =
         {
             new Section("Depth of field", () => Problem),
-            new ChoiceRow("Shader", ShaderLabels, () => Array.IndexOf(Shaders, Current), position => Choose(Shaders[position]), null)
+            new ChoiceRow("Shader", LabelsBy[0], () => Array.IndexOf(InstalledBy[InstalledMask], Selected), position => Choose(InstalledBy[InstalledMask][position]), null)
             {
-                Shown = () => Immerse.Known(Id.Technique) && Cinematic.Known(Id.Technique),
+                Shown = () => InstalledBy[InstalledMask].Length > 1,
+                LiveOptions = () => LabelsBy[InstalledMask],
             },
-            new ToggleRow("Depth of field", () => Value(Id.Technique) != 0f, on => Change(Id.Technique, on ? 1f : 0f), Has(Id.Technique)),
-            new ChoiceRow("Focus mode", ModeLabels, () => Known(Id.FocusMode) ? Array.IndexOf(Modes, Mode) : -1,
-                position => Change(Id.FocusMode, Modes[position]), null, Has(Id.FocusMode)),
-            new SliderRow("Focus distance", 0.002f, 1f, 0.002f, "0.000", () => Value(Id.FocusDepth), depth => Repaint(Id.FocusDepth, depth),
-                Enabled: () => Known(Id.FocusDepth) && Mode == ManualFocus),
-            new ChoiceRow("Aperture", StopLabels, () => Known(Id.Aperture) ? Lens.NearestStop(Value(Id.Aperture)) : -1,
-                position => Change(Id.Aperture, Lens.Stops[position]), null, Has(Id.Aperture)),
-            new SliderRow("Focal length", MinFocalLength, MaxFocalLength, 1f, "0' mm'", () => FocalLength, SetFocalLength,
-                Enabled: Has(Id.FocalLength)),
-            new ToggleRow("Link focal length to field of view", () => Linked, on => Linked = on),
+            Theirs(new ToggleRow("Depth of field", () => Value(Id.Technique) != 0f, on => Change(Id.Technique, on ? 1f : 0f), Has(Id.Technique))),
+            Mine(new ToggleRow("Depth of field", () => OwnOn, on => SetOwn(Enhancement.DepthOfField, on ? 1f : 0f))),
+            Theirs(new ChoiceRow("Focus mode", ModeLabels, () => Known(Id.FocusMode) ? Array.IndexOf(Modes, Mode) : -1,
+                position => Change(Id.FocusMode, Modes[position]), null, Has(Id.FocusMode))),
+            Mine(OwnChoice(Enhancement.DepthOfFieldFocusMode)),
+            Theirs(new SliderRow("Focus distance", 0.002f, 1f, 0.002f, "0.000", () => Value(Id.FocusDepth), depth => Repaint(Id.FocusDepth, depth),
+                Enabled: () => Known(Id.FocusDepth) && Mode == ManualFocus)),
+            Mine(new SliderRow("Focus distance", 0f, 1f, RailStep, "0.000",
+                () => Lens.Rail(Values[Enhancement.DepthOfFieldFocusDistance], EnhancementsModel.NearFocus, EnhancementsModel.FarFocus),
+                rail => SetOwn(Enhancement.DepthOfFieldFocusDistance, Lens.Meters(rail, EnhancementsModel.NearFocus, EnhancementsModel.FarFocus)),
+                Display: rail => Lens.Meters(rail, EnhancementsModel.NearFocus, EnhancementsModel.FarFocus).ToString("0.00' m'"))
+            {
+                Shown = () => OwnMode == EnhancementsModel.ManualFocus,
+            }),
+            Theirs(new ChoiceRow("Aperture", StopLabels, () => Known(Id.Aperture) ? Lens.NearestStop(Value(Id.Aperture)) : -1,
+                position => Change(Id.Aperture, Lens.Stops[position]), null, Has(Id.Aperture))),
+            Mine(OwnChoice(Enhancement.DepthOfFieldAperture)),
+            Theirs(new SliderRow("Focal length", MinFocalLength, MaxFocalLength, 1f, "0' mm'", () => FocalLength, SetFocalLength,
+                Enabled: Has(Id.FocalLength))),
+            // Always the view's own: the slider zooms the camera, as the zoom keys do.
+            Mine(new SliderRow("Focal length", MinFocalLength, MaxFocalLength, 1f, "0' mm'", () => SettingFocalLength,
+                focalLength => settings.Fov.Value = Lens.FieldOfView(focalLength, Aspect))),
+            Theirs(new ToggleRow("Link focal length to field of view", () => Linked, on => Linked = on)),
             new ToggleRow("Show focus point", () => ShowMarker, on => ShowMarker = on),
-            new SliderRow("Focus point X", -1f, 1f, 0.02f, "0.00", () => Value(Id.FocusPoint),
-                x => Change(Id.FocusPoint, x, Current.Cells[(int)Id.FocusPoint].Y), Enabled: () => Aiming),
-            new SliderRow("Focus point Y", -1f, 1f, 0.02f, "0.00", () => Current.Cells[(int)Id.FocusPoint].Y,
-                y => Change(Id.FocusPoint, Value(Id.FocusPoint), y), Enabled: () => Aiming),
-            new ChoiceRow("Miniature scale", ScaleLabels, () => Known(Id.NearPlane) ? Array.IndexOf(Scales, Miniature) : -1,
-                position => Miniature = Scales[position], null, Has(Id.NearPlane))
+            Theirs(new SliderRow("Focus point X", -1f, 1f, 0.02f, "0.00", () => Value(Id.FocusPoint),
+                x => Change(Id.FocusPoint, x, Current.Cells[(int)Id.FocusPoint].Y), Enabled: () => Aiming)),
+            Mine(OwnSlider(Enhancement.DepthOfFieldFocusX, x => x.ToString("0.00"), 0.02f) with { Shown = () => OwnMode == EnhancementsModel.FocusPoint }),
+            Theirs(new SliderRow("Focus point Y", -1f, 1f, 0.02f, "0.00", () => Current.Cells[(int)Id.FocusPoint].Y,
+                y => Change(Id.FocusPoint, Value(Id.FocusPoint), y), Enabled: () => Aiming)),
+            Mine(OwnSlider(Enhancement.DepthOfFieldFocusY, y => y.ToString("0.00"), 0.02f) with { Shown = () => OwnMode == EnhancementsModel.FocusPoint }),
+            new ChoiceRow("Miniature scale", ScaleLabels, () => Ours || Known(Id.NearPlane) ? Array.IndexOf(Scales, Miniature) : -1,
+                position => Miniature = Scales[position], null, () => Ours || Known(Id.NearPlane))
             {
-                Shown = () => Current.Offers(Id.NearPlane),
+                Shown = () => Ours || Current.Offers(Id.NearPlane),
             },
-            new SliderRow("Max blur", 1f, 8f, 0.5f, "0.0", () => Value(Id.FarBlur), SetMaxBlur, Enabled: Has(Id.FarBlur))
+            Theirs(new SliderRow("Max blur", 1f, 8f, 0.5f, "0.0", () => Value(Id.FarBlur), SetMaxBlur, Enabled: Has(Id.FarBlur))
             {
                 Shown = () => Current.Offers(Id.FarBlur),
-            },
-            new SliderRow("Tilt", -15f, 15f, 0.5f, "0.0'°'", () => Value(Id.TiltAngle), tilt => Repaint(Id.TiltAngle, tilt),
+            }),
+            Mine(OwnSlider(Enhancement.DepthOfFieldMaxBlur)),
+            Theirs(new SliderRow("Tilt", -15f, 15f, 0.5f, "0.0'°'", () => Value(Id.TiltAngle), tilt => Repaint(Id.TiltAngle, tilt),
                 Display: tilt => tilt == 0f ? "Off" : tilt.ToString("0.0'°'"), Enabled: Has(Id.TiltAngle))
             {
                 Shown = () => Current.Offers(Id.TiltAngle),
-            },
-            new SliderRow("Tilt direction", -90f, 90f, 5f, "0'°'", () => Value(Id.TiltDirection), direction => Repaint(Id.TiltDirection, direction),
+            }),
+            Theirs(new SliderRow("Tilt direction", -90f, 90f, 5f, "0'°'", () => Value(Id.TiltDirection), direction => Repaint(Id.TiltDirection, direction),
                 Enabled: () => Known(Id.TiltDirection) && Tilted)
             {
                 Shown = () => Current.Offers(Id.TiltDirection),
-            },
-            new Section("Bokeh shape"),
-            Shape("Tangential scale", Id.Tangential, -3f, 3f),
-            Shape("Sagittal scale", Id.Sagittal, -3f, 3f),
-            Shape("Anamorphic ratio", Id.Anamorph, 1f, 3f),
+            }),
+            Theirs(new Section("Bokeh shape")),
+            Theirs(Shape("Tangential scale", Id.Tangential, -3f, 3f)),
+            Theirs(Shape("Sagittal scale", Id.Sagittal, -3f, 3f)),
+            Theirs(Shape("Anamorphic ratio", Id.Anamorph, 1f, 3f)),
+            Mine(new Section("Bokeh")),
+            Mine(OwnChoice(Enhancement.BokehShape)),
+            Mine(OwnSlider(Enhancement.BladeRoundness) with { Shown = () => Values[Enhancement.BokehShape] != 0f }),
+            Mine(OwnSlider(Enhancement.BladeRotation) with { Shown = () => Values[Enhancement.BokehShape] != 0f }),
+            Mine(OwnSlider(Enhancement.SoapBubble, OffAt(Enhancement.SoapBubble, 0f))),
+            Mine(OwnSlider(Enhancement.BokehChromaticAberration, OffAt(Enhancement.BokehChromaticAberration, 0f))),
+            Mine(OwnSlider(Enhancement.CatsEye, OffAt(Enhancement.CatsEye, 0f))),
+            Mine(OwnSlider(Enhancement.Swirl, OffAt(Enhancement.Swirl, 0f))),
+            Mine(OwnSlider(Enhancement.AnamorphicRatio, OffAt(Enhancement.AnamorphicRatio, 1f))),
+            Mine(new Section("Highlights")),
+            Mine(new ToggleRow("Highlight discs", () => DiscsOn, on => SetOwn(Enhancement.HighlightDiscs, on ? 1f : 0f))),
+            Mine(OwnSlider(Enhancement.HighlightBoost, OffAt(Enhancement.HighlightBoost, 0f)) with { Enabled = () => DiscsOn }),
+            Mine(OwnSlider(Enhancement.HighlightThreshold) with { Enabled = () => DiscsOn }),
+            Mine(OwnSlider(Enhancement.BokehContrast, OffAt(Enhancement.BokehContrast, 0f))),
         };
 
         public static bool Linked
@@ -289,31 +344,75 @@ namespace CameraTools
             }
         }
 
-        // The shader the rows drive. With both installed, it is the one that is on, and otherwise the one last chosen.
-        private static Shader Current
+        // The choice the rows drive: of the installed ones that are on, the chosen one or else the first; with none on, the
+        // chosen one while it is installed or nothing is, and else the first installed.
+        private static Choice Selected
         {
             get
             {
-                if (!Cinematic.Known(Id.Technique))
-                    return Immerse;
-                if (!Immerse.Known(Id.Technique) || Cinematic.On && !Immerse.On)
-                    return Cinematic;
-                return Immerse.On && !Cinematic.On || choice.Value != Cinematic.File ? Immerse : Cinematic;
+                var chosen = Array.Find(Choices, each => each.Key == choice.Value) ?? Own;
+                Choice firstOn = null, firstInstalled = null;
+                foreach (var each in Choices)
+                {
+                    if (!Installed(each))
+                        continue;
+                    firstInstalled ??= each;
+                    if (!IsOn(each))
+                        continue;
+                    if (each == chosen)
+                        return each;
+                    firstOn ??= each;
+                }
+                return firstOn ?? (firstInstalled == null || Installed(chosen) ? chosen : firstInstalled);
             }
         }
 
+        private static bool Ours => Selected == Own;
+
+        // The ReShade shader the rows drive while one is selected; its rows hide while CameraTools' own is.
+        private static Shader Current => Selected.Shader ?? Immerse;
+
+        private static int InstalledMask
+        {
+            get
+            {
+                int mask = 0;
+                for (int at = 0; at < Choices.Length; at++)
+                    mask |= Installed(Choices[at]) ? 1 << at : 0;
+                return mask;
+            }
+        }
+
+        // CameraTools' own is there while the add-on is, and a ReShade shader while ReShade has loaded it.
+        private static bool Installed(Choice choice) => choice.Shader?.Known(Id.Technique) ?? Enhancements.Connected;
+
+        private static bool IsOn(Choice choice) => choice.Shader?.On ?? OwnOn;
+
+        private static EnhancementValues Values => EnhancementsControl.Values;
+
+        private static bool OwnOn => Values.On(Enhancement.DepthOfField);
+
+        private static int OwnMode => (int)Values[Enhancement.DepthOfFieldFocusMode];
+
+        private static bool DiscsOn => Values.On(Enhancement.HighlightDiscs);
+
         // The focus point decides the focus, with its point readable: in the autofocus mode, or as the pivot of a tilted
         // plane in focus, also at a manual distance.
-        private static bool Aiming => Known(Id.FocusPoint) && (!Current.Offers(Id.FocusRange) || Known(Id.FocusRange)) && (Mode == PointFocus || Tilted);
+        private static bool Aiming => Ours ? OwnMode == EnhancementsModel.FocusPoint
+            : Known(Id.FocusPoint) && (!Current.Offers(Id.FocusRange) || Known(Id.FocusRange)) && (Mode == PointFocus || Tilted);
 
         private static bool Tilted => Known(Id.TiltAngle) && Value(Id.TiltAngle) != 0f;
 
-        private static float Range => Current.Offers(Id.FocusRange) ? Value(Id.FocusRange) : PixelRange;
+        private static float Range => Ours ? OwnRange : Current.Offers(Id.FocusRange) ? Value(Id.FocusRange) : PixelRange;
 
-        // The focus point can be seen and moved while the depth of field is one of ReShade's effects, also with ReShade's
-        // global switch off: effects cost frame rate, and the point is set for the screenshot, which turns them on.
-        // With the marker switched off, the stick and the click do not move a point that cannot be seen.
-        private static bool Marked => ShowMarker && Aiming && Value(Id.Technique) != 0f;
+        // The focus point from -1 at the left and the top to 1.
+        private static (float X, float Y) Point => Ours ? (Values[Enhancement.DepthOfFieldFocusX], Values[Enhancement.DepthOfFieldFocusY])
+            : (Current.Cells[(int)Id.FocusPoint].X, Current.Cells[(int)Id.FocusPoint].Y);
+
+        // The focus point can be seen and moved while the depth of field is on, also with ReShade's global switch off for
+        // ReShade's: effects cost frame rate, and the point is set for the screenshot, which turns them on. With the
+        // marker switched off, the stick and the click do not move a point that cannot be seen.
+        private static bool Marked => ShowMarker && Aiming && (Ours ? OwnOn : Value(Id.Technique) != 0f);
 
         // Back with the right stick moves the focus point, so the camera does not also turn. A binding is a chord of
         // buttons or one stick direction and never both, so the pad is read here, as the panel's navigation reads it.
@@ -321,30 +420,49 @@ namespace CameraTools
             && (Gamepad.Current.Buttons & PadButtons.Back) != 0;
 
         // The focus plane's paint is on, or may be: a set has not read back yet, or ReShade has only just loaded its
-        // effects and their values have not arrived.
+        // effects and their values have not arrived. The add-on has no such paint.
         public static bool Painting
         {
             get
             {
+                if (Ours)
+                    return false;
                 var debug = Current.Cells[(int)Id.FocusDebug];
                 return ready && presents < settled || debug.Known && (debug.X != 0f || presents < debug.Until);
             }
         }
 
-        // How long the shader must render before its focus has arrived, for the screenshot. Manual distance and
-        // click-to-focus do not ease.
+        // How long a ReShade shader must render before its focus has arrived, for the screenshot; the add-on's does not
+        // start again when ReShade's effects do. Manual distance and click-to-focus do not ease.
         public static float FocusSeconds
         {
             get
             {
                 var shader = Current;
-                if (!shader.On || Known(Id.FocusMode) && Mode != PointFocus)
+                if (Ours || !shader.On || Known(Id.FocusMode) && Mode != PointFocus)
                     return 0f;
                 return shader.FocusSeconds(Known(Id.FocusSpeed) ? Value(Id.FocusSpeed) : shader.DefaultSpeed) + FocusMargin;
             }
         }
 
-        private static string Problem => !ReShade.Connected ? ReShade.Missing
+        // Whether the depth of field has focused, elapsed seconds after ReShade began drawing at the screenshot's size:
+        // CameraTools' own once the add-on's autofocus has held still, or at FocusLimit, and a ReShade shader after its
+        // autofocus's time.
+        public static bool Focused(float elapsed)
+        {
+            if (!Ours)
+                return elapsed >= FocusSeconds;
+            if (!OwnOn || !Enhancements.Connected || OwnMode != EnhancementsModel.FocusPoint || elapsed >= FocusLimit)
+                return true;
+            return focusMeters > 0f && elapsed >= FocusStill && Time.unscaledTime - focusSince >= FocusStill;
+        }
+
+        // What the add-on's depth of field block is made for: it runs in the free camera, its sensor follows the
+        // picture's shape and the miniature scale, and a screenshot gathers more samples.
+        public static LensView Frame => new(freecamActive, Aspect, Miniature, Screenshot.State is not ShotState.Idle);
+
+        private static string Problem => Ours ? Enhancements.Missing
+            : !ReShade.Connected ? ReShade.Missing
             : !ready ? "ReShade is loading its effects"
             : !Known(Id.Technique) ? "Depth of field shader not loaded"
             : null;
@@ -360,12 +478,13 @@ namespace CameraTools
         public static float ViewFocalLength => Lens.FocalLength(freecam.Pose.Fov, Aspect);
 
         // The f-number the depth of field blurs with while it is on, or null while it is off or unknown.
-        public static float? Aperture => ReShade.Connected && Current.On && Known(Id.Aperture) ? Value(Id.Aperture) : null;
+        public static float? Aperture => Ours ? OwnOn && Enhancements.Connected ? EnhancementsModel.Stops[(int)Values[Enhancement.DepthOfFieldAperture]] : null
+            : ReShade.Connected && Current.On && Known(Id.Aperture) ? Value(Id.Aperture) : null;
 
         // While linked, the row shows the field of view setting, and the shader follows the camera's smoothed one to it.
-        private static float FocalLength => Linked
-            ? Math.Min(Lens.FocalLength(settings.Fov.Value, Aspect), MaxFocalLength)
-            : Value(Id.FocalLength);
+        private static float FocalLength => Linked ? SettingFocalLength : Value(Id.FocalLength);
+
+        private static float SettingFocalLength => Math.Min(Lens.FocalLength(settings.Fov.Value, Aspect), MaxFocalLength);
 
         public static void Load()
         {
@@ -374,10 +493,10 @@ namespace CameraTools
                 description: "Keep the depth of field's focal length and the free camera's field of view in step, as on a full-frame camera.");
             marker = category.CreateEntry("ShowFocusPoint", true,
                 description: "Draw the depth of field's focus point on the picture in Focus point mode.");
-            choice = category.CreateEntry("DepthOfFieldShader", Immerse.File,
-                description: $"The depth of field shader the ReShade tab drives while both are installed: {Immerse.File} or {Cinematic.File}.");
+            choice = category.CreateEntry("DepthOfFieldShader", Own.Key,
+                description: $"The depth of field the ReShade tab drives while more than one is installed: {string.Join(", ", Choices.Select(each => each.Key))}.");
             miniature = category.CreateEntry("MiniatureScale", 1,
-                description: $"Cinematic DOF blurs the scene as a 1:N model: {string.Join(", ", Scales)}. 1 is real size.");
+                description: $"CameraTools' depth of field and Cinematic DOF blur the scene as a 1:N model: {string.Join(", ", Scales)}. 1 is real size.");
             MelonPreferences.Save();
         }
 
@@ -386,7 +505,7 @@ namespace CameraTools
         {
             if (!Marked)
                 return null;
-            var point = Current.Cells[(int)Id.FocusPoint];
+            var point = Point;
             return Lens.FocusWindow(point.X, point.Y, Range, aspect);
         }
 
@@ -421,10 +540,11 @@ namespace CameraTools
                     for (int index = 0; index < shader.Cells.Length; index++)
                         shader.Read(index);
                 Exclude();
-                Steer();
-                Click();
-                Follow();
-                Paint(now);
+                if (!Ours)
+                {
+                    Follow();
+                    Paint(now);
+                }
             }
             else
             {
@@ -435,11 +555,68 @@ namespace CameraTools
                 Force();
                 Clear();
             }
+            if (freecamActive)
+            {
+                Steer();
+                Click();
+                Watch(now);
+            }
             // The panel's changes are saved when it closes, and changes made outside it once they stop. A screenshot in
             // progress is left alone: it saved before it started.
             if (dirty && !panel && Screenshot.State is ShotState.Idle && (panelWas || !active || now - changed >= SaveDelay))
                 Save();
             panelWas = panel;
+        }
+
+        // The add-on's focus distance read back, and since when it has stayed within FocusTolerance of focusMeters.
+        private static void Watch(float now)
+        {
+            float meters = Enhancements.Connected ? Enhancements.Status.DofFocusMeters : 0f;
+            if (meters > 0f && MathF.Abs(meters - focusMeters) <= FocusTolerance * focusMeters)
+                return;
+            focusMeters = meters;
+            focusSince = now;
+        }
+
+        private static void SetOwn(Enhancement id, float value) => EnhancementsControl.Set(Values.With(id, value));
+
+        private static void SetPoint(float x, float y)
+        {
+            if (Ours)
+                EnhancementsControl.Set(Values.With(Enhancement.DepthOfFieldFocusX, x).With(Enhancement.DepthOfFieldFocusY, y));
+            else
+                Change(Id.FocusPoint, x, y);
+        }
+
+        // A row of CameraTools' own from its field in EnhancementsModel.
+        private static SliderRow OwnSlider(Enhancement id, Func<float, string> display = null, float? step = null)
+        {
+            var field = EnhancementsModel.Field(id);
+            return new SliderRow(field.Label, field.Min, field.Max, step ?? field.Step, field.Format, () => Values[id], value => SetOwn(id, value), Display: display);
+        }
+
+        private static ChoiceRow OwnChoice(Enhancement id)
+        {
+            var field = EnhancementsModel.Field(id);
+            return new ChoiceRow(field.Label, field.Options, () => (int)Values[id], position => SetOwn(id, position), null);
+        }
+
+        // Off at the value that leaves the bokeh as it is, and else the field's number.
+        private static Func<float, string> OffAt(Enhancement id, float off)
+        {
+            string format = EnhancementsModel.Field(id).Format;
+            return value => value == off ? "Off" : value.ToString(format);
+        }
+
+        // A row that shows only while CameraTools' own is selected, or only while a ReShade shader is, besides its own Shown.
+        private static Row Mine(Row row) => Only(row, () => Ours);
+
+        private static Row Theirs(Row row) => Only(row, () => !Ours);
+
+        private static Row Only(Row row, Func<bool> selected)
+        {
+            var shown = row.Shown;
+            return row with { Shown = shown == null ? selected : () => selected() && shown() };
         }
 
         // A change the user made, which is saved to the preset later. A held mouse drag sets its slider every frame, so
@@ -480,30 +657,40 @@ namespace CameraTools
                 Array.Clear(shader.Cells);
         }
 
-        // Choosing the other shader while the depth of field is on switches the chosen one on and the other off.
-        private static void Choose(Shader next)
+        // Choosing another shader while the depth of field is on switches the chosen one on and the other off.
+        private static void Choose(Choice next)
         {
-            var previous = Current;
-            choice.Value = next.File;
+            var previous = Selected;
+            choice.Value = next.Key;
             MelonPreferences.Save();
-            if (next == previous || !previous.On)
+            if (next == previous || !IsOn(previous))
                 return;
             StopPainting();
-            Change(previous, Id.Technique, 0f);
-            Change(next, Id.Technique, 1f);
+            SetOn(previous, false);
+            SetOn(next, true);
         }
 
-        // Only one depth of field renders: one switched on in ReShade's overlay beside the other turns the other off.
+        private static void SetOn(Choice target, bool on)
+        {
+            if (target.Shader == null)
+                SetOwn(Enhancement.DepthOfField, on ? 1f : 0f);
+            else
+                Change(target.Shader, Id.Technique, on ? 1f : 0f);
+        }
+
+        // Only one depth of field renders: one switched on beside the selected one, as in ReShade's overlay, turns off.
         private static void Exclude()
         {
-            var shader = Current;
-            foreach (var other in Shaders)
-                if (other != shader && shader.On && other.On)
-                    Change(other, Id.Technique, 0f);
+            var selected = Selected;
+            bool on = IsOn(selected);
+            if (on)
+                foreach (var other in Choices)
+                    if (other != selected && Installed(other) && IsOn(other))
+                        SetOn(other, false);
             Force();
-            if (shader.On && Immerse.Known(Id.Technique) && Cinematic.Known(Id.Technique) && choice.Value != shader.File)
+            if (on && InstalledBy[InstalledMask].Length > 1 && choice.Value != selected.Key)
             {
-                choice.Value = shader.File;
+                choice.Value = selected.Key;
                 MelonPreferences.Save();
             }
         }
@@ -537,15 +724,15 @@ namespace CameraTools
 
         private static void Steer()
         {
-            var point = Current.Cells[(int)Id.FocusPoint];
+            var point = Point;
             if (Marked && CameraUi.View == View.Hud && Controls.Pressed(CamAction.CenterFocusPoint))
-                Change(Id.FocusPoint, 0f, 0f);
+                SetPoint(0f, 0f);
             else if (Steering)
             {
                 var pad = Gamepad.Current;
                 float step = SteerSpeed * Time.unscaledDeltaTime;
                 // The stick's up is positive, and the point's up is negative.
-                Change(Id.FocusPoint, Math.Clamp(point.X + pad.RightX * step, -1f, 1f), Math.Clamp(point.Y - pad.RightY * step, -1f, 1f));
+                SetPoint(Math.Clamp(point.X + pad.RightX * step, -1f, 1f), Math.Clamp(point.Y - pad.RightY * step, -1f, 1f));
             }
         }
 
@@ -560,7 +747,7 @@ namespace CameraTools
             if (CameraUi.View != View.Hud
                 && (CameraUi.View != View.Panel || Controls.TextCapture || CameraUi.OverPanel(new Vector2 { x = mouse.x, y = mouse.y })))
                 return;
-            Change(Id.FocusPoint, Math.Clamp(mouse.x / Screen.width * 2f - 1f, -1f, 1f), Math.Clamp(1f - mouse.y / Screen.height * 2f, -1f, 1f));
+            SetPoint(Math.Clamp(mouse.x / Screen.width * 2f - 1f, -1f, 1f), Math.Clamp(1f - mouse.y / Screen.height * 2f, -1f, 1f));
         }
 
         // Rounded to a tenth of a millimetre, so the tail of the camera's smoothing does not set and save it forever.

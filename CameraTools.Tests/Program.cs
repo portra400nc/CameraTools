@@ -179,14 +179,19 @@ Check("at the timeout a frame traced from 16 samples or more is saved as it is; 
     && !TracedShot.SaveAsIs(ShotPhase.Capturing, 5, Status(EnhancementsTraceState.Ready, 5, samples: 40))
     && !TracedShot.SaveAsIs(ShotPhase.Done, 5, Status(EnhancementsTraceState.Ready, 5, samples: 40)));
 
-// The Enhancements category: its table, its values, and what the add-on gets for them.
+// The Enhancements category: its table, its values, and what the add-on gets for them. Outside the free camera the depth of
+// field does not run; in it, on a 16:10 picture at real size.
 EnhancementField Field(Enhancement id) => EnhancementsModel.Field(id);
 var fresh = EnhancementValues.Defaults;
-Check("the table holds 38 fields, each at its own id's place, with the master switch and seven effects' switches",
-    EnhancementsModel.Fields.Length == 38 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
+var outside = new LensView(false, 1.6f, 1, false);
+var inside = new LensView(true, 1.6f, 1, false);
+EnhancementsSettings Settings(EnhancementValues values) => EnhancementsModel.Settings(values, outside);
+Check("the table holds 57 fields, each at its own id's place, with the master switch and seven effects' switches, and 19 of the depth of field",
+    EnhancementsModel.Fields.Length == 57 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
+    && EnhancementsModel.Fields.Count(field => field.Lens) == 19
     && string.Join(",", EnhancementsModel.Effects.Select(field => field.Label)) == "Ambient light,Contact shadows,Soft sun shadows,Haze,Light shafts,Wet surfaces,Tone map");
 {
-    var off = EnhancementsModel.Settings(fresh);
+    var off = Settings(fresh);
     Check("everything is off by default, the add-on's master switch too, and the path tracer has no part",
         !fresh.On(Enhancement.Enabled) && EnhancementsModel.Effects.All(field => !fresh.On(field.Id)) && off.Enabled == 0 && off.Ambient.Enabled == 0
         && off.ContactShadows.Enabled == 0 && off.SunShadows.Enabled == 0 && off.Atmosphere.Enabled == 0 && off.LightShafts.Enabled == 0 && off.Wetness.Enabled == 0
@@ -212,30 +217,30 @@ Check("the table holds 38 fields, each at its own id's place, with the master sw
         .With(Enhancement.WetSurfaces, 1).With(Enhancement.Wetness, 3).With(Enhancement.WetDarkening, 0.5f).With(Enhancement.Puddles, 0.75f)
         .With(Enhancement.ToneMap, 1).With(Enhancement.ToneMapCurve, 2).With(Enhancement.ToneMapExposure, -1.5f).With(Enhancement.ToneMapBloom, 0f)
         .With(Enhancement.ToneMapSaturation, 1.25f).With(Enhancement.ToneMapContrast, 1.75f);
-    var on = EnhancementsModel.Settings(set);
+    var on = Settings(set);
     Check("the master switch and Ambient light's rows reach the add-on's ambient block",
         on.Enabled == 1 && on.Ambient is { Enabled: 1, Level: 1.25f, AoStrength: 0.8f, AoRadius: 2.5f, FoliageAoStrength: 0.2f });
     Check("Contact shadows' and Soft sun shadows' rows reach theirs", on.ContactShadows is { Enabled: 1, Length: 1.5f, Strength: 0.75f, FoliageStrength: 0.25f, Thickness: 0.25f }
         && on.SunShadows is { Enabled: 1, LightSize: 0.125f, Strength: 0.5f, MinPenumbra: 0.02f });
     Check("Haze's Density counts in multiples of the default 0.000325",
         on.Atmosphere is { Enabled: 1, Density: 0.00065f, HeightFalloff: 0.125f, SunScatter: 4.5f, Anisotropy: 0.25f }
-        && MathF.Abs(EnhancementsModel.Settings(fresh.With(Enhancement.HazeDensity, 10f)).Atmosphere.Density - 0.00325f) < 1e-9f
-        && EnhancementsModel.Settings(fresh.With(Enhancement.HazeDensity, 0f)).Atmosphere.Density == 0f);
+        && MathF.Abs(Settings(fresh.With(Enhancement.HazeDensity, 10f)).Atmosphere.Density - 0.00325f) < 1e-9f
+        && Settings(fresh.With(Enhancement.HazeDensity, 0f)).Atmosphere.Density == 0f);
     Check("Light shafts' rows reach theirs, the mist's among them", on.LightShafts is
         { Enabled: 1, Strength: 7.5f, Density: 0.032f, Height: 12.5f, Anisotropy: 0.75f, Distance: 600f, Patchiness: 0.5f, PatchSize: 40f, Ambient: 2.25f, Steps: 96 });
     Check("Quality is Low, Medium or High: 24, 48 or 96 steps",
         string.Join(",", Field(Enhancement.LightShaftQuality).Options) == "Low,Medium,High"
-        && string.Join(",", new[] { 0, 1, 2 }.Select(quality => EnhancementsModel.Settings(fresh.With(Enhancement.LightShaftQuality, quality)).LightShafts.Steps)) == "24,48,96");
+        && string.Join(",", new[] { 0, 1, 2 }.Select(quality => Settings(fresh.With(Enhancement.LightShaftQuality, quality)).LightShafts.Steps)) == "24,48,96");
     Check("Wetness follows the weather at 0, then 25%, 50%, 75% and soaked at 1",
         string.Join(",", Field(Enhancement.Wetness).Options) == "Follows the weather,25%,50%,75%,Soaked" && on.Wetness is { Enabled: 1, Wetness: 0.75f, Darkening: 0.5f, Puddles: 0.75f }
-        && new[] { 0f, 0.25f, 0.5f, 0.75f, 1f }.Select((level, at) => EnhancementsModel.Settings(fresh.With(Enhancement.Wetness, at)).Wetness.Wetness == level).All(ok => ok));
+        && new[] { 0f, 0.25f, 0.5f, 0.75f, 1f }.Select((level, at) => Settings(fresh.With(Enhancement.Wetness, at)).Wetness.Wetness == level).All(ok => ok));
     Check("Tone map's Curve is the game's, AgX or Neutral, and its rows reach the tone map block",
         on.Tonemap is { Enabled: 1, Curve: EnhancementsCurve.Neutral, ExposureEv: -1.5f, BloomStrength: 0f, Saturation: 1.25f, Contrast: 1.75f }
-        && EnhancementsModel.Settings(fresh.With(Enhancement.ToneMapCurve, 0)).Tonemap.Curve == EnhancementsCurve.Game
+        && Settings(fresh.With(Enhancement.ToneMapCurve, 0)).Tonemap.Curve == EnhancementsCurve.Game
         && string.Join(",", Field(Enhancement.ToneMapCurve).Options) == "Game,AgX,Neutral");
     Check("the trace and the gather stay off whatever is switched on", on.Trace.Enabled == 0 && on.Gather.Enabled == 0);
     Check("with the master switch off the add-on's is off, and an effect's switch stays as it is for when it comes back",
-        EnhancementsModel.Settings(set.With(Enhancement.Enabled, 0)) is { Enabled: 0 } idle && idle.Atmosphere.Enabled == 1 && idle.Tonemap.BloomStrength == 0f);
+        Settings(set.With(Enhancement.Enabled, 0)) is { Enabled: 0 } idle && idle.Atmosphere.Enabled == 1 && idle.Tonemap.BloomStrength == 0f);
 }
 Check("a value stays within its row's range, at the decimals the row shows",
     fresh.With(Enhancement.ToneMapExposure, 7f)[Enhancement.ToneMapExposure] == 3f && fresh.With(Enhancement.ToneMapExposure, -7f)[Enhancement.ToneMapExposure] == -3f
@@ -267,7 +272,8 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     var skipped = new List<string>();
     Check("the values write as name=number pairs and read back the same",
         text.StartsWith("Enabled=0;AmbientLight=0;AmbientLevel=0.6;AmbientOcclusion=0.5;AmbientOcclusionRadius=1;") && text.Contains(";Haze=1;HazeDensity=2.5;")
-        && text.EndsWith(";ToneMap=0;ToneMapCurve=1;ToneMapExposure=0;ToneMapBloom=1;ToneMapSaturation=1;ToneMapContrast=1")
+        && text.Contains(";ToneMap=0;ToneMapCurve=1;ToneMapExposure=0;ToneMapBloom=1;ToneMapSaturation=1;ToneMapContrast=1;DepthOfField=0;")
+        && text.EndsWith(";HighlightDiscs=1;HighlightBoost=2;HighlightThreshold=2;BokehContrast=0")
         && EnhancementsModel.Parse(text, skipped).Equals(fresh.With(Enhancement.Haze, 1f).With(Enhancement.HazeDensity, 2.5f)) && skipped.Count == 0);
     var partial = EnhancementsModel.Parse("Haze=1; nonsense; Fog=3; HazeDensity=x; ToneMapBloom=0", skipped);
     Check("a text that leaves fields out takes their defaults, and names what is no field's",
@@ -293,6 +299,96 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
         && EnhancementsModel.Summary(running) == "On · 1 effect" && EnhancementsModel.Summary(running.With(Enhancement.LightShafts, 1f).With(Enhancement.ToneMap, 1f)) == "On · 3 effects");
     Check("the log names the effects that are switched on", EnhancementsModel.Names(fresh) == "no effect"
         && EnhancementsModel.Names(running.With(Enhancement.ToneMap, 1f)) == "Haze, Tone map");
+}
+
+// CameraTools' own depth of field: its rows' values and the add-on's depth of field block.
+{
+    var dof = EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfField, 1f), inside);
+    Check("by default the depth of field is off, and on it is f/2.8 at the autofocus in the center, a disc of at most 3% of the height, round "
+        + "with soap bubble 0.6, highlight discs from 2x the average at boost 2, and the bokeh contrast off",
+        !fresh.On(Enhancement.DepthOfField) && EnhancementsModel.DepthOfField(fresh, inside).Enabled == 0
+        && dof is { Enabled: 1, FNumber: 2.8f, FocusDistance: 0f, FocusX: 0.5f, FocusY: 0.5f, FocusSpeed: 0.9f, MaxBlur: 0.03f, Blades: 0, BladeRoundness: 0.5f,
+            BladeRotation: 0f, SphericalAberration: 0.6f, Chromatic: 0f, CatEye: 0f, Swirl: 0f, Anamorphic: 1f, Scatter: 1, HighlightGain: 2f, HighlightThreshold: 2f,
+            BokehContrast: 0f, Samples: 49 });
+    Check("the sensor is a full-frame diagonal's in the picture's shape: 22.949 mm at 16:10 and 21.228 mm at 16:9",
+        MathF.Abs(dof.SensorHeightMm - 22.94895f) < 1e-3f
+        && MathF.Abs(EnhancementsModel.DepthOfField(fresh, inside with { Aspect = 16f / 9f }).SensorHeightMm - 21.22831f) < 1e-3f);
+    Check("so the add-on's focal length, half the sensor times the projection's P11, is the readout's: 42.82 mm at a 30 degree field of view",
+        MathF.Abs(dof.SensorHeightMm * 0.5f / MathF.Tan(15f * MathF.PI / 180f) - 42.8233f) < 1e-2f && MathF.Abs(Lens.FocalLength(30f, 1.6f) - 42.8233f) < 1e-2f);
+    Check("a 1:N miniature makes the sensor N times taller: 229.49 mm at 1:10 and 11474.5 mm at 1:500",
+        MathF.Abs(EnhancementsModel.DepthOfField(fresh, inside with { Miniature = 10 }).SensorHeightMm - 229.4895f) < 1e-2f
+        && MathF.Abs(EnhancementsModel.DepthOfField(fresh, inside with { Miniature = 500 }).SensorHeightMm - 11474.48f) < 0.5f);
+    Check("a screenshot gathers 289 samples a pixel", EnhancementsModel.DepthOfField(fresh, inside with { Shot = true }).Samples == 289);
+    Check("outside the free camera the depth of field does not run", EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfField, 1f), outside).Enabled == 0);
+
+    var manual = fresh.With(Enhancement.DepthOfFieldFocusMode, EnhancementsModel.ManualFocus).With(Enhancement.DepthOfFieldFocusDistance, 3.5f);
+    Check("Manual distance focuses at the Focus distance in meters, and Focus point at 0, the add-on's autofocus",
+        EnhancementsModel.DepthOfField(manual, inside).FocusDistance == 3.5f
+        && EnhancementsModel.DepthOfField(manual.With(Enhancement.DepthOfFieldFocusMode, EnhancementsModel.FocusPoint), inside).FocusDistance == 0f
+        && string.Join(",", Field(Enhancement.DepthOfFieldFocusMode).Options) == "Focus point,Manual distance");
+    Check("the focus point's -1 to 1 from the left and the top is the add-on's 0 to 1 from the top left",
+        EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfFieldFocusX, -1f).With(Enhancement.DepthOfFieldFocusY, -1f), inside) is { FocusX: 0f, FocusY: 0f }
+        && EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfFieldFocusX, 1f).With(Enhancement.DepthOfFieldFocusY, 0.5f), inside) is { FocusX: 1f, FocusY: 0.75f });
+    var stops = Field(Enhancement.DepthOfFieldAperture).Options;
+    Check("Aperture runs in third stops from f/1 to f/22, the add-on's range",
+        stops[0] == "f/1" && stops[^1] == "f/22" && stops.Length == 28 && stops[(int)Field(Enhancement.DepthOfFieldAperture).Default] == "f/2.8"
+        && EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfFieldAperture, 0f), inside).FNumber == 1f
+        && EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfFieldAperture, 27f), inside).FNumber == 22f);
+    Check("Max blur is the largest disc's radius in hundredths of the height: 1 is 0.01 and 8 is 0.08",
+        EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfFieldMaxBlur, 1f), inside).MaxBlur == 0.01f
+        && EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfFieldMaxBlur, 8f), inside).MaxBlur == 0.08f);
+    Check("Aperture shape is round or 5 to 9 blades",
+        string.Join(",", Field(Enhancement.BokehShape).Options) == "Round,5 blades,6 blades,7 blades,8 blades,9 blades"
+        && string.Join(",", Enumerable.Range(0, 6).Select(shape => EnhancementsModel.DepthOfField(fresh.With(Enhancement.BokehShape, shape), inside).Blades)) == "0,5,6,7,8,9");
+    var bokeh = fresh.With(Enhancement.BladeRoundness, 0.25f).With(Enhancement.BladeRotation, 45f).With(Enhancement.SoapBubble, -1f)
+        .With(Enhancement.BokehChromaticAberration, 2f).With(Enhancement.CatsEye, 1f).With(Enhancement.Swirl, 0.5f).With(Enhancement.AnamorphicRatio, 2f)
+        .With(Enhancement.HighlightDiscs, 0f).With(Enhancement.HighlightBoost, 4f).With(Enhancement.HighlightThreshold, 3.5f).With(Enhancement.BokehContrast, 0.75f);
+    Check("the bokeh and highlight rows reach the block as they read: soap bubble is the spherical aberration, discs the scatter and boost the gain",
+        EnhancementsModel.DepthOfField(bokeh, inside) is { BladeRoundness: 0.25f, BladeRotation: 45f, SphericalAberration: -1f, Chromatic: 2f, CatEye: 1f, Swirl: 0.5f,
+            Anamorphic: 2f, Scatter: 0, HighlightGain: 4f, HighlightThreshold: 3.5f, BokehContrast: 0.75f });
+    Check("the rows keep to the mockup's ranges", fresh.With(Enhancement.HighlightThreshold, 1f)[Enhancement.HighlightThreshold] == 1.5f
+        && fresh.With(Enhancement.AnamorphicRatio, 3f)[Enhancement.AnamorphicRatio] == 2f && fresh.With(Enhancement.BokehContrast, 2f)[Enhancement.BokehContrast] == 1f
+        && fresh.With(Enhancement.DepthOfFieldFocusDistance, 0.1f)[Enhancement.DepthOfFieldFocusDistance] == 0.3f
+        && fresh.With(Enhancement.DepthOfFieldFocusDistance, 77f)[Enhancement.DepthOfFieldFocusDistance] == 50f
+        && fresh.With(Enhancement.DepthOfFieldFocusX, 0.1234f)[Enhancement.DepthOfFieldFocusX] == 0.123f);
+    Check("the Focus distance row's rail is logarithmic: 0 is 0.3 m, 1 is 50 m, the middle 3.873 m, and 2 m sits at 0.3708",
+        MathF.Abs(Lens.Meters(0f, 0.3f, 50f) - 0.3f) < 1e-5f && MathF.Abs(Lens.Meters(1f, 0.3f, 50f) - 50f) < 1e-3f
+        && MathF.Abs(Lens.Meters(0.5f, 0.3f, 50f) - 3.87298f) < 1e-3f && MathF.Abs(Lens.Rail(2f, 0.3f, 50f) - 0.370821f) < 1e-4f);
+
+    var haze = fresh.With(Enhancement.Haze, 1f).With(Enhancement.ToneMap, 1f).With(Enhancement.DepthOfField, 1f);
+    var alone = EnhancementsModel.Settings(haze, inside);
+    Check("with the master switch off the depth of field runs alone: the add-on's switch is on and every effect's off",
+        alone.Enabled == 1 && alone.DepthOfField.Enabled == 1 && alone.Atmosphere.Enabled == 0 && alone.Tonemap.Enabled == 0 && alone.Ambient.Enabled == 0
+        && alone.ContactShadows.Enabled == 0 && alone.SunShadows.Enabled == 0 && alone.LightShafts.Enabled == 0 && alone.Wetness.Enabled == 0
+        && alone.Trace.Enabled == 0 && alone.Gather.Enabled == 0 && alone.View == EnhancementsView.Off);
+    Check("outside the free camera, or with it off, nothing runs under the master switch off",
+        EnhancementsModel.Settings(haze, outside) is { Enabled: 0, DepthOfField.Enabled: 0 }
+        && EnhancementsModel.Settings(haze.With(Enhancement.DepthOfField, 0f), inside) is { Enabled: 0, DepthOfField.Enabled: 0 });
+    Check("with the master switch on the effects run beside it",
+        EnhancementsModel.Settings(haze.With(Enhancement.Enabled, 1f), inside) is { Enabled: 1, Atmosphere.Enabled: 1, Tonemap.Enabled: 1, DepthOfField.Enabled: 1 });
+    Check("the depth of field's switch is no effect of the Graphics tab's",
+        EnhancementsModel.Summary(fresh.With(Enhancement.Enabled, 1f).With(Enhancement.DepthOfField, 1f)) == "On · 0 effects"
+        && EnhancementsModel.Effects.All(field => !field.Lens));
+
+    var lens = fresh.With(Enhancement.DepthOfField, 1f).With(Enhancement.DepthOfFieldAperture, 3f).With(Enhancement.SoapBubble, 1f);
+    Check("Reset's values keep the depth of field's: everything else back at its default",
+        fresh.WithLensOf(lens.With(Enhancement.Haze, 1f)).Equals(lens) && ReferenceEquals(fresh.WithLensOf(fresh), fresh));
+    var run = new EnhancementRun(lens);
+    var preset = fresh.With(Enhancement.Enabled, 1f).With(Enhancement.Haze, 1f);
+    Check("a screenshot runs its preset's enhancements with the user's own depth of field",
+        run.Hold(preset).Running.Equals(preset.WithLensOf(lens)) && run.Hold(preset).Running.On(Enhancement.DepthOfField)
+        && run.Hold(preset).Running[Enhancement.SoapBubble] == 1f);
+    Check("a preset that differs only in the depth of field changes nothing in a shot", ReferenceEquals(run.Hold(fresh.WithLensOf(fresh)), run));
+
+    var skipped = new List<string>();
+    var saved = Presets.Saved(PresetSlot.Highest, new Dictionary<int, int>(), Overrides.None, null, lens);
+    string text = Presets.Text(saved);
+    Check("a saved preset holds the depth of field's values and reads them back",
+        text.Contains(";DepthOfField=1;") && text.Contains(";DepthOfFieldAperture=3;") && text.Contains(";SoapBubble=1;") && text.EndsWith(";BokehContrast=0")
+        && Presets.Parse(PresetSlot.Highest, text, skipped).Enhancements.Equals(lens) && skipped.Count == 0);
+    Check("a preset saved before the depth of field reads with its defaults, off",
+        Presets.Parse(PresetSlot.Highest, "Enabled=1;Haze=1", skipped).Enhancements is { } old && !old.On(Enhancement.DepthOfField)
+        && old[Enhancement.SoapBubble] == 0.6f && old[Enhancement.BokehContrast] == 0f && skipped.Count == 0);
 }
 
 // The presets. A setting goes by its number in the game's settings, and a menu lists the option indices the game stores,

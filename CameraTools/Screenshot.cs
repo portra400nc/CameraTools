@@ -93,7 +93,7 @@ namespace CameraTools
             new("ReShade to save its preset before the resize", (_, _) => resize == null),
             new("ReShade to reach the window's size", (_, bridge) => bridge.Width == Screen.width && bridge.Height == Screen.height),
             new("the render resolution to follow the window", (_, _) => !Graphics.SizePending),
-            new("the depth of field to focus", (_, _) => focusing is float since && Time.unscaledTime - since >= DepthOfField.FocusSeconds),
+            new("the depth of field to focus", (_, _) => focusing is float since && DepthOfField.Focused(Time.unscaledTime - since)),
             new($"{LongExposure.File} to take its settings", (settling, _) => settling.Before.Long == null || exposureReady),
             new("the graphics settings to settle",
                 (settling, _) => Time.unscaledTime - Math.Max(settling.Started, Graphics.Changed) >= SettleSeconds),
