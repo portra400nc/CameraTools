@@ -52,6 +52,9 @@ static const float kDofHighlightKeyFloor = 0.25f;
 // gather, as do sources nearer focus, whose small discs the gather draws well enough.
 static const float kDofSpritePeak = 2.0f;
 static const float kDofSpriteRadius = 1.0f;
+// The most one sprite adds to a channel of a pixel. A texel as bright as R11G11B10 holds, on a disc at the floor's radius,
+// would add 1.27 times R16F's 65504; at this cap a dozen overlapping sprites still fit.
+static const float kDofSpriteMostAdded = 4096.0f;
 
 // The lens at one focus distance: each channel's CoC at infinity in half-size pixels, and its focus over green's.
 struct DofLens
@@ -160,15 +163,21 @@ float dof_bokeh_intensity(float rho, float aberration, float norm)
     return max(1.0f + aberration * (3.0f * r2 * r2 - 1.0f), 0.0f) * norm;
 }
 
-// What one source of each channel's radius r gives a receiver at shape distance d, per area unit of the source plane:
-// coverage times the light across the disc over the disc's area, times scale.
+// What one source of radius r gives a receiver at shape distance d, per area unit of the source plane: coverage times the
+// light across the disc over the disc's area. No disc is smaller than the in-focus band's, half a half-size pixel, so a
+// channel near its own focus plane has a bounded weight; and the light across a disc of a pixel or two is not resolved,
+// so it is flat at that floor and the lens's whole profile from a pixel past it.
+float dof_channel_weight(float r, float d, float aberration, float norm)
+{
+    r = max(r, 0.5f);
+    float light = lerp(1.0f, dof_bokeh_intensity(min(d / r, 1.0f), aberration, norm), saturate(r - 0.5f));
+    return saturate(r - d + 0.5f) * light / (kDofPi * r * r);
+}
+
+// Each channel's dof_channel_weight, times scale.
 float3 dof_weights(float3 r, float d, float scale, float aberration, float norm)
 {
-    float3 w;
-    w.x = saturate(r.x - d + 0.5f) * dof_bokeh_intensity(min(d / r.x, 1.0f), aberration, norm) / (kDofPi * r.x * r.x);
-    w.y = saturate(r.y - d + 0.5f) * dof_bokeh_intensity(min(d / r.y, 1.0f), aberration, norm) / (kDofPi * r.y * r.y);
-    w.z = saturate(r.z - d + 0.5f) * dof_bokeh_intensity(min(d / r.z, 1.0f), aberration, norm) / (kDofPi * r.z * r.z);
-    return w * scale;
+    return float3(dof_channel_weight(r.x, d, aberration, norm), dof_channel_weight(r.y, d, aberration, norm), dof_channel_weight(r.z, d, aberration, norm)) * scale;
 }
 
 // Highlights. The game's HDR scene is shallow: a small lamp lies barely above what is around it, so spread over its disc
@@ -420,18 +429,21 @@ DofFields dof_gather(int2 p)
     int count = 4 * rings * (rings + 1) + 1;
     float spacing = radius / float(rings);
     float reach_px = radius + 0.5f * spacing;
-    float area = kDofPi * reach_px * reach_px / float(count);
+    float area = kDofPi * reach_px * reach_px / float(count + 1);
     float turn = dof_sampling.y + dof_noise(p);
     float up = dof_sampling.z;
     float2 half_size = float2(float(dof_sizes.x), float(dof_sizes.y));
     float3 far_sum = float3(0.0f, 0.0f, 0.0f), far_w = float3(0.0f, 0.0f, 0.0f);
+    float2 far_by_green = float2(0.0f, 0.0f);
     float3 near_sum = float3(0.0f, 0.0f, 0.0f), near_w = float3(0.0f, 0.0f, 0.0f);
-    LOOP for (int i = 0; i < count; i++)
+    LOOP for (int i = 0; i <= count; i++)
     {
         // The golden angle apart, at radii that split the disc into equal areas, so every sample has its own radius: rings
-        // put every pixel's samples at the same few radii, which blurs an edge into steps a ring apart.
+        // put every pixel's samples at the same few radii, which blurs an edge into steps a ring apart. The last is the
+        // pixel itself: a disc smaller than the spiral's spacing is found there whatever its channel's radius, so no
+        // channel of a field is left without weight where another has some.
         float angle = 2.0f * kDofPi * (turn + float(i) * 0.38196601f);
-        float2 o_px = float2(cos(angle), sin(angle)) * (reach_px * sqrt((float(i) + 0.5f) / float(count)));
+        float2 o_px = i < count ? float2(cos(angle), sin(angle)) * (reach_px * sqrt((float(i) + 0.5f) / float(count))) : float2(0.0f, 0.0f);
         float2 q = float2(float(p.x) + 0.5f + o_px.x, float(p.y) + 0.5f + o_px.y);
         float c = dof_load_source(int2(int(floor(q.x)), int(floor(q.y)))).w;
         float3 cq = dof_channel_coc(c, lens);
@@ -458,6 +470,7 @@ DofFields dof_gather(int2 p)
         {
             far_sum = far_sum + color * w;
             far_w = far_w + w;
+            far_by_green = far_by_green + float2(color.x, color.z) * w.y;
         }
         else
         {
@@ -465,8 +478,11 @@ DofFields dof_gather(int2 p)
             near_w = near_w + w;
         }
     }
+    // Behind a pixel in front of focus, red's or blue's discs of the sources behind may be too small to reach it where
+    // green's do: that channel then takes its sources' light by green's weights, not none.
     if (far_w.y > 0.0f)
-        o.far = float4(far_w.x > 0.0f ? far_sum.x / far_w.x : 0.0f, far_sum.y / far_w.y, far_w.z > 0.0f ? far_sum.z / far_w.z : 0.0f, far_w.y);
+        o.far = float4(far_w.x > 0.0f ? far_sum.x / far_w.x : far_by_green.x / far_w.y, far_sum.y / far_w.y,
+            far_w.z > 0.0f ? far_sum.z / far_w.z : far_by_green.y / far_w.y, far_w.y);
     float3 near = float3(near_sum.x / max(near_w.x, 1e-20f), near_sum.y / max(near_w.y, 1e-20f), near_sum.z / max(near_w.z, 1e-20f));
     o.near = float4(near.x * min(near_w.x, 1.0f), near.y * min(near_w.y, 1.0f), near.z * min(near_w.z, 1.0f), min(near_w.y, 1.0f));
     return o;
@@ -549,7 +565,7 @@ float3 dof_sprite_light(DofSprite s, int2 p)
     float reach = behind && own > kDofInFocus && own < c ? max(dof_clamp_coc(own, lens), 0.5f) : 100000.0f;
     float scale = dof_cat_eye_cut(u, r.y, ndc, shape) * dof_swirl_density(ndc, shape) * saturate(reach - d + 0.5f);
     float3 w = dof_weights(r, d, scale, behind ? dof_bokeh.x : -dof_bokeh.x, behind ? dof_bokeh.y : dof_bokeh.z);
-    return float3(s.light.x * w.x, s.light.y * w.y, s.light.z * w.z);
+    return float3(min(s.light.x * w.x, kDofSpriteMostAdded), min(s.light.y * w.y, kDofSpriteMostAdded), min(s.light.z * w.z, kDofSpriteMostAdded));
 }
 #endif
 

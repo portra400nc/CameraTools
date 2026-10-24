@@ -148,6 +148,11 @@ int main(int argc, char **argv)
         dof_bokeh_intensity(0, 1) == 0 && near(dof_bokeh_intensity(1, 1), 3) && near(dof_bokeh_intensity(0.5f, 1), 0.1875f));
     check("at 1 in front of focus the center is 1.837 and the light is 0 past rho 0.904",
         near(dof_bokeh_intensity(0, -1), 2 * 0.918559f) && near(dof_bokeh_intensity(0.5f, -1), 1.66489f) && dof_bokeh_intensity(0.91f, -1) == 0);
+    check("a source of radius 0 or 1e-4 weighs as one at the floor of 0.5, 1 / (pi 0.25) = 1.27324 at its center, at any aberration",
+        near(dof_source_weight(0, 0, 0), 1.273240f) && near(dof_source_weight(1e-4f, 0, 0), 1.273240f) && dof_source_weight(0, 0, 1) == dof_source_weight(0.5f, 0, 1)
+            && near(dof_source_weight(0, 0, 1), 1.273240f) && near(dof_source_weight(0, 0.75f, 0), 0.318310f) && dof_source_weight(0, 1, 0) == 0);
+    check("from a pixel past the floor a disc has the lens's profile: 0 at the center of radius 1.5 at aberration 1, and half the flat light at radius 1, 0.5 / pi",
+        dof_source_weight(1.5f, 0, 1) == 0 && near(dof_source_weight(1, 0, 1), 0.5f / (3.14159265f * 1.0f)));
     check("the clamp's normalization is 0.91856 at -1 and 1 from -0.5 up", near(dof_bokeh_norm(-1), 0.918559f) && dof_bokeh_norm(-0.5f) == 1
         && dof_bokeh_norm(1) == 1);
 
@@ -269,6 +274,29 @@ int main(int argc, char **argv)
         check("focused at the point it stays as it was, to the bit", sharp.rgb == point.image.rgb);
     }
     {
+        // A white frame: a plane 2.16 m away, where with chromatic 1 at f/1 and 2 m green's disc is 0.8 half-size pixels and
+        // red's 0.39, next to a background 30 m away whose discs of 10 widen the gather's spiral past both. Whatever each
+        // channel's disc, white spread over white stays white.
+        Scene white(30);
+        for (float &v : white.image.rgb)
+            v = 1;
+        for (uint32_t y = 0; y < 800; y++)
+            for (uint32_t x = 0; x < 640; x++)
+                white.put(x, y, 1, 2.16f);
+        float least = 1, most = 1;
+        for (const float aberration : { 0.6f, 1.0f, -1.0f })
+        {
+            DepthOfFieldSettings settings = lens_at(1, 2, aberration);
+            settings.chromatic = 1;
+            for (const float v : render(white, settings).rgb)
+            {
+                least = std::min(least, v);
+                most = std::max(most, v);
+            }
+        }
+        check("a white frame stays white at every pixel and channel with chromatic 1 at spherical aberration 0.6, 1 and -1, in red's focus beside a far blur", least > 0.999f && most < 1.001f);
+    }
+    {
         Scene edge(30);
         for (uint32_t y = 200; y < 600; y++)
             for (uint32_t x = 400; x < 800; x++)
@@ -305,13 +333,14 @@ int main(int argc, char **argv)
         check("a glint behind focus is one far sprite, and in front of focus one near sprite", sprite.sprites[0] == 1 && sprite.sprites[1] == 0
             && render(glint(1), lens_at(2, 2, 0)).sprites[1] == 1 && render(glint(1), lens_at(2, 2, 0)).sprites[0] == 0);
         check("a glint on the focus plane is none", render(glint(2), lens_at(2, 2, 0)).sprites[0] == 0 && render(glint(2), lens_at(2, 2, 0)).sprites[1] == 0);
-        check("at gain 0 the sprite keeps the glint's light within 1%, as the gather does within 4%: 201.63 and 193.92 of 200",
-            near(float(sum_green(sprite)), 201.626f, 0.01f) && near(float(sum_green(gathered)), 193.916f, 0.01f));
-        // Radius 4.9858 half-size pixels, 9.97 full-size: 50 / (pi 4.9858^2) a pixel inside, its edge smoothed over two pixels.
-        check("its disc is 0.6403 a pixel inside, 0.3814 and 0.2214 at 9 and 10 pixels out, 0.0738 at 11 and 0 at 13",
-            near(far.green(sprite, 641, 401), 0.6403f) && near(far.green(sprite, 648, 401), 0.6403f) && near(far.green(sprite, 650, 401), 0.3814f)
-                && near(far.green(sprite, 651, 401), 0.2214f) && near(far.green(sprite, 652, 401), 0.0738f) && far.green(sprite, 654, 401) == 0);
-        check("at gain 2 the lone glint grows: 0.6803 a pixel inside its disc", near(far.green(render(far, lens_at2(2, 2, 0, 2)), 641, 401), 0.6803f));
+        check("at gain 0 the sprite keeps the glint's light within 1%, as the gather does within 4%: 201.64 and 192.21 of 200",
+            near(float(sum_green(sprite)), 201.639f, 0.01f) && near(float(sum_green(gathered)), 192.206f, 0.01f));
+        // Radius 4.9858 half-size pixels, 9.97 full-size: 50 / (pi 4.9858^2) a pixel inside as R16F stores it, its edge smoothed
+        // over two pixels.
+        check("its disc is 0.6406 a pixel inside, 0.3810 and 0.2208 at 9 and 10 pixels out, 0.0736 at 11 and 0 at 13",
+            near(far.green(sprite, 641, 401), 0.640625f) && near(far.green(sprite, 648, 401), 0.640625f) && near(far.green(sprite, 650, 401), 0.380981f)
+                && near(far.green(sprite, 651, 401), 0.220825f) && near(far.green(sprite, 652, 401), 0.073608f) && far.green(sprite, 654, 401) == 0);
+        check("at gain 2 the lone glint grows: 0.6807 a pixel inside its disc", near(far.green(render(far, lens_at2(2, 2, 0, 2)), 641, 401), 0.680664f));
     }
     {
         Scene square(30);
@@ -333,8 +362,8 @@ int main(int argc, char **argv)
             for (uint32_t x = 638; x < 644; x++)
                 lamp.put(x, y, 2, 30);
         const DofOutput grown = render(lamp, lens_at2(2, 2, 0, 2));
-        check("a small lamp alone in the dark is 9 sprites, which at gain 2 grow its disc from 0.2305 to 0.5905 a pixel", grown.sprites[0] == 9
-            && near(lamp.green(grown, 641, 401), 0.5905f) && near(lamp.green(render(lamp, lens_at2(2, 2, 0, 0)), 641, 401), 0.2305f));
+        check("a small lamp alone in the dark is 9 sprites, which at gain 2 grow its disc from 0.2306 to 0.5908 a pixel", grown.sprites[0] == 9
+            && near(lamp.green(grown, 641, 401), 0.590820f) && near(lamp.green(render(lamp, lens_at2(2, 2, 0, 0)), 641, 401), 0.230591f));
     }
 
     FrameSave frame;

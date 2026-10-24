@@ -21,6 +21,25 @@ RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh --synthetic "$out/frame-synthe
 RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$out/frame-synthetic" "$out/dof.png" sa=1 > /dev/null
 python3 -c "import struct, sys; d = open(sys.argv[1], 'rb').read(); sys.exit(0 if d[12:24] == b'IHDR' + struct.pack('>II', 1280, 800) else 1)" "$out/dof.png"
 echo "PASS render_dof renders the synthetic frame into a 1280x800 PNG"
+# With the workspace's saved night plaza (.work/dof/frames/frame-20261024-145312 in a folder above this one): rendered at
+# chromatic 1 and f/1.4 focused on the subject and just behind it, with a long lens, every half-float target must stay
+# finite as R16F stores it (render_dof exits 3 otherwise).
+dir=$(pwd)
+plaza=
+while [ "$dir" != "/" ]; do
+    if [ -f "$dir/.work/dof/frames/frame-20261024-145312/frame.tsv" ]; then
+        plaza="$dir/.work/dof/frames/frame-20261024-145312"
+        break
+    fi
+    dir=$(dirname "$dir")
+done
+if [ -n "$plaza" ]; then
+    RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$plaza" "$out/plaza.png" f=1.4 chromatic=1 crop=0,0,8,8 > /dev/null
+    RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$plaza" "$out/plaza.png" f=1.4 chromatic=1 sensor=72 focus=2.25 max_blur=0.05 crop=0,0,8,8 > /dev/null
+    echo "PASS render_dof keeps every half-float target finite on the night plaza at chromatic 1"
+else
+    echo "SKIP the night plaza's chromatic render: no .work/dof/frames/frame-20261024-145312"
+fi
 python3 check_kernel_conditions.py ../shaders
 vkd3d=${ENHANCEMENTS_VKD3D_COMPILER:-}
 if [ -z "$vkd3d" ]; then

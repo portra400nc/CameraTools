@@ -205,6 +205,8 @@ namespace enhancements
 
     float dof_bokeh_intensity(float rho, float aberration) { return shader::dof_bokeh_intensity(rho, aberration, dof_bokeh_norm(aberration)); }
 
+    float dof_source_weight(float r, float d, float aberration) { return shader::dof_channel_weight(r, d, aberration, dof_bokeh_norm(aberration)); }
+
     float dof_grow_highlight(float luminance, float contrast, float threshold, float gain, float radius)
     {
         return shader::dof_grow_highlight(luminance, contrast, { threshold, gain, shader::kDofHighlightDisc * threshold }, radius);
@@ -375,6 +377,48 @@ namespace enhancements
 
     namespace
     {
+        // A value stored in an R16F channel and read back: rounded to the nearest of half precision's 11 significant
+        // bits, ties to even, and past 65504 infinite, as a GPU's R16F render target holds it.
+        float half_stored(float v)
+        {
+            if (!std::isfinite(v))
+                return v;
+            const float a = std::fabs(v);
+            if (a >= 65520.0f)
+                return std::copysign(INFINITY, v);
+            if (a < 6.103515625e-05f)
+                return std::copysign(std::nearbyint(a / 5.9604644775390625e-08f) * 5.9604644775390625e-08f, v);
+            int e;
+            std::frexp(a, &e);
+            const float ulp = std::ldexp(1.0f, e - 11);
+            return std::copysign(std::nearbyint(a / ulp) * ulp, v);
+        }
+
+        // Every channel of every texel of a half-float target as stored; returns how many are not finite after.
+        uint32_t store_half(std::vector<shader::float4> &texels)
+        {
+            uint32_t bad = 0;
+            for (shader::float4 &t : texels)
+                for (float *c : { &t.x, &t.y, &t.z, &t.w })
+                {
+                    *c = half_stored(*c);
+                    bad += std::isfinite(*c) ? 0 : 1;
+                }
+            return bad;
+        }
+
+        uint32_t store_half(std::vector<shader::float2> &texels)
+        {
+            uint32_t bad = 0;
+            for (shader::float2 &t : texels)
+                for (float *c : { &t.x, &t.y })
+                {
+                    *c = half_stored(*c);
+                    bad += std::isfinite(*c) ? 0 : 1;
+                }
+            return bad;
+        }
+
         void set_constants(const DofConstants &c)
         {
             const auto f4 = [](const float *v) { return shader::float4(v[0], v[1], v[2], v[3]); };
@@ -425,6 +469,7 @@ namespace enhancements
         t.source.emplace_back(size_t(half.x) * half.y);
         t.source_sizes.push_back(half);
         draw(half.x, half.y, c, t, [&t, half](uint32_t x, uint32_t y) { t.source[0][size_t(y) * half.x + x] = dof_prefilter(int2(int(x), int(y))); });
+        uint32_t nonfinite = store_half(t.source[0]);
         // dof_scatter_cs.hlsl: each highlight takes the next slot of its field's buffer while one is free, and its light out
         // of the gather's source.
         const uint32_t cap = static_cast<uint32_t>(c.highlight[2]);
@@ -442,6 +487,7 @@ namespace enhancements
                 field.push_back(found[i].as);
                 t.source[0][i] = found[i].rest;
             }
+            nonfinite += store_half(t.source[0]);
         }
         // GenerateMips: each level halves, rounded down, each texel the mean of the 2x2 below it.
         while (t.source_sizes.back().x > 1 || t.source_sizes.back().y > 1)
@@ -458,13 +504,16 @@ namespace enhancements
                             sum = sum + from[size_t(std::min(y * 2 + j, below.y - 1)) * below.x + std::min(x * 2 + i, below.x - 1)];
                     level[size_t(y) * size.x + x] = sum * 0.25f;
                 }
+            nonfinite += store_half(level);
             t.source.push_back(std::move(level));
             t.source_sizes.push_back(size);
         }
         t.tiles.resize(size_t(tiles.x) * tiles.y);
         draw(tiles.x, tiles.y, c, t, [&t, tiles](uint32_t x, uint32_t y) { t.tiles[size_t(y) * tiles.x + x] = dof_tile(int2(int(x), int(y))); });
+        nonfinite += store_half(t.tiles);
         t.dilated.resize(t.tiles.size());
         draw(tiles.x, tiles.y, c, t, [&t, tiles](uint32_t x, uint32_t y) { t.dilated[size_t(y) * tiles.x + x] = dof_dilate(int2(int(x), int(y))); });
+        nonfinite += store_half(t.dilated);
         std::vector<float4> far(size_t(half.x) * half.y), near(far.size());
         draw(half.x, half.y, c, t, [&](uint32_t x, uint32_t y) {
             const DofFields f = dof_gather(int2(int(x), int(y)));
@@ -473,6 +522,7 @@ namespace enhancements
         });
         t.far = std::move(far);
         t.near = std::move(near);
+        nonfinite += store_half(t.far) + store_half(t.near);
         std::vector<float4> far_post(t.far.size()), near_post(t.far.size());
         draw(half.x, half.y, c, t, [&](uint32_t x, uint32_t y) {
             const DofFields f = dof_post(int2(int(x), int(y)));
@@ -481,6 +531,7 @@ namespace enhancements
         });
         t.far = std::move(far_post);
         t.near = std::move(near_post);
+        nonfinite += store_half(t.far) + store_half(t.near);
         // dof_sprite_vs.hlsl and dof_sprite_ps.hlsl: each sprite's quad added into its field, the pixels whose centers it
         // covers.
         for (int f = 0; f < 2; f++)
@@ -506,10 +557,12 @@ namespace enhancements
             });
             for (size_t i = 0; i < field.size(); i++)
                 field[i] = field[i] + added[i];
+            nonfinite += store_half(field);
         }
         DofOutput out;
         out.sprites[0] = static_cast<uint32_t>(sprites[0].size());
         out.sprites[1] = static_cast<uint32_t>(sprites[1].size());
+        out.nonfinite = nonfinite;
         out.focus = t.focus.x;
         out.luminance = t.focus.y;
         out.rgb.resize(image.rgb.size());
@@ -521,6 +574,8 @@ namespace enhancements
             o[1] = v.y;
             o[2] = v.z;
         });
+        for (const float v : out.rgb)
+            out.nonfinite += std::isfinite(v) ? 0 : 1;
         textures = nullptr;
         return out;
     }

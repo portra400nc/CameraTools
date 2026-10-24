@@ -51,6 +51,10 @@ namespace enhancements
     // normalization.
     float dof_bokeh_intensity(float rho, float aberration);
 
+    // dof_channel_weight: what a source of radius r half-size pixels gives a receiver d pixels from its center, per area
+    // unit, with aberration (the setting's behind focus, its negative in front).
+    float dof_source_weight(float r, float d, float aberration);
+
     // 1 over the mean of 1 + aberration (3 rho^4 - 1) clamped at 0 over the unit disc: 1 for aberration from -0.5 up.
     float dof_bokeh_norm(float aberration);
 
@@ -141,11 +145,13 @@ namespace enhancements
         float focus = 0;            // the focus distance the frame used, meters
         float luminance = 0;        // the frame's mean luminance, which scales the highlights' curve
         uint32_t sprites[2] = {};   // the far and the near field's sprites
+        uint32_t nonfinite = 0;     // channels of the half-float targets that held infinity or NaN once stored
     };
 
     // Every pass of shaders/dof.hlsli over the image, as the GPU runs them, on the machine's threads: the autofocus from
     // previous_focus, the prefilter, its highlights' detection into sprites, its levels, the tiles and their dilation, the
     // gather, the post-filter, the sprites added into the fields, and the composite. The sprites take their buffers' slots
-    // in row order, where the GPU's take them in the order its threads come.
+    // in row order, where the GPU's take them in the order its threads come. Every half-float target is rounded as R16F
+    // stores it, overflow to infinity included.
     DofOutput render_dof(const DofImage &image, const DofConstants &constants, float previous_focus);
 }

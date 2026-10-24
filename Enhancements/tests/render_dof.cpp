@@ -11,7 +11,7 @@
 // scatter (0 or 1);
 // and frames (frames averaged, each with the frame's own turn of the spiral, as the accumulator averages a paused shot),
 // exposure (0.985, the census's), and crop (x,y,w,h in the picture's pixels from the top left) with zoom (a whole number)
-// to write a magnified part.
+// to write a magnified part. Exits with 3 when a half-float target held infinity or NaN once stored as R16F.
 //
 // --synthetic writes a 1280x800 frame folder: a 50 mm lens's view of a sharp, striped subject 2 m away, a tree trunk at 6 m,
 // a leafy branch 1 m away at the bottom right, and foliage 30 m away full of small bright sky gaps and thin lit and dark
@@ -263,7 +263,7 @@ int main(int argc, char **argv)
     const auto start = std::chrono::steady_clock::now();
     std::vector<float> sum(image.rgb.size(), 0.0f);
     float focus = 0, luminance = 0;
-    uint32_t sprites[2] = {};
+    uint32_t sprites[2] = {}, nonfinite = 0;
     for (uint32_t f = 0; f < frames; f++)
     {
         const std::optional<DofConstants> constants = dof_constants(settings, frame->camera, frame->size, frame->flip, 0, f);
@@ -277,6 +277,7 @@ int main(int argc, char **argv)
         luminance = out.luminance;
         sprites[0] = out.sprites[0];
         sprites[1] = out.sprites[1];
+        nonfinite += out.nonfinite;
         for (size_t i = 0; i < sum.size(); i++)
             sum[i] += out.rgb[i] / frames;
     }
@@ -300,7 +301,7 @@ int main(int argc, char **argv)
     double energy = 0;
     for (const float v : sum)
         energy += v;
-    std::printf("%s: focus %.3f m, mean luminance %.3f, %u far and %u near sprites, energy %.6f a channel, %u frame%s in %.2f s\n", argv[2], focus,
-        luminance, sprites[0], sprites[1], energy / double(sum.size()), frames, frames == 1 ? "" : "s", seconds);
-    return 0;
+    std::printf("%s: focus %.3f m, mean luminance %.3f, %u far and %u near sprites, energy %.6f a channel, %u non-finite, %u frame%s in %.2f s\n",
+        argv[2], focus, luminance, sprites[0], sprites[1], energy / double(sum.size()), nonfinite, frames, frames == 1 ? "" : "s", seconds);
+    return nonfinite == 0 ? 0 : 3;
 }
