@@ -691,8 +691,6 @@ namespace CameraTools
             new BindingRow("Settings panel", CamAction.ToggleGUI),
             new BindingRow("Free the cursor", CamAction.ToggleCursorFocus),
             new BindingRow("Hide UI", CamAction.ToggleHUD),
-            new BindingRow("Toggle damage numbers", CamAction.ToggleDamage),
-            new BindingRow("Remove enemy HP bars", CamAction.RemoveHP),
             new BindingRow("Apply resolution slot 1", CamAction.SetResolutionTo1080p),
             new BindingRow("Apply resolution slot 2", CamAction.SetResolutionTo4K),
             new Section("Camera paths and replays") { Columns = true },

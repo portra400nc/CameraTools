@@ -14,7 +14,6 @@ namespace CameraTools
         // Hide UI clears the screen: the game HUD with the free camera off, CameraTools' UI with it on (the free camera
         // already hides the HUD), and the UID either way.
         public static bool uiHidden;
-        public GameObject hp;
         public static GameObject damage;
         public static GameObject camera;
         public static CinemachineBrain brain;
@@ -85,14 +84,6 @@ namespace CameraTools
             if (Controls.Pressed(CamAction.ToggleHUD))
             {
                 SetUiHidden(!uiHidden);
-            }
-            if (Controls.Pressed(CamAction.RemoveHP))
-            {
-                RemoveHP();
-            }
-            if (Controls.Pressed(CamAction.ToggleDamage))
-            {
-                DamageNumbers = !DamageNumbers;
             }
             float speed = Time.timeScale;
             if (Controls.Pressed(CamAction.TogglePause))
@@ -200,12 +191,6 @@ namespace CameraTools
                 return;
             pauseInFreecam.Value = on;
             MelonPreferences.Save();
-        }
-
-        private void RemoveHP()
-        {
-            for (hp = GameObject.Find("AvatarBoardCanvasV2(Clone)"); hp; hp = GameObject.Find("AvatarBoardCanvasV2(Clone)"))
-                hp.SetActive(false);
         }
 
         // Reads as shown until the container is found, because the game shows damage numbers by default.

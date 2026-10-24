@@ -73,13 +73,14 @@ namespace CameraTools
             }
             GameCamera.Enabled = keyboard.CreateEntry("DetachGameCamera", true,
                 description: "Point the game's camera system at a hidden camera while the free camera is on. Set to false if the game misbehaves.").Value;
-            if (saved < ControlsModel.Layout)
+            foreach (var (removedIn, name) in ControlsModel.Removed)
             {
-                // Layout 2 made injecting part of the free camera's toggle.
-                keyboard.DeleteEntry("Inject");
-                controller.DeleteEntry("Inject");
-                layout.Value = ControlsModel.Layout;
+                if (saved >= removedIn)
+                    continue;
+                keyboard.DeleteEntry(name);
+                controller.DeleteEntry(name);
             }
+            layout.Value = ControlsModel.Layout;
             if (ControlsModel.Defaults.Length != Enum.GetValues<CamAction>().Length)
                 throw new InvalidOperationException("ControlsModel.Defaults is missing a CamAction.");
             MelonPreferences.Save();

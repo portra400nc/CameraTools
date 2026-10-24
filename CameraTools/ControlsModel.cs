@@ -10,8 +10,6 @@ namespace CameraTools
         SetResolutionTo4K,
         SetResolutionTo1080p,
         ToggleHUD,
-        RemoveHP,
-        ToggleDamage,
         SpeedInc1,
         SpeedInc5,
         SpeedDec1,
@@ -62,8 +60,6 @@ namespace CameraTools
             (CamAction.SetResolutionTo4K, KeyCode.Equals, ""),
             (CamAction.SetResolutionTo1080p, KeyCode.Minus, ""),
             (CamAction.ToggleHUD, KeyCode.H, "B"),
-            (CamAction.RemoveHP, KeyCode.LeftBracket, "Back+X"),
-            (CamAction.ToggleDamage, KeyCode.RightBracket, "Back+B"),
             (CamAction.SpeedInc1, KeyCode.UpArrow, "DpadRight"),
             (CamAction.SpeedInc5, KeyCode.RightArrow, "Back+DpadUp"),
             (CamAction.SpeedDec1, KeyCode.DownArrow, "DpadLeft"),
@@ -103,9 +99,13 @@ namespace CameraTools
             (CamAction.PlayReplay, KeyCode.KeypadMultiply, "Back+DpadRight"),
         };
 
-        // Layout 2 moved the camera to WASD and made the free camera's toggle the controller's L3+R3. Files saved before
-        // it have no layout entry and read as 1.
-        public const int Layout = 2;
+        // Layout 2 moved the camera to WASD and made the free camera's toggle the controller's L3+R3. Layout 3 removed the
+        // damage numbers and enemy HP bar hotkeys, which the World tab and Hide UI cover. Files saved before layout 2 have
+        // no layout entry and read as 1.
+        public const int Layout = 3;
+
+        // The entries each layout removed, deleted from files saved before it.
+        public static readonly (int Layout, string Name)[] Removed = { (2, "Inject"), (3, "RemoveHP"), (3, "ToggleDamage") };
 
         // The layout 1 defaults that layout 2 changed.
         private static readonly (CamAction Action, KeyCode Key, string Pad)[] Layout1 =
@@ -151,10 +151,11 @@ namespace CameraTools
             return new Rebind(true, other >= 0 ? (CamAction)other : null);
         }
 
-        // A binding still at its old default moves to the new one; a binding the user changed stays.
+        // A binding still at its layout 1 default moves to its layout 2 one; a binding the user changed stays. Layout 3
+        // changed no default.
         public static (KeyCode Key, string Pad) Migrate(CamAction action, KeyCode key, string pad, int savedLayout)
         {
-            if (savedLayout >= Layout)
+            if (savedLayout >= 2)
                 return (key, pad);
             int old = Array.FindIndex(Layout1, row => row.Action == action);
             if (old < 0)

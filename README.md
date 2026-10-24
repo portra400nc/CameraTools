@@ -116,8 +116,6 @@ The bindings are saved in `UserData/MelonPreferences.cfg`, under the hotkeys' na
 | <kbd>Tab</kbd> | Settings panel |
 | <kbd>R</kbd> | Free the cursor |
 | <kbd>H</kbd> | Hide UI |
-| <kbd>]</kbd> | Toggle damage numbers |
-| <kbd>[</kbd> | Remove enemy HP bars |
 | <kbd>-</kbd> | Apply resolution slot 1 (1280x800) |
 | <kbd>=</kbd> | Apply resolution slot 2 (2560x1600) |
 
@@ -162,8 +160,8 @@ Hold <kbd>Back</kbd> for the right-hand column. While it is held, <kbd>LT</kbd> 
 | D-pad ↑ / ↓ | Field of view up / down | Speed +0.5 / −0.5 |
 | D-pad ← / → | Speed −0.1 / +0.1 | Record a replay / play or stop the replay |
 | <kbd>A</kbd> | | Reset field of view |
-| <kbd>B</kbd> | Hide UI | Toggle damage numbers |
-| <kbd>X</kbd> | Toggle pause | Remove enemy HP bars |
+| <kbd>B</kbd> | Hide UI | |
+| <kbd>X</kbd> | Toggle pause | |
 | <kbd>Y</kbd> | Reset game speed | Toggle speed 5.0 |
 | <kbd>Start</kbd> | Settings panel | |
 
