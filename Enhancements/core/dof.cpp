@@ -16,7 +16,7 @@
 
 namespace enhancements::shader
 {
-    thread_local float4 dof_optics, dof_focus, dof_depth, dof_shape, dof_lens, dof_bokeh, dof_sampling, dof_highlight;
+    thread_local float4 dof_optics, dof_focus, dof_depth, dof_shape, dof_lens, dof_bokeh, dof_sampling, dof_highlight, dof_contrast;
     thread_local uint4 dof_sizes, dof_counts;
 
     // The images the passes read on this thread, as the shaders' textures hold them.
@@ -30,6 +30,9 @@ namespace enhancements::shader
         std::vector<uint2> source_sizes;
         std::vector<float2> tiles, dilated;
         std::vector<float4> far, near;
+        // The lifted source's levels (dof_lift), and the gather's far field's, which the post-filter reads.
+        std::vector<std::vector<float4>> lifted, far_levels;
+        std::vector<uint2> lifted_sizes, far_sizes;
     };
     thread_local const DofTextures *textures = nullptr;
 
@@ -63,40 +66,47 @@ namespace enhancements::shader
     float2 dof_load_focus() { return textures->focus; }
     float4 dof_load_prefilter(int2 p) { return textures->prefilter[at(p, half_size())]; }
     float4 dof_load_source(int2 p) { return textures->source[0][at(p, half_size())]; }
-    // SampleLevel with a linear sampler that clamps: bilinear in the two levels around lod.
+    namespace
+    {
+        // SampleLevel with a linear sampler that clamps: bilinear in the two levels around lod, at a position in level 0's
+        // pixels.
+        float4 sample_levels(const std::vector<std::vector<float4>> &levels, const std::vector<uint2> &sizes, float2 position, float lod)
+        {
+            const int top = int(levels.size()) - 1;
+            const float l = clamp(lod, 0.0f, float(top));
+            const int l0 = int(floor(l)), l1 = min(l0 + 1, top);
+            const uint2 base = sizes[0];
+            const auto bilinear = [&position, base](const std::vector<float4> &level, uint2 size) {
+                const float x = position.x / float(base.x) * float(size.x) - 0.5f, y = position.y / float(base.y) * float(size.y) - 0.5f;
+                const int x0 = int(floor(x)), y0 = int(floor(y));
+                const float fx = x - floor(x), fy = y - floor(y);
+                float4 c;
+                for (int j = 0; j < 2; j++)
+                    for (int i = 0; i < 2; i++)
+                        c = c + level[at({ x0 + i, y0 + j }, size)] * ((i == 0 ? 1 - fx : fx) * (j == 0 ? 1 - fy : fy));
+                return c;
+            };
+            const float t = l - float(l0);
+            return bilinear(levels[l0], sizes[l0]) * (1 - t) + bilinear(levels[l1], sizes[l1]) * t;
+        }
+    }
+
     float3 dof_sample_source(float2 position, float lod)
     {
-        const int top = int(textures->source.size()) - 1;
-        const float l = clamp(lod, 0.0f, float(top));
-        const int l0 = int(floor(l)), l1 = min(l0 + 1, top);
-        const auto bilinear = [&position](const std::vector<float4> &level, uint2 size, uint2 base) {
-            const float x = position.x / float(base.x) * float(size.x) - 0.5f, y = position.y / float(base.y) * float(size.y) - 0.5f;
-            const int x0 = int(floor(x)), y0 = int(floor(y));
-            const float fx = x - floor(x), fy = y - floor(y);
-            float3 c;
-            for (int j = 0; j < 2; j++)
-                for (int i = 0; i < 2; i++)
-                {
-                    const float4 t = level[at({ x0 + i, y0 + j }, size)];
-                    const float b = (i == 0 ? 1 - fx : fx) * (j == 0 ? 1 - fy : fy);
-                    c = c + float3(t.x, t.y, t.z) * b;
-                }
-            return c;
-        };
-        const uint2 base = textures->source_sizes[0];
-        const float3 a = bilinear(textures->source[l0], textures->source_sizes[l0], base);
-        const float3 b = bilinear(textures->source[l1], textures->source_sizes[l1], base);
-        const float t = l - float(l0);
-        return a * (1 - t) + b * t;
+        const float4 c = sample_levels(textures->source, textures->source_sizes, position, lod);
+        return { c.x, c.y, c.z };
     }
+    float4 dof_sample_lifted(float2 position, float lod) { return sample_levels(textures->lifted, textures->lifted_sizes, position, lod); }
     float2 dof_load_tile(int2 t) { return textures->tiles[at(t, tile_size())]; }
     float2 dof_load_dilated(int2 t) { return textures->dilated[at(t, tile_size())]; }
     float4 dof_load_far(int2 p) { return textures->far[at(p, half_size())]; }
     float4 dof_load_near(int2 p) { return textures->near[at(p, half_size())]; }
+    float4 dof_sample_far(float2 position, float lod) { return sample_levels(textures->far_levels, textures->far_sizes, position, lod); }
 
 #define DOF_FOCUS
 #define DOF_PREFILTER
 #define DOF_SCATTER
+#define DOF_LIFT
 #define DOF_TILES
 #define DOF_DILATE
 #define DOF_GATHER
@@ -367,6 +377,8 @@ namespace enhancements
         const float quad = 2 * (max_radius * margin + 1);
         c.highlight[2] = s.scatter ? std::floor(std::min(float(kDofSpriteCap), float(kDofSpriteOverdraw) * half_w * half_h / (quad * quad))) : 0;
         c.highlight[3] = float(kDofSpriteCap);
+        c.contrast[0] = s.bokeh_contrast > 0 ? kDofContrastPower : 0;
+        c.contrast[1] = s.bokeh_contrast * kDofContrastShare;
         const uint32_t sizes[4] = { half_w, half_h, (half_w + kDofTile - 1) / kDofTile, (half_h + kDofTile - 1) / kDofTile };
         const uint32_t counts[4] = { static_cast<uint32_t>(std::ceil(max_radius * margin / kDofTile)), render.width, render.height,
             std::max(1u, render.height / 100) };
@@ -419,6 +431,32 @@ namespace enhancements
             return bad;
         }
 
+        // GenerateMips over levels, which holds level 0: each level halves, rounded down, each texel the mean of the 2x2 below
+        // it, stored as R16F. Returns how many channels are not finite.
+        uint32_t generate_mips(std::vector<std::vector<shader::float4>> &levels, std::vector<shader::uint2> &sizes)
+        {
+            uint32_t bad = 0;
+            while (sizes.back().x > 1 || sizes.back().y > 1)
+            {
+                const shader::uint2 below = sizes.back(), size = { std::max(1u, below.x / 2), std::max(1u, below.y / 2) };
+                const std::vector<shader::float4> &from = levels.back();
+                std::vector<shader::float4> level(size_t(size.x) * size.y);
+                for (uint32_t y = 0; y < size.y; y++)
+                    for (uint32_t x = 0; x < size.x; x++)
+                    {
+                        shader::float4 sum;
+                        for (uint32_t j = 0; j < 2; j++)
+                            for (uint32_t i = 0; i < 2; i++)
+                                sum = sum + from[size_t(std::min(y * 2 + j, below.y - 1)) * below.x + std::min(x * 2 + i, below.x - 1)];
+                        level[size_t(y) * size.x + x] = sum * 0.25f;
+                    }
+                bad += store_half(level);
+                levels.push_back(std::move(level));
+                sizes.push_back(size);
+            }
+            return bad;
+        }
+
         void set_constants(const DofConstants &c)
         {
             const auto f4 = [](const float *v) { return shader::float4(v[0], v[1], v[2], v[3]); };
@@ -430,6 +468,7 @@ namespace enhancements
             shader::dof_bokeh = f4(c.bokeh);
             shader::dof_sampling = f4(c.sampling);
             shader::dof_highlight = f4(c.highlight);
+            shader::dof_contrast = f4(c.contrast);
             shader::dof_sizes = { c.sizes[0], c.sizes[1], c.sizes[2], c.sizes[3] };
             shader::dof_counts = { c.counts[0], c.counts[1], c.counts[2], c.counts[3] };
         }
@@ -489,24 +528,14 @@ namespace enhancements
             }
             nonfinite += store_half(t.source[0]);
         }
-        // GenerateMips: each level halves, rounded down, each texel the mean of the 2x2 below it.
-        while (t.source_sizes.back().x > 1 || t.source_sizes.back().y > 1)
+        nonfinite += generate_mips(t.source, t.source_sizes);
+        // dof_lift_ps.hlsl and its mips, with the bokeh contrast on.
+        if (c.contrast[0] > 0)
         {
-            const uint2 below = t.source_sizes.back(), size = { std::max(1u, below.x / 2), std::max(1u, below.y / 2) };
-            const std::vector<float4> &from = t.source.back();
-            std::vector<float4> level(size_t(size.x) * size.y);
-            for (uint y = 0; y < size.y; y++)
-                for (uint x = 0; x < size.x; x++)
-                {
-                    float4 sum;
-                    for (uint j = 0; j < 2; j++)
-                        for (uint i = 0; i < 2; i++)
-                            sum = sum + from[size_t(std::min(y * 2 + j, below.y - 1)) * below.x + std::min(x * 2 + i, below.x - 1)];
-                    level[size_t(y) * size.x + x] = sum * 0.25f;
-                }
-            nonfinite += store_half(level);
-            t.source.push_back(std::move(level));
-            t.source_sizes.push_back(size);
+            t.lifted = { std::vector<float4>(t.source[0].size()) };
+            t.lifted_sizes = { half };
+            draw(half.x, half.y, c, t, [&t, half](uint32_t x, uint32_t y) { t.lifted[0][size_t(y) * half.x + x] = dof_lift(int2(int(x), int(y))); });
+            nonfinite += store_half(t.lifted[0]) + generate_mips(t.lifted, t.lifted_sizes);
         }
         t.tiles.resize(size_t(tiles.x) * tiles.y);
         draw(tiles.x, tiles.y, c, t, [&t, tiles](uint32_t x, uint32_t y) { t.tiles[size_t(y) * tiles.x + x] = dof_tile(int2(int(x), int(y))); });
@@ -523,6 +552,12 @@ namespace enhancements
         t.far = std::move(far);
         t.near = std::move(near);
         nonfinite += store_half(t.far) + store_half(t.near);
+        if (c.contrast[0] > 0)
+        {
+            t.far_levels = { t.far };
+            t.far_sizes = { half };
+            nonfinite += generate_mips(t.far_levels, t.far_sizes);
+        }
         std::vector<float4> far_post(t.far.size()), near_post(t.far.size());
         draw(half.x, half.y, c, t, [&](uint32_t x, uint32_t y) {
             const DofFields f = dof_post(int2(int(x), int(y)));

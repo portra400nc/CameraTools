@@ -45,8 +45,8 @@ namespace enhancements
         static_assert(ENHANCEMENTS_ERROR_STATE == 4);
         // Callers built before foliage_ao_strength send 32 bytes, those before contact shadows 36, those before their
         // foliage_strength 52, those before atmosphere 56, those before tonemap 76, those before sun shadows 100, those
-        // before light shafts 132, those before the trace 172, those before the gather 212, those before the depth of field 236, those before its highlights 304, those before its scatter 312. Version 6 dropped the leaves blocks, which moved wetness from 128 to 116, so a binding of
-        // version 5 must not call EnhancementsApply; csharp/Enhancements.cs checks the version and marshals 316.
+        // before light shafts 132, those before the trace 172, those before the gather 212, those before the depth of field 236, those before its highlights 304, those before its scatter 312, those before its bokeh contrast 316. Version 6 dropped the leaves blocks, which moved wetness from 128 to 116, so a binding of
+        // version 5 must not call EnhancementsApply; csharp/Enhancements.cs checks the version and marshals 320.
         static_assert(offsetof(EnhancementsSettings, ambient) + offsetof(EnhancementsAmbient, foliage_ao_strength) == 32
             && offsetof(EnhancementsSettings, contact_shadows) == 36
             && offsetof(EnhancementsSettings, contact_shadows) + offsetof(EnhancementsContactShadows, foliage_strength) == 52
@@ -54,7 +54,8 @@ namespace enhancements
             && offsetof(EnhancementsSettings, sun_shadows) == 100 && offsetof(EnhancementsSettings, wetness) == 116
             && offsetof(EnhancementsSettings, light_shafts) == 132 && offsetof(EnhancementsSettings, trace) == 172 && offsetof(EnhancementsSettings, gather) == 212
             && offsetof(EnhancementsSettings, depth_of_field) == 236 && offsetof(EnhancementsDepthOfField, highlight_threshold) == 68
-            && offsetof(EnhancementsDepthOfField, scatter) == 76 && sizeof(EnhancementsSettings) == 316);
+            && offsetof(EnhancementsDepthOfField, scatter) == 76 && offsetof(EnhancementsDepthOfField, bokeh_contrast) == 80
+            && sizeof(EnhancementsSettings) == 320);
         static_assert(sizeof(EnhancementsCamera) == 48 * sizeof(float));
         static_assert(ENHANCEMENTS_ACCUMULATE_PRESENT == static_cast<int>(AccumulateMode::present)
             && ENHANCEMENTS_ACCUMULATE_COUNT == static_cast<int>(AccumulateMode::count));
@@ -380,6 +381,8 @@ namespace enhancements
             }
             if (knows(offsetof(EnhancementsSettings, depth_of_field) + offsetof(EnhancementsDepthOfField, scatter), sizeof d.scatter))
                 dof.scatter = d.scatter != 0;
+            if (knows(offsetof(EnhancementsSettings, depth_of_field) + offsetof(EnhancementsDepthOfField, bokeh_contrast), sizeof d.bokeh_contrast))
+                dof.bokeh_contrast = d.bokeh_contrast;
             s.depth_of_field = clamp_depth_of_field(dof);
         }
         return s;
@@ -409,6 +412,7 @@ namespace enhancements
         s.highlight_threshold = finite_or(d.highlight_threshold, defaults.highlight_threshold, 1.0f, 16.0f);
         s.highlight_gain = finite_or(d.highlight_gain, defaults.highlight_gain, 0.0f, 8.0f);
         s.scatter = d.scatter;
+        s.bokeh_contrast = finite_or(d.bokeh_contrast, defaults.bokeh_contrast, 0.0f, 2.0f);
         return s;
     }
 

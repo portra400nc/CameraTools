@@ -97,7 +97,7 @@ namespace enhancements
     // The folder back. Empty, with why, when a file is missing or of the wrong size.
     std::optional<FrameSave> read_frame_folder(const std::filesystem::path &folder, std::string &why);
 
-    // shaders/dof.cbuffer.hlsli's cbuffer Dof at b1: 160 bytes.
+    // shaders/dof.cbuffer.hlsli's cbuffer Dof at b1: 176 bytes.
     struct DofConstants
     {
         float optics[4];    // focal length in mm, f-number, half-size pixels per mm of sensor, largest CoC radius in half-size pixels
@@ -111,8 +111,9 @@ namespace enhancements
         uint32_t counts[4]; // tiles the dilation reaches, the render size, pixels between the autofocus's depth samples
         float highlight[4]; // the highlights' threshold over the frame's mean luminance, gain, the sprites a field may draw (0: no
                             // scatter), and the near field's first slot in the sprites' buffer
+        float contrast[4];  // the bokeh contrast's lift's power (0: off), and the share of the light it may move
     };
-    static_assert(sizeof(DofConstants) == 160);
+    static_assert(sizeof(DofConstants) == 176);
 
     // Pixels a tile holds along each side of the half-size picture; shaders/dof.hlsli's tiles say the same.
     constexpr uint32_t kDofTile = 8;
@@ -121,6 +122,10 @@ namespace enhancements
     // most: a frame draws no more sprites than both allow at its largest quad, and leaves the rest in the gather.
     constexpr uint32_t kDofSpriteCap = 4096;
     constexpr uint32_t kDofSpriteOverdraw = 8;
+
+    // shaders/dof.hlsli's bokeh contrast: its lift's power, and the share of the light the lift may move at a setting of 1.
+    constexpr float kDofContrastPower = 7;
+    constexpr float kDofContrastShare = 0.35f;
 
     // The k whose 4k (k + 1) + 1 samples, as many as rings of 8k around one, come nearest samples: at least 2, at most 16.
     uint32_t dof_rings(uint32_t samples);

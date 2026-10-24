@@ -13,9 +13,13 @@
 //   DOF_SCATTER:    float4 dof_load_prefilter(int2 pixel)  the prefilter's texel, clamped to its size
 //   DOF_TILES:      float4 dof_load_source(int2 pixel)      the prefilter's level 0: rgb and the green CoC, clamped to its size
 //   DOF_DILATE:     float2 dof_load_tile(int2 tile)         the tiles' far and near maxima, clamped to the tile count
+//   DOF_LIFT:       dof_load_source, dof_sample_source
 //   DOF_GATHER:     dof_load_source, float3 dof_sample_source(float2 at, float lod), at in half-size pixels (centers at
-//                   .5), bilinear between the prefilter's levels; float2 dof_load_dilated(int2 tile)
-//   DOF_POST:       float4 dof_load_far(int2 pixel), float4 dof_load_near(int2 pixel), the gather's, clamped
+//                   .5), bilinear between the prefilter's levels; float4 dof_sample_lifted(float2 at, float lod), the same
+//                   over dof_lift's levels (read only with the bokeh contrast on); float2 dof_load_dilated(int2 tile)
+//   DOF_POST:       float4 dof_load_far(int2 pixel), float4 dof_load_near(int2 pixel), the gather's, clamped;
+//                   float4 dof_sample_far(float2 at, float lod), bilinear between the gather's far field's levels (read
+//                   only with the bokeh contrast on); dof_load_dilated
 //   DOF_SPRITE:     dof_load_source
 //   DOF_COMPOSITE:  dof_load_scene, dof_load_depth, dof_load_far, dof_load_near (the post-filter's)
 //   and every pass but DOF_FOCUS: float2 dof_load_focus()   the focus distance in meters and the frame's mean luminance,
@@ -55,6 +59,22 @@ static const float kDofSpriteRadius = 1.0f;
 // The most one sprite adds to a channel of a pixel. A texel as bright as R11G11B10 holds, on a disc at the floor's radius,
 // would add 1.27 times R16F's 65504; at this cap a dozen overlapping sprites still fit.
 static const float kDofSpriteMostAdded = 4096.0f;
+
+// Bokeh contrast. The game's HDR scene is shallow: a grass tip or a leaf's glint lies little above what is around it, so
+// spread over its disc it drowns in it, where a real lens's would show. dof_lift lifts each source by how far it stands
+// above the mean of the kDofContrastLevel's texels around it: its luminance over kDofContrastFrom times that mean, at least
+// 1 and at most kDofContrastCap, to the power dof_contrast.x, faded in over its disc's radius from kDofContrastFade.x to .y
+// half-size pixels so what is near focus stays as drawn. A thin bright thing stands out of its own surroundings, while a
+// lit wall does not, so the wall keeps its soft blur and only its edge lifts a little. The far field gathers the lifted
+// sources, and the post-filter takes back what the lift added over the dilated radius's kDofContrastSpan levels up. The
+// lift may move at most the share dof_contrast.y of the light there: where it would add more, as everywhere on a sea of
+// glints, the lift is cut to fit. So each place keeps its light, within a few percent where the texture is dense, and it
+// gathers into the discs of what stands out.
+static const float kDofContrastFrom = 1.15f;
+static const float kDofContrastCap = 1.6f;
+static const float2 kDofContrastFade = float2(2.0f, 3.0f);
+static const float kDofContrastLevel = 3.0f;
+static const float kDofContrastSpan = 2.0f;
 
 // The lens at one focus distance: each channel's CoC at infinity in half-size pixels, and its focus over green's.
 struct DofLens
@@ -241,7 +261,7 @@ float dof_sprite_extent(float coc, DofLens l)
 
 struct DofFields
 {
-    float4 far;     // rgb the far field's weighted mean, a its green weight
+    float4 far;     // rgb the far field's weighted mean, a the luminance of its mean without the lift (at least 1e-4 where it has weight)
     float4 near;    // rgb premultiplied, a its coverage
 };
 
@@ -365,6 +385,22 @@ DofDetect dof_detect(int2 h)
 }
 #endif
 
+#ifdef DOF_LIFT
+// A half-size source lifted for the far field: rgb its light times the bokeh contrast's lift, a its own luminance, so the
+// gather can count the light the lift added.
+float4 dof_lift(int2 h)
+{
+    float4 source = dof_load_source(h);
+    float3 c = float3(source.x, source.y, source.z);
+    float light = dot(c, kDofLuma);
+    float around = max(dot(dof_sample_source(float2(float(h.x) + 0.5f, float(h.y) + 0.5f), kDofContrastLevel), kDofLuma), 1e-4f);
+    float r = min(abs(source.w), dof_optics.w);
+    float lift = 1.0f + (pow(clamp(light / (kDofContrastFrom * around), 1.0f, kDofContrastCap), dof_contrast.x) - 1.0f)
+        * saturate((r - kDofContrastFade.x) / (kDofContrastFade.y - kDofContrastFade.x));
+    return float4(c.x * lift, c.y * lift, c.z * lift, light);
+}
+#endif
+
 #ifdef DOF_TILES
 // A tile's largest far CoC and largest near |CoC| over its 8x8 half-size pixels, clamped to the largest radius.
 float2 dof_tile(int2 tile)
@@ -402,8 +438,9 @@ float2 dof_dilate(int2 tile)
 // golden-angle spiral out to half a ring past its tile's dilated radius, turned by the frame's seed and the pixel's
 // noise. Each sample is a source whose disc may cover the pixel: its light per channel is coverage times the light
 // across its disc over the disc's area, times the area the sample stands for. Sources behind the focus plane go to the
-// far field, normalized, and a source deeper than a pixel behind focus spreads no wider than that pixel's own disc, so
-// the background does not spill over a nearer blurred surface. Sources in front go to the near field, premultiplied,
+// far field, normalized, with the bokeh contrast's lifted light and, in a, the plain luminance the post-filter weighs it
+// against; a source deeper than a pixel behind focus spreads no wider than that pixel's own disc, so the background does
+// not spill over a nearer blurred surface. Sources in front go to the near field, premultiplied,
 // whose coverage is their summed weight. At a pixel in front of focus the far field is what shows through its blurred
 // edge, so there every source not in front spreads at least as wide as the pixel's own disc: the background around an
 // out-of-focus foreground fills in behind it.
@@ -435,6 +472,8 @@ DofFields dof_gather(int2 p)
     float2 half_size = float2(float(dof_sizes.x), float(dof_sizes.y));
     float3 far_sum = float3(0.0f, 0.0f, 0.0f), far_w = float3(0.0f, 0.0f, 0.0f);
     float2 far_by_green = float2(0.0f, 0.0f);
+    float far_light = 0.0f;
+    bool lifted = dof_contrast.x > 0.0f;
     float3 near_sum = float3(0.0f, 0.0f, 0.0f), near_w = float3(0.0f, 0.0f, 0.0f);
     LOOP for (int i = 0; i <= count; i++)
     {
@@ -465,15 +504,19 @@ DofFields dof_gather(int2 p)
             continue;
         float scale = dof_cat_eye_cut(u, r.y, ndc, shape) * dof_swirl_density(ndc, shape) * area;
         float3 w = dof_weights(r, d, scale, behind ? dof_bokeh.x : -dof_bokeh.x, behind ? dof_bokeh.y : dof_bokeh.z);
-        float3 color = dof_sample_source(q, log2(clamp(min(spacing, r.y), 1.0f, 256.0f)));
+        float lod = log2(clamp(min(spacing, r.y), 1.0f, 256.0f));
         if (behind)
         {
+            float4 lit = lifted ? dof_sample_lifted(q, lod) : float4(0.0f, 0.0f, 0.0f, 0.0f);
+            float3 color = lifted ? float3(lit.x, lit.y, lit.z) : dof_sample_source(q, lod);
             far_sum = far_sum + color * w;
             far_w = far_w + w;
             far_by_green = far_by_green + float2(color.x, color.z) * w.y;
+            far_light = far_light + (lifted ? lit.w : dot(color, kDofLuma)) * w.y;
         }
         else
         {
+            float3 color = dof_sample_source(q, lod);
             near_sum = near_sum + color * w;
             near_w = near_w + w;
         }
@@ -482,7 +525,7 @@ DofFields dof_gather(int2 p)
     // green's do: that channel then takes its sources' light by green's weights, not none.
     if (far_w.y > 0.0f)
         o.far = float4(far_w.x > 0.0f ? far_sum.x / far_w.x : far_by_green.x / far_w.y, far_sum.y / far_w.y,
-            far_w.z > 0.0f ? far_sum.z / far_w.z : far_by_green.y / far_w.y, far_w.y);
+            far_w.z > 0.0f ? far_sum.z / far_w.z : far_by_green.y / far_w.y, max(far_light / far_w.y, 1e-4f));
     float3 near = float3(near_sum.x / max(near_w.x, 1e-20f), near_sum.y / max(near_w.y, 1e-20f), near_sum.z / max(near_w.z, 1e-20f));
     o.near = float4(near.x * min(near_w.x, 1.0f), near.y * min(near_w.y, 1.0f), near.z * min(near_w.z, 1.0f), min(near_w.y, 1.0f));
     return o;
@@ -490,55 +533,51 @@ DofFields dof_gather(int2 p)
 #endif
 
 #ifdef DOF_POST
-// The median of nine values, by Smith's exchange network of 19 min-max pairs.
-float dof_median9(float a0, float a1, float a2, float a3, float a4, float a5, float a6, float a7, float a8)
-{
-    float t;
-    t = min(a1, a2); a2 = max(a1, a2); a1 = t;
-    t = min(a4, a5); a5 = max(a4, a5); a4 = t;
-    t = min(a7, a8); a8 = max(a7, a8); a7 = t;
-    t = min(a0, a1); a1 = max(a0, a1); a0 = t;
-    t = min(a3, a4); a4 = max(a3, a4); a3 = t;
-    t = min(a6, a7); a7 = max(a6, a7); a6 = t;
-    t = min(a1, a2); a2 = max(a1, a2); a1 = t;
-    t = min(a4, a5); a5 = max(a4, a5); a4 = t;
-    t = min(a7, a8); a8 = max(a7, a8); a7 = t;
-    a3 = max(a0, a3);
-    a5 = min(a5, a8);
-    t = min(a4, a7); a7 = max(a4, a7); a4 = t;
-    a6 = max(a3, a6);
-    a4 = max(a1, a4);
-    a2 = min(a2, a5);
-    a4 = min(a4, a7);
-    t = min(a4, a2); a2 = max(a4, a2); a4 = t;
-    a4 = max(a6, a4);
-    return min(a4, a2);
-}
-
-// The gather's sampling holes filled: each channel of each field the median of its 3x3 neighborhood, where the far
-// field's neighbors without weight take the pixel's own value.
+// The gather's sampling holes filled: each channel of each field clamped to the least and most of its 8 neighbors, which
+// takes out a lone outlier but keeps the discs' rims and the light; the far field's neighbors without weight take the
+// pixel's own value. With the bokeh contrast, the far field then gives back what the lift added around it (see the
+// constants).
 DofFields dof_post(int2 p)
 {
-    float4 f[9];
-    float4 n[9];
     float4 own = dof_load_far(p);
+    float4 f_lo = float4(100000.0f, 100000.0f, 100000.0f, 100000.0f), f_hi = float4(0.0f, 0.0f, 0.0f, 0.0f);
+    float4 n_lo = f_lo, n_hi = f_hi;
     UNROLL for (int i = 0; i < 9; i++)
     {
+        if (i == 4)
+            continue;
         int2 q = int2(p.x + i % 3 - 1, p.y + i / 3 - 1);
-        f[i] = dof_load_far(q);
-        if (f[i].w <= 0.0f)
-            f[i] = own;
-        n[i] = dof_load_near(q);
+        float4 f = dof_load_far(q);
+        if (f.w <= 0.0f)
+            f = own;
+        float4 n = dof_load_near(q);
+        f_lo = float4(min(f_lo.x, f.x), min(f_lo.y, f.y), min(f_lo.z, f.z), min(f_lo.w, f.w));
+        f_hi = float4(max(f_hi.x, f.x), max(f_hi.y, f.y), max(f_hi.z, f.z), max(f_hi.w, f.w));
+        n_lo = float4(min(n_lo.x, n.x), min(n_lo.y, n.y), min(n_lo.z, n.z), min(n_lo.w, n.w));
+        n_hi = float4(max(n_hi.x, n.x), max(n_hi.y, n.y), max(n_hi.z, n.z), max(n_hi.w, n.w));
     }
+    float4 near = dof_load_near(p);
     DofFields o;
-    o.far = float4(dof_median9(f[0].x, f[1].x, f[2].x, f[3].x, f[4].x, f[5].x, f[6].x, f[7].x, f[8].x),
-        dof_median9(f[0].y, f[1].y, f[2].y, f[3].y, f[4].y, f[5].y, f[6].y, f[7].y, f[8].y),
-        dof_median9(f[0].z, f[1].z, f[2].z, f[3].z, f[4].z, f[5].z, f[6].z, f[7].z, f[8].z),
-        dof_median9(f[0].w, f[1].w, f[2].w, f[3].w, f[4].w, f[5].w, f[6].w, f[7].w, f[8].w));
-    o.near = float4(dof_median9(n[0].x, n[1].x, n[2].x, n[3].x, n[4].x, n[5].x, n[6].x, n[7].x, n[8].x),
-        dof_median9(n[0].y, n[1].y, n[2].y, n[3].y, n[4].y, n[5].y, n[6].y, n[7].y, n[8].y),
-        dof_median9(n[0].z, n[1].z, n[2].z, n[3].z, n[4].z, n[5].z, n[6].z, n[7].z, n[8].z),
-        dof_median9(n[0].w, n[1].w, n[2].w, n[3].w, n[4].w, n[5].w, n[6].w, n[7].w, n[8].w));
+    o.far = float4(clamp(own.x, f_lo.x, f_hi.x), clamp(own.y, f_lo.y, f_hi.y), clamp(own.z, f_lo.z, f_hi.z), clamp(own.w, f_lo.w, f_hi.w));
+    o.near = float4(clamp(near.x, n_lo.x, n_hi.x), clamp(near.y, n_lo.y, n_hi.y), clamp(near.z, n_lo.z, n_hi.z), clamp(near.w, n_lo.w, n_hi.w));
+    if (dof_contrast.x > 0.0f && o.far.w > 0.0f)
+    {
+        // gain, what the lift multiplied the far field's light by over the span, from the mean of four bilinear reads half
+        // a texel of that level apart, which hides the level's grid. Past dof_contrast.y the lift's share of each
+        // pixel's light is cut to fit, from the lifted light toward the plain, whose luminance the gather kept in a.
+        float2 reach = dof_load_dilated(int2(p.x / 8, p.y / 8));
+        float lod = log2(max(reach.x, 1.0f)) + kDofContrastSpan;
+        float e = 0.5f * exp2(floor(lod));
+        float2 at = float2(float(p.x) + 0.5f, float(p.y) + 0.5f);
+        float4 m = (dof_sample_far(float2(at.x - e, at.y - e), lod) + dof_sample_far(float2(at.x + e, at.y - e), lod)
+            + dof_sample_far(float2(at.x - e, at.y + e), lod) + dof_sample_far(float2(at.x + e, at.y + e), lod)) * 0.25f;
+        float gain = max(dot(float3(m.x, m.y, m.z), kDofLuma) / max(m.w, 1e-4f), 1.0f);
+        float share = gain > 1.0f + dof_contrast.y ? dof_contrast.y / (gain - 1.0f) : 1.0f;
+        float3 lit = float3(o.far.x, o.far.y, o.far.z);
+        float3 plain = lit * (o.far.w / max(dot(lit, kDofLuma), 1e-4f));
+        float3 v = (plain + (lit - plain) * share) / (1.0f + share * (gain - 1.0f));
+        o.far = float4(v.x, v.y, v.z, o.far.w);
+    }
     return o;
 }
 #endif

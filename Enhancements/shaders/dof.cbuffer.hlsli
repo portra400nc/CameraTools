@@ -14,6 +14,7 @@ cbuffer Dof : register(b1)
     uint4 dof_counts;       // tiles the dilation reaches, the render size, pixels between the autofocus's depth samples
     float4 dof_highlight;   // the highlights' threshold over the frame's mean luminance, gain, the sprites a field may draw
                             // (0: no scatter), and the near field's first slot
+    float4 dof_contrast;    // the bokeh contrast's lift's power (0: off), and the share of the light it may move
 };
 
 #define LOOP [loop]

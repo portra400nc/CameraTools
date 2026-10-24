@@ -85,6 +85,7 @@ namespace
         s.focus_distance = focus;
         s.spherical_aberration = aberration;
         s.highlight_gain = 0;
+        s.bokeh_contrast = 0;
         return s;
     }
 
@@ -256,8 +257,7 @@ int main(int argc, char **argv)
             before += point.image.rgb[i];
             after += blurred.rgb[i];
         }
-        // The post-filter's median takes about 3% of so small a disc (radius 5) off its edge.
-        check("a point 30 m away with the lens focused at 2 m keeps its light within 4% as it spreads into a disc", std::fabs(after / before - 1) < 0.04
+        check("a point 30 m away with the lens focused at 2 m keeps its light within 1% as it spreads into a disc", std::fabs(after / before - 1) < 0.01
             && point.green(blurred, 640, 400) < 1 && point.green(blurred, 646, 400) > 0.1f && point.green(blurred, 640, 406) > 0.1f
             && point.green(blurred, 664, 400) == 0);
         // At spherical aberration 1 the rim, 8 to 9 pixels out, outshines the center 3 pixels around.
@@ -272,6 +272,41 @@ int main(int argc, char **argv)
         check("at spherical aberration 1 behind focus the disc's rim is over twice as bright as its center (soap bubble)", rim > 2 * center && center > 0);
         const DofOutput sharp = render(point, lens_at(2, 30, 0));
         check("focused at the point it stays as it was, to the bit", sharp.rgb == point.image.rgb);
+    }
+    {
+        // Bokeh contrast. A gray field 30 m away with lens focused at 2 m (discs of 5 half-size pixels), and in it a grid of
+        // tips 1.67 times as bright, one half-size texel each, 24 pixels apart, like a lawn's bright blade tips.
+        Scene flat(30);
+        for (float &v : flat.image.rgb)
+            v = 0.3f;
+        Scene lawn = flat;
+        for (uint32_t y = 200; y < 600; y += 24)
+            for (uint32_t x = 300; x < 980; x += 24)
+                for (uint32_t j = 0; j < 2; j++)
+                    for (uint32_t i = 0; i < 2; i++)
+                        lawn.put(x + i, y + j, 0.5f, 30);
+        DepthOfFieldSettings plain = lens_at(2, 2, 0), lifted = plain;
+        lifted.bokeh_contrast = 1;
+        const DofOutput flat_out = render(flat, lifted);
+        float least = 1, most = 0;
+        for (const float v : flat_out.rgb)
+        {
+            least = std::min(least, v);
+            most = std::max(most, v);
+        }
+        check("a flat gray field keeps its light at every pixel at bokeh contrast 1", near(least, 0.3f, 2e-4f) && near(most, 0.3f, 2e-4f));
+        const DofOutput before = render(lawn, plain), after = render(lawn, lifted);
+        double sum_before = 0, sum_after = 0;
+        for (uint32_t y = 300; y < 500; y++)
+            for (uint32_t x = 400; x < 880; x++)
+            {
+                sum_before += lawn.green(before, x, y);
+                sum_after += lawn.green(after, x, y);
+            }
+        check("a lawn of tips 1.67 times its gray: at bokeh contrast 1 a tip's disc rises from 0.3032 to 0.3472 and the gaps darken from "
+              "0.3000 to 0.2629, while the lawn keeps its light within 0.1%",
+            near(lawn.green(before, 637, 393), 0.303177f) && near(lawn.green(after, 637, 393), 0.347168f) && near(lawn.green(before, 649, 405), 0.300049f)
+                && near(lawn.green(after, 649, 405), 0.262939f) && std::fabs(sum_after / sum_before - 1) < 0.001);
     }
     {
         // A white frame: a plane 2.16 m away, where with chromatic 1 at f/1 and 2 m green's disc is 0.8 half-size pixels and
@@ -333,8 +368,8 @@ int main(int argc, char **argv)
         check("a glint behind focus is one far sprite, and in front of focus one near sprite", sprite.sprites[0] == 1 && sprite.sprites[1] == 0
             && render(glint(1), lens_at(2, 2, 0)).sprites[1] == 1 && render(glint(1), lens_at(2, 2, 0)).sprites[0] == 0);
         check("a glint on the focus plane is none", render(glint(2), lens_at(2, 2, 0)).sprites[0] == 0 && render(glint(2), lens_at(2, 2, 0)).sprites[1] == 0);
-        check("at gain 0 the sprite keeps the glint's light within 1%, as the gather does within 4%: 201.64 and 192.21 of 200",
-            near(float(sum_green(sprite)), 201.639f, 0.01f) && near(float(sum_green(gathered)), 192.206f, 0.01f));
+        check("at gain 0 the sprite keeps the glint's light within 1%, as the gather does: 201.64 and 201.69 of 200",
+            near(float(sum_green(sprite)), 201.639f, 0.01f) && near(float(sum_green(gathered)), 201.693f, 0.01f));
         // Radius 4.9858 half-size pixels, 9.97 full-size: 50 / (pi 4.9858^2) a pixel inside as R16F stores it, its edge smoothed
         // over two pixels.
         check("its disc is 0.6406 a pixel inside, 0.3810 and 0.2208 at 9 and 10 pixels out, 0.0736 at 11 and 0 at 13",

@@ -7,8 +7,8 @@
 //
 // Keys, the depth of field's settings (enabled; the rest at their defaults): f (f-number), sensor (mm), focus (meters, 0
 // autofocus), x and y (the focus point, 0 to 1 from the top left), speed, max_blur, blades, roundness, rotation (degrees),
-// sa (spherical aberration), cat_eye, swirl, anamorphic, chromatic, samples, threshold and gain (the highlights'), and
-// scatter (0 or 1);
+// sa (spherical aberration), cat_eye, swirl, anamorphic, chromatic, samples, threshold and gain (the highlights'),
+// scatter (0 or 1) and contrast (the bokeh contrast);
 // and frames (frames averaged, each with the frame's own turn of the spiral, as the accumulator averages a paused shot),
 // exposure (0.985, the census's), and crop (x,y,w,h in the picture's pixels from the top left) with zoom (a whole number)
 // to write a magnified part. Exits with 3 when a half-float target held infinity or NaN once stored as R16F.
@@ -62,6 +62,7 @@ namespace
         else if (key == "threshold") s.highlight_threshold = v;
         else if (key == "gain") s.highlight_gain = v;
         else if (key == "scatter") s.scatter = v != 0;
+        else if (key == "contrast") s.bokeh_contrast = v;
         else return false;
         return true;
     }

@@ -287,8 +287,9 @@ namespace enhancements
 
         // The depth of field pass, last at the bloom step: mirror in the HDR scene and depth; draw the focus distance into
         // one of two 1x1 textures from the other, the setting's or the autofocus eased over seconds; the half-size source,
-        // with scatter its highlights moved into the sprites' buffer by dof_scatter_cs.hlsl, and its mips, its tiles and
-        // their dilation, the gather's far and near fields, their post-filter, the sprites added into those, and the
+        // with scatter its highlights moved into the sprites' buffer by dof_scatter_cs.hlsl, and its mips, with the bokeh
+        // contrast its lifted copy and that one's mips, its tiles and their dilation, the gather's far and near fields (the
+        // far one's mips with the contrast), their post-filter, the sprites added into those, and the
         // composite at full size; copy it over the game's HDR scene. frame turns the gather's spiral. The focus is copied for
         // read_dof_focus when no copy waits. Empty when the projection has no focal length or a texture of ours failed.
         std::optional<GameCall> run_depth_of_field(const FrameMap &map, const DepthOfFieldSettings &settings, const Camera &camera, bool flip,
@@ -400,7 +401,7 @@ namespace enhancements
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_,
             tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
             apply_gather_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_,
-            dof_sprite_ps_;
+            dof_sprite_ps_, dof_lift_ps_;
         ComPtr<ID3D11SamplerState> point_, linear_, lit_compare_, wrap_;
         ComPtr<ID3D11Texture3D> lattice_;                   // noise_lattice(), R8_UNORM
         ComPtr<ID3D11ShaderResourceView> lattice_srv_;
@@ -456,13 +457,15 @@ namespace enhancements
         bool dof_focus_pending_ = false;
         Scratch dof_prefilter_;     // half size, R16G16B16A16_FLOAT: the scene and the green CoC before the scatter
         Scratch dof_source_;        // the same with mips and a UAV of level 0: what the gather reads
+        Scratch dof_lifted_;        // half size with mips, R16G16B16A16_FLOAT: the bokeh contrast's lifted source and its luminance
         // core/dof.h's kDofSpriteCap DofSprites of the far field, then as many of the near field, with an SRV of each half;
         // and their two DrawInstancedIndirect argument sets, R32_UINT, which the scatter counts the sprites into.
         ComPtr<ID3D11Buffer> dof_sprites_, dof_args_;
         ComPtr<ID3D11UnorderedAccessView> dof_sprites_uav_, dof_args_uav_;
         ComPtr<ID3D11ShaderResourceView> dof_sprites_srv_[2];
         Scratch dof_tiles_, dof_dilated_;   // R16G16_FLOAT, one texel per 8x8 half-size pixels: far and near CoC maxima
-        Scratch dof_far_, dof_near_, dof_far_post_, dof_near_post_;     // half size, R16G16B16A16_FLOAT: the gather's fields
+        Scratch dof_far_, dof_near_, dof_far_post_, dof_near_post_;     // half size, R16G16B16A16_FLOAT: the gather's fields, the
+                                                                        // far one with mips under the bokeh contrast
         Readback frame_hdr_, frame_depth_;  // EnhancementsSaveFrame's copies
         bool frame_pending_ = false;        // copied and not yet read
         Staging copies_[3];         // the comparison capture's two frames, and its variant's view

@@ -12,7 +12,7 @@ namespace enhancements
     namespace
     {
         static_assert(ENHANCEMENTS_COMPARE_MAX == kCompareMax && sizeof(EnhancementsVariant) == 32 + sizeof(EnhancementsSettings));
-        static_assert(sizeof(EnhancementsSettings) == 316, "settings_tsv writes every field: give a new one a column");
+        static_assert(sizeof(EnhancementsSettings) == 320, "settings_tsv writes every field: give a new one a column");
         // compare_remaining took the padding at the end, so a caller built before it still sends 72 bytes. The accumulator's
         // three fields follow, and the scene capture's three took the 4 bytes of padding after them and one more row, so a
         // caller of version 6 sends 88 and gets scene_face in its padding. The trace's five follow them, and the gather's four
@@ -167,7 +167,7 @@ namespace enhancements
                           "\tdepth_of_field.focus_speed\tdepth_of_field.max_blur\tdepth_of_field.blades\tdepth_of_field.blade_roundness"
                           "\tdepth_of_field.blade_rotation\tdepth_of_field.spherical_aberration\tdepth_of_field.cat_eye\tdepth_of_field.swirl"
                           "\tdepth_of_field.anamorphic\tdepth_of_field.chromatic\tdepth_of_field.samples\tdepth_of_field.highlight_threshold"
-                          "\tdepth_of_field.highlight_gain\tdepth_of_field.scatter\n";
+                          "\tdepth_of_field.highlight_gain\tdepth_of_field.scatter\tdepth_of_field.bokeh_contrast\n";
         for (size_t i = 0; i < variants.size(); i++)
         {
             const Settings &s = variants[i].settings;
@@ -201,7 +201,7 @@ namespace enhancements
                 + number(d.focus_point[1]) + '\t' + number(d.focus_speed) + '\t' + number(d.max_blur) + '\t' + std::to_string(d.blades) + '\t'
                 + number(d.blade_roundness) + '\t' + number(d.blade_rotation) + '\t' + number(d.spherical_aberration) + '\t' + number(d.cat_eye) + '\t'
                 + number(d.swirl) + '\t' + number(d.anamorphic) + '\t' + number(d.chromatic) + '\t' + std::to_string(d.samples) + '\t'
-                + number(d.highlight_threshold) + '\t' + number(d.highlight_gain) + '\t' + (d.scatter ? "1" : "0") + '\n';
+                + number(d.highlight_threshold) + '\t' + number(d.highlight_gain) + '\t' + (d.scatter ? "1" : "0") + '\t' + number(d.bokeh_contrast) + '\n';
         }
         return out;
     }
