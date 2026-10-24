@@ -96,6 +96,7 @@ enum
     ENHANCEMENTS_PASS_WETNESS = 1u << 5,
     ENHANCEMENTS_PASS_LIGHT_SHAFTS = 1u << 6,
     ENHANCEMENTS_PASS_TRACE = 1u << 7,
+    ENHANCEMENTS_PASS_DEPTH_OF_FIELD = 1u << 8,
 };
 
 // The tonemap pass's curves, values of EnhancementsTonemap.curve.
@@ -332,7 +333,8 @@ typedef struct EnhancementsTrace
 // One bounce of diffuse light: each world pixel gathers the light of the surfaces and the sky its hemisphere sees, by rays
 // to any distance, and from each hit that faces the sun one more ray toward it. Needs trace.enabled and a scene captured
 // with ENHANCEMENTS_SCENE_LIGHT; over a scene without, the trace pass runs as without this block. While on, the gather's rays
-// give the occlusion too, and trace.ao_samples is unused. The last block of EnhancementsSettings.
+// give the occlusion too, and trace.ao_samples is unused. depth_of_field follows it in EnhancementsSettings, so this block
+// keeps its size.
 typedef struct EnhancementsGather
 {
     uint32_t enabled;           // default 0
@@ -342,6 +344,32 @@ typedef struct EnhancementsGather
     float strength;             // multiplies the bounce; default 1, clamped to 0..4
     float hit_ambient;          // the share of the game's ambient light a hit surface gets; default 0.5, clamped to 0..1
 } EnhancementsGather;
+
+// Depth of field from the depth buffer in one frame: at the bloom step, after the light shafts, each point of the HDR
+// scene spreads into its circle of confusion, shaped like the aperture, with spherical aberration's light across it,
+// before the game's bloom and tone map read the scene, so highlights become bright discs. The focal length comes from the
+// pushed camera's projection and sensor_height_mm, so it follows the field of view. The last block of EnhancementsSettings.
+typedef struct EnhancementsDepthOfField
+{
+    uint32_t enabled;           // default 0
+    float f_number;             // default 2.8, clamped to 1..22
+    float sensor_height_mm;     // default 24, full frame; clamped to 4..100
+    float focus_distance;       // meters along the view axis; 0 (the default) focuses on focus_point; clamped to 0..10000
+    float focus_point[2];       // the autofocus's point, 0 to 1 from the top left; default the center
+    float focus_speed;          // the autofocus's ease: the share of the way it goes in a second; 0 jumps; default 0.9, clamped to 0..0.999
+    float max_blur;             // the largest CoC radius as a share of the render height, which bounds the cost; default 0.03,
+                                // clamped to 0.002..0.1
+    uint32_t blades;            // 0 (the default) round, else 5 to 16; 1 to 4 read as 5
+    float blade_roundness;      // 0 straight blades to 1 round; default 0.5
+    float blade_rotation;       // degrees; default 0, a corner straight up; clamped to -360..360
+    float spherical_aberration; // -1 to 1: above 0 discs behind focus have a bright rim and those in front a soft center (soap
+                                // bubble), below 0 the reverse; default 0.6
+    float cat_eye;              // 0 to 1: mechanical vignetting cuts discs toward the corners into cat's eyes; default 0
+    float swirl;                // 0 to 1: discs squeezed along the line from the center toward the corners; default 0
+    float anamorphic;           // the aperture's width over its height is 1 / anamorphic; default 1, clamped to 0.5..2
+    float chromatic;            // axial chromatic aberration: green fringes behind focus and magenta in front; default 0, clamped to 0..2
+    uint32_t samples;           // gather samples a pixel, in rings of 8k around one; default 49, clamped to 9..1089
+} EnhancementsDepthOfField;
 
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller
 // knows, and fields past it keep their defaults.
@@ -361,6 +389,7 @@ typedef struct EnhancementsSettings
     EnhancementsLightShafts light_shafts;
     EnhancementsTrace trace;
     EnhancementsGather gather;
+    EnhancementsDepthOfField depth_of_field;
 } EnhancementsSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and
@@ -507,6 +536,7 @@ typedef struct EnhancementsStatus
     uint32_t shot_active;       // 1 when the last frame ran with an EnhancementsSetShot shot's settings, so trace_converged is that
                                 // shot's
     uint32_t frames_saved;      // frames EnhancementsSaveFrame has saved since the add-on loaded; the status line names the last folder
+    float dof_focus_meters;     // the depth of field's focus distance, read back a few frames late; 0 before the pass ran
 } EnhancementsStatus;
 
 ENHANCEMENTS_EXPORT uint32_t EnhancementsVersion(void);

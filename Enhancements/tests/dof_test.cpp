@@ -48,6 +48,44 @@ namespace
         return c;
     }
 
+    // A 1280x800 frame through a 50 mm lens (P11 = 50 / 12) at 16:10, everything at background meters, black, rows as stored.
+    struct Scene
+    {
+        Camera camera = reversed_camera(50.0f / 12 / 1.6f, 50.0f / 12);
+        DofImage image;
+        std::array<float, 4> k {};
+        explicit Scene(float background) : k(*dof_depth_coefficients(camera))
+        {
+            image.size = { 1280, 800 };
+            image.rgb.assign(size_t(1280) * 800 * 3, 0.0f);
+            image.depth.assign(size_t(1280) * 800, reversed(background));
+        }
+        // 1 / z = -(k0 d + k1) / (k2 d + k3), solved for d.
+        float reversed(float meters) const { return -(k[1] + k[3] / meters) / (k[0] + k[2] / meters); }
+        void put(uint32_t x, uint32_t y, float value, float meters)
+        {
+            for (int c = 0; c < 3; c++)
+                image.rgb[(size_t(y) * 1280 + x) * 3 + c] = value;
+            image.depth[size_t(y) * 1280 + x] = reversed(meters);
+        }
+        float green(const DofOutput &out, uint32_t x, uint32_t y) const { return out.rgb[(size_t(y) * 1280 + x) * 3 + 1]; }
+    };
+
+    DofOutput render(const Scene &scene, const DepthOfFieldSettings &settings)
+    {
+        return render_dof(scene.image, *dof_constants(settings, scene.camera, scene.image.size, true, 0, 0), 0);
+    }
+
+    DepthOfFieldSettings lens_at(float f_number, float focus, float aberration)
+    {
+        DepthOfFieldSettings s;
+        s.enabled = true;
+        s.f_number = f_number;
+        s.focus_distance = focus;
+        s.spherical_aberration = aberration;
+        return s;
+    }
+
     // The mean of the light across the unit disc, by the midpoint rule over 20,000 rings.
     double disc_mean(float aberration)
     {
@@ -143,6 +181,80 @@ int main(int argc, char **argv)
     check("the depth coefficients take reversed depth 1 to the near plane, 0 to the far one, and 0.0001 to 500.025 m",
         k && near(dof_view_depth(*k, 1), 0.1f, 1e-6f) && near(dof_view_depth(*k, 0), 1000, 0.05f) && near(dof_view_depth(*k, 0.0001f), 500.025f, 0.01f));
     check("a projection that does not invert has none", !dof_depth_coefficients(Camera {}));
+
+    DepthOfFieldSettings settings;
+    settings.focus_point[1] = 0.25f;
+    settings.focus_speed = 0.9f;
+    settings.blades = 7;
+    settings.blade_roundness = 0;
+    settings.blade_rotation = 90;
+    settings.spherical_aberration = -1;
+    settings.chromatic = 1;
+    const Camera lens = reversed_camera(50.0f / 12 / 1.6f, 50.0f / 12);
+    const DofConstants c = *dof_constants(settings, lens, { 1280, 800 }, true, 0.5f, 1);
+    check("the constants: a 50 mm focal length from the projection and the 24 mm sensor, f/2.8, 16.667 half-size pixels a mm, a largest "
+          "radius of 12",
+        near(c.optics[0], 50) && near(c.optics[1], 2.8f) && near(c.optics[2], 16.6667f) && near(c.optics[3], 12));
+    check("the focus point stored upside down, and the autofocus 1 - 0.1^0.5 of the way after half a second",
+        c.focus[0] == 0 && c.focus[1] == 0.5f && c.focus[2] == 0.75f && near(c.focus[3], 0.683772f));
+    check("seven straight blades turned 90 degrees, grown by 1.0715 and the margin with chromatic 1 by 5% more",
+        c.shape[0] == 7 && c.shape[1] == 0 && near(c.shape[2], 1.570796f) && near(c.shape[3], 0.933288f) && near(c.bokeh[3], 1.07148f * 1.05f));
+    check("spherical aberration -1 normalized in front of focus, where it is +1, and behind", c.bokeh[0] == -1 && near(c.bokeh[1], 0.918559f) && c.bokeh[2] == 1);
+    check("49 samples are 3 rings, frame 1 turns them 0.618, flip makes stored rows run up, and the aspect is 1.6",
+        c.sampling[0] == 3 && near(c.sampling[1], 0.618034f) && c.sampling[2] == 1 && c.sampling[3] == 1.6f);
+    check("the half size 640x400 in 80x50 tiles, a reach of 2 tiles, and depth samples 8 pixels apart", c.sizes[0] == 640 && c.sizes[1] == 400
+        && c.sizes[2] == 80 && c.sizes[3] == 50 && c.counts[0] == 2 && c.counts[1] == 1280 && c.counts[2] == 800 && c.counts[3] == 8);
+    check("rings: 9 samples are 2, 64 are 4, 289 are 8 and 1089 are 16", dof_rings(9) == 2 && dof_rings(64) == 4 && dof_rings(289) == 8 && dof_rings(1089) == 16);
+    settings.focus_speed = 0;
+    check("a focus speed of 0 jumps", dof_constants(settings, lens, { 1280, 800 }, false, 0.5f, 0)->focus[3] == 1
+        && dof_constants(settings, lens, { 1280, 800 }, false, 0.5f, 0)->focus[2] == 0.25f);
+    check("a projection without a focal length has no constants", !dof_constants(settings, Camera {}, { 1280, 800 }, true, 0, 0));
+
+    {
+        Scene point(30);
+        point.put(640, 400, 100, 30);
+        double before = 0, after = 0;
+        const DofOutput blurred = render(point, lens_at(2, 2, 0));
+        for (size_t i = 1; i < blurred.rgb.size(); i += 3)
+        {
+            before += point.image.rgb[i];
+            after += blurred.rgb[i];
+        }
+        check("a point 30 m away with the lens focused at 2 m keeps its light within 3% as it spreads into a disc", std::fabs(after / before - 1) < 0.03
+            && point.green(blurred, 640, 400) < 1 && point.green(blurred, 646, 400) > 0.1f && point.green(blurred, 640, 406) > 0.1f
+            && point.green(blurred, 664, 400) == 0);
+        // At spherical aberration 1 the rim, 8 to 9 pixels out, outshines the center 3 pixels around.
+        const DofOutput bubble = render(point, lens_at(2, 2, 1));
+        float center = 0, rim = 0;
+        for (int a = 0; a < 8; a++)
+        {
+            const float angle = a * 0.785398f;
+            center += point.green(bubble, 640 + uint32_t(std::lround(3 * std::cos(angle))), 400 + uint32_t(std::lround(3 * std::sin(angle))));
+            rim += point.green(bubble, 640 + uint32_t(std::lround(8.5f * std::cos(angle))), 400 + uint32_t(std::lround(8.5f * std::sin(angle))));
+        }
+        check("at spherical aberration 1 behind focus the disc's rim is over twice as bright as its center (soap bubble)", rim > 2 * center && center > 0);
+        const DofOutput sharp = render(point, lens_at(2, 30, 0));
+        check("focused at the point it stays as it was, to the bit", sharp.rgb == point.image.rgb);
+    }
+    {
+        Scene edge(30);
+        for (uint32_t y = 200; y < 600; y++)
+            for (uint32_t x = 400; x < 800; x++)
+                edge.put(x, y, 1, 2);
+        const DofOutput front = render(edge, lens_at(2, 30, 0));
+        check("a white square 2 m away in front of focus at 30 m spreads over its edge evenly: half at the edge, 0 and 1 ten pixels either side",
+            near(edge.green(front, 399, 400) + edge.green(front, 400, 400), 1, 0.05f) && edge.green(front, 388, 400) < 0.02f
+                && edge.green(front, 412, 400) > 0.98f);
+        const DofOutput behind = render(edge, lens_at(2, 1, 0));
+        check("behind focus at 1 m, with the background black at 30 m behind it, it spreads as evenly",
+            near(edge.green(behind, 399, 400) + edge.green(behind, 400, 400), 1, 0.05f) && edge.green(behind, 412, 400) > 0.97f);
+        DepthOfFieldSettings autofocus = lens_at(2, 0, 0);
+        const DofOutput focused = render(edge, autofocus);
+        check("the autofocus at the picture's center finds the square 2 m away, and keeps it sharp", near(focused.focus, 2, 0.001f)
+            && edge.green(focused, 640, 400) == 1 && edge.green(focused, 401, 400) == 1);
+        autofocus.focus_point[0] = 0.1f;
+        check("and at the left finds the background 30 m away", near(render(edge, autofocus).focus, 30, 0.01f));
+    }
 
     FrameSave frame;
     frame.size = { 3, 2 };

@@ -1,6 +1,6 @@
-// The depth of field's arithmetic: shaders/dof.hlsli compiled as C++ (core/dof.cpp), so the tests check the shaders'
-// own circles of confusion, aperture shape and light across the disc, and the shape's constants the shaders take from
-// the CPU; and the frames EnhancementsSaveFrame writes for the Mac's harness. Pure C++17 like plan.h.
+// The depth of field: its constants as the shaders read them, and shaders/dof.hlsli compiled as C++ (core/dof.cpp), so the
+// tests check the shaders' own circles of confusion, aperture shape and light across the disc, and the Mac's harness runs
+// their passes; and the frames EnhancementsSaveFrame writes for it. Pure C++17 like plan.h. The GPU side is in gpu.cpp.
 #pragma once
 
 #include "plan.h"
@@ -88,4 +88,50 @@ namespace enhancements
 
     // The folder back. Empty, with why, when a file is missing or of the wrong size.
     std::optional<FrameSave> read_frame_folder(const std::filesystem::path &folder, std::string &why);
+
+    // shaders/dof.cbuffer.hlsli's cbuffer Dof at b1: 144 bytes.
+    struct DofConstants
+    {
+        float optics[4];    // focal length in mm, f-number, half-size pixels per mm of sensor, largest CoC radius in half-size pixels
+        float focus[4];     // focus distance in meters (0: autofocus), the focus point's stored uv, the autofocus's step this frame
+        float depth[4];     // dof_depth_coefficients
+        float shape[4];     // blades, blade roundness, blade rotation in radians, dof_area_scale
+        float lens[4];      // anamorphic, cat's eye, swirl, chromatic
+        float bokeh[4];     // spherical aberration, dof_bokeh_norm behind and in front of focus, the gather radius's margin
+        float sampling[4];  // rings, the frame's turn of them, +1 when stored rows run up the screen else -1, width over height
+        uint32_t sizes[4];  // the half size, and the tile count
+        uint32_t counts[4]; // tiles the dilation reaches, the render size, pixels between the autofocus's depth samples
+    };
+    static_assert(sizeof(DofConstants) == 144);
+
+    // Pixels a tile holds along each side of the half-size picture; shaders/dof.hlsli's tiles say the same.
+    constexpr uint32_t kDofTile = 8;
+
+    // The rings of 8k samples around one that come nearest samples in all: at least 2, at most 16.
+    uint32_t dof_rings(uint32_t samples);
+
+    // The constants of one frame: the focal length from the camera's projection and the sensor, the focus point stored as
+    // flip says, the autofocus's step after seconds of real time, and the rings turned by the frame's count. Empty when
+    // the projection does not invert or has no focal length.
+    std::optional<DofConstants> dof_constants(const DepthOfFieldSettings &settings, const Camera &camera, Size render, bool flip, float seconds,
+        uint64_t frame);
+
+    // A frame as the passes read it: linear RGB, three floats a pixel, and the reversed depth, rows as stored.
+    struct DofImage
+    {
+        Size size;
+        std::vector<float> rgb;
+        std::vector<float> depth;
+    };
+
+    struct DofOutput
+    {
+        std::vector<float> rgb;     // the frame with depth of field, as stored
+        float focus = 0;            // the focus distance the frame used, meters
+    };
+
+    // Every pass of shaders/dof.hlsli over the image, as the GPU runs them, on the machine's threads: the autofocus from
+    // previous_focus, the prefilter and its levels, the tiles and their dilation, the gather, the post-filter and the
+    // composite.
+    DofOutput render_dof(const DofImage &image, const DofConstants &constants, float previous_focus);
 }

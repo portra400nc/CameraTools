@@ -228,9 +228,9 @@ int main()
         FrameTracker tracker;
         fixture::replay(rows, tracker);
         const Plan at_bloom = plan(Step::bloom, tracker.map(), atmosphere_on(), kCamera);
-        check("the bloom plan runs atmosphere and holds light shafts, off", at_bloom.count == 2 && at_bloom.items[0].pass == PassId::atmosphere
-            && at_bloom.items[0].kind == Decision::Kind::run && at_bloom.items[1].pass == PassId::light_shafts
-            && at_bloom.items[1].kind == Decision::Kind::off);
+        check("the bloom plan runs atmosphere and holds light shafts and the depth of field, off", at_bloom.count == 3
+            && at_bloom.items[0].pass == PassId::atmosphere && at_bloom.items[0].kind == Decision::Kind::run && at_bloom.items[1].pass == PassId::light_shafts
+            && at_bloom.items[1].kind == Decision::Kind::off && at_bloom.items[2].pass == PassId::depth_of_field && at_bloom.items[2].kind == Decision::Kind::off);
         check("the combine plan holds the trace, sun shadows, contact shadows and ambient, all off",
             plan(Step::combine, tracker.map(), atmosphere_on(), kCamera).count == 4
             && plan(Step::combine, tracker.map(), atmosphere_on(), kCamera).items[0].kind == Decision::Kind::off);
@@ -308,7 +308,7 @@ int main()
         FrameTracker tracker;
         fixture::replay(rows, tracker);
         const Plan at_bloom = plan(Step::bloom, tracker.map(), light_shafts_on(true), kCamera);
-        check("the bloom plan runs atmosphere first, then light shafts with this frame's sun constants", at_bloom.count == 2
+        check("the bloom plan runs atmosphere first, then light shafts with this frame's sun constants", at_bloom.count == 3
             && at_bloom.items[0].pass == PassId::atmosphere && at_bloom.items[0].kind == Decision::Kind::run
             && at_bloom.items[1].pass == PassId::light_shafts && at_bloom.items[1].kind == Decision::Kind::run && at_bloom.items[1].uses_sun);
     }
@@ -723,7 +723,7 @@ int main()
         check("a label stops at 32 glyphs", encode_label(std::string(40, 'z')).length == 32);
     }
     {
-        FrameReport report = FrameReport::start(parse_settings(EnhancementsSettings { sizeof(EnhancementsSettings), 0, 0, 1, {}, {}, {}, {}, {}, {}, {}, {}, {} }));
+        FrameReport report = FrameReport::start(parse_settings(EnhancementsSettings { sizeof(EnhancementsSettings), 0, 0, 1, {}, {}, {}, {}, {}, {}, {}, {}, {}, {} }));
         check("disabled: describe says off", describe(report) == "off");
         report.error = ENHANCEMENTS_ERROR_SHADER;
         check("disabled by an error: describe says which", describe(report) == "off; error shader");
@@ -1122,8 +1122,8 @@ int main()
         EnhancementsSettings raw = raw_settings();
         raw.gather = { 1, 256, ENHANCEMENTS_GATHER_SKY_MAP, 1, 2, 0.25f };
         const GatherSettings whole = parse_settings(raw).gather;
-        check("a whole 236-byte struct reads the gather: on, 256 samples, the sky map, one filter pass, strength 2, a quarter of the ambient light",
-            sizeof raw == 236 && whole.enabled && whole.samples == 256 && whole.sky == GatherSky::map && whole.filter == 1 && whole.strength == 2.0f
+        check("a whole struct reads the gather: on, 256 samples, the sky map, one filter pass, strength 2, a quarter of the ambient light",
+            whole.enabled && whole.samples == 256 && whole.sky == GatherSky::map && whole.filter == 1 && whole.strength == 2.0f
                 && whole.hit_ambient == 0.25f);
         raw.size = 212;     // a caller of version 8
         const GatherSettings before = parse_settings(raw).gather;
@@ -1139,6 +1139,38 @@ int main()
         const GatherSettings high = parse_settings(raw).gather;
         check("and 100000 samples to 4096, strength 100 to 4, hit_ambient 5 to 1, the occlusion sky and no filter kept", high.samples == 4096
             && high.strength == 4.0f && high.hit_ambient == 1.0f && high.sky == GatherSky::occlusion && high.filter == 0);
+    }
+    {
+        EnhancementsSettings raw = raw_settings();
+        raw.depth_of_field = { 1, 1.4f, 36, 3, { 0.25f, 0.75f }, 0.5f, 0.05f, 7, 0.2f, 15, 1, 0.6f, 0.3f, 1.33f, 1, 256 };
+        const DepthOfFieldSettings whole = parse_settings(raw).depth_of_field;
+        check("a whole 304-byte struct reads the depth of field: on, f/1.4 on a 36 mm sensor focused at 3 m, its point, speed, blur, 7 blades and the rest",
+            sizeof raw == 304 && whole.enabled && whole.f_number == 1.4f && whole.sensor_height_mm == 36 && whole.focus_distance == 3
+                && whole.focus_point[0] == 0.25f && whole.focus_point[1] == 0.75f && whole.focus_speed == 0.5f && whole.max_blur == 0.05f
+                && whole.blades == 7 && whole.blade_roundness == 0.2f && whole.blade_rotation == 15 && whole.spherical_aberration == 1
+                && whole.cat_eye == 0.6f && whole.swirl == 0.3f && whole.anamorphic == 1.33f && whole.chromatic == 1 && whole.samples == 256);
+        raw.size = 236;     // a caller of version 10
+        const DepthOfFieldSettings before = parse_settings(raw).depth_of_field;
+        check("a 236-byte struct keeps the depth of field off at f/2.8, 24 mm, autofocus at the center, speed 0.9, blur 0.03, round, "
+              "spherical aberration 0.6 and 49 samples",
+            !before.enabled && before.f_number == 2.8f && before.sensor_height_mm == 24 && before.focus_distance == 0 && before.focus_point[0] == 0.5f
+                && before.focus_point[1] == 0.5f && before.focus_speed == 0.9f && before.max_blur == 0.03f && before.blades == 0
+                && before.spherical_aberration == 0.6f && before.anamorphic == 1 && before.chromatic == 0 && before.samples == 49);
+        raw.size = sizeof raw;
+        raw.depth_of_field = { 1, 0, 1, -5, { -1, 2 }, 5, 1, 2, -1, 1000, -3, 7, -1, 0.1f, 9, 0 };
+        const DepthOfFieldSettings low = parse_settings(raw).depth_of_field;
+        check("the depth of field clamps: f/0 to f/1, a 1 mm sensor to 4, focus -5 to autofocus, the point into the picture, speed 5 to 0.999, "
+              "blur 1 to 0.1, 2 blades to 5, rotation 1000 to 360, aberration -3 to -1, anamorphic 0.1 to 0.5, chromatic 9 to 2, 0 samples to 9",
+            low.f_number == 1 && low.sensor_height_mm == 4 && low.focus_distance == 0 && low.focus_point[0] == 0 && low.focus_point[1] == 1
+                && low.focus_speed == 0.999f && low.max_blur == 0.1f && low.blades == 5 && low.blade_roundness == 0 && low.blade_rotation == 360
+                && low.spherical_aberration == -1 && low.cat_eye == 1 && low.swirl == 0 && low.anamorphic == 0.5f && low.chromatic == 2 && low.samples == 9);
+        raw.depth_of_field = { 1, NAN, INFINITY, NAN, { NAN, NAN }, NAN, NAN, 99, NAN, NAN, NAN, NAN, NAN, NAN, NAN, 5000 };
+        const DepthOfFieldSettings bad = parse_settings(raw).depth_of_field;
+        check("NaN and infinities fall back to the defaults, 99 blades to 16 and 5000 samples to 1089", bad.f_number == 2.8f && bad.sensor_height_mm == 24
+            && bad.focus_point[0] == 0.5f && bad.focus_speed == 0.9f && bad.max_blur == 0.03f && bad.blades == 16 && bad.spherical_aberration == 0.6f
+            && bad.anamorphic == 1 && bad.samples == 1089);
+        check("the depth of field runs last at the bloom step and wants it", wanted_steps(parse_settings(raw)).has(Step::bloom)
+            && kPasses[7].id == PassId::depth_of_field && std::string(kPasses[7].name) == "depth-of-field");
     }
     {
         EnhancementsCamera raw {};
@@ -1189,7 +1221,7 @@ int main()
     }
     {
         check("disabled settings want no step", wanted_steps(view_only(ENHANCEMENTS_VIEW_HDR_SCENE)).bits != 0
-            && wanted_steps(parse_settings(EnhancementsSettings { sizeof(EnhancementsSettings), 0, ENHANCEMENTS_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 8 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 2 }, { 1, 1, 1, 1, 1, 1 } })).empty());
+            && wanted_steps(parse_settings(EnhancementsSettings { sizeof(EnhancementsSettings), 0, ENHANCEMENTS_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 8 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 2 }, { 1, 1, 1, 1, 1, 1 }, { 1, 2, 24, 0, { 0.5f, 0.5f }, 0, 0.03f, 0, 0, 0, 0, 0, 0, 1, 0, 49 } })).empty());
     }
     {
         // A traced shot over the applied settings.
@@ -1226,11 +1258,11 @@ int main()
         check("a shot too short for active, an inactive one and a null one are no shot", !parse_shot(&shot).active && !parse_shot(nullptr).active
             && (shot = { sizeof shot, 0, 64, 100 }, !with_shot(on, parse_shot(&shot)).trace.enabled));
         // The status as a caller of each version reads it: it gets the bytes of its own size.
-        check("the status is 152 bytes: the restarts at 132, in a version 9 caller's padding, their reason at 136, the shot at 140 and the saved frames "
-              "at 144, and the shot is 16",
+        check("the status is 152 bytes: the restarts at 132, in a version 9 caller's padding, their reason at 136, the shot at 140, the saved frames "
+              "at 144 and the focus at 148, and the shot is 16",
             sizeof(EnhancementsStatus) == 152 && offsetof(EnhancementsStatus, trace_light) == 128 && offsetof(EnhancementsStatus, trace_restarts) == 132
             && offsetof(EnhancementsStatus, trace_restart_reason) == 136 && offsetof(EnhancementsStatus, shot_active) == 140
-            && offsetof(EnhancementsStatus, frames_saved) == 144 && sizeof(EnhancementsShot) == 16 && ENHANCEMENTS_VERSION == 11);
+            && offsetof(EnhancementsStatus, frames_saved) == 144 && offsetof(EnhancementsStatus, dof_focus_meters) == 148 && sizeof(EnhancementsShot) == 16 && ENHANCEMENTS_VERSION == 11);
     }
     {
         // Unity's GL.GetGPUProjectionMatrix for a 60 degree, 16:10 camera with near 0.1 and far 1000, reversed Z.

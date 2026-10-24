@@ -3,6 +3,7 @@
 #include "hlsl.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -11,15 +12,83 @@
 #include <iterator>
 #include <map>
 #include <sstream>
+#include <thread>
 
 namespace enhancements::shader
 {
     thread_local float4 dof_optics, dof_focus, dof_depth, dof_shape, dof_lens, dof_bokeh, dof_sampling;
     thread_local uint4 dof_sizes, dof_counts;
 
+    // The images the passes read on this thread, as the shaders' textures hold them.
+    struct DofTextures
+    {
+        const enhancements::DofImage *scene = nullptr;
+        float focus = 0;
+        // The prefilter's levels: each rgb and the green CoC, row by row.
+        std::vector<std::vector<float4>> source;
+        std::vector<uint2> source_sizes;
+        std::vector<float2> tiles, dilated;
+        std::vector<float4> far, near;
+    };
+    thread_local const DofTextures *textures = nullptr;
+
+    namespace
+    {
+        int clamp_index(int v, uint size) { return v < 0 ? 0 : v >= int(size) ? int(size) - 1 : v; }
+        size_t at(int2 p, uint2 size) { return size_t(clamp_index(p.y, size.y)) * size.x + size_t(clamp_index(p.x, size.x)); }
+        uint2 render_size() { return { dof_counts.y, dof_counts.z }; }
+        uint2 half_size() { return { dof_sizes.x, dof_sizes.y }; }
+        uint2 tile_size() { return { dof_sizes.z, dof_sizes.w }; }
+    }
+
+    float dof_load_depth(int2 p) { return textures->scene->depth[at(p, render_size())]; }
+    float3 dof_load_scene(int2 p)
+    {
+        const float *c = &textures->scene->rgb[at(p, render_size()) * 3];
+        return { c[0], c[1], c[2] };
+    }
+    float dof_load_focus() { return textures->focus; }
+    float4 dof_load_source(int2 p) { return textures->source[0][at(p, half_size())]; }
+    // SampleLevel with a linear sampler that clamps: bilinear in the two levels around lod.
+    float3 dof_sample_source(float2 position, float lod)
+    {
+        const int top = int(textures->source.size()) - 1;
+        const float l = clamp(lod, 0.0f, float(top));
+        const int l0 = int(floor(l)), l1 = min(l0 + 1, top);
+        const auto bilinear = [&position](const std::vector<float4> &level, uint2 size, uint2 base) {
+            const float x = position.x / float(base.x) * float(size.x) - 0.5f, y = position.y / float(base.y) * float(size.y) - 0.5f;
+            const int x0 = int(floor(x)), y0 = int(floor(y));
+            const float fx = x - floor(x), fy = y - floor(y);
+            float3 c;
+            for (int j = 0; j < 2; j++)
+                for (int i = 0; i < 2; i++)
+                {
+                    const float4 t = level[at({ x0 + i, y0 + j }, size)];
+                    const float b = (i == 0 ? 1 - fx : fx) * (j == 0 ? 1 - fy : fy);
+                    c = c + float3(t.x, t.y, t.z) * b;
+                }
+            return c;
+        };
+        const uint2 base = textures->source_sizes[0];
+        const float3 a = bilinear(textures->source[l0], textures->source_sizes[l0], base);
+        const float3 b = bilinear(textures->source[l1], textures->source_sizes[l1], base);
+        const float t = l - float(l0);
+        return a * (1 - t) + b * t;
+    }
+    float2 dof_load_tile(int2 t) { return textures->tiles[at(t, tile_size())]; }
+    float2 dof_load_dilated(int2 t) { return textures->dilated[at(t, tile_size())]; }
+    float4 dof_load_far(int2 p) { return textures->far[at(p, half_size())]; }
+    float4 dof_load_near(int2 p) { return textures->near[at(p, half_size())]; }
+
+#define DOF_FOCUS
+#define DOF_PREFILTER
+#define DOF_TILES
+#define DOF_DILATE
+#define DOF_GATHER
+#define DOF_POST
+#define DOF_COMPOSITE
 #define LOOP
 #define UNROLL
-#include "../shaders/cat_eye.hlsli"
 #include "../shaders/dof.hlsli"
 #undef UNROLL
 #undef LOOP
@@ -235,5 +304,149 @@ namespace enhancements
             return std::nullopt;
         }
         return s;
+    }
+
+    uint32_t dof_rings(uint32_t samples)
+    {
+        return std::clamp<uint32_t>(static_cast<uint32_t>(std::lround((std::sqrt(double(samples)) - 1) / 2)), 2, 16);
+    }
+
+    std::optional<DofConstants> dof_constants(const DepthOfFieldSettings &s, const Camera &camera, Size render, bool flip, float seconds, uint64_t frame)
+    {
+        const std::optional<std::array<float, 4>> k = dof_depth_coefficients(camera);
+        const float p11 = camera.view_to_clip[5];
+        if (!k || !(p11 > 0) || render.width == 0 || render.height == 0)
+            return std::nullopt;
+        DofConstants c {};
+        const uint32_t half_w = (render.width + 1) / 2, half_h = (render.height + 1) / 2;
+        const float max_radius = s.max_blur * render.height * 0.5f;
+        const float margin = dof_shape_reach(s.blades, s.blade_roundness, s.anamorphic) * (1 + 0.05f * s.chromatic);
+        const float step = s.focus_speed <= 0 ? 1 : 1 - std::pow(1 - s.focus_speed, std::max(seconds, 0.0f));
+        const float c_optics[4] = { s.sensor_height_mm * 0.5f * p11, s.f_number, render.height * 0.5f / s.sensor_height_mm, max_radius };
+        const float c_focus[4] = { s.focus_distance, s.focus_point[0], flip ? 1 - s.focus_point[1] : s.focus_point[1], step };
+        const float c_shape[4] = { static_cast<float>(s.blades), s.blade_roundness, s.blade_rotation * 3.14159265f / 180,
+            dof_area_scale(s.blades, s.blade_roundness, s.anamorphic) };
+        const float c_lens[4] = { s.anamorphic, s.cat_eye, s.swirl, s.chromatic };
+        const float c_bokeh[4] = { s.spherical_aberration, dof_bokeh_norm(s.spherical_aberration), dof_bokeh_norm(-s.spherical_aberration), margin };
+        // The golden ratio's turns spread the frames' patterns evenly, so an accumulated shot averages them.
+        const float c_sampling[4] = { static_cast<float>(dof_rings(s.samples)), static_cast<float>(std::fmod(double(frame) * 0.6180339887, 1.0)),
+            flip ? 1.0f : -1.0f, float(render.width) / float(render.height) };
+        std::copy(c_optics, c_optics + 4, c.optics);
+        std::copy(c_focus, c_focus + 4, c.focus);
+        std::copy(k->begin(), k->end(), c.depth);
+        std::copy(c_shape, c_shape + 4, c.shape);
+        std::copy(c_lens, c_lens + 4, c.lens);
+        std::copy(c_bokeh, c_bokeh + 4, c.bokeh);
+        std::copy(c_sampling, c_sampling + 4, c.sampling);
+        const uint32_t sizes[4] = { half_w, half_h, (half_w + kDofTile - 1) / kDofTile, (half_h + kDofTile - 1) / kDofTile };
+        const uint32_t counts[4] = { static_cast<uint32_t>(std::ceil(max_radius * margin / kDofTile)), render.width, render.height,
+            std::max(1u, render.height / 100) };
+        std::copy(sizes, sizes + 4, c.sizes);
+        std::copy(counts, counts + 4, c.counts);
+        return c;
+    }
+
+    namespace
+    {
+        void set_constants(const DofConstants &c)
+        {
+            const auto f4 = [](const float *v) { return shader::float4(v[0], v[1], v[2], v[3]); };
+            shader::dof_optics = f4(c.optics);
+            shader::dof_focus = f4(c.focus);
+            shader::dof_depth = f4(c.depth);
+            shader::dof_shape = f4(c.shape);
+            shader::dof_lens = f4(c.lens);
+            shader::dof_bokeh = f4(c.bokeh);
+            shader::dof_sampling = f4(c.sampling);
+            shader::dof_sizes = { c.sizes[0], c.sizes[1], c.sizes[2], c.sizes[3] };
+            shader::dof_counts = { c.counts[0], c.counts[1], c.counts[2], c.counts[3] };
+        }
+
+        // Runs pixel(x, y) over a width x height target on the machine's threads, each with the constants and textures set,
+        // as a draw runs its pixel shader.
+        template <class Pixel>
+        void draw(uint32_t width, uint32_t height, const DofConstants &c, const shader::DofTextures &t, Pixel pixel)
+        {
+            std::atomic<uint32_t> next { 0 };
+            const auto work = [&] {
+                set_constants(c);
+                shader::textures = &t;
+                for (uint32_t y; (y = next++) < height;)
+                    for (uint32_t x = 0; x < width; x++)
+                        pixel(x, y);
+            };
+            const unsigned count = std::clamp(std::thread::hardware_concurrency(), 1u, 16u);
+            std::vector<std::thread> threads;
+            for (unsigned i = 1; i < count; i++)
+                threads.emplace_back(work);
+            work();
+            for (std::thread &thread : threads)
+                thread.join();
+        }
+    }
+
+    DofOutput render_dof(const DofImage &image, const DofConstants &c, float previous_focus)
+    {
+        using namespace shader;
+        DofTextures t;
+        t.scene = &image;
+        set_constants(c);
+        textures = &t;
+        t.focus = dof_focus_next(previous_focus);
+        const uint2 half = { c.sizes[0], c.sizes[1] }, tiles = { c.sizes[2], c.sizes[3] };
+        t.source.emplace_back(size_t(half.x) * half.y);
+        t.source_sizes.push_back(half);
+        draw(half.x, half.y, c, t, [&t, half](uint32_t x, uint32_t y) { t.source[0][size_t(y) * half.x + x] = dof_prefilter(int2(int(x), int(y))); });
+        // GenerateMips: each level halves, rounded down, each texel the mean of the 2x2 below it.
+        while (t.source_sizes.back().x > 1 || t.source_sizes.back().y > 1)
+        {
+            const uint2 below = t.source_sizes.back(), size = { std::max(1u, below.x / 2), std::max(1u, below.y / 2) };
+            const std::vector<float4> &from = t.source.back();
+            std::vector<float4> level(size_t(size.x) * size.y);
+            for (uint y = 0; y < size.y; y++)
+                for (uint x = 0; x < size.x; x++)
+                {
+                    float4 sum;
+                    for (uint j = 0; j < 2; j++)
+                        for (uint i = 0; i < 2; i++)
+                            sum = sum + from[size_t(std::min(y * 2 + j, below.y - 1)) * below.x + std::min(x * 2 + i, below.x - 1)];
+                    level[size_t(y) * size.x + x] = sum * 0.25f;
+                }
+            t.source.push_back(std::move(level));
+            t.source_sizes.push_back(size);
+        }
+        t.tiles.resize(size_t(tiles.x) * tiles.y);
+        draw(tiles.x, tiles.y, c, t, [&t, tiles](uint32_t x, uint32_t y) { t.tiles[size_t(y) * tiles.x + x] = dof_tile(int2(int(x), int(y))); });
+        t.dilated.resize(t.tiles.size());
+        draw(tiles.x, tiles.y, c, t, [&t, tiles](uint32_t x, uint32_t y) { t.dilated[size_t(y) * tiles.x + x] = dof_dilate(int2(int(x), int(y))); });
+        std::vector<float4> far(size_t(half.x) * half.y), near(far.size());
+        draw(half.x, half.y, c, t, [&](uint32_t x, uint32_t y) {
+            const DofFields f = dof_gather(int2(int(x), int(y)));
+            far[size_t(y) * half.x + x] = f.far;
+            near[size_t(y) * half.x + x] = f.near;
+        });
+        t.far = std::move(far);
+        t.near = std::move(near);
+        std::vector<float4> far_post(t.far.size()), near_post(t.far.size());
+        draw(half.x, half.y, c, t, [&](uint32_t x, uint32_t y) {
+            const DofFields f = dof_post(int2(int(x), int(y)));
+            far_post[size_t(y) * half.x + x] = f.far;
+            near_post[size_t(y) * half.x + x] = f.near;
+        });
+        t.far = std::move(far_post);
+        t.near = std::move(near_post);
+        DofOutput out;
+        out.focus = t.focus;
+        out.rgb.resize(image.rgb.size());
+        const uint32_t width = image.size.width;
+        draw(width, image.size.height, c, t, [&out, width](uint32_t x, uint32_t y) {
+            const float3 v = dof_composite(int2(int(x), int(y)));
+            float *o = &out.rgb[(size_t(y) * width + x) * 3];
+            o[0] = v.x;
+            o[1] = v.y;
+            o[2] = v.z;
+        });
+        textures = nullptr;
+        return out;
     }
 }

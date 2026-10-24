@@ -153,6 +153,28 @@ namespace CameraToolsEnhancements
         public float HitAmbient;
     }
 
+    // EnhancementsDepthOfField in enhancements.h, field for field; focus_point is FocusX and FocusY.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct EnhancementsDepthOfField
+    {
+        public uint Enabled;
+        public float FNumber;
+        public float SensorHeightMm;
+        public float FocusDistance;     // meters; 0 autofocuses at the focus point
+        public float FocusX, FocusY;    // 0 to 1 from the top left
+        public float FocusSpeed;        // the share of the way the autofocus goes in a second; 0 jumps
+        public float MaxBlur;           // the largest CoC radius over the render height
+        public uint Blades;             // 0 round, else 5 to 16
+        public float BladeRoundness;
+        public float BladeRotation;     // degrees
+        public float SphericalAberration;
+        public float CatEye;
+        public float Swirl;
+        public float Anamorphic;
+        public float Chromatic;
+        public uint Samples;
+    }
+
     // EnhancementsSettings in enhancements.h, field for field.
     [StructLayout(LayoutKind.Sequential)]
     internal struct EnhancementsSettings
@@ -170,6 +192,7 @@ namespace CameraToolsEnhancements
         public EnhancementsLightShafts LightShafts;
         public EnhancementsTrace Trace;
         public EnhancementsGather Gather;
+        public EnhancementsDepthOfField DepthOfField;
 
         // The add-on's defaults: everything off, game targets upside down, and when switched on ambient level 0.6, AO
         // strength 0.5 at a 1 m radius, half that strength on grass, vegetation and foliage, full-strength contact
@@ -182,7 +205,9 @@ namespace CameraToolsEnhancements
         // patchiness 1, and takes the sky's light at 0.3, and a trace of occlusion within 2 m and sun shadows of the real
         // sun's size, both at full strength and cast by characters and cards too, to 64 and 32 samples a pixel within 100 ms a
         // frame, applied with the ambient level, and when switched on a gather of one bounce, 64 samples a pixel, its sky
-        // light by visibility, filtered twice, at full strength, with half the game's ambient light on the surfaces it meets.
+        // light by visibility, filtered twice, at full strength, with half the game's ambient light on the surfaces it meets,
+        // and a depth of field at f/2.8 on a full-frame sensor that autofocuses at the center at 0.9 of the way a second, blurs at
+        // most 0.03 of the height, has round discs with spherical aberration 0.6 and gathers 49 samples a pixel.
         public static EnhancementsSettings Defaults => new()
         {
             Size = (uint)Marshal.SizeOf<EnhancementsSettings>(),
@@ -203,6 +228,11 @@ namespace CameraToolsEnhancements
                 AoDistance = 2, AoStrength = 1, SunSize = 0.0093f, SunStrength = 1, AoSamples = 64, SunSamples = 32, BudgetMs = 100,
             },
             Gather = new EnhancementsGather { Samples = 64, Sky = EnhancementsGatherSky.Visibility, Filter = 2, Strength = 1, HitAmbient = 0.5f },
+            DepthOfField = new EnhancementsDepthOfField
+            {
+                FNumber = 2.8f, SensorHeightMm = 24, FocusX = 0.5f, FocusY = 0.5f, FocusSpeed = 0.9f, MaxBlur = 0.03f, BladeRoundness = 0.5f,
+                SphericalAberration = 0.6f, Anamorphic = 1, Samples = 49,
+            },
         };
     }
 
@@ -326,6 +356,7 @@ namespace CameraToolsEnhancements
         public EnhancementsTraceRestart TraceRestartReason;    // why they last did
         public uint ShotActive;     // 1 when the last frame ran with SetShot's shot, so TraceConverged is the shot's
         public uint FramesSaved;    // frames SaveFrame has saved since the add-on loaded
+        public float DofFocusMeters;    // the depth of field's focus distance, read back a few frames late; 0 before it ran
     }
 
     // The only class that knows CameraToolsEnhancements.addon64.

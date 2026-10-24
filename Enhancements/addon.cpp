@@ -238,6 +238,11 @@ namespace enhancements
         uint32_t frames_saved = 0;
         std::string frame_saved;                    // the last saved folder's name, for the status line
 
+        // Real seconds between the last two presents, which the autofocus eases over, and the newest focus read back.
+        std::chrono::steady_clock::time_point last_present;
+        float frame_seconds = 0;
+        float dof_focus = 0;
+
         void log(reshade::log::level level, const std::string &message)
         {
             reshade::log::message(level, ("CameraTools Enhancements: " + message).c_str());
@@ -816,6 +821,9 @@ namespace enhancements
                         break;
                     case PassId::tonemap:
                         call = gpu.run_tonemap(map, settings.tonemap, grade.copied, grade.bloom);
+                        break;
+                    case PassId::depth_of_field:
+                        call = gpu.run_depth_of_field(map, settings.depth_of_field, camera, settings.flip, frame_seconds, frames);
                         break;
                     case PassId::trace:
                     {
@@ -1808,6 +1816,7 @@ namespace enhancements
             s.trace_restart_reason = static_cast<uint32_t>(trace_gpu.restart());
             s.shot_active = shot_frame ? 1 : 0;
             s.frames_saved = frames_saved;
+            s.dof_focus_meters = dof_focus;
             report.accumulated = accumulator.samples;
             published.line = describe(report);
             status_box.put(published);
@@ -1821,10 +1830,16 @@ namespace enhancements
 
             frames++;
             presents.store(frames, std::memory_order_relaxed);
+            const auto now = std::chrono::steady_clock::now();
+            // A long gap, such as a load, eases the autofocus at most a quarter second's worth.
+            frame_seconds = std::min(std::chrono::duration<float>(now - last_present).count(), 0.25f);
+            last_present = now;
             if (gpu.ready())
             {
                 read_depth();
                 read_frame_save();
+                if (const std::optional<float> focus = gpu.read_dof_focus())
+                    dof_focus = *focus;
             }
             if (report.armed)
                 report.finish(tracker, settings, inputs());

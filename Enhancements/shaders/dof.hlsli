@@ -16,6 +16,8 @@
 //   DOF_POST:       float4 dof_load_far(int2 pixel), float4 dof_load_near(int2 pixel), the gather's, clamped
 //   DOF_COMPOSITE:  dof_load_scene, dof_load_depth, dof_load_far, dof_load_near (the post-filter's)
 //   and every pass but DOF_FOCUS: float dof_load_focus()    the focus distance in meters the autofocus draw wrote
+// and LOOP and UNROLL for HLSL's [loop] and [unroll].
+#include "cat_eye.hlsli"
 
 static const float kDofPi = 3.14159265f;
 // Axial chromatic aberration at chromatic 1: red and blue focus this much farther than green, as a share of the focus
@@ -23,6 +25,8 @@ static const float kDofPi = 3.14159265f;
 // plane and the smallest in front, so bokeh fringes green behind focus and magenta in front, as achromats' do.
 static const float kDofChromaticRed = 0.04f;
 static const float kDofChromaticBlue = 0.02f;
+// The CoC radius in half-size pixels below which a point is in focus: half a full-size pixel.
+static const float kDofInFocus = 0.25f;
 // How much swirl at 1 compresses a disc's radial axis at the picture's corners.
 static const float kDofSwirl = 1.5f;
 
@@ -167,6 +171,12 @@ DofShape dof_frame_shape()
     return s;
 }
 
+struct DofFields
+{
+    float4 far;     // rgb the far field's weighted mean, a its green weight
+    float4 near;    // rgb premultiplied, a its coverage
+};
+
 #ifdef DOF_FOCUS
 // The nearest of a 3x3 window of depths around the focus point, dof_counts.w pixels apart, in meters.
 float dof_focus_target()
@@ -213,8 +223,8 @@ float4 dof_prefilter(int2 h)
 float2 dof_tile(int2 tile)
 {
     float far = 0.0f, near = 0.0f;
-    for (int y = 0; y < 8; y++)
-        for (int x = 0; x < 8; x++)
+    LOOP for (int y = 0; y < 8; y++)
+        UNROLL for (int x = 0; x < 8; x++)
         {
             float c = dof_load_source(int2(tile.x * 8 + x, tile.y * 8 + y)).w;
             far = max(far, c);
@@ -230,8 +240,8 @@ float2 dof_dilate(int2 tile)
 {
     int reach = int(dof_counts.x);
     float2 m = float2(0.0f, 0.0f);
-    for (int y = -reach; y <= reach; y++)
-        for (int x = -reach; x <= reach; x++)
+    LOOP for (int y = -reach; y <= reach; y++)
+        LOOP for (int x = -reach; x <= reach; x++)
         {
             float2 t = dof_load_tile(int2(tile.x + x, tile.y + y));
             m = float2(max(m.x, t.x), max(m.y, t.y));
@@ -241,18 +251,14 @@ float2 dof_dilate(int2 tile)
 #endif
 
 #ifdef DOF_GATHER
-struct DofFields
-{
-    float4 far;     // rgb the far field's weighted mean, a its green weight
-    float4 near;    // rgb premultiplied, a its coverage
-};
-
 // Scatter as gather at a half-size pixel: dof_sampling.x rings of 8k samples each around it out to its tile's dilated
 // radius, turned by the frame's seed and the pixel's noise. Each sample is a source whose disc may cover the pixel: its
 // light per channel is coverage times the light across its disc over the disc's area, times the area the sample stands
 // for. Sources behind the focus plane go to the far field, normalized, and a source deeper than a pixel behind focus
 // spreads no wider than that pixel's own disc, so the background does not spill over a nearer blurred surface. Sources
-// in front go to the near field, premultiplied, whose coverage is their summed weight.
+// in front go to the near field, premultiplied, whose coverage is their summed weight. At a pixel in front of focus the
+// far field is what shows through its blurred edge, so there every source not in front spreads at least as wide as the
+// pixel's own disc: the background around an out-of-focus foreground fills in behind it.
 DofFields dof_gather(int2 p)
 {
     DofFields o;
@@ -269,6 +275,7 @@ DofFields dof_gather(int2 p)
     float3 own_c = dof_channel_coc(own, lens);
     float3 own_far = own > 0.0f ? float3(max(dof_clamp_coc(own_c.x, lens), 0.5f), max(dof_clamp_coc(own_c.y, lens), 0.5f), max(dof_clamp_coc(own_c.z, lens), 0.5f))
                                 : float3(100000.0f, 100000.0f, 100000.0f);
+    float own_near = own < -kDofInFocus ? min(-own, lens.max_radius) : 0.0f;
     int rings = int(dof_sampling.x);
     float spacing = radius / float(rings);
     float area = kDofPi * spacing * spacing * 0.25f;
@@ -289,9 +296,15 @@ DofFields dof_gather(int2 p)
             float c = dof_load_source(int2(int(floor(q.x)), int(floor(q.y)))).w;
             float3 cq = dof_channel_coc(c, lens);
             float3 r = float3(max(abs(dof_clamp_coc(cq.x, lens)), 0.5f), max(abs(dof_clamp_coc(cq.y, lens)), 0.5f), max(abs(dof_clamp_coc(cq.z, lens)), 0.5f));
-            bool behind = c > 0.0f;
+            // A source within half a full-size pixel of focus belongs to neither field, the composite keeping it sharp, as its
+            // small disc's weight would swamp the fields' wider ones; but it fills in behind a pixel in front of focus.
+            if (abs(c) <= kDofInFocus && own_near == 0.0f)
+                continue;
+            bool behind = c > -kDofInFocus;
             if (behind && c > own)
                 r = float3(min(r.x, own_far.x), min(r.y, own_far.y), min(r.z, own_far.z));
+            if (behind)
+                r = float3(max(r.x, own_near), max(r.y, own_near), max(r.z, own_near));
             // Where the pixel lies in the source's disc, y up; a source in front of focus shows the aperture mirrored.
             float2 u = behind ? float2(-o_px.x, -o_px.y * up) : float2(o_px.x, o_px.y * up);
             float2 ndc = float2(q.x / half_size.x * 2.0f - 1.0f, up * (q.y / half_size.y * 2.0f - 1.0f));

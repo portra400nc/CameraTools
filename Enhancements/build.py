@@ -44,6 +44,10 @@ SHADERS = [
     ("kStreamTrianglesGs", "stream_triangles_gs.hlsl", "gs_5_0"), ("kAlphaBakeCs", "alpha_bake_cs.hlsl", "cs_5_0"),
     ("kGatherCs", "gather_cs.hlsl", "cs_5_0"), ("kGatherAveragePs", "gather_average_ps.hlsl", "ps_5_0"),
     ("kGatherFilterPs", "gather_filter_ps.hlsl", "ps_5_0"), ("kApplyGatherPs", "apply_gather_ps.hlsl", "ps_5_0"),
+    ("kDofFocusPs", "dof_focus_ps.hlsl", "ps_5_0"), ("kDofPrefilterPs", "dof_prefilter_ps.hlsl", "ps_5_0"),
+    ("kDofTilesPs", "dof_tiles_ps.hlsl", "ps_5_0"), ("kDofDilatePs", "dof_dilate_ps.hlsl", "ps_5_0"),
+    ("kDofGatherPs", "dof_gather_ps.hlsl", "ps_5_0"), ("kDofPostPs", "dof_post_ps.hlsl", "ps_5_0"),
+    ("kDofCompositePs", "dof_composite_ps.hlsl", "ps_5_0"),
 ]
 WORKSPACE_VKD3D = Path(".work/build/reshade/vkd3d/vkd3d-compiler")
 DEPS = HERE / ".deps"

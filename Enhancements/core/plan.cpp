@@ -19,6 +19,7 @@ namespace enhancements
         bool wetness_wanted(const Settings &s) { return s.wetness.enabled; }
         bool light_shafts_wanted(const Settings &s) { return s.light_shafts.enabled; }
         bool trace_wanted(const Settings &s) { return s.trace.enabled; }
+        bool depth_of_field_wanted(const Settings &s) { return s.depth_of_field.enabled; }
 
         float finite_or(float value, float fallback, float low, float high)
         {
@@ -31,7 +32,7 @@ namespace enhancements
             && ENHANCEMENTS_PASS_ATMOSPHERE == bit(PassId::atmosphere) && ENHANCEMENTS_PASS_TONEMAP == bit(PassId::tonemap)
             && ENHANCEMENTS_PASS_SUN_SHADOWS == bit(PassId::sun_shadows) && ENHANCEMENTS_PASS_WETNESS == bit(PassId::wetness)
             && ENHANCEMENTS_PASS_LIGHT_SHAFTS == bit(PassId::light_shafts) && ENHANCEMENTS_PASS_TRACE == bit(PassId::trace)
-            && static_cast<int>(PassId::count) == 8);
+            && ENHANCEMENTS_PASS_DEPTH_OF_FIELD == bit(PassId::depth_of_field) && static_cast<int>(PassId::count) == 9);
         static_assert(ENHANCEMENTS_TRACE_STATE_FAILED == static_cast<int>(TraceState::failed) && static_cast<int>(TraceState::count) == 6);
         static_assert(ENHANCEMENTS_CURVE_AGX == static_cast<int>(Curve::agx) && ENHANCEMENTS_CURVE_COUNT == static_cast<int>(Curve::count));
         static_assert(ENHANCEMENTS_VIEW_COUNT == static_cast<int>(View::count) && ENHANCEMENTS_VIEW_STENCIL == static_cast<int>(View::stencil)
@@ -44,15 +45,15 @@ namespace enhancements
         static_assert(ENHANCEMENTS_ERROR_STATE == 4);
         // Callers built before foliage_ao_strength send 32 bytes, those before contact shadows 36, those before their
         // foliage_strength 52, those before atmosphere 56, those before tonemap 76, those before sun shadows 100, those
-        // before light shafts 132, those before the trace 172, those before the gather 212. Version 6 dropped the leaves blocks, which moved wetness from 128 to 116, so a binding of
-        // version 5 must not call EnhancementsApply; csharp/Enhancements.cs checks the version and marshals 236.
+        // before light shafts 132, those before the trace 172, those before the gather 212, those before the depth of field 236. Version 6 dropped the leaves blocks, which moved wetness from 128 to 116, so a binding of
+        // version 5 must not call EnhancementsApply; csharp/Enhancements.cs checks the version and marshals 304.
         static_assert(offsetof(EnhancementsSettings, ambient) + offsetof(EnhancementsAmbient, foliage_ao_strength) == 32
             && offsetof(EnhancementsSettings, contact_shadows) == 36
             && offsetof(EnhancementsSettings, contact_shadows) + offsetof(EnhancementsContactShadows, foliage_strength) == 52
             && offsetof(EnhancementsSettings, atmosphere) == 56 && offsetof(EnhancementsSettings, tonemap) == 76
             && offsetof(EnhancementsSettings, sun_shadows) == 100 && offsetof(EnhancementsSettings, wetness) == 116
             && offsetof(EnhancementsSettings, light_shafts) == 132 && offsetof(EnhancementsSettings, trace) == 172 && offsetof(EnhancementsSettings, gather) == 212
-            && sizeof(EnhancementsSettings) == 236);
+            && offsetof(EnhancementsSettings, depth_of_field) == 236 && sizeof(EnhancementsSettings) == 304);
         static_assert(sizeof(EnhancementsCamera) == 48 * sizeof(float));
         static_assert(ENHANCEMENTS_ACCUMULATE_PRESENT == static_cast<int>(AccumulateMode::present)
             && ENHANCEMENTS_ACCUMULATE_COUNT == static_cast<int>(AccumulateMode::count));
@@ -101,6 +102,8 @@ namespace enhancements
         // the march, and the camera brings the sun's direction and the sun and sky colors.
         { PassId::light_shafts, "light-shafts", Step::bloom, { Entry::depth, Entry::hdr_scene, Entry::sun_atlas }, true, SunUse::required,
           light_shafts_wanted },
+        // Last at bloom, so haze and mist blur with what lies behind them; the camera's projection gives the focal length.
+        { PassId::depth_of_field, "depth-of-field", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::none, depth_of_field_wanted },
         // bloom-final is optional: a tone map draw without one still gets ours, without bloom.
         { PassId::tonemap, "tonemap", Step::tonemap, { Entry::hdr_scene, Entry::tonemap_out }, false, SunUse::none, tonemap_wanted },
     } };
@@ -348,6 +351,53 @@ namespace enhancements
             s.gather.strength = finite_or(g.strength, gather_defaults.strength, 0.0f, 4.0f);
             s.gather.hit_ambient = finite_or(g.hit_ambient, gather_defaults.hit_ambient, 0.0f, 1.0f);
         }
+        const EnhancementsDepthOfField &d = raw.depth_of_field;
+        if (knows(offsetof(EnhancementsSettings, depth_of_field), sizeof d))
+        {
+            DepthOfFieldSettings dof;
+            dof.enabled = d.enabled != 0;
+            dof.f_number = d.f_number;
+            dof.sensor_height_mm = d.sensor_height_mm;
+            dof.focus_distance = d.focus_distance;
+            dof.focus_point[0] = d.focus_point[0];
+            dof.focus_point[1] = d.focus_point[1];
+            dof.focus_speed = d.focus_speed;
+            dof.max_blur = d.max_blur;
+            dof.blades = d.blades;
+            dof.blade_roundness = d.blade_roundness;
+            dof.blade_rotation = d.blade_rotation;
+            dof.spherical_aberration = d.spherical_aberration;
+            dof.cat_eye = d.cat_eye;
+            dof.swirl = d.swirl;
+            dof.anamorphic = d.anamorphic;
+            dof.chromatic = d.chromatic;
+            dof.samples = d.samples;
+            s.depth_of_field = clamp_depth_of_field(dof);
+        }
+        return s;
+    }
+
+    DepthOfFieldSettings clamp_depth_of_field(const DepthOfFieldSettings &d)
+    {
+        const DepthOfFieldSettings defaults;
+        DepthOfFieldSettings s;
+        s.enabled = d.enabled;
+        s.f_number = finite_or(d.f_number, defaults.f_number, 1.0f, 22.0f);
+        s.sensor_height_mm = finite_or(d.sensor_height_mm, defaults.sensor_height_mm, 4.0f, 100.0f);
+        s.focus_distance = finite_or(d.focus_distance, defaults.focus_distance, 0.0f, 10000.0f);
+        s.focus_point[0] = finite_or(d.focus_point[0], defaults.focus_point[0], 0.0f, 1.0f);
+        s.focus_point[1] = finite_or(d.focus_point[1], defaults.focus_point[1], 0.0f, 1.0f);
+        s.focus_speed = finite_or(d.focus_speed, defaults.focus_speed, 0.0f, 0.999f);
+        s.max_blur = finite_or(d.max_blur, defaults.max_blur, 0.002f, 0.1f);
+        s.blades = d.blades == 0 ? 0 : std::clamp<uint32_t>(d.blades, 5, 16);
+        s.blade_roundness = finite_or(d.blade_roundness, defaults.blade_roundness, 0.0f, 1.0f);
+        s.blade_rotation = finite_or(d.blade_rotation, defaults.blade_rotation, -360.0f, 360.0f);
+        s.spherical_aberration = finite_or(d.spherical_aberration, defaults.spherical_aberration, -1.0f, 1.0f);
+        s.cat_eye = finite_or(d.cat_eye, defaults.cat_eye, 0.0f, 1.0f);
+        s.swirl = finite_or(d.swirl, defaults.swirl, 0.0f, 1.0f);
+        s.anamorphic = finite_or(d.anamorphic, defaults.anamorphic, 0.5f, 2.0f);
+        s.chromatic = finite_or(d.chromatic, defaults.chromatic, 0.0f, 2.0f);
+        s.samples = std::clamp<uint32_t>(d.samples, 9, 1089);
         return s;
     }
 
@@ -416,7 +466,7 @@ namespace enhancements
             s.enabled = true;
             s.view = View::off;
             s.ambient.enabled = s.contact_shadows.enabled = s.atmosphere.enabled = s.tonemap.enabled = s.sun_shadows.enabled = s.wetness.enabled
-                = s.light_shafts.enabled = false;
+                = s.light_shafts.enabled = s.depth_of_field.enabled = false;
         }
         s.trace.enabled = true;
         s.gather.enabled = true;

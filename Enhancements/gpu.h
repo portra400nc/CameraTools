@@ -7,6 +7,7 @@
 
 #include "core/accumulate.h"
 #include "core/compare.h"
+#include "core/dof.h"
 #include "core/grade.h"
 #include "core/light.h"
 #include "core/plan.h"
@@ -135,8 +136,9 @@ namespace enhancements
     class Scratch
     {
     public:
-        // false when creation failed; the caller skips its pass and reports ENHANCEMENTS_ERROR_TEXTURE.
-        bool sync(ID3D11Device *device, Size size, DXGI_FORMAT format);
+        // false when creation failed; the caller skips its pass and reports ENHANCEMENTS_ERROR_TEXTURE. With mips, the
+        // texture has its whole mip chain for GenerateMips, its SRV all of it, and its RTV level 0.
+        bool sync(ID3D11Device *device, Size size, DXGI_FORMAT format, bool mips = false);
         ID3D11ShaderResourceView *srv() const { return srv_.Get(); }
         ID3D11RenderTargetView *rtv() const { return rtv_.Get(); }
         ID3D11Texture2D *texture() const { return texture_.Get(); }
@@ -144,6 +146,7 @@ namespace enhancements
     private:
         Size size_;
         DXGI_FORMAT format_ = DXGI_FORMAT_UNKNOWN;
+        bool mips_ = false;
         ComPtr<ID3D11Texture2D> texture_;
         ComPtr<ID3D11ShaderResourceView> srv_;
         ComPtr<ID3D11RenderTargetView> rtv_;
@@ -279,6 +282,16 @@ namespace enhancements
         // on the sky; copy out over the game's HDR scene. Empty when a texture of ours failed.
         std::optional<GameCall> run_atmosphere(const FrameMap &map, const AtmosphereSettings &settings, const Camera &camera, bool flip);
 
+        // The depth of field pass, last at the bloom step: mirror in the HDR scene and depth; draw the focus distance into
+        // one of two 1x1 textures from the other, the setting's or the autofocus eased over seconds; the half-size source
+        // with its mips, its tiles and their dilation, the gather's far and near fields, their post-filter, and the composite
+        // at full size; copy it over the game's HDR scene. frame turns the gather's rings. The focus is copied for
+        // read_dof_focus when no copy waits. Empty when the projection has no focal length or a texture of ours failed.
+        std::optional<GameCall> run_depth_of_field(const FrameMap &map, const DepthOfFieldSettings &settings, const Camera &camera, bool flip,
+            float seconds, uint64_t frame);
+        // The focus distance run_depth_of_field last copied, once the GPU has it, read without waiting.
+        std::optional<float> read_dof_focus();
+
         // The pixel shader bound now, as the handle ReShade's pipeline events name it by, or 0.
         uint64_t bound_pixel_shader() const;
         // Copies the grade a tone map shader's layout names from the game's bound pixel shader constants at b0 into
@@ -381,12 +394,13 @@ namespace enhancements
         ComPtr<ID3D11VertexShader> fullscreen_vs_;
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_,
             tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
-            apply_gather_ps_;
+            apply_gather_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_;
         ComPtr<ID3D11SamplerState> point_, linear_, lit_compare_, wrap_;
         ComPtr<ID3D11Texture3D> lattice_;                   // noise_lattice(), R8_UNORM
         ComPtr<ID3D11ShaderResourceView> lattice_srv_;
         ComPtr<ID3D11Buffer> constants_;
         ComPtr<ID3D11Buffer> gather_apply_;    // core/trace.h's GatherApplyConstants, at b2 for the gather's draws
+        ComPtr<ID3D11Buffer> dof_constants_;   // core/dof.h's DofConstants, at b1 for the depth of field's draws
         ComPtr<ID3D11Buffer> game_grade_;      // shaders/tonemap_ps.hlsl's GameGrade, filled by copy_game_grade
         ComPtr<ID3D11Buffer> grade_stage_;     // game_grade_ for the CPU to read
         bool grade_staged_ = false;
@@ -430,6 +444,13 @@ namespace enhancements
         ComPtr<ID3D11Texture2D> depth_texel_;   // 1x1 R32G8X24_TYPELESS, CPU-readable
         bool depth_texel_pending_ = false;      // copied and not yet read
         Snapshot pending_, shown_;
+        Scratch dof_focus_[2];      // 1x1 R32_FLOAT: the focus distance in meters, this frame's and the last's in turn
+        uint32_t dof_focus_at_ = 0; // the one this frame writes
+        Readback dof_focus_read_;   // the focus for the status
+        bool dof_focus_pending_ = false;
+        Scratch dof_source_;        // half size, R16G16B16A16_FLOAT with mips: the scene and the green CoC
+        Scratch dof_tiles_, dof_dilated_;   // R16G16_FLOAT, one texel per 8x8 half-size pixels: far and near CoC maxima
+        Scratch dof_far_, dof_near_, dof_far_post_, dof_near_post_;     // half size, R16G16B16A16_FLOAT: the gather's fields
         Readback frame_hdr_, frame_depth_;  // EnhancementsSaveFrame's copies
         bool frame_pending_ = false;        // copied and not yet read
         Staging copies_[3];         // the comparison capture's two frames, and its variant's view
