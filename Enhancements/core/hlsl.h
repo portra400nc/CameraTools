@@ -1,7 +1,8 @@
 // Just enough of HLSL in C++ to compile the trace kernels' shared files, shaders/bvh.hlsli, shaders/alpha.hlsli,
 // shaders/trace_common.hlsli, shaders/trace.hlsli and shaders/gather.hlsli, so the tests and the Mac's reference tracer
-// run the compute shaders' own arithmetic in float. Only core/kernel.cpp
-// includes it. The shared files keep to what this supports: vectors with x, y, z and w members but no swizzles, no out
+// run the compute shaders' own arithmetic in float, and the depth of field's shaders/dof.hlsli with shaders/cat_eye.hlsli,
+// so core/dof.cpp and the Mac's harness run its passes. core/kernel.cpp, core/alpha_bake.cpp and core/dof.cpp
+// include it. The shared files keep to what this supports: vectors with x, y, z and w members but no swizzles, no out
 // parameters, f-suffixed float literals, and LOOP and UNROLL for HLSL's [loop] and [unroll].
 #pragma once
 
@@ -63,8 +64,18 @@ namespace enhancements::shader
     inline float3 operator/(float3 a, float s) { return { a.x / s, a.y / s, a.z / s }; }
     inline float3 operator-(float3 a) { return { -a.x, -a.y, -a.z }; }
     inline float2 operator*(float2 a, float s) { return { a.x * s, a.y * s }; }
+    inline float2 operator*(float s, float2 a) { return { s * a.x, s * a.y }; }
+    inline float2 operator/(float2 a, float s) { return { a.x / s, a.y / s }; }
+    inline float2 operator+(float2 a, float2 b) { return { a.x + b.x, a.y + b.y }; }
+    inline float2 operator-(float2 a, float2 b) { return { a.x - b.x, a.y - b.y }; }
+    inline float2 operator-(float2 a) { return { -a.x, -a.y }; }
+    inline float3 operator+(float3 a, float s) { return { a.x + s, a.y + s, a.z + s }; }
+    inline float3 operator/(float3 a, float3 b) { return { a.x / b.x, a.y / b.y, a.z / b.z }; }
+    inline float4 operator*(float4 a, float s) { return { a.x * s, a.y * s, a.z * s, a.w * s }; }
     inline float4 operator+(float4 a, float4 b) { return { a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w }; }
 
+    inline float dot(float2 a, float2 b) { return a.x * b.x + a.y * b.y; }
+    inline float length(float2 a) { return std::sqrt(dot(a, a)); }
     inline float dot(float3 a, float3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
     inline float dot(float4 a, float4 b) { return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w; }
     inline float3 cross(float3 a, float3 b) { return { a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x }; }
@@ -82,6 +93,16 @@ namespace enhancements::shader
     inline int max(int a, int b) { return a > b ? a : b; }
     inline float saturate(float x) { return std::fmin(std::fmax(x, 0.0f), 1.0f); }
     inline float lerp(float a, float b, float t) { return a + (b - a) * t; }
+    inline float clamp(float x, float low, float high) { return std::fmin(std::fmax(x, low), high); }
+    inline float smoothstep(float edge0, float edge1, float x)
+    {
+        const float t = saturate((x - edge0) / (edge1 - edge0));
+        return t * t * (3 - 2 * t);
+    }
+    inline float frac(float x) { return x - std::floor(x); }
+    inline float pow(float x, float y) { return std::pow(x, y); }
+    inline float atan2(float y, float x) { return std::atan2(y, x); }
+    inline float exp(float x) { return std::exp(x); }
     inline float sin(float x) { return std::sin(x); }
     inline float cos(float x) { return std::cos(x); }
     inline float floor(float x) { return std::floor(x); }
