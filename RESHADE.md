@@ -9,12 +9,14 @@ ReShade effects turns all of ReShade's effects on or off. Turn it on to see the 
 These rows control one of two depth of field shaders:
 
 - [Otis_Inf's Cinematic DOF](https://github.com/FransBouma/OtisFX), `CinematicDOF.fx` (free)
-  - Use [my fork](https://github.com/portra400nc/OtisFX) if you want tilt-shift effect.
+  - Use [my fork](https://github.com/portra400nc/OtisFX) for tilt-shift, physical blur and miniature scale.
 - [iMMERSE Depth of Field](https://www.martysmods.com/physical-depth-of-field/), `MartysMods_DEPTHOFFIELD.fx` (paid)
 
 At least one of them must be installed in ReShade. While ReShade compiles its effects, or if neither shader is loaded, the rows are dimmed and the section header says why. CameraTools finds a shader by its technique, so with ReShade's "Load only enabled effects" option on, a shader has to be enabled in the preset to be found.
 
 With both installed, the Shader row picks the one the rows drive, and only that one renders. Picking the other while the depth of field is on switches it on and the first one off. If both are switched on in ReShade's overlay, CameraTools switches off the one that is not picked. With one installed, the Shader row is hidden.
+
+With the fork, Cinematic DOF blurs like a real lens with the set focal length and aperture. CameraTools gives it the camera's near clip, so its distances are real meters.
 
 | Row | What it does |
 |--|--|
@@ -27,7 +29,9 @@ With both installed, the Shader row picks the one the rows drive, and only that 
 | Link focal length to field of view | Keeps Focal length and the free camera's field of view in step, so the blur matches the lens that the field of view stands for. Zooming changes the focal length, and the Focal length row zooms. |
 | Show focus point | Draws the focus point on the picture. While it is off, the stick and the click do not move the point, and the focus stays where it was. The X and Y rows still move it. |
 | Focus point X, Focus point Y | Where the focus point is, from -1 at the left and the top to 1 at the right and the bottom. Focus point only, or Manual distance while Tilt is on. |
-| Tilt | Tilts the plane in focus like a tilt-shift lens, from -15° to 15°, off at 0. Positive keeps the ground sharp from near to far, negative gives the miniature look. The plane turns around the focus point. Far away, half a degree is already strong. Cinematic DOF only. |
+| Miniature scale | Blurs the scene as if it were a 1:N model, from Off to 1:500. At 1:100 a house 30 m away blurs like a 30 cm model. Cinematic DOF only. |
+| Max blur | Caps the blur, from 1 to 8. Raise it to 3 or more for strong blur, or the blur stops growing close to the focus. Cinematic DOF only. |
+| Tilt | Tilts the plane in focus like a tilt-shift lens, from -15° to 15°, off at 0. Positive keeps the ground sharp from near to far, negative gives the miniature look. The plane turns around the focus point. Far away or at a miniature scale, half a degree is already strong. Cinematic DOF only. |
 | Tilt direction | Turns the sharp band, from -90° to 90°. 0 is level, 90 and -90 are upright. Cinematic DOF only. |
 | Tangential scale, Sagittal scale | Stretch each bokeh disc around the picture's centre or toward it. Tangential gives the swirly look of Petzval lenses. 0 leaves the discs round. iMMERSE only. |
 | Anamorphic ratio | Squeezes the bokeh into the tall ovals of anamorphic lenses. 1 is off. |
@@ -82,6 +86,7 @@ The `[CameraToolsReShade]` section of `MelonPreferences.cfg` holds:
 | `LinkFocalLengthToFov` | `false` | Keep the depth of field's focal length and the free camera's field of view in step. The ReShade tab's switch changes it. |
 | `ShowFocusPoint` | `true` | Draw the focus point on the picture in Focus point mode. The ReShade tab's switch changes it. |
 | `DepthOfFieldShader` | `MartysMods_DEPTHOFFIELD.fx` | The depth of field shader the rows drive while both are installed: `MartysMods_DEPTHOFFIELD.fx` or `CinematicDOF.fx`. The Shader row changes it. |
+| `MiniatureScale` | `1` | The Miniature scale row's N: 1 (off), 10, 25, 50, 100, 200 or 500 |
 | `LongExposure` | `false` | Take screenshot records for the shutter time. The ReShade tab's switch changes it. |
 | `LongExposureShutter` | `8` | The shutter time in seconds, rounded to the nearest full stop from 1/8 s to 120 s |
 | `LongExposureIso` | `100` | 100, 200, 400, 800 or 1600 |
