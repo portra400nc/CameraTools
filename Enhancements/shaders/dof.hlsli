@@ -30,11 +30,15 @@
 #include "cat_eye.hlsli"
 
 static const float kDofPi = 3.14159265f;
-// Axial chromatic aberration at chromatic 1: red and blue focus this much farther than green, as a share of the focus
-// distance, which shifts their CoC by that share of the CoC at infinity. Green then has the largest disc behind the focus
-// plane and the smallest in front, so bokeh fringes green behind focus and magenta in front, as achromats' do.
-static const float kDofChromaticRed = 0.04f;
-static const float kDofChromaticBlue = 0.02f;
+// Axial chromatic aberration at chromatic 1: red's and blue's focal lengths are longer than green's by these shares, an
+// achromat's secondary spectrum. A crown and flint doublet corrected at the C and F lines focuses them f / 2000 behind its
+// shortest focus near 550 nm; the red channel's band lies near C, while the blue channel's reaches past F toward the g line,
+// where the curve climbs to about f / 450, so blue's mean shift is over twice red's. The focus shift on the sensor's side
+// grows with the focal length, and its blur with the aperture: about f d / (2 N) on the sensor whatever the focus distance.
+// Red and blue focus farther than green, so green has the largest disc behind the focus plane and the smallest in front:
+// bokeh fringes green behind focus and purple in front, as achromats' do.
+static const float kDofChromaticRed = 0.0005f;
+static const float kDofChromaticBlue = 0.0012f;
 // The CoC radius in half-size pixels below which a point is in focus: half a full-size pixel.
 static const float kDofInFocus = 0.25f;
 // How much swirl at 1 compresses a disc's radial axis at the picture's corners.
@@ -78,35 +82,37 @@ static const float2 kDofContrastFade = float2(2.0f, 3.0f);
 static const float kDofContrastLevel = 3.0f;
 static const float kDofContrastSpan = 2.0f;
 
-// The lens at one focus distance: each channel's CoC at infinity in half-size pixels, and its focus over green's.
+// The lens at one focus distance: green's CoC at infinity in half-size pixels, and how much less red's and blue's CoC is
+// than green's at every depth.
 struct DofLens
 {
-    float3 scale;
-    float3 ratio;
+    float scale;
+    float3 shift;
     float max_radius;
 };
 
 // focal and sensor sizes in millimeters, focus in meters; pixels_per_mm is half-size pixels per millimeter of sensor.
+// Through a thin lens of focal length f and aperture f / N, with the sensor v = f S / (S - f) behind it where green
+// focuses at S, a channel of focal length f (1 + d) images a point at z at v_c = 1 / (1 / (f (1 + d)) - 1 / z), and its
+// CoC radius is f / (2 N) (v / v_c - 1) = f / (2 N) (v / (f (1 + d)) - 1 - v / z): every channel's falls off with 1 / z
+// alike, and a channel's is green's less v d / (2 N (1 + d)), which is scale S / f d / (1 + d).
 DofLens dof_lens_at(float focal, float f_number, float focus, float pixels_per_mm, float chromatic, float max_radius)
 {
     DofLens l;
-    l.ratio = float3(1.0f + chromatic * kDofChromaticRed, 1.0f, 1.0f + chromatic * kDofChromaticBlue);
     float s = focus * 1000.0f;
-    float k = focal * focal / f_number * 0.5f * pixels_per_mm;
-    l.scale = float3(k / max(s * l.ratio.x - focal, 0.001f), k / max(s - focal, 0.001f), k / max(s * l.ratio.z - focal, 0.001f));
+    l.scale = focal * focal / f_number * 0.5f * pixels_per_mm / max(s - focal, 0.001f);
+    float2 d = float2(chromatic * kDofChromaticRed, chromatic * kDofChromaticBlue);
+    float k = l.scale * s / focal;
+    l.shift = float3(k * d.x / (1.0f + d.x), 0.0f, k * d.y / (1.0f + d.y));
     l.max_radius = max_radius;
     return l;
 }
 
 // The green CoC of a point at 1 / inverse_depth meters: (f^2 / (N (S - f))) (z - S) / z / 2 on the sensor.
-float dof_coc(float inverse_depth, float focus, DofLens l) { return l.scale.y * (1.0f - focus * inverse_depth); }
+float dof_coc(float inverse_depth, float focus, DofLens l) { return l.scale * (1.0f - focus * inverse_depth); }
 
-// Each channel's CoC from green's, through S / z = 1 - c / scale, so no depth is needed. Not clamped.
-float3 dof_channel_coc(float coc, DofLens l)
-{
-    float rest = 1.0f - coc / l.scale.y;
-    return float3(l.scale.x * (1.0f - l.ratio.x * rest), coc, l.scale.z * (1.0f - l.ratio.z * rest));
-}
+// Each channel's CoC from green's. Not clamped.
+float3 dof_channel_coc(float coc, DofLens l) { return float3(coc - l.shift.x, coc, coc - l.shift.z); }
 
 float dof_clamp_coc(float coc, DofLens l) { return clamp(coc, -l.max_radius, l.max_radius); }
 

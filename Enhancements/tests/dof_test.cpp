@@ -131,17 +131,27 @@ int main(int argc, char **argv)
     const std::array<float, 3> plain = dof_channel_cocs(30, 2, lens50());
     check("without chromatic aberration every channel has green's CoC", plain[0] == plain[1] && plain[2] == plain[1] && near(plain[1], 4.98575f));
 
-    // Red focuses 4% and blue 2% farther than green at chromatic 1.
+    // At chromatic 1 red's focal length is 0.05% and blue's 0.12% longer than green's, so their CoCs are green's less
+    // 5.3419 x 2000 / 50 x 0.0005 / 1.0005 = 0.1068 and x 0.0012 / 1.0012 = 0.2561 at every depth.
     const std::array<float, 3> behind = dof_channel_cocs(30, 2, lens50(1));
-    check("behind focus with chromatic 1, red's CoC is 4.7756, green's 4.9858 and blue's 4.8786",
-        near(behind[0], 4.77559f) && near(behind[1], 4.98575f) && near(behind[2], 4.87856f));
-    check("behind focus green's disc is the largest and red's the smallest, so bokeh fringes green",
-        behind[1] > behind[2] && behind[2] > behind[0]);
+    check("behind focus with chromatic 1, red's CoC is 4.8790, green's 4.9858 and blue's 4.7297",
+        near(behind[0], 4.87897f) && near(behind[1], 4.98575f) && near(behind[2], 4.72965f));
+    check("behind focus green's disc is the largest and blue's the smallest, so bokeh fringes green",
+        behind[1] > behind[0] && behind[0] > behind[2]);
     const std::array<float, 3> front = dof_channel_cocs(1, 2, lens50(1));
-    check("in front of focus with chromatic 1, red's CoC is -5.5419, green's -5.3419 and blue's -5.4439",
-        near(front[0], -5.54187f) && near(front[1], -5.34188f) && near(front[2], -5.44389f));
-    check("in front of focus red's and blue's discs are larger than green's, so bokeh fringes magenta",
-        std::fabs(front[0]) > std::fabs(front[2]) && std::fabs(front[2]) > std::fabs(front[1]));
+    check("in front of focus with chromatic 1, red's CoC is -5.4487, green's -5.3419 and blue's -5.5980",
+        near(front[0], -5.44866f) && near(front[1], -5.34188f) && near(front[2], -5.59798f));
+    check("in front of focus red's and blue's discs are larger than green's, so bokeh fringes purple",
+        std::fabs(front[2]) > std::fabs(front[0]) && std::fabs(front[0]) > std::fabs(front[1]));
+    const std::array<float, 3> focused = dof_channel_cocs(2, 2, lens50(1));
+    check("on green's focus plane red's CoC is -0.1068 and blue's -0.2561, in front of their own focus",
+        focused[1] == 0 && near(focused[0], -0.10678f) && near(focused[2], -0.25610f));
+    DofOptics tele = lens50(1);
+    tele.focal_mm = 200;
+    const std::array<float, 3> long_lens = dof_channel_cocs(30, 2, tele);
+    check("through a 200 mm lens the shift grows with the focal length, over 4 times the 50 mm lens's: green's CoC 86.4198 at 30 m, "
+          "red's 0.4627 less and blue's 1.1098",
+        near(long_lens[1], 86.4198f, 2e-3f) && near(long_lens[1] - long_lens[0], 0.46273f, 2e-4f) && near(long_lens[1] - long_lens[2], 1.10978f, 2e-4f));
 
     check("the light across the disc averages 1 at spherical aberration 1 behind focus (soap bubble)", std::fabs(disc_mean(1) - 1) < 1e-4);
     check("and at 1 in front of focus, where the clamp at 0 cuts the rim", std::fabs(disc_mean(-1) - 1) < 1e-4);
@@ -311,9 +321,9 @@ int main(int argc, char **argv)
                 && near(lawn.green(after, 649, 405), 0.262939f) && std::fabs(sum_after / sum_before - 1) < 0.001);
     }
     {
-        // A white frame: a plane 2.16 m away, where with chromatic 1 at f/1 and 2 m green's disc is 0.8 half-size pixels and
-        // red's 0.39, next to a background 30 m away whose discs of 10 widen the gather's spiral past both. Whatever each
-        // channel's disc, white spread over white stays white.
+        // A white frame: a plane 2.16 m away, where with chromatic 1 at f/1 and 2 m green's disc is 0.79 half-size pixels,
+        // red's 0.58 and blue's 0.28, next to a background 30 m away whose discs of 10 widen the gather's spiral past all
+        // three. Whatever each channel's disc, white spread over white stays white.
         Scene white(30);
         for (float &v : white.image.rgb)
             v = 1;
@@ -331,12 +341,12 @@ int main(int argc, char **argv)
                 most = std::max(most, v);
             }
         }
-        check("a white frame stays white at every pixel and channel with chromatic 1 at spherical aberration 0.6, 1 and -1, in red's focus beside a far blur", least > 0.999f && most < 1.001f);
+        check("a white frame stays white at every pixel and channel with chromatic 1 at spherical aberration 0.6, 1 and -1, each channel's disc under a pixel beside a far blur", least > 0.999f && most < 1.001f);
     }
     {
         // A white frame through a 202 mm lens (P11 17.61 on a 22.95 mm sensor) at f/2.8 focused at 2.66 m, with cat's eye 0.6,
         // spherical aberration 0.6 and chromatic 1: its top half 2.63 m away, where green's disc is 0.59 half-size pixels in
-        // front of focus and red's 2.6, its bottom half 2.70 m away, behind focus, and nothing farther, so no tile reaches
+        // front of focus and blue's 1.41, its bottom half 2.70 m away, behind focus, and nothing farther, so no tile reaches
         // past these small discs. Each channel's disc must be found whole and composited by its own coverage.
         Scene white(30, 17.6105576f);
         for (uint32_t y = 0; y < 800; y++)
