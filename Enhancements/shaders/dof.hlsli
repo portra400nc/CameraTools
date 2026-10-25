@@ -53,6 +53,8 @@ static const float kDofLayer = 1.0f;
 // depth varies by a few percent, a shoulder in front of it by much more. A fixed band split a face far out of focus into
 // thin contours of equal depth, each averaged on its own, which kept its detail: a sharp face under a translucent blur.
 static const float kDofLayerShare = 0.15f;
+// The share of a foreground pixel's own CoC under which a source in front of focus counts as hidden behind it.
+static const float kDofHiddenShare = 0.5f;
 // How much swirl at 1 compresses a disc's radial axis at the picture's corners.
 static const float kDofSwirl = 1.5f;
 static const float3 kDofLuma = float3(0.2126f, 0.7152f, 0.0722f);
@@ -626,6 +628,10 @@ DofFields dof_gather(int2 p)
         // sample beside the foreground's silhouette would average its light in, and the background seen through the
         // foreground would brighten inside its outline, a step at the silhouette.
         float3 color = lift ? float3(lit.x, lit.y, lit.z) : own_near > 0.0f ? float3(at_q.x, at_q.y, at_q.z) : dof_sample_source(q, lod);
+        // What a blurred foreground hides is seen around its edge as a lens sees it, sharp: the nearest visible background
+        // stands for it, so it meets the background beside the outline without a seam of blur.
+        if (own_near > 0.0f)
+            w = w / (1.0f + d * d * d * d);
         if (aside)
         {
             own_far_color = color;
@@ -783,8 +789,13 @@ DofNear dof_near_none()
 
 DofNear dof_near_layer(int2 p)
 {
-    // The largest near disc around the pixel, from the dilated tiles; none, and nothing in front of focus is near.
-    float local = dof_load_dilated(int2(p.x / 8, p.y / 8)).y;
+    // The largest near disc around the pixel, from the dilated tiles taken bilinearly between their centers: a tile's
+    // own would change the disc, and so the coverage, in a step at every tile's edge. None, and nothing near is near.
+    float2 tc = float2((float(p.x) + 0.5f) / 8.0f - 0.5f, (float(p.y) + 0.5f) / 8.0f - 0.5f);
+    int2 tb = int2(int(floor(tc.x)), int(floor(tc.y)));
+    float tx = tc.x - floor(tc.x), ty = tc.y - floor(tc.y);
+    float local = lerp(lerp(dof_load_dilated(tb).y, dof_load_dilated(int2(tb.x + 1, tb.y)).y, tx),
+        lerp(dof_load_dilated(int2(tb.x, tb.y + 1)).y, dof_load_dilated(int2(tb.x + 1, tb.y + 1)).y, tx), ty);
     if (local <= 0.0f)
         return dof_near_none();
     // A disc of the local near radius in the lens's shape, as the gather's discs are: the blades, the anamorphic squeeze,
@@ -806,14 +817,13 @@ DofNear dof_near_layer(int2 p)
     float up = dof_sampling.z;
     float2 half_size = float2(float(dof_sizes.x), float(dof_sizes.y));
     float3 sum3 = float3(0.0f, 0.0f, 0.0f), w3 = float3(0.0f, 0.0f, 0.0f), disc = float3(0.0f, 0.0f, 0.0f);
-    // At a pixel itself in front of focus, the sources nearer than its own surface by more than a layer lie over it: each
-    // covers it by its own disc, scattered as the gather's discs are, so a foreground over a nearer-than-focus wall keeps
-    // its light instead of averaging the wall in, and the wall shows through as far as the discs leave it.
+    // At a pixel itself in front of focus, sources much farther than its own surface, blurred by under half its disc,
+    // are what it hides, which the composite's far estimate stands for: a foreground's edge over a nearer-than-focus wall
+    // keeps the foreground's light instead of averaging the wall in. The rest, the foreground's own surfaces, its hair
+    // a little behind its shoulder among them, and anything nearer, cover it as the mask says: leaving out what lay only
+    // a little behind let the far estimate show through a blurred foreground in shards.
     float own = dof_load_source(p).w;
     bool layered = own < -kDofInFocus;
-    float layer = max(kDofLayer, kDofLayerShare * abs(own));
-    float area = kDofPi * reach * reach / float(count);
-    float3 front_sum = float3(0.0f, 0.0f, 0.0f), front_w = float3(0.0f, 0.0f, 0.0f);
     LOOP for (int k = 0; k < count; k++)
     {
         float angle = 2.0f * kDofPi * (turn + float(k) * 0.38196601f);
@@ -825,55 +835,15 @@ DofNear dof_near_layer(int2 p)
         if (d > max(max(r.x, r.y), r.z) + 0.5f)
             continue;
         float3 w = dof_weights(r, d, dof_swirl_density(ndc, shape), -dof_bokeh.x, dof_bokeh.z) * dof_cat_eye_cuts(u, r, ndc, shape);
-        // The foreground's own light only: beyond its outline the composite lays this over the background's sharp self by
-        // the coverage, a veil of the foreground as a lens shows it, where an average with the background beside it
-        // drew a halo of blurred background.
-        if (layered)
-        {
-            float4 at_q = dof_load_source(int2(int(floor(q.x)), int(floor(q.y))));
-            if (at_q.w >= -kDofInFocus)
-                continue;
-            float3 c = float3(at_q.x, at_q.y, at_q.z);
-            // Sources behind the pixel's own surface are what it hides, the composite's far estimate; the rest cover it
-            // by their own discs, the nearer layer over the pixel's own.
-            if (at_q.w > own + layer)
-                continue;
-            float3 rq = dof_radii(dof_capped_coc(at_q.w, lens));
-            float3 wq = dof_weights(rq, d, dof_swirl_density(ndc, shape) * area, -dof_bokeh.x, dof_bokeh.z) * dof_cat_eye_cuts(u, rq, ndc, shape);
-            if (at_q.w < own - layer)
-            {
-                front_sum = front_sum + c * wq;
-                front_w = front_w + wq;
-            }
-            else
-            {
-                sum3 = sum3 + c * wq;
-                w3 = w3 + wq;
-            }
+        disc = disc + w;
+        if (layered && dof_load_source(int2(int(floor(q.x)), int(floor(q.y)))).w > kDofHiddenShare * own)
             continue;
-        }
-        // Behind focus, the foreground's own light filtered to the samples' spacing, so a small bright foreground blurs
-        // smoothly instead of as the few texels the samples hit.
+        // The foreground's own light, filtered to the samples' spacing so a small bright foreground blurs smoothly: beyond
+        // its outline the composite lays it over the background's sharp self by the coverage, a veil of the foreground
+        // as a lens shows it, where an average with the background beside it drew a halo of blurred background.
         float4 fg = dof_sample_near_mask(q, lod);
         sum3 = sum3 + float3(fg.x, fg.y, fg.z) * w;
         w3 = w3 + w * fg.w;
-        disc = disc + w;
-    }
-    if (layered)
-    {
-        float3 one = float3(1.0f, 1.0f, 1.0f);
-        float3 cf = float3(saturate(front_w.x), saturate(front_w.y), saturate(front_w.z));
-        float3 cl = float3(saturate(w3.x), saturate(w3.y), saturate(w3.z)) * (one - cf);
-        float3 lf = float3(front_w.x > 0.0f ? front_sum.x / front_w.x : 0.0f, front_w.y > 0.0f ? front_sum.y / front_w.y : 0.0f,
-            front_w.z > 0.0f ? front_sum.z / front_w.z : 0.0f);
-        float3 ll = float3(w3.x > 0.0f ? sum3.x / w3.x : 0.0f, w3.y > 0.0f ? sum3.y / w3.y : 0.0f, w3.z > 0.0f ? sum3.z / w3.z : 0.0f);
-        // Each channel covers by its own discs, so chromatic aberration fringes the blur and a white frame stays white.
-        float3 light = lf * cf + ll * cl;
-        float3 cover = cf + cl;
-        DofNear o;
-        o.layer = float4(light.x, light.y, light.z, cover.y);
-        o.cover = float2(cover.x, cover.z);
-        return o;
     }
     if (w3.y <= 0.0f || disc.y <= 0.0f)
         return dof_near_none();
