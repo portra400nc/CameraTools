@@ -405,7 +405,7 @@ namespace CameraTools
         private static bool DiscsOn => Values.On(Enhancement.HighlightDiscs);
 
         // The focus point decides the focus, with its point readable: in the autofocus mode, or as the pivot of a tilted
-        // plane in focus, also at a manual distance. Eyes shows the eye in focus, or the focus point that stands in.
+        // plane in focus, also at a manual distance. Eyes shows the iris in focus, or the focus point that stands in.
         private static bool Aiming => Ours ? OwnMode != EnhancementsModel.ManualFocus
             : Known(Id.FocusPoint) && (!Current.Offers(Id.FocusRange) || Known(Id.FocusRange)) && (Mode == PointFocus || Tilted);
 
@@ -471,13 +471,13 @@ namespace CameraTools
 
         // What the add-on's depth of field block is made for: it runs in the free camera, its sensor follows the
         // picture's shape and the miniature scale, a screenshot gathers more samples and, past its countdown, blurs after
-        // ReShade's effects, and Eyes focuses on the eye it found.
+        // ReShade's effects, and Eyes focuses on the iris it found.
         public static LensView Frame => new(freecamActive, Aspect, Miniature, Screenshot.State switch
         {
             ShotState.Idle => ShotStage.None,
             ShotState.Countdown => ShotStage.Countdown,
             _ => ShotStage.Capture,
-        }, FocusEyes.Target?.Meters ?? 0f);
+        }, FocusEyes.Target);
 
         private static string Problem => Ours ? Enhancements.Missing
             : !ReShade.Connected ? ReShade.Missing

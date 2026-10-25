@@ -5,8 +5,8 @@ namespace CameraTools
     // A rectangle on the screen as fractions of its width and height, measured from the top left.
     internal readonly record struct ScreenBox(float Left, float Top, float Right, float Bottom);
 
-    // An eye as the camera sees it: meters along the view axis, and where it is on the screen from -1 at the left and the
-    // top to 1, as the focus point is.
+    // An eye's iris as the camera sees it: meters along the view axis, and where it is on the screen from -1 at the left
+    // and the top to 1, as the focus point is.
     internal readonly record struct EyeSight(float Meters, float X, float Y)
     {
         public bool Seen => Meters > 0f && MathF.Abs(X) <= 1f && MathF.Abs(Y) <= 1f;
@@ -21,6 +21,10 @@ namespace CameraTools
         // The eye in focus keeps it until the other is this many meters nearer, so a face turned to the camera does not
         // flicker between them.
         public const float EyeMargin = 0.03f;
+        // An eye bone is its eyeball's center, and the iris lies this share of the distance between the two bones out from
+        // it. A human eyeball's radius is about 0.19 of that distance, but from above at 35 mm a Genshin eye looking ahead
+        // had its bone 0.36 of it above the iris on the picture, which only a radius of at least that much gives.
+        public const float EyeballShare = 0.4f;
 
         // Third-stops, as lenses mark them.
         public static readonly float[] Stops =
@@ -45,6 +49,22 @@ namespace CameraTools
 
         // The distance from the camera to a point along the view axis, which the add-on's focus distance is measured on.
         public static float AlongView(Vec3 point, Vec3 camera, Vec3 forward) => Vec3.Dot(point - camera, Vec3.Normalize(forward));
+
+        // Of an eye bone's +X, -X, +Y, -Y, +Z and -Z, the one nearest a direction given in the bone's own frame: with the
+        // character's forward, the axis out of the face that the gaze turns.
+        public static Vec3 FacingAxis(Vec3 local)
+        {
+            float x = MathF.Abs(local.X), y = MathF.Abs(local.Y), z = MathF.Abs(local.Z);
+            if (x >= y && x >= z)
+                return new Vec3(local.X < 0f ? -1f : 1f, 0f, 0f);
+            return y >= z ? new Vec3(0f, local.Y < 0f ? -1f : 1f, 0f) : new Vec3(0f, 0f, local.Z < 0f ? -1f : 1f);
+        }
+
+        public static string AxisName(Vec3 axis) => (axis.X + axis.Y + axis.Z < 0f ? "-" : "+") + (axis.X != 0f ? "X" : axis.Y != 0f ? "Y" : "Z");
+
+        // The iris of an eye whose bone is at center and looks along gaze, with separation meters between the two eye
+        // bones; with one eye, separation 0 leaves it at the bone.
+        public static Vec3 Iris(Vec3 center, Vec3 gaze, float separation) => center + Vec3.Normalize(gaze) * (EyeballShare * separation);
 
         // The Eyes mode's eye in focus after current, 0 the left and 1 the right, or -1 while neither is seen and the focus
         // point stands in: the nearer seen eye, and the current one until the other is EyeMargin nearer.

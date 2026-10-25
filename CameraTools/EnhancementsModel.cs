@@ -142,8 +142,8 @@ namespace CameraTools
     // picture's width over its height, which gives the sensor; the miniature scale's N, which makes the sensor N times
     // taller; the screenshot's stage: a screenshot gathers more samples, and while it captures, the add-on blurs after
     // the ReShade effects that read the depth buffer, so RTGI and the like light the sharp frame and the shot has the blur;
-    // and the meters along the view axis to the eye that Eyes focuses on, 0 while the focus point stands in for it.
-    public readonly record struct LensView(bool FreeCamera, float Aspect, int Miniature, ShotStage Shot, float EyeMeters = 0f);
+    // and the iris that Eyes focuses on, null while the focus point stands in for it.
+    internal readonly record struct LensView(bool FreeCamera, float Aspect, int Miniature, ShotStage Shot, EyeSight? Eye = null);
 
     // The Enhancements category's rules, apart from the game, the preferences and the add-on, so tests run them.
     internal static class EnhancementsModel
@@ -299,24 +299,22 @@ namespace CameraTools
         // The depth of field's block. The sensor is the one the focal length readout assumes, a full-frame diagonal in the
         // picture's shape, so the readout's millimeters and the blur describe the same lens; N times taller, the whole
         // lens grows with it and images as a 1:N miniature. The focus point's rows run from -1 at the left and the top to
-        // 1, the add-on's from 0 at the top left. Focus speed is the seconds the autofocus, and the focus on an eye, take
-        // to cover 99% of the way; a manual distance jumps. Max blur is the largest disc's radius in hundredths of the
-        // picture's height.
+        // 1, the add-on's from 0 at the top left. Eyes autofocuses at the iris's point, from the distance reckoned to it.
+        // Focus speed is the seconds the autofocus, and the focus on an eye, take to cover 99% of the way; a manual distance
+        // jumps. Max blur is the largest disc's radius in hundredths of the picture's height.
         public static EnhancementsDepthOfField DepthOfField(EnhancementValues values, LensView lens)
         {
             var dof = EnhancementsSettings.Defaults.DepthOfField;
             dof.Enabled = values.On(Enhancement.DepthOfField) && lens.FreeCamera ? 1u : 0u;
             dof.FNumber = Stops[(int)values[Enhancement.DepthOfFieldAperture]];
             dof.SensorHeightMm = Lens.SensorHeight(lens.Aspect) * Math.Max(lens.Miniature, 1);
-            dof.FocusDistance = (int)values[Enhancement.DepthOfFieldFocusMode] switch
-            {
-                ManualFocus => values[Enhancement.DepthOfFieldFocusDistance],
-                EyeFocus => lens.EyeMeters,
-                _ => 0f,
-            };
-            dof.FocusX = (values[Enhancement.DepthOfFieldFocusX] + 1f) * 0.5f;
-            dof.FocusY = (values[Enhancement.DepthOfFieldFocusY] + 1f) * 0.5f;
-            dof.FocusSeconds = values[Enhancement.DepthOfFieldFocusMode] == ManualFocus ? 0f : values[Enhancement.DepthOfFieldFocusSpeed];
+            int mode = (int)values[Enhancement.DepthOfFieldFocusMode];
+            var eye = mode == EyeFocus ? lens.Eye : null;
+            dof.FocusDistance = mode == ManualFocus ? values[Enhancement.DepthOfFieldFocusDistance] : 0f;
+            dof.FocusX = ((eye?.X ?? values[Enhancement.DepthOfFieldFocusX]) + 1f) * 0.5f;
+            dof.FocusY = ((eye?.Y ?? values[Enhancement.DepthOfFieldFocusY]) + 1f) * 0.5f;
+            dof.EyeDistance = eye?.Meters ?? 0f;
+            dof.FocusSeconds = mode == ManualFocus ? 0f : values[Enhancement.DepthOfFieldFocusSpeed];
             dof.MaxBlur = values[Enhancement.DepthOfFieldMaxBlur] / 100f;
             int shape = (int)values[Enhancement.BokehShape];
             dof.Blades = shape == 0 ? 0u : FewestBlades + (uint)shape - 1u;

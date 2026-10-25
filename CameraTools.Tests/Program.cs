@@ -369,9 +369,22 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
         && EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfFieldFocusSpeed, 7f), inside).FocusSeconds == 3f
         && EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfFieldFocusSpeed, 0.123f), inside).FocusSeconds == 0.1f);
     var onEyes = fresh.With(Enhancement.DepthOfFieldFocusMode, EnhancementsModel.EyeFocus).With(Enhancement.DepthOfFieldFocusSpeed, 1f);
-    Check("Eyes focuses at the eye's meters at the Focus speed, and with no eye at 0, the autofocus at the focus point, as fast",
-        EnhancementsModel.DepthOfField(onEyes, inside with { EyeMeters = 1.234f }) is { FocusDistance: 1.234f, FocusSeconds: 1f }
-        && EnhancementsModel.DepthOfField(onEyes, inside) is { FocusDistance: 0f, FocusSeconds: 1f });
+    var iris = new EyeSight(1.234f, 0.5f, -0.25f);
+    Check("Eyes autofocuses at the iris, 0.75 across and 0.375 down, from 1.234 m at the Focus speed, and with no iris at the focus point, as fast",
+        EnhancementsModel.DepthOfField(onEyes, inside with { Eye = iris }) is { FocusDistance: 0f, EyeDistance: 1.234f, FocusX: 0.75f, FocusY: 0.375f, FocusSeconds: 1f }
+        && EnhancementsModel.DepthOfField(onEyes.With(Enhancement.DepthOfFieldFocusX, -0.5f), inside) is { FocusDistance: 0f, EyeDistance: 0f, FocusX: 0.25f, FocusY: 0.5f, FocusSeconds: 1f });
+    Check("Focus point and Manual distance leave an iris alone",
+        EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfFieldFocusX, -0.5f), inside with { Eye = iris }) is { FocusDistance: 0f, EyeDistance: 0f, FocusX: 0.25f, FocusY: 0.5f }
+        && EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfFieldFocusMode, EnhancementsModel.ManualFocus).With(Enhancement.DepthOfFieldFocusDistance, 3f),
+            inside with { Eye = iris }) is { FocusDistance: 3f, EyeDistance: 0f, FocusX: 0.5f, FocusSeconds: 0f });
+    Check("an eye bone's axis out of the face is the one nearest the character's forward in its frame: -Z, +X and -Y, named so",
+        Lens.FacingAxis(new Vec3(0.1f, -0.2f, -0.97f)) == -Vec3.UnitZ && Lens.FacingAxis(new Vec3(0.8f, 0.5f, -0.3f)) == Vec3.UnitX
+        && Lens.FacingAxis(new Vec3(0.3f, -0.9f, 0.4f)) == -Vec3.UnitY && Lens.AxisName(-Vec3.UnitZ) == "-Z" && Lens.AxisName(Vec3.UnitX) == "+X"
+        && Lens.AxisName(-Vec3.UnitY) == "-Y");
+    var irisAhead = Lens.Iris(new Vec3(1f, 1.5f, 3f), new Vec3(0f, 0f, -2f), 0.06f);
+    Check("the iris lies 0.4 of the eyes' 6 cm out along the gaze: 2.4 cm from a bone at z 3 looking along -Z, and at the bone with one eye",
+        MathF.Abs(irisAhead.X - 1f) < 1e-6f && MathF.Abs(irisAhead.Y - 1.5f) < 1e-6f && MathF.Abs(irisAhead.Z - 2.976f) < 1e-6f
+        && Lens.Iris(new Vec3(1f, 1.5f, 3f), new Vec3(0f, 0f, -2f), 0f) == new Vec3(1f, 1.5f, 3f));
     Check("the distance to an eye is along the view axis: 2 m ahead and 1 m aside is 2 m, 4 m ahead of a moved camera 4 m, and behind it -1 m",
         Lens.AlongView(new Vec3(1f, 0f, 2f), Vec3.Zero, Vec3.UnitZ) == 2f
         && Lens.AlongView(new Vec3(3f, 1f, 5f), new Vec3(3f, 1f, 1f), new Vec3(0f, 0f, 4f)) == 4f
