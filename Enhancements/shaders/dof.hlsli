@@ -23,7 +23,7 @@
 //                   float4 dof_sample_far(float2 at, float lod), bilinear between the gather's far field's levels (read
 //                   only with the bokeh contrast on); dof_load_dilated
 //   DOF_SPRITE:     dof_load_source
-//   DOF_NEAR:       dof_load_source, dof_sample_source, dof_load_dilated, dof_load_far (the post-filter's, with the far
+//   DOF_NEAR:       dof_load_source, dof_sample_source, dof_load_tile, dof_load_dilated, dof_load_far (the post-filter's, with the far
 //                   sprites)
 //   DOF_COMPOSITE:  dof_load_scene, dof_load_depth, dof_load_far, dof_load_near (the post-filter's, with the sprites),
 //                   float4 dof_load_near_layer(int2 pixel) (dof_near_layer's)
@@ -752,23 +752,26 @@ DofFields dof_post(int2 p)
 // silhouette on both sides. A disc of that radius averages what the far field made of the scene, the foreground
 // unblurred, evenly; and the blurred radius, boosted by the max blur, is the alpha it covers the rest with: whole inside
 // a foreground, fading out beyond its outline, with nothing of what lies behind it to guess.
-static const float kDofNearSpread = 0.4f;  // the Gaussian's sigma over the largest disc, as Cinematic DOF's taps reach
+static const float kDofNearSpread = 0.6f;  // the Gaussian's sigma over the local near disc
 
-// The dilated tiles' near maxima at a position in tiles, bilinear between their centers.
+// The tiles' near maxima at a position in tiles, bilinear between their centers.
 float dof_near_tiles(float2 at)
 {
     float2 c = float2(at.x - 0.5f, at.y - 0.5f);
     int2 b = int2(int(floor(c.x)), int(floor(c.y)));
     float fx = c.x - floor(c.x), fy = c.y - floor(c.y);
-    return lerp(lerp(dof_load_dilated(b).y, dof_load_dilated(int2(b.x + 1, b.y)).y, fx),
-        lerp(dof_load_dilated(int2(b.x, b.y + 1)).y, dof_load_dilated(int2(b.x + 1, b.y + 1)).y, fx), fy);
+    return lerp(lerp(dof_load_tile(b).y, dof_load_tile(int2(b.x + 1, b.y)).y, fx),
+        lerp(dof_load_tile(int2(b.x, b.y + 1)).y, dof_load_tile(int2(b.x + 1, b.y + 1)).y, fx), fy);
 }
 
 float4 dof_near_layer(int2 p)
 {
-    float max_r = max(dof_optics.w, 1e-3f);
+    // The largest near disc around the pixel, from the dilated tiles; none, and nothing in front of focus is near.
+    float local = dof_load_dilated(int2(p.x / 8, p.y / 8)).y;
+    if (local <= 0.0f)
+        return float4(0.0f, 0.0f, 0.0f, 0.0f);
     float2 at = float2((float(p.x) + 0.5f) / 8.0f, (float(p.y) + 0.5f) / 8.0f);
-    float sigma = kDofNearSpread * max_r / 8.0f;
+    float sigma = kDofNearSpread * local / 8.0f;
     float sum = 0.0f, weights = 0.0f;
     UNROLL for (int j = -3; j <= 3; j++)
     {
@@ -780,33 +783,53 @@ float4 dof_near_layer(int2 p)
             weights = weights + w;
         }
     }
-    float blurred = saturate(sum / weights / max_r);
-    if (blurred <= 0.0f)
+    // The tiles' near radius blurred over a Gaussian as wide as the local disc and taken over that disc: about 1 inside a
+    // foreground, a half at its outline, falling to none about a disc's radius beyond it. Twice that is the alpha, whole up
+    // to the outline as Cinematic DOF's, but fading over the foreground's own disc instead of over the largest one,
+    // boosted by the max blur, which left a wide halo of blurred background around a small foreground.
+    float blurred = saturate(sum / weights / local);
+    float alpha = saturate(2.0f * blurred);
+    if (alpha <= 0.0f)
         return float4(0.0f, 0.0f, 0.0f, 0.0f);
-    float own_tile = dof_load_dilated(int2(p.x / 8, p.y / 8)).y / max_r;
-    // Cinematic DOF's alpha, its near max blur the max blur row's percent of the picture's height.
-    float max_blur = max_r * 200.0f / float(dof_counts.z);
-    float alpha = saturate((min(2.5f, max_blur) + 0.4f) * (blurred > 0.1f ? (own_tile > 0.0f ? 2.0f : 1.0f) * blurred : max(blurred, own_tile)));
-    float radius = blurred * max_r;
+    // The disc takes the lens's shape as the gather's discs do: the blades, the anamorphic squeeze, the cat's eye and the
+    // swirl at the source's place on the picture, the soap bubble's light across it, mirrored as in front of focus, and
+    // each channel's own radius under chromatic aberration; each channel is normalized on its own.
+    DofLens lens = dof_frame_lens(dof_load_focus().x);
+    DofShape shape = dof_frame_shape();
+    float3 r = dof_radii(dof_channel_coc(-local, lens));
+    float reach = max(max(r.x, r.y), r.z) * dof_bokeh.w + 0.5f;
     int rings = int(dof_sampling.x) + 1;
     int count = 4 * rings * (rings + 1) + 1;
-    float spacing = radius / float(rings);
+    float spacing = reach / float(rings);
     float lod = log2(clamp(spacing, 1.0f, 256.0f));
     float turn = dof_sampling.y + dof_noise(p);
-    float3 color = float3(0.0f, 0.0f, 0.0f);
+    float up = dof_sampling.z;
+    float2 half_size = float2(float(dof_sizes.x), float(dof_sizes.y));
+    float3 sum3 = float3(0.0f, 0.0f, 0.0f), w3 = float3(0.0f, 0.0f, 0.0f);
     LOOP for (int k = 0; k < count; k++)
     {
         float angle = 2.0f * kDofPi * (turn + float(k) * 0.38196601f);
-        float2 o_px = float2(cos(angle), sin(angle)) * (radius * sqrt((float(k) + 0.5f) / float(count)));
+        float2 o_px = float2(cos(angle), sin(angle)) * (reach * sqrt((float(k) + 0.5f) / float(count)));
         float2 q = float2(float(p.x) + 0.5f + o_px.x, float(p.y) + 0.5f + o_px.y);
+        float2 u = float2(o_px.x, o_px.y * up);
+        float2 ndc = float2(q.x / half_size.x * 2.0f - 1.0f, up * (q.y / half_size.y * 2.0f - 1.0f));
+        float d = dof_shape_distance(u, ndc, shape);
+        if (d > max(max(r.x, r.y), r.z) + 0.5f)
+            continue;
+        float3 w = dof_weights(r, d, dof_swirl_density(ndc, shape), -dof_bokeh.x, dof_bokeh.z) * dof_cat_eye_cuts(u, r, ndc, shape);
         int2 qi = int2(int(floor(q.x)), int(floor(q.y)));
         float4 f = dof_load_far(qi);
         // The far field where the scene behind focus was blurred; the source, filtered to the samples' spacing, elsewhere.
-        color = color + (dof_load_source(qi).w > kDofInFocus && f.w > 0.0f ? float3(f.x, f.y, f.z) : dof_sample_source(q, lod));
+        float3 c = dof_load_source(qi).w > kDofInFocus && f.w > 0.0f ? float3(f.x, f.y, f.z) : dof_sample_source(q, lod);
+        sum3 = sum3 + c * w;
+        w3 = w3 + w;
     }
+    if (w3.y <= 0.0f)
+        return float4(0.0f, 0.0f, 0.0f, 0.0f);
+    float3 color = float3(sum3.x / max(w3.x, 1e-20f), sum3.y / w3.y, sum3.z / max(w3.z, 1e-20f));
     // Premultiplied, so the composite's bilinear read between a covered texel and an uncovered one fades the light, not
     // the color toward black.
-    color = color * (alpha / float(count));
+    color = color * alpha;
     return float4(color.x, color.y, color.z, alpha);
 }
 #endif

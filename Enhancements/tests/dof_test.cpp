@@ -418,9 +418,9 @@ int main(int argc, char **argv)
             for (uint32_t x = 400; x < 800; x++)
                 wall.put(x, y, 1, 2);
         const DofOutput over_wall = render(wall, lens_at(2, 30, 0));
-        check("over a black wall 10 m away, itself a little in front of focus at 30 m, it spreads as evenly: half at the edge and 0.2747 "
+        check("over a black wall 10 m away, itself a little in front of focus at 30 m, it spreads as evenly: half at the edge and 0.2374 "
               "four pixels out, where the wall's own near field had kept it to 0.0943",
-            near(wall.green(over_wall, 399, 400) + wall.green(over_wall, 400, 400), 1, 0.05f) && near(wall.green(over_wall, 396, 400), 0.2747f, 0.002f)
+            near(wall.green(over_wall, 399, 400) + wall.green(over_wall, 400, 400), 1, 0.05f) && near(wall.green(over_wall, 396, 400), 0.2374f, 0.002f)
                 && wall.green(over_wall, 388, 400) < 0.02f && wall.green(over_wall, 412, 400) > 0.98f);
         DepthOfFieldSettings autofocus = lens_at(2, 0, 0);
         const DofOutput focused = render(edge, autofocus);
