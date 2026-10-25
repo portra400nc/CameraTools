@@ -1222,8 +1222,8 @@ namespace enhancements
             c->VSSetShaderResources(0, 1, no_list);
             c->OMSetRenderTargets(0, nullptr, nullptr);
         }
-        ID3D11ShaderResourceView *const near_in[] = { dof_source_.srv(), dof_far_post_.srv(), dof_dilated_.srv(), focus.srv(), dof_tiles_.srv() };
-        draw_fullscreen(dof_near_ps_.Get(), near_in, 5, dof_near_layer_.rtv(), half);
+        ID3D11ShaderResourceView *const near_in[] = { dof_source_.srv(), dof_far_post_.srv(), dof_dilated_.srv(), focus.srv() };
+        draw_fullscreen(dof_near_ps_.Get(), near_in, 4, dof_near_layer_.rtv(), half);
         c->OMSetRenderTargets(0, nullptr, nullptr);
         ID3D11ShaderResourceView *const composite_in[] = { scene, depth, focus.srv(), dof_far_post_.srv(), dof_near_post_.srv(), dof_near_layer_.srv() };
         draw_fullscreen(dof_composite_ps_.Get(), composite_in, 6, out, size);

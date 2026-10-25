@@ -23,7 +23,8 @@
 //                   float4 dof_sample_far(float2 at, float lod), bilinear between the gather's far field's levels (read
 //                   only with the bokeh contrast on); dof_load_dilated
 //   DOF_SPRITE:     dof_load_source
-//   DOF_NEAR:       dof_load_source, dof_sample_source, dof_load_tile, dof_load_dilated, dof_load_far (the post-filter's, with the far
+//   DOF_NEAR:       dof_load_source, dof_sample_source, float dof_sample_coc(float2 at, float lod) (the source's CoC, as
+//                   dof_sample_source), dof_load_dilated, dof_load_far (the post-filter's, with the far
 //                   sprites)
 //   DOF_COMPOSITE:  dof_load_scene, dof_load_depth, dof_load_far, dof_load_near (the post-filter's, with the sprites),
 //                   float4 dof_load_near_layer(int2 pixel) (dof_near_layer's)
@@ -752,17 +753,7 @@ DofFields dof_post(int2 p)
 // silhouette on both sides. A disc of that radius averages what the far field made of the scene, the foreground
 // unblurred, evenly; and the blurred radius, boosted by the max blur, is the alpha it covers the rest with: whole inside
 // a foreground, fading out beyond its outline, with nothing of what lies behind it to guess.
-static const float kDofNearSpread = 0.6f;  // the Gaussian's sigma over the local near disc
-
-// The tiles' near maxima at a position in tiles, bilinear between their centers.
-float dof_near_tiles(float2 at)
-{
-    float2 c = float2(at.x - 0.5f, at.y - 0.5f);
-    int2 b = int2(int(floor(c.x)), int(floor(c.y)));
-    float fx = c.x - floor(c.x), fy = c.y - floor(c.y);
-    return lerp(lerp(dof_load_tile(b).y, dof_load_tile(int2(b.x + 1, b.y)).y, fx),
-        lerp(dof_load_tile(int2(b.x, b.y + 1)).y, dof_load_tile(int2(b.x + 1, b.y + 1)).y, fx), fy);
-}
+static const float kDofNearSpread = 0.5f;  // the Gaussian's sigma over the local near disc
 
 float4 dof_near_layer(int2 p)
 {
@@ -770,24 +761,26 @@ float4 dof_near_layer(int2 p)
     float local = dof_load_dilated(int2(p.x / 8, p.y / 8)).y;
     if (local <= 0.0f)
         return float4(0.0f, 0.0f, 0.0f, 0.0f);
-    float2 at = float2((float(p.x) + 0.5f) / 8.0f, (float(p.y) + 0.5f) / 8.0f);
-    float sigma = kDofNearSpread * local / 8.0f;
+    float sigma = kDofNearSpread * local;
+    float step = sigma * 0.8f;
+    float map_lod = log2(clamp(step, 1.0f, 256.0f));
     float sum = 0.0f, weights = 0.0f;
     UNROLL for (int j = -3; j <= 3; j++)
     {
         UNROLL for (int i = -3; i <= 3; i++)
         {
-            float2 o = float2(float(i), float(j)) * (sigma * 0.8f);
+            float2 at = float2(float(p.x) + 0.5f + float(i) * step, float(p.y) + 0.5f + float(j) * step);
             float w = exp(-0.32f * float(i * i + j * j));
-            sum = sum + dof_near_tiles(float2(at.x + o.x, at.y + o.y)) * w;
+            sum = sum + saturate(-dof_sample_coc(at, map_lod) / local) * w;
             weights = weights + w;
         }
     }
-    // The tiles' near radius blurred over a Gaussian as wide as the local disc and taken over that disc: about 1 inside a
-    // foreground, a half at its outline, falling to none about a disc's radius beyond it. Twice that is the alpha, whole up
-    // to the outline as Cinematic DOF's, but fading over the foreground's own disc instead of over the largest one,
-    // boosted by the max blur, which left a wide halo of blurred background around a small foreground.
-    float blurred = saturate(sum / weights / local);
+    // How much of the pixel's surroundings lies in front of focus, from the source's CoC filtered to the taps' spacing,
+    // over a Gaussian a little narrower than the local disc: 1 inside a foreground, a half at its outline, falling to none
+    // about a disc's radius beyond it. Twice that is the alpha, whole up to the outline as Cinematic DOF's. Taken from the
+    // tiles, 16 full-size pixels each, the alpha reached that far past a small disc's outline, a halo of blurred
+    // background.
+    float blurred = saturate(sum / weights);
     float alpha = saturate(2.0f * blurred);
     if (alpha <= 0.0f)
         return float4(0.0f, 0.0f, 0.0f, 0.0f);

@@ -102,6 +102,7 @@ namespace enhancements::shader
         const float4 c = sample_levels(textures->source, textures->source_sizes, position, lod);
         return { c.x, c.y, c.z };
     }
+    float dof_sample_coc(float2 position, float lod) { return sample_levels(textures->source, textures->source_sizes, position, lod).w; }
     float4 dof_sample_lifted(float2 position, float lod) { return sample_levels(textures->lifted, textures->lifted_sizes, position, lod); }
     float2 dof_load_tile(int2 t) { return textures->tiles[at(t, tile_size())]; }
     float2 dof_load_dilated(int2 t) { return textures->dilated[at(t, tile_size())]; }
