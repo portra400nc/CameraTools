@@ -416,8 +416,9 @@ namespace CameraTools
             bool enhanced = ownEnhancements != null;
             if (enhanced)
             {
-                Melon<CameraTools>.Logger.Msg($"Graphics: restored your enhancements: {ownEnhancements}.");
-                EnhancementsControl.Set(ownEnhancements);
+                var restored = Presets.Restored(ownEnhancements, EnhancementsControl.Values);
+                Melon<CameraTools>.Logger.Msg($"Graphics: restored your enhancements, the depth of field as it is: {restored}.");
+                EnhancementsControl.Set(restored);
                 Remember(null);
             }
             if (pairs.Count == 0)

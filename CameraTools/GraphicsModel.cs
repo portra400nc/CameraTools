@@ -52,7 +52,9 @@ namespace CameraTools
     }
 
     // What Highest or Lowest sets: a target for each game setting by its number, the values past the game's range, the
-    // forced detail level, and every enhancement switch and value, or null to leave the enhancements as they are.
+    // forced detail level, and every enhancement switch and value, or null to leave the enhancements as they are. A preset
+    // is about quality, and the depth of field is part of the picture the user framed, so a preset never sets it: what
+    // Enhancements holds of it is never applied or saved.
     public sealed record Preset(PresetSlot Slot, IReadOnlyDictionary<int, Target> Settings, Overrides Overrides, LodLevel? Lod, EnhancementValues Enhancements)
     {
         public string Name => Slot.ToString();
@@ -105,22 +107,31 @@ namespace CameraTools
                 .Select(pair => new SettingChange(pair.Key, now[pair.Key], pair.Value))
                 .ToList();
 
-        // The enhancements after a preset is applied, and what Restore returns to: the values from before the first preset
-        // changed them. A preset that holds no enhancements, or the ones already set, changes nothing.
+        // The enhancements after a preset is applied, with the depth of field as it is, and what Restore returns to: the
+        // values from before the first preset changed them. A preset that holds no enhancements, or the ones already set,
+        // changes nothing.
         public static (EnhancementValues Next, EnhancementValues Remembered) Enhance(Preset preset, EnhancementValues now, EnhancementValues remembered)
-            => preset.Enhancements == null || preset.Enhancements.Equals(now) ? (now, remembered) : (preset.Enhancements, remembered ?? now);
+        {
+            var next = preset.Enhancements?.WithLensOf(now);
+            return next == null || next.Equals(now) ? (now, remembered) : (next, remembered ?? now);
+        }
+
+        // What Restore sets: the enhancements from before the first preset, with the depth of field as it is now.
+        public static EnhancementValues Restored(EnhancementValues remembered, EnhancementValues now) => remembered.WithLensOf(now);
 
         // What a preset sets a game setting to, for the line under the setting's row: the option's label, or Keep.
         public static string SettingNote(Preset preset, int setting, OptionList list, string[] labels)
             => preset.For(setting).In(list) is int index ? labels[list.Position(index)] : "Keep";
 
         // What a preset sets the master switch or an effect's switch to, for the line under the switch's label.
-        public static string SwitchNote(Preset preset, Enhancement id) => preset.Enhancements == null ? "Keep" : preset.Enhancements.On(id) ? "On" : "Off";
+        public static string SwitchNote(Preset preset, Enhancement id)
+            => preset.Enhancements == null || EnhancementsModel.Field(id).Lens ? "Keep" : preset.Enhancements.On(id) ? "On" : "Off";
 
         public static string ScaleNote(Preset preset) => preset.Overrides.RenderScale?.ToString("0.00", CultureInfo.InvariantCulture) ?? "Game";
 
         // A saved preset as its preference holds it: setting number=option index for each game setting, then each value
-        // past the game's range that is not the game's, then the detail level, then every enhancement by its name.
+        // past the game's range that is not the game's, then the detail level, then every enhancement but the depth of field's
+        // by its name.
         public static string Text(Preset preset)
         {
             var parts = preset.Settings.Where(pair => pair.Value.Pick == Pick.Saved).Select(pair => $"{pair.Key}={pair.Value.Index}").ToList();
@@ -138,7 +149,7 @@ namespace CameraTools
             if (preset.Lod is LodLevel lod)
                 parts.Add($"{Detail}={lod}");
             if (preset.Enhancements != null)
-                parts.Add(preset.Enhancements.ToString());
+                parts.Add(preset.Enhancements.WithoutLens());
             return string.Join(";", parts);
         }
 
@@ -181,6 +192,9 @@ namespace CameraTools
                 if (!read)
                     skipped.Add($"{name}={value}");
             }
+            // Builds 314 to 316 saved the depth of field's too.
+            foreach (var field in EnhancementsModel.Fields.Where(field => field.Lens))
+                enhancements.Remove(field.Id);
             return new Preset(slot, settings, held, lod, EnhancementsModel.From(enhancements));
         }
 

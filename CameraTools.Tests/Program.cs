@@ -435,9 +435,27 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     var skipped = new List<string>();
     var saved = Presets.Saved(PresetSlot.Highest, new Dictionary<int, int>(), Overrides.None, null, lens);
     string text = Presets.Text(saved);
-    Check("a saved preset holds the depth of field's values and reads them back",
-        text.Contains(";DepthOfField=1;") && text.Contains(";DepthOfFieldAperture=3;") && text.Contains(";SoapBubble=1;") && text.EndsWith(";BokehContrast=0")
-        && Presets.Parse(PresetSlot.Highest, text, skipped).Enhancements.Equals(lens) && skipped.Count == 0);
+    Check("a saved preset holds none of the depth of field's values: it ends with the tone map's",
+        !text.Contains("DepthOfField") && !text.Contains("SoapBubble") && !text.Contains("BokehContrast") && text.EndsWith(";ToneMapContrast=1")
+        && skipped.Count == 0);
+    var userLens = fresh.With(Enhancement.DepthOfField, 1f).With(Enhancement.DepthOfFieldFocusMode, EnhancementsModel.EyeFocus)
+        .With(Enhancement.DepthOfFieldFocusSpeed, 1.5f).With(Enhancement.DepthOfFieldAperture, 5f).With(Enhancement.SoapBubble, 0.2f);
+    var shafted = saved with { Enhancements = lens.With(Enhancement.Enabled, 1f).With(Enhancement.LightShafts, 1f) };
+    var roundTrip = Presets.Parse(PresetSlot.Highest, Presets.Text(shafted), skipped);
+    Check("a preset round trip leaves the depth of field as the user has it: on, Eyes, 1.5 s, the sixth stop and soap bubble 0.2, with the preset's light shafts",
+        Presets.Enhance(roundTrip, userLens, null) is var (applied, keptForRestore) && applied.On(Enhancement.LightShafts) && applied.On(Enhancement.Enabled)
+        && applied.On(Enhancement.DepthOfField) && applied[Enhancement.DepthOfFieldFocusMode] == 2f && applied[Enhancement.DepthOfFieldFocusSpeed] == 1.5f
+        && applied[Enhancement.DepthOfFieldAperture] == 5f && applied[Enhancement.SoapBubble] == 0.2f && ReferenceEquals(keptForRestore, userLens) && skipped.Count == 0);
+    var old316 = Presets.Parse(PresetSlot.Highest, "Enabled=1;Haze=1;DepthOfField=1;DepthOfFieldAperture=3;SoapBubble=1", skipped);
+    Check("a preset that builds 314 to 316 saved with the depth of field's keys applies without them, warns of nothing and saves without them",
+        Presets.Enhance(old316, userLens, null) is var (fromOld, _) && fromOld.On(Enhancement.Haze) && fromOld[Enhancement.DepthOfFieldAperture] == 5f
+        && fromOld[Enhancement.SoapBubble] == 0.2f && fromOld.On(Enhancement.DepthOfField) && skipped.Count == 0 && !Presets.Text(old316).Contains("DepthOfField")
+        && Presets.Text(old316).StartsWith("Enabled=1;AmbientLight=0;"));
+    Check("a preset that differs only in the depth of field changes nothing, says Keep under its switch, and Restore keeps the depth of field as it is",
+        Presets.Enhance(roundTrip with { Enhancements = userLens.WithLensOf(fresh) }, userLens, null) is var (same, none) && ReferenceEquals(same, userLens) && none == null
+        && Presets.SwitchNote(roundTrip, Enhancement.DepthOfField) == "Keep" && Presets.SwitchNote(roundTrip, Enhancement.LightShafts) == "On"
+        && Presets.Restored(fresh.With(Enhancement.Haze, 1f), userLens) is { } restored && restored.On(Enhancement.Haze) && restored[Enhancement.DepthOfFieldAperture] == 5f
+        && restored[Enhancement.DepthOfFieldFocusMode] == 2f);
     Check("a preset saved before the depth of field reads with its defaults, off",
         Presets.Parse(PresetSlot.Highest, "Enabled=1;Haze=1", skipped).Enhancements is { } old && !old.On(Enhancement.DepthOfField)
         && old[Enhancement.SoapBubble] == 0.6f && old[Enhancement.BokehContrast] == 0f && skipped.Count == 0);

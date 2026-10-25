@@ -117,8 +117,13 @@ namespace CameraTools
         }
 
         // Name=number for every field, with ; between them: a switch is 1 or 0 and a choice its option's position.
-        public override string ToString()
-            => string.Join(";", EnhancementsModel.Fields.Select(field => $"{field.Name}={values[(int)field.Id].ToString(CultureInfo.InvariantCulture)}"));
+        public override string ToString() => Text(EnhancementsModel.Fields);
+
+        // The same without the depth of field's, as a preset holds them.
+        public string WithoutLens() => Text(EnhancementsModel.Fields.Where(field => !field.Lens));
+
+        private string Text(IEnumerable<EnhancementField> fields)
+            => string.Join(";", fields.Select(field => $"{field.Name}={values[(int)field.Id].ToString(CultureInfo.InvariantCulture)}"));
     }
 
     // The values the add-on runs: the user's own, which the preferences keep, or those of a screenshot's preset until the
