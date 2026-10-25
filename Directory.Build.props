@@ -1,0 +1,13 @@
+<Project>
+  <!-- In a workspace that has its own Directory.Build.props above this repository, such as the melonloader one, take its
+       settings too. -->
+  <PropertyGroup>
+    <ParentBuildProps>$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))</ParentBuildProps>
+  </PropertyGroup>
+  <Import Project="$(ParentBuildProps)" Condition="'$(ParentBuildProps)' != ''" />
+  <PropertyGroup>
+    <!-- Stack traces in players' logs show source and PDB paths; keep the build machine's paths out of them. -->
+    <PathMap>$(MSBuildThisFileDirectory)=/_/</PathMap>
+    <EnableSourceLink>false</EnableSourceLink>
+  </PropertyGroup>
+</Project>
