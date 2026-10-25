@@ -502,6 +502,8 @@ namespace CameraTools
             }
             log.Msg($"Screenshot: {detail ?? toast}.");
             CameraUi.Toast(toast);
+            if (busy.Resized)
+                WindowFocus.Repair("the screenshot put the resolution back");
         }
     }
 }

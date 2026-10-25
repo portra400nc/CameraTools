@@ -155,6 +155,7 @@ namespace CameraTools
             Lights.Update();
             Posing.Update();
             SyncPlayerInput();
+            WindowFocus.Update();
         }
 
         public override void OnGUI()
@@ -240,24 +241,29 @@ namespace CameraTools
             if (freecamActive)
                 GameCamera.Detach(maincam);
             else
+            {
                 GameCamera.Attach();
+                WindowFocus.Repair("the free camera turned off");
+            }
         }
 
-        // The game keeps player input while it owns input and no replay plays over the world.
+        // The game keeps player input while it owns input and no replay plays over the world. Every hand-off is logged, so
+        // a game that ignores the controller shows whether CameraTools still held its input.
         private static void SyncPlayerInput()
         {
             bool on = Controls.Owner == InputOwner.Game && ReplayPlayer.State is not PlayState.Playing;
             if (on == playerInput)
                 return;
             playerInput = on;
+            string why = $"input owner {Controls.Owner}, replay {ReplayPlayer.State}, free camera {(freecamActive ? "on" : "off")}";
             try
             {
                 ActorUtils.EnablePlayerInput(on, false);
-                LogOnce($"Input: EnablePlayerInput({on}, false) succeeded.");
+                Melon<CameraTools>.Logger.Msg($"Input: EnablePlayerInput({on}, false) succeeded; {why}.");
             }
             catch (Exception e)
             {
-                LogOnce($"Input: EnablePlayerInput({on}, false) failed: {e.Message}");
+                Melon<CameraTools>.Logger.Warning($"Input: EnablePlayerInput({on}, false) failed: {e.Message}; {why}.");
             }
         }
 

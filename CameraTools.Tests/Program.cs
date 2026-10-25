@@ -856,5 +856,23 @@ var padSwap = ControlsModel.Swap(pads, CamAction.ResetSpeed, new PadBinding(PadB
 Check("a controller binding swaps the same way: B on Reset speed gives Hide UI Y",
     padSwap == new Rebind(true, CamAction.ToggleHUD) && pads[(int)CamAction.ToggleHUD] == new PadBinding(PadButtons.Y, PadAxis.None));
 
+{
+    var start = RefocusRules.Start("the free camera turned off", 10f);
+    var whole = new FocusView(true, FocusHolder.Game);
+    var lostUnity = new FocusView(false, FocusHolder.Game);
+    var console = new FocusView(true, FocusHolder.OwnWindow);
+    var other = new FocusView(false, FocusHolder.OtherApp);
+    var tried = RefocusRules.Tried(start, 10f);
+    Check("the focus repair watches 6 s: a whole game waits and is done at 16 s, and still unfocused then it gives up",
+        RefocusRules.Step(start, whole, 10f) == RefocusStep.Wait && RefocusRules.Step(start, whole, 16f) == RefocusStep.Done
+        && RefocusRules.Step(start, lostUnity, 16f) == RefocusStep.GiveUp);
+    Check("it activates the game when Unity lost focus or the console holds the foreground, then every 0.5 s, counting the tries",
+        RefocusRules.Step(start, lostUnity, 10f) == RefocusStep.Activate && RefocusRules.Step(start, console, 10f) == RefocusStep.Activate
+        && tried is { NextTry: 10.5f, Tries: 1 } && RefocusRules.Step(tried, lostUnity, 10.4f) == RefocusStep.Wait
+        && RefocusRules.Step(tried, lostUnity, 10.5f) == RefocusStep.Activate && RefocusRules.Step(tried, new FocusView(false, FocusHolder.Nobody), 10.5f) == RefocusStep.Activate);
+    Check("another program in the foreground ends it at once and is left there", RefocusRules.Step(start, other, 10f) == RefocusStep.Leave
+        && RefocusRules.Step(tried, other, 15.9f) == RefocusStep.Leave);
+}
+
 Console.WriteLine($"CameraTools tests: {failures} failed");
 return failures == 0 ? 0 : 1;
