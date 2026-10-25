@@ -624,7 +624,10 @@ DofFields dof_gather(int2 p)
         {
             bool lift = lifted && behind;
             float4 lit = lift ? dof_sample_lifted(q, lod) : float4(0.0f, 0.0f, 0.0f, 0.0f);
-            float3 color = lift ? float3(lit.x, lit.y, lit.z) : dof_sample_source(q, lod);
+            // What shows through a blurred foreground at a pixel in front of focus is taken texel by texel: a filtered
+            // sample beside the foreground's silhouette would average its light in, and the background seen through the
+            // foreground would brighten inside its outline, a step at the silhouette.
+            float3 color = lift ? float3(lit.x, lit.y, lit.z) : own_near > 0.0f ? float3(at_q.x, at_q.y, at_q.z) : dof_sample_source(q, lod);
             if (aside)
             {
                 own_far_color = color;
