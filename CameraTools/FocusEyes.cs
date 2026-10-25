@@ -1,3 +1,4 @@
+using MelonLoader;
 using UnityEngine;
 
 namespace CameraTools
@@ -38,11 +39,14 @@ namespace CameraTools
         {
             if (active == avatar && (eyes[0] || eyes[1] || Time.unscaledTime < retryAt))
                 return;
+            bool changed = active != avatar;
             avatar = active;
             retryAt = Time.unscaledTime + RetrySeconds;
             current = -1;
             for (int i = 0; i < eyes.Length; i++)
                 eyes[i] = active ? Search(active, Bones[i]) : null;
+            if (active && (changed || eyes[0] || eyes[1]))
+                Melon<CameraTools>.Logger.Msg($"Eyes focus: {active.name} has {(eyes[0] ? "a" : "no")} left and {(eyes[1] ? "a" : "no")} right eye bone.");
         }
 
         private static Transform Search(Transform node, string name)
