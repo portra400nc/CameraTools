@@ -398,11 +398,11 @@ typedef struct EnhancementsDepthOfField
                                 // them behind focus, so it blurs into a disc as a real lens's would; each place keeps its
                                 // light. 0 keeps every source's own light; default 0, clamped to 0..2
     uint32_t place;             // ENHANCEMENTS_DOF_PLACE_*; unknown values read as SCENE, the default
-    float eye_distance;         // meters along the view axis to the center of an eyeball under focus_point, such as its bone's;
-                                // while above 0 and focus_distance is 0, the autofocus takes the eye's own surface: the
-                                // depths of a window eye_size wide around the point that lie from 3 cm in front of the center
-                                // to 5 mm behind it, the one with a quarter of them nearer; with none there, 12 mm in front of the center.
-                                // 0 (the default) takes the nearest depth around the point; clamped to 0..10000
+    float eye_distance;         // meters along the view axis to where the caller reckons the surface of an eye under focus_point,
+                                // its iris, lies; while above 0 and focus_distance is 0, the autofocus takes the eye's own
+                                // surface: the depths of a window eye_size wide around the point that lie from 2.5 cm in front
+                                // of that distance to 1.5 cm behind it, the one with a quarter of them nearer; with none there,
+                                // the distance itself. 0 (the default) takes the nearest depth around the point; clamped to 0..10000
     float eye_size;             // the window's width in meters at eye_distance; default 0.015, clamped to 0.005..0.1
 } EnhancementsDepthOfField;
 

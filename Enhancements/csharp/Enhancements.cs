@@ -182,7 +182,7 @@ namespace CameraToolsEnhancements
         public uint Scatter;                // 1: highlights drawn as sprites of their disc
         public float BokehContrast;         // 0: sources keep their own light behind focus
         public EnhancementsDofPlace Place;
-        public float EyeDistance;           // meters to an eyeball's center under the focus point; 0: no eye
+        public float EyeDistance;           // meters to an eye's surface under the focus point as reckoned; 0: no eye
         public float EyeSize;               // the eye's window's width in meters
     }
 

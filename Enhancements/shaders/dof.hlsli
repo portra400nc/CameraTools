@@ -299,17 +299,17 @@ float dof_meters_at(int2 pixel)
     return inverse > 0.0f ? 1.0f / inverse : 10000.0f;
 }
 
-// The autofocus on an eye whose center lies dof_eye.x meters away under the focus point: of a 9x9 window of depths
-// around the point, dof_eye.y pixels apart (core/dof.h's kDofEyeGrid), those that can be the eye's visible surface, from
-// kDofEyeFront in front of the center to kDofEyeBack behind it, and of them the one with a quarter nearer. An eyeball's
-// iris and lids face the camera from about its radius in front of the center; Genshin's iris sits up to about a
-// centimeter behind the lids and brow around it, and the bangs that cross an eye hang 4 cm and more in front of it. So the band
-// keeps the lids, the iris and the face around them and drops the bangs and the head behind, and the quarter keeps a
-// lid's rim or a strand that still falls in the band from deciding alone. With none in the band, the eye's typical surface.
+// The autofocus on an eye whose surface the caller reckons dof_eye.x meters away under the focus point, from the eye's
+// bones and its size, so a centimeter or so out: of a 9x9 window of depths around the point, dof_eye.y pixels apart
+// (core/dof.h's kDofEyeGrid), those that can be the eye's visible surface, from kDofEyeFront in front of the estimate to
+// kDofEyeBack behind it, and of them the one with a quarter nearer. Genshin's iris sits up to about a centimeter behind
+// the lids and brow around it, the bangs that cross an eye hang 4 cm and more in front of it, and the head behind it lies
+// farther than its eyeball's 1.2 cm or so. So the band keeps the lids, the iris and the face around them with the
+// estimate's error either way and drops the bangs and the head behind, and the quarter keeps a lid's rim or a strand that
+// still falls in the band from deciding alone. With none in the band, the estimate.
 static const int kDofEyeHalfGrid = 4;
-static const float kDofEyeFront = 0.03f;
-static const float kDofEyeBack = 0.005f;
-static const float kDofEyeRadius = 0.012f;
+static const float kDofEyeFront = 0.025f;
+static const float kDofEyeBack = 0.015f;
 static const float kDofEyeRank = 0.25f;
 
 float dof_eye_target()
@@ -329,7 +329,7 @@ float dof_eye_target()
             }
         }
     if (count == 0)
-        return dof_eye.x - kDofEyeRadius;
+        return dof_eye.x;
     // The sample with exactly rank others before it, nearer or as near and earlier.
     int rank = int(kDofEyeRank * float(count - 1));
     float found = band[0];

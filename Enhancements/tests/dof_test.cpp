@@ -421,7 +421,7 @@ int main(int argc, char **argv)
         check("and at the left finds the background 30 m away", near(render(edge, autofocus).focus, 30, 0.01f));
     }
     {
-        // An eye 0.5 m away at the picture's center, through the 50 mm lens's 1666.7 pixels per unit of tangent, 3333.3 pixels
+        // An eye whose eyeball's center is 0.5 m away at the picture's center, through the 50 mm lens's 1666.7 pixels per unit of tangent, 3333.3 pixels
         // a meter there: its eyeball of radius 12 mm around the center, 40 pixels, behind a thin iris and lid 13 mm in front of
         // the center, 26.7 pixels in radius, a face 4 mm in front of the center around the eyeball, a hair strand 22 mm in front
         // over columns 640 and 641, where the nearest of 3x3 depths around the point lies, and bangs 50 mm in front over
@@ -444,11 +444,14 @@ int main(int argc, char **argv)
         DepthOfFieldSettings on = lens_at(2, 0, 0);
         on.eye_distance = 0.5f;
         const DofConstants c = *dof_constants(on, eye.camera, eye.image.size, true, 0, 0);
-        check("an eye 0.5 m away through the 50 mm lens: its center, and 15 mm across in 9 samples 6.25 pixels apart", c.eye[0] == 0.5f && near(c.eye[1], 6.25f));
-        check("the autofocus on it takes the iris 13 mm in front of its center, past the strand that crosses a ninth of the window and the bangs "
-              "beyond the band", near(render(eye, on).focus, 0.487f));
+        check("an eye reckoned 0.5 m away through the 50 mm lens: the distance, and 15 mm across in 9 samples 6.25 pixels apart", c.eye[0] == 0.5f && near(c.eye[1], 6.25f));
+        on.eye_distance = 0.495f;
+        const float behind = render(eye, on).focus;
+        on.eye_distance = 0.48f;
+        check("reckoned 8 mm behind the iris or 7 mm in front, the autofocus takes the iris 13 mm in front of the center, past the strand that "
+              "crosses a ninth of the window and the bangs beyond the band", near(behind, 0.487f) && near(render(eye, on).focus, 0.487f));
         on.eye_distance = 0.6f;
-        check("with nothing from 3 cm in front of a center 0.6 m away to 5 mm behind it, it takes 12 mm in front of the center", near(render(eye, on).focus, 0.588f));
+        check("with nothing from 2.5 cm in front of 0.6 m to 1.5 cm behind it, it takes 0.6 m", near(render(eye, on).focus, 0.6f));
         on.focus_distance = 2;
         check("a set distance still decides", render(eye, on).focus == 2);
         on.focus_distance = 0;

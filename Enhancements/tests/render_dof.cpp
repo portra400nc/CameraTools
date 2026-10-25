@@ -12,8 +12,8 @@
 // Keys, the depth of field's settings (enabled; the rest at their defaults): f (f-number), sensor (mm), focus (meters, 0
 // autofocus), x and y (the focus point, 0 to 1 from the top left), focus_seconds, max_blur, blades, roundness, rotation (degrees),
 // sa (spherical aberration), cat_eye, swirl, anamorphic, chromatic, samples, threshold and gain (the highlights'),
-// scatter (0 or 1), contrast (the bokeh contrast), eye (meters to an eyeball's center under the focus point, which the
-// autofocus then focuses on the surface of) and eye_size (the eye's window's width in meters);
+// scatter (0 or 1), contrast (the bokeh contrast), eye (meters to where an eye's surface under the focus point is
+// reckoned, which the autofocus then finds the surface near) and eye_size (the eye's window's width in meters);
 // and frames (frames averaged, each with the frame's own turn of the spiral, as the accumulator averages a paused shot),
 // display (1: the display place, as a screenshot runs it after ReShade's effects: the frame through the tone curve into an
 // 8-bit sRGB back buffer, which render_dof_display decodes, blurs and encodes; 0, the default, the scene place in HDR),
