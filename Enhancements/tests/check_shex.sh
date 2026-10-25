@@ -11,6 +11,7 @@
 # above this one.
 here=$(cd "$(dirname "$0")" && pwd)
 out=$(mktemp -d)
+trap 'rm -rf "$out"' EXIT
 if [ $# -eq 0 ]; then
     dir=$here
     while [ "$dir" != "/" ] && [ ! -d "$dir/.work/logs/FrameCensus" ]; do dir=$(dirname "$dir"); done

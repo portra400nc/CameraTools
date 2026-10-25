@@ -3,6 +3,7 @@
 set -e
 cd "$(dirname "$0")"
 out=$(mktemp -d)
+trap 'rm -rf "$out"' EXIT
 for test in *_test.cpp; do
     c++ -std=c++17 -I .. "$test" -o "$out/${test%.cpp}"
     "$out/${test%.cpp}"

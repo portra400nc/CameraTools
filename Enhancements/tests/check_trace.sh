@@ -8,6 +8,7 @@
 #   tests/check_trace.sh <trace folder> [scene folder]
 here=$(cd "$(dirname "$0")" && pwd)
 out=$(mktemp -d)
+trap 'rm -rf "$out"' EXIT
 c++ -std=c++17 -O2 -pthread -Wall -Wextra -Werror -I "$here/.." "$here/trace_reference.cpp" "$here"/../core/*.cpp -o "$out/trace_reference" || exit 1
 rm -f "$1/reference.f32"
 "$out/trace_reference" "$@"

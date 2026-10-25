@@ -7,6 +7,7 @@
 #   tests/check_light.sh <scene folder> [trace folder]
 here=$(cd "$(dirname "$0")" && pwd)
 out=$(mktemp -d)
+trap 'rm -rf "$out"' EXIT
 c++ -std=c++17 -O2 -pthread -Wall -Wextra -Werror -I "$here/.." "$here/bake_light.cpp" "$here"/../core/*.cpp -o "$out/bake_light" || exit 1
 "$out/bake_light" "$@"
 baked=$?
