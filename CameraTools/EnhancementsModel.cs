@@ -297,8 +297,8 @@ namespace CameraTools
         // The depth of field's block. The sensor is the one the focal length readout assumes, a full-frame diagonal in the
         // picture's shape, so the readout's millimeters and the blur describe the same lens; N times taller, the whole
         // lens grows with it and images as a 1:N miniature. The focus point's rows run from -1 at the left and the top to
-        // 1, the add-on's from 0 at the top left. Focus speed is the seconds the autofocus takes to cover 99% of the way.
-        // Max blur is the largest disc's radius in hundredths of the picture's height.
+        // 1, the add-on's from 0 at the top left. Focus speed is the seconds the autofocus takes to cover 99% of the way;
+        // a manual distance jumps. Max blur is the largest disc's radius in hundredths of the picture's height.
         public static EnhancementsDepthOfField DepthOfField(EnhancementValues values, LensView lens)
         {
             var dof = EnhancementsSettings.Defaults.DepthOfField;
@@ -308,7 +308,7 @@ namespace CameraTools
             dof.FocusDistance = values[Enhancement.DepthOfFieldFocusMode] == ManualFocus ? values[Enhancement.DepthOfFieldFocusDistance] : 0f;
             dof.FocusX = (values[Enhancement.DepthOfFieldFocusX] + 1f) * 0.5f;
             dof.FocusY = (values[Enhancement.DepthOfFieldFocusY] + 1f) * 0.5f;
-            dof.FocusSeconds = values[Enhancement.DepthOfFieldFocusSpeed];
+            dof.FocusSeconds = values[Enhancement.DepthOfFieldFocusMode] == ManualFocus ? 0f : values[Enhancement.DepthOfFieldFocusSpeed];
             dof.MaxBlur = values[Enhancement.DepthOfFieldMaxBlur] / 100f;
             int shape = (int)values[Enhancement.BokehShape];
             dof.Blades = shape == 0 ? 0u : FewestBlades + (uint)shape - 1u;

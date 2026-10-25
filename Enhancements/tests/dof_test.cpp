@@ -283,6 +283,16 @@ int main(int argc, char **argv)
     check("0 seconds of focus jumps", dof_constants(settings, lens, { 1280, 800 }, false, 0.5f, 0)->focus[3] == 1
         && dof_constants(settings, lens, { 1280, 800 }, false, 0.5f, 0)->focus[2] == 0.25f);
     check("a projection without a focal length has no constants", !dof_constants(settings, Camera {}, { 1280, 800 }, true, 0, 0));
+    {
+        const Scene far(30);
+        DepthOfFieldSettings set = lens_at(2, 3, 0);
+        set.focus_seconds = 1;
+        const float eased = render_dof(far.image, *dof_constants(set, far.camera, far.image.size, true, 0.5f, 0), 1).focus;
+        set.focus_seconds = 0;
+        const float jumped = render_dof(far.image, *dof_constants(set, far.camera, far.image.size, true, 0.5f, 0), 1).focus;
+        check("a set distance eases from the last frame's as the autofocus does: from 1 m toward 3 m at 1 second, 2.8 m after half a "
+              "second, and at 0 seconds it jumps", near(eased, 2.8f) && jumped == 3);
+    }
 
     {
         Scene point(30);

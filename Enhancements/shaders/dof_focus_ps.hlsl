@@ -1,5 +1,5 @@
-// The depth of field's autofocus: a 1x1 target that holds the focus distance in meters, the setting's, or eased from
-// the last frame's toward the nearest depth around the focus point, and the frame's mean luminance for the highlights.
+// The depth of field's autofocus: a 1x1 target that holds the focus distance in meters, eased from the last frame's
+// toward the setting's or the nearest depth around the focus point, and the frame's mean luminance for the highlights.
 #include "dof.cbuffer.hlsli"
 
 SamplerState linear_clamp : register(s1);

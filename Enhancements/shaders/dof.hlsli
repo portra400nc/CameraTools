@@ -316,13 +316,11 @@ float dof_frame_luminance()
     return sum / 144.0f;
 }
 
-// The focus distance this frame: the setting's, or the autofocus eased from previous toward its target by dof_focus.w,
-// and at once when previous is no distance yet.
+// The focus distance this frame: eased from previous by dof_focus.w toward the setting's distance or the autofocus's
+// target, and at once when previous is no distance yet.
 float dof_focus_next(float previous)
 {
-    if (dof_focus.x > 0.0f)
-        return dof_focus.x;
-    float target = dof_focus_target();
+    float target = dof_focus.x > 0.0f ? dof_focus.x : dof_focus_target();
     if (!(previous > 0.0f && previous < 100000.0f))
         return target;
     return lerp(previous, target, dof_focus.w);

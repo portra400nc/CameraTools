@@ -369,9 +369,10 @@ typedef struct EnhancementsDepthOfField
     float sensor_height_mm;     // default 24, full frame; clamped to 4..20000. N times taller blurs as a 1:N miniature of the
                                 // scene would through the same lens: the focal length grows with it, and the whole optics with
                                 // it, which images as every distance divided by N does
-    float focus_distance;       // meters along the view axis; 0 (the default) focuses on focus_point; clamped to 0..10000
+    float focus_distance;       // meters along the view axis, which the focus eases to as to the autofocus's; 0 (the default)
+                                // focuses on focus_point; clamped to 0..10000
     float focus_point[2];       // the autofocus's point, 0 to 1 from the top left; default the center
-    float focus_seconds;        // the autofocus's ease: the seconds it takes to cover 99% of the way; 0 jumps; default 2, clamped to 0..10
+    float focus_seconds;        // the focus's ease: the seconds it takes to cover 99% of the way; 0 jumps; default 2, clamped to 0..10
     float max_blur;             // the largest CoC radius as a share of the render height, which bounds the cost; default 0.03,
                                 // clamped to 0.002..0.1
     uint32_t blades;            // 0 (the default) round, else 5 to 16; 1 to 4 read as 5

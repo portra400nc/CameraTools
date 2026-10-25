@@ -367,6 +367,7 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
         && EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfFieldFocusSpeed, 1.5f), inside).FocusSeconds == 1.5f
         && EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfFieldFocusSpeed, 7f), inside).FocusSeconds == 3f
         && EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfFieldFocusSpeed, 0.123f), inside).FocusSeconds == 0.1f);
+    Check("a manual distance jumps whatever the Focus speed", EnhancementsModel.DepthOfField(manual.With(Enhancement.DepthOfFieldFocusSpeed, 2f), inside).FocusSeconds == 0f);
     Check("Focus speed reads Instant at 0 and else the seconds: 0.1 s, 0.5 s and 3 s",
         Lens.Settle(0f) == "Instant" && Lens.Settle(0.00001f) == "Instant" && Lens.Settle(0.1f) == "0.1 s" && Lens.Settle(0.5f) == "0.5 s" && Lens.Settle(3f) == "3 s");
     Check("iMMERSE's AUTOFOCUS_SPEED 0 is 2 s, 0.75 is 0.5 s and 1 is Instant, and 0.5 s back is 0.75, 5 s 0",
