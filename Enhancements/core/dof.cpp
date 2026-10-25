@@ -30,10 +30,11 @@ namespace enhancements::shader
         std::vector<uint2> source_sizes;
         std::vector<float2> tiles, dilated;
         std::vector<float4> far, near, near_layer;
+        std::vector<float2> near_cover;
         std::vector<float2> cover;
         // The lifted source's levels (dof_lift), and the gather's far field's, which the post-filter reads.
-        std::vector<std::vector<float4>> lifted, far_levels;
-        std::vector<uint2> lifted_sizes, far_sizes;
+        std::vector<std::vector<float4>> lifted, far_levels, near_mask;
+        std::vector<uint2> lifted_sizes, far_sizes, near_mask_sizes;
         // The display place's ends: the back buffer's values, rgb a pixel and alpha 1, and the main depth as stored, at
         // dof_display's size; then dof_display_in's color and the composite's, at the back buffer's.
         const std::vector<float> *back = nullptr, *main_depth = nullptr;
@@ -102,7 +103,7 @@ namespace enhancements::shader
         const float4 c = sample_levels(textures->source, textures->source_sizes, position, lod);
         return { c.x, c.y, c.z };
     }
-    float dof_sample_coc(float2 position, float lod) { return sample_levels(textures->source, textures->source_sizes, position, lod).w; }
+    float4 dof_sample_near_mask(float2 position, float lod) { return sample_levels(textures->near_mask, textures->near_mask_sizes, position, lod); }
     float4 dof_sample_lifted(float2 position, float lod) { return sample_levels(textures->lifted, textures->lifted_sizes, position, lod); }
     float2 dof_load_tile(int2 t) { return textures->tiles[at(t, tile_size())]; }
     float2 dof_load_dilated(int2 t) { return textures->dilated[at(t, tile_size())]; }
@@ -110,6 +111,7 @@ namespace enhancements::shader
     float4 dof_load_near(int2 p) { return textures->near[at(p, half_size())]; }
     float2 dof_load_cover(int2 p) { return textures->cover[at(p, half_size())]; }
     float4 dof_load_near_layer(int2 p) { return textures->near_layer[at(p, half_size())]; }
+    float2 dof_load_near_cover(int2 p) { return textures->near_cover[at(p, half_size())]; }
     float4 dof_sample_far(float2 position, float lod) { return sample_levels(textures->far_levels, textures->far_sizes, position, lod); }
 
     float4 dof_load_back(int2 p)
@@ -135,6 +137,7 @@ namespace enhancements::shader
 #define DOF_POST
 #define DOF_SPRITE
 #define DOF_NEAR
+#define DOF_NEAR_MASK
 #define DOF_COMPOSITE
 #define LOOP
 #define UNROLL
@@ -644,11 +647,22 @@ namespace enhancements
                 field[i] = field[i] + added[i];
             nonfinite += store_half(field);
         }
+        // dof_near_mask_ps.hlsl and its mips, as R16F.
+        t.near_mask = { std::vector<float4>(t.source[0].size()) };
+        t.near_mask_sizes = { half };
+        draw(half.x, half.y, c, t, [&t, half](uint32_t x, uint32_t y) { t.near_mask[0][size_t(y) * half.x + x] = dof_near_mask(int2(int(x), int(y))); });
+        nonfinite += store_half(t.near_mask[0]) + generate_mips(t.near_mask, t.near_mask_sizes);
         // dof_near_ps.hlsl: the near plane over the post-filtered far field with its sprites.
         std::vector<float4> layer(t.far.size());
-        draw(half.x, half.y, c, t, [&](uint32_t x, uint32_t y) { layer[size_t(y) * half.x + x] = dof_near_layer(int2(int(x), int(y))); });
+        std::vector<float2> near_cover(t.far.size());
+        draw(half.x, half.y, c, t, [&](uint32_t x, uint32_t y) {
+            const DofNear n = dof_near_layer(int2(int(x), int(y)));
+            layer[size_t(y) * half.x + x] = n.layer;
+            near_cover[size_t(y) * half.x + x] = n.cover;
+        });
         t.near_layer = std::move(layer);
-        nonfinite += store_half(t.near_layer);
+        t.near_cover = std::move(near_cover);
+        nonfinite += store_half(t.near_layer) + store_half(t.near_cover);
         DofOutput out;
         out.sprites[0] = static_cast<uint32_t>(sprites[0].size());
         out.sprites[1] = static_cast<uint32_t>(sprites[1].size());

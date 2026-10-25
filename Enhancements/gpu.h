@@ -433,7 +433,7 @@ namespace enhancements
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_,
             tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
             apply_gather_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_,
-            dof_sprite_ps_, dof_lift_ps_, dof_display_in_ps_, dof_display_out_ps_, dof_near_ps_;
+            dof_sprite_ps_, dof_lift_ps_, dof_display_in_ps_, dof_display_out_ps_, dof_near_ps_, dof_near_mask_ps_;
         ComPtr<ID3D11SamplerState> point_, linear_, lit_compare_, wrap_;
         ComPtr<ID3D11Texture3D> lattice_;                   // noise_lattice(), R8_UNORM
         ComPtr<ID3D11ShaderResourceView> lattice_srv_;
@@ -500,6 +500,8 @@ namespace enhancements
         Scratch dof_far_, dof_near_, dof_far_post_, dof_near_post_;     // half size, R16G16B16A16_FLOAT: the gather's fields, the
                                                                         // far one with mips under the bokeh contrast
         Scratch dof_cover_, dof_cover_post_;    // half size, R16G16_FLOAT: the near field's red and blue coverage
+        Scratch dof_near_mask_;     // half size, R16G16B16A16_FLOAT with mips: the foreground's premultiplied color and share
+        Scratch dof_near_cover_;    // half size, R16G16_FLOAT: dof_near_ps's red and blue coverage
         Scratch dof_near_layer_;    // half size, R16G16B16A16_FLOAT: dof_near_ps's near plane, premultiplied, and its alpha
         // The display place: the main depth at the bloom step; at the back buffer's size, its decoded color (R16G16B16A16_FLOAT,
         // with its alpha), the main depth resampled (R32_FLOAT) and the composite (R16G16B16A16_FLOAT); and the autofocus there.

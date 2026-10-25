@@ -23,12 +23,11 @@ RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$out/frame-synthetic" "$out/d
 python3 -c "import struct, sys; d = open(sys.argv[1], 'rb').read(); sys.exit(0 if d[12:24] == b'IHDR' + struct.pack('>II', 1280, 800) else 1)" "$out/dof.png"
 echo "PASS render_dof renders the synthetic frame into a 1280x800 PNG"
 # A blurred plane 1 m away over a plane in focus at 10 m or a little in front of it: its edge must spread over what lies
-# behind with a disc's edge spread, within 20% of its 10-90% width, at 800 and 2160 rows in both places: the near plane
-# is Cinematic DOF's, whole up to the silhouette and fading over the disc beyond it, about 85% of a symmetric disc's width. Over a background
+# behind with a disc's edge spread, within 5% of its 10-90% width, at 800 and 2160 rows in both places. Over a background
 # 8 m away, at 2160 rows, f/1 and max blur 0.08, it spread 4.0 px of 139.8 while a pixel's own surface in front of focus
 # went into one near field with the edges in front of it. Its profile must also fall all the way: filtered samples of the
 # background beside the silhouette brought the foreground's light in twice, a line 1.8% of the step brighter.
-"$out/render_dof" --near-edge-check 0.20 > "$out/near-edge.txt" || { cat "$out/near-edge.txt"; echo "FAIL a blurred foreground's edge does not spread over the background like a disc's"; exit 1; }
+"$out/render_dof" --near-edge-check 0.05 > "$out/near-edge.txt" || { cat "$out/near-edge.txt"; echo "FAIL a blurred foreground's edge does not spread over the background like a disc's"; exit 1; }
 echo "PASS a blurred foreground's edge spreads over a background in focus or in front of it like a disc's, with no line along it"
 # The workspace's saved frames (.work/dof/frames in a folder above this one). The night plaza, frame-20261024-145312:
 # rendered at chromatic 1 and f/1.4 focused on the subject and just behind it, with a long lens, every half-float target
