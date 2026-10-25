@@ -6,23 +6,71 @@ ReShade effects turns all of ReShade's effects on or off. Turn it on to see the 
 
 ## Depth of field
 
-These rows control one of two depth of field shaders:
+These rows control one of three depth of field shaders:
 
+- CameraTools' own, the default. It needs only the Enhancements add-on, `CameraToolsEnhancements.addon64`, and no ReShade shader. See [CameraTools' depth of field](#cameratools-depth-of-field).
 - [Otis_Inf's Cinematic DOF](https://github.com/FransBouma/OtisFX), `CinematicDOF.fx` (free)
   - Use [my fork](https://github.com/portra400nc/OtisFX) for tilt-shift, physical blur and miniature scale.
 - [iMMERSE Depth of Field](https://www.martysmods.com/physical-depth-of-field/), `MartysMods_DEPTHOFFIELD.fx` (paid)
 
-At least one of them must be installed in ReShade. While ReShade compiles its effects, or if neither shader is loaded, the rows are dimmed and the section header says why. CameraTools finds a shader by its technique, so with ReShade's "Load only enabled effects" option on, a shader has to be enabled in the preset to be found.
+The Shader row picks the one the rows drive, and shows while more than one is available. Only the picked one renders: picking another while the depth of field is on switches it on and the first one off, and if two are switched on in ReShade's overlay, CameraTools switches off the one that is not picked. While ReShade compiles its effects, or if the picked shader is not loaded, the rows are dimmed and the section header says why. CameraTools finds Cinematic DOF and iMMERSE by their techniques, so with ReShade's "Load only enabled effects" option on, a shader has to be enabled in the preset to be found.
 
-With both installed, the Shader row picks the one the rows drive, and only that one renders. Picking the other while the depth of field is on switches it on and the first one off. If both are switched on in ReShade's overlay, CameraTools switches off the one that is not picked. With one installed, the Shader row is hidden.
+### CameraTools' depth of field
+
+CameraTools' depth of field blurs the picture inside the game's own frame, from the game's depth buffer, before the game's bloom and its UI. Bright lights keep their full brightness when they blur, the game's HUD and CameraTools' panel never blur, and the blur shows with ReShade's effects off, so it costs no ReShade frame rate. It works only in the free camera. In a screenshot, it runs after the last ReShade effect that reads the depth buffer, such as RTGI, so those effects light the sharp picture and the saved shot is blurred over them.
+
+The blur follows a real lens: the focal length is the free camera's own, on a full-frame camera, and the aperture and focus distance set how much each distance blurs. Something in front of the focus blurs over what lies behind it, which stays sharp right up to its outline.
+
+| Row | What it does |
+|--|--|
+| Depth of field | Turns it on or off |
+| Focus mode | Focus point focuses on what is under the focus point. Manual distance focuses at the Focus distance. Eyes focuses on the active character's nearer eye. |
+| Focus speed | How long the focus takes to settle, from 3 s to Instant. 0.5 s by default. Not in Manual distance, which focuses at once. |
+| Focus distance | The distance that is in focus, from 0.3 m to 50 m. Manual distance only. |
+| Aperture | f/1 to f/22 in third-stops, f/2.8 by default. A lower number blurs more. |
+| Focal length | The free camera's field of view as a full-frame focal length. Moving it zooms the camera, as 1 and 2 do. A longer lens blurs more. |
+| Show focus point | Draws the focus point on the picture |
+| Focus point X, Focus point Y | Where the focus point is, from -1 at the left and the top to 1 at the right and the bottom. Focus point only. |
+| Miniature scale | Blurs the scene as if it were a 1:N model, from Off to 1:500. At 1:100 a house 30 m away blurs like a 30 cm model. |
+| Max blur | Caps the blur, from 1 to 8 percent of the picture's height, 3 by default. Raise it for strong blur, and with Miniature scale, or the far blur stops growing. |
+
+The **Bokeh** rows shape each blur disc, in front of the focus and behind it:
+
+| Row | What it does |
+|--|--|
+| Aperture shape | Round, or 5 to 9 blades |
+| Blade roundness | From straight blades at 0 to round at 1. With blades only. |
+| Blade rotation | Turns the blades, from 0° to 90°. With blades only. |
+| Soap bubble | The light across each disc, from -1 to 1, 0.6 by default. Above 0, discs behind the focus get bright rims and discs in front soft centers, as an over-corrected lens draws them; below 0 the other way round. 0 lights them evenly. |
+| Chromatic aberration | Color fringes on the discs, from 0 to 5. 1 is a real lens's: green behind the focus and purple in front. Higher values exaggerate it. |
+| Cat's eye | Cuts discs toward the picture's corners into cat's eyes, as a fast lens does, from 0 to 1 |
+| Swirl | Stretches discs around the picture's center toward its corners, the swirly look of Petzval lenses, from 0 to 1 |
+| Anamorphic ratio | Squeezes discs into the tall ovals of anamorphic lenses, from 1 (off) to 2 |
+
+The **Highlights** rows bring out small bright things:
+
+| Row | What it does |
+|--|--|
+| Highlight discs | Draws small bright lights, glints and sky specks as discs of their own, with smooth edges. Off by default. |
+| Highlight boost | How much brighter a small light that stands out of its surroundings gets, from 0 to 4, 2 by default. With Highlight discs only. |
+| Highlight threshold | How much brighter than the picture's average a light must be to count, from 1.5 to 4 times, 2 by default. With Highlight discs only. |
+| Bokeh contrast | Lets spots that stand out of their surroundings, such as grass tips and leaf glints, blur into visible discs, from 0 (off) to 1 |
+
+In Eyes mode the focus point sits on the iris of the active character's nearer eye, and the focus reads the eye's surface, so the iris is sharp even close up at f/1.2. It changes eyes only when the other one is 3 cm nearer, so it does not flicker while the character faces the camera. When no eye is on screen, it focuses on the focus point until an eye comes back.
+
+These values are kept in the `[CameraToolsEnhancements]` section of `MelonPreferences.cfg`. The Graphics tab's Highest and Lowest presets leave them alone.
+
+The blur comes from the depth buffer, so things that write no depth, such as glass, water surfaces and particles, blur as whatever lies behind them.
+
+### Cinematic DOF and iMMERSE
 
 With the fork, Cinematic DOF blurs like a real lens with the set focal length and aperture. CameraTools gives it the camera's near clip, so its distances are real meters.
 
 | Row | What it does |
 |--|--|
-| Shader | iMMERSE or Cinematic DOF. Shown only while both are installed. |
 | Depth of field | Turns the shader on or off |
 | Focus mode | Focus point focuses on what is under the focus point. Manual distance focuses at the Focus distance. |
+| Focus speed | How long iMMERSE's autofocus takes to settle, from 2 s to Instant. iMMERSE only. |
 | Focus distance | The distance that is in focus, from 0.002 at the camera to 1 at infinity. For a second after you change it, iMMERSE paints the plane that is in focus over the picture, and Cinematic DOF shows its blur instead of the picture: blue where it is in focus, red in front and grey behind. Tilt changes show it too. Manual distance only. |
 | Aperture | f/0.95 to f/22 in third-stops. A lower number blurs more. |
 | Focal length | 10 to 350 mm on a full-frame camera. A longer lens blurs more. |
@@ -33,18 +81,20 @@ With the fork, Cinematic DOF blurs like a real lens with the set focal length an
 | Max blur | Caps the blur, from 1 to 8. Raise it to 3 or more for strong blur, or the blur stops growing close to the focus. Cinematic DOF only. |
 | Tilt | Tilts the plane in focus like a tilt-shift lens, from -15° to 15°, off at 0. Positive keeps the ground sharp from near to far, negative gives the miniature look. The plane turns around the focus point. Far away or at a miniature scale, half a degree is already strong. Cinematic DOF only. |
 | Tilt direction | Turns the sharp band, from -90° to 90°. 0 is level, 90 and -90 are upright. Cinematic DOF only. |
-| Tangential scale, Sagittal scale | Stretch each bokeh disc around the picture's centre or toward it. Tangential gives the swirly look of Petzval lenses. 0 leaves the discs round. iMMERSE only. |
+| Tangential scale, Sagittal scale | Stretch each bokeh disc around the picture's center or toward it. Tangential gives the swirly look of Petzval lenses. 0 leaves the discs round. iMMERSE only. |
 | Anamorphic ratio | Squeezes the bokeh into the tall ovals of anamorphic lenses. 1 is off. |
 
-In Focus point mode, and in Manual distance while Tilt is on, CameraTools draws the focus point on the screen while the depth of field is on, also while ReShade effects is off: four corner brackets around the square that the shader measures the distance in, and a cross at its middle. Cinematic DOF measures the one pixel under the cross, so its square is small. Hide UI hides it, and it is never in a screenshot. Move it in one of these ways:
+CameraTools saves your changes to ReShade's current preset: when the panel closes, a second after you last moved the focus point or zoomed with the link on, and before a screenshot. ReShade loads its effects again from the preset whenever the window changes size.
+
+### The focus point
+
+In Focus point mode, and with Cinematic DOF in Manual distance while Tilt is on, CameraTools draws the focus point on the screen while the depth of field is on, also while ReShade effects is off: four corner brackets around the square that the shader measures the distance in, and a cross at its middle. Cinematic DOF measures the one pixel under the cross, so its square is small. In Eyes mode the point sits on the iris, and the stick and the click do not move it. Hide UI hides it, and it is never in a screenshot. Move it in one of these ways:
 
 - Hold Back and move the right stick. Back+R3 puts it back in the middle. The camera does not turn while Back is held.
 - Free the cursor with Quote ('), close the panel, and click where to focus.
 - Change the Focus point X and Focus point Y rows.
 
 The focus point is a position relative to the screen, so it stays on the same part of the picture when the resolution changes. CameraTools keeps Cinematic DOF's mouse-driven auto-focus off, as it would focus on the cursor instead of the focus point.
-
-CameraTools saves your changes to ReShade's current preset: when the panel closes, a second after you last moved the focus point or zoomed with the link on, and before a screenshot. ReShade loads its effects again from the preset whenever the window changes size.
 
 ## Long exposure
 
@@ -70,7 +120,7 @@ Take screenshot does this:
 1. Closes the panel and hides CameraTools' UI.
 2. Applies the Highest preset, your own if you saved one, and resolution slot 1, and turns ReShade's effects on.
 3. Counts down 3 seconds, if 3-second countdown is on.
-4. Waits until the picture has settled, ReShade has compiled its effects at the new size, and the depth of field has had time to focus. In Focus point mode the shader eases its focus toward the point, and starts over when the resolution changes. iMMERSE takes up to 2 seconds, depending on its Adjustment Speed setting. Cinematic DOF moves a share of the way each frame, set by its Auto-focus transition speed, so CameraTools waits as long as that takes at 8 frames per second: about 4 seconds at the default speed. The first screenshot at a size can take many seconds.
+4. Waits until the picture has settled, ReShade has compiled its effects at the new size, and the depth of field has had time to focus. CameraTools' own depth of field waits until its focus has held still for half a second, at most 5 seconds; it renders the shot with more samples than the live view, after ReShade's effects that read the depth buffer. In Focus point mode Cinematic DOF and iMMERSE ease their focus toward the point, and start over when the resolution changes. iMMERSE takes up to 2 seconds, depending on its Adjustment Speed setting. Cinematic DOF moves a share of the way each frame, set by its Auto-focus transition speed, so CameraTools waits as long as that takes at 8 frames per second: about 4 seconds at the default speed. The first screenshot at a size can take many seconds.
 5. With Long exposure on, records for the shutter time.
 6. Saves the screenshot to ReShade's screenshot folder.
 7. Puts the graphics settings, the enhancements and the resolution back as they were, turns ReShade's effects off, opens the panel again, and shows the file's name.
@@ -85,8 +135,8 @@ The `[CameraToolsReShade]` section of `MelonPreferences.cfg` holds:
 | `ScreenshotSettleSeconds` | `2` | The least time, in seconds, between changing the graphics settings and taking the screenshot, from 0 to 30 |
 | `LinkFocalLengthToFov` | `false` | Keep the depth of field's focal length and the free camera's field of view in step. The ReShade tab's switch changes it. |
 | `ShowFocusPoint` | `true` | Draw the focus point on the picture in Focus point mode. The ReShade tab's switch changes it. |
-| `DepthOfFieldShader` | `MartysMods_DEPTHOFFIELD.fx` | The depth of field shader the rows drive while both are installed: `MartysMods_DEPTHOFFIELD.fx` or `CinematicDOF.fx`. The Shader row changes it. |
-| `MiniatureScale` | `1` | The Miniature scale row's N: 1 (off), 10, 25, 50, 100, 200 or 500 |
+| `DepthOfFieldShader` | `CameraTools` | The depth of field the rows drive: `CameraTools`, `MartysMods_DEPTHOFFIELD.fx` or `CinematicDOF.fx`. The Shader row changes it. |
+| `MiniatureScale` | `1` | The Miniature scale row's N: 1 (off), 10, 25, 50, 100, 200 or 500. CameraTools' depth of field and Cinematic DOF share it. |
 | `LongExposure` | `false` | Take screenshot records for the shutter time. The ReShade tab's switch changes it. |
 | `LongExposureShutter` | `8` | The shutter time in seconds, rounded to the nearest full stop from 1/8 s to 120 s |
 | `LongExposureIso` | `100` | 100, 200, 400, 800 or 1600 |

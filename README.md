@@ -23,7 +23,8 @@
 | **Replays** | Record the party, their skills and the enemies near them, and play it back alone or along a camera path to film the moment again |
 | **Lights** | Point, spot and soft sphere lights, for the world or only characters |
 | **Posing** | Freeze the active character, turn their joints, shape hands and face, save poses |
-| **ReShade** | Depth of field with a movable focus point; one-button screenshots at your highest settings, also as long exposures |
+| **Depth of field** | A real lens's blur inside the game, from the focal length, aperture and focus distance: autofocus on a point or on the character's eyes, bokeh with blades, soap-bubble rims, chromatic fringes, cat's eye and swirl, through CameraTools' Enhancements add-on. Cinematic DOF and iMMERSE work too. |
+| **ReShade** | One-button screenshots at your highest settings, also as long exposures |
 | **Input** | Hotkeys you change in the panel; XInput controllers, including the Steam Deck |
 
 ## Showcase
@@ -81,7 +82,7 @@ While the free camera is on, the game ignores the keyboard, mouse and controller
 | [Camera paths](CAMERA-PATHS.md) | Record camera positions as nodes and fly the free camera through them |
 | [Lights](LIGHTS.md) | Add point, spot and sphere lights, aim them with the sticks, attach them to the camera or the character |
 | [Pose](POSE.md) | Turn joints, shape hands, set expression and gaze, save poses |
-| [ReShade](RESHADE.md) | One-button screenshots, depth of field control, long exposure shots |
+| [ReShade](RESHADE.md) | Depth of field, one-button screenshots, long exposure shots |
 
 ## Hotkeys
 
@@ -199,7 +200,7 @@ The Graphics tab changes the game's graphics settings from the free camera, some
 
 **Highest** and **Lowest** set every row at once; the line under each row shows what each preset sets it to. **Restore my settings** puts back what you had before CameraTools changed anything.
 
-To make a preset your own, set the rows the way you want (for example, apply Highest and turn Bloom off), then select **Save current settings as Highest** or **as Lowest**. A saved preset sets every game setting, every value past the limits and every enhancement. The screenshot button applies Highest, so in that example your screenshots have no bloom. **Reset presets** brings back the built-in ones.
+To make a preset your own, set the rows the way you want (for example, apply Highest and turn Bloom off), then select **Save current settings as Highest** or **as Lowest**. A saved preset sets every game setting, every value past the limits and every enhancement but the depth of field. The screenshot button applies Highest, so in that example your screenshots have no bloom. **Reset presets** brings back the built-in ones.
 
 ### Enhancements
 
