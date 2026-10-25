@@ -292,6 +292,58 @@ struct DofFields
 };
 
 #ifdef DOF_FOCUS
+// The view depth in meters of the main depth at a pixel, 10000 where it is infinitely far.
+float dof_meters_at(int2 pixel)
+{
+    float inverse = dof_inverse_depth(dof_load_depth(pixel), dof_depth);
+    return inverse > 0.0f ? 1.0f / inverse : 10000.0f;
+}
+
+// The autofocus on an eye whose center lies dof_eye.x meters away under the focus point: of a 9x9 window of depths
+// around the point, dof_eye.y pixels apart (core/dof.h's kDofEyeGrid), those that can be the eye's visible surface, from
+// kDofEyeFront in front of the center to kDofEyeBack behind it, and of them the one with a quarter nearer. An eyeball's
+// iris and lids face the camera from about its radius in front of the center; Genshin's iris sits up to about a
+// centimeter behind the lids and brow around it, and the bangs that cross an eye hang 4 cm and more in front of it. So the band
+// keeps the lids, the iris and the face around them and drops the bangs and the head behind, and the quarter keeps a
+// lid's rim or a strand that still falls in the band from deciding alone. With none in the band, the eye's typical surface.
+static const int kDofEyeHalfGrid = 4;
+static const float kDofEyeFront = 0.03f;
+static const float kDofEyeBack = 0.005f;
+static const float kDofEyeRadius = 0.012f;
+static const float kDofEyeRank = 0.25f;
+
+float dof_eye_target()
+{
+    float cx = dof_focus.y * float(dof_counts.y), cy = dof_focus.z * float(dof_counts.z);
+    float nearest = dof_eye.x - kDofEyeFront, farthest = dof_eye.x + kDofEyeBack;
+    float band[81];
+    int count = 0;
+    LOOP for (int y = -kDofEyeHalfGrid; y <= kDofEyeHalfGrid; y++)
+        LOOP for (int x = -kDofEyeHalfGrid; x <= kDofEyeHalfGrid; x++)
+        {
+            float meters = dof_meters_at(int2(int(floor(cx + float(x) * dof_eye.y)), int(floor(cy + float(y) * dof_eye.y))));
+            if (meters >= nearest && meters <= farthest)
+            {
+                band[count] = meters;
+                count = count + 1;
+            }
+        }
+    if (count == 0)
+        return dof_eye.x - kDofEyeRadius;
+    // The sample with exactly rank others before it, nearer or as near and earlier.
+    int rank = int(kDofEyeRank * float(count - 1));
+    float found = band[0];
+    LOOP for (int i = 0; i < count; i++)
+    {
+        int before = 0;
+        LOOP for (int j = 0; j < count; j++)
+            before = before + ((band[j] < band[i] || (band[j] == band[i] && j < i)) ? 1 : 0);
+        if (before == rank)
+            found = band[i];
+    }
+    return found;
+}
+
 // The nearest of a 3x3 window of depths around the focus point, dof_counts.w pixels apart, in meters.
 float dof_focus_target()
 {
@@ -317,10 +369,10 @@ float dof_frame_luminance()
 }
 
 // The focus distance this frame: eased from previous by dof_focus.w toward the setting's distance or the autofocus's
-// target, and at once when previous is no distance yet.
+// target, on the eye or around the point, and at once when previous is no distance yet.
 float dof_focus_next(float previous)
 {
-    float target = dof_focus.x > 0.0f ? dof_focus.x : dof_focus_target();
+    float target = dof_focus.x > 0.0f ? dof_focus.x : dof_eye.x > 0.0f ? dof_eye_target() : dof_focus_target();
     if (!(previous > 0.0f && previous < 100000.0f))
         return target;
     return lerp(previous, target, dof_focus.w);

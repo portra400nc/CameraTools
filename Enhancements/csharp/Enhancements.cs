@@ -182,6 +182,8 @@ namespace CameraToolsEnhancements
         public uint Scatter;                // 1: highlights drawn as sprites of their disc
         public float BokehContrast;         // 0: sources keep their own light behind focus
         public EnhancementsDofPlace Place;
+        public float EyeDistance;           // meters to an eyeball's center under the focus point; 0: no eye
+        public float EyeSize;               // the eye's window's width in meters
     }
 
     // EnhancementsSettings in enhancements.h, field for field.
@@ -217,7 +219,8 @@ namespace CameraToolsEnhancements
         // light by visibility, filtered twice, at full strength, with half the game's ambient light on the surfaces it meets,
         // and a depth of field at f/2.8 on a full-frame sensor that autofocuses at the center at 0.9 of the way a second, blurs at
         // most 0.03 of the height, has round discs with spherical aberration 0.6, gathers 49 samples a pixel, and draws highlights
-        // above twice the frame's mean luminance as sprites, growing small lamps at gain 2, with the bokeh contrast off.
+        // above twice the frame's mean luminance as sprites, growing small lamps at gain 2, with the bokeh contrast off
+        // and no eye, whose window would be 15 mm wide.
         public static EnhancementsSettings Defaults => new()
         {
             Size = (uint)Marshal.SizeOf<EnhancementsSettings>(),
@@ -241,7 +244,7 @@ namespace CameraToolsEnhancements
             DepthOfField = new EnhancementsDepthOfField
             {
                 FNumber = 2.8f, SensorHeightMm = 24, FocusX = 0.5f, FocusY = 0.5f, FocusSeconds = 2, MaxBlur = 0.03f, BladeRoundness = 0.5f,
-                SphericalAberration = 0.6f, Anamorphic = 1, Samples = 49, HighlightThreshold = 2, HighlightGain = 2,
+                SphericalAberration = 0.6f, Anamorphic = 1, Samples = 49, HighlightThreshold = 2, HighlightGain = 2, EyeSize = 0.015f,
             },
         };
     }
@@ -373,7 +376,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 15;
+        private const uint Version = 16;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

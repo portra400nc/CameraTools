@@ -55,7 +55,8 @@ namespace enhancements
             && offsetof(EnhancementsSettings, light_shafts) == 132 && offsetof(EnhancementsSettings, trace) == 172 && offsetof(EnhancementsSettings, gather) == 212
             && offsetof(EnhancementsSettings, depth_of_field) == 236 && offsetof(EnhancementsDepthOfField, highlight_threshold) == 68
             && offsetof(EnhancementsDepthOfField, scatter) == 76 && offsetof(EnhancementsDepthOfField, bokeh_contrast) == 80
-            && offsetof(EnhancementsDepthOfField, place) == 84 && sizeof(EnhancementsSettings) == 324);
+            && offsetof(EnhancementsDepthOfField, place) == 84 && offsetof(EnhancementsDepthOfField, eye_distance) == 88
+            && sizeof(EnhancementsSettings) == 332);
         static_assert(ENHANCEMENTS_DOF_PLACE_DISPLAY == static_cast<int>(DofPlace::display) && ENHANCEMENTS_DOF_PLACE_COUNT == static_cast<int>(DofPlace::count));
         static_assert(sizeof(EnhancementsCamera) == 48 * sizeof(float));
         static_assert(ENHANCEMENTS_ACCUMULATE_PRESENT == static_cast<int>(AccumulateMode::present)
@@ -386,6 +387,11 @@ namespace enhancements
                 dof.bokeh_contrast = d.bokeh_contrast;
             if (knows(offsetof(EnhancementsSettings, depth_of_field) + offsetof(EnhancementsDepthOfField, place), sizeof d.place))
                 dof.place = d.place < static_cast<uint32_t>(DofPlace::count) ? static_cast<DofPlace>(d.place) : DofPlace::scene;
+            if (knows(offsetof(EnhancementsSettings, depth_of_field) + offsetof(EnhancementsDepthOfField, eye_distance), 2 * sizeof(float)))
+            {
+                dof.eye_distance = d.eye_distance;
+                dof.eye_size = d.eye_size;
+            }
             s.depth_of_field = clamp_depth_of_field(dof);
         }
         return s;
@@ -417,6 +423,8 @@ namespace enhancements
         s.scatter = d.scatter;
         s.bokeh_contrast = finite_or(d.bokeh_contrast, defaults.bokeh_contrast, 0.0f, 2.0f);
         s.place = d.place;
+        s.eye_distance = finite_or(d.eye_distance, defaults.eye_distance, 0.0f, 10000.0f);
+        s.eye_size = finite_or(d.eye_size, defaults.eye_size, 0.005f, 0.1f);
         return s;
     }
 

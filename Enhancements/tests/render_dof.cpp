@@ -12,7 +12,8 @@
 // Keys, the depth of field's settings (enabled; the rest at their defaults): f (f-number), sensor (mm), focus (meters, 0
 // autofocus), x and y (the focus point, 0 to 1 from the top left), focus_seconds, max_blur, blades, roundness, rotation (degrees),
 // sa (spherical aberration), cat_eye, swirl, anamorphic, chromatic, samples, threshold and gain (the highlights'),
-// scatter (0 or 1) and contrast (the bokeh contrast);
+// scatter (0 or 1), contrast (the bokeh contrast), eye (meters to an eyeball's center under the focus point, which the
+// autofocus then focuses on the surface of) and eye_size (the eye's window's width in meters);
 // and frames (frames averaged, each with the frame's own turn of the spiral, as the accumulator averages a paused shot),
 // display (1: the display place, as a screenshot runs it after ReShade's effects: the frame through the tone curve into an
 // 8-bit sRGB back buffer, which render_dof_display decodes, blurs and encodes; 0, the default, the scene place in HDR),
@@ -89,6 +90,8 @@ namespace
         else if (key == "gain") s.highlight_gain = v;
         else if (key == "scatter") s.scatter = v != 0;
         else if (key == "contrast") s.bokeh_contrast = v;
+        else if (key == "eye") s.eye_distance = v;
+        else if (key == "eye_size") s.eye_size = v;
         else return false;
         return true;
     }
@@ -751,7 +754,7 @@ int main(int argc, char **argv)
     double energy = 0;
     for (const float v : sum)
         energy += v;
-    std::printf("%s: focus %.3f m, mean luminance %.3f, %u far and %u near sprites, energy %.6f a channel, %u non-finite, %u frame%s in %.2f s\n",
+    std::printf("%s: focus %.4f m, mean luminance %.3f, %u far and %u near sprites, energy %.6f a channel, %u non-finite, %u frame%s in %.2f s\n",
         argv[2], focus, luminance, sprites[0], sprites[1], energy / double(sum.size()), nonfinite, frames, frames == 1 ? "" : "s", seconds);
     return nonfinite == 0 ? 0 : 3;
 }

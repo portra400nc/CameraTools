@@ -16,7 +16,7 @@
 
 namespace enhancements::shader
 {
-    thread_local float4 dof_optics, dof_focus, dof_depth, dof_shape, dof_lens, dof_bokeh, dof_sampling, dof_highlight, dof_contrast, dof_display;
+    thread_local float4 dof_optics, dof_focus, dof_depth, dof_shape, dof_lens, dof_bokeh, dof_sampling, dof_highlight, dof_contrast, dof_display, dof_eye;
     thread_local uint4 dof_sizes, dof_counts;
 
     // The images the passes read on this thread, as the shaders' textures hold them.
@@ -141,6 +141,7 @@ namespace enhancements::shader
 #include "../shaders/dof_display.hlsli"
 #undef UNROLL
 #undef LOOP
+    static_assert(2 * kDofEyeHalfGrid + 1 == int(enhancements::kDofEyeGrid) && kDofEyeGrid * kDofEyeGrid == 81);
 
     namespace
     {
@@ -414,6 +415,14 @@ namespace enhancements
             std::max(1u, render.height / 100) };
         std::copy(sizes, sizes + 4, c.sizes);
         std::copy(counts, counts + 4, c.counts);
+        if (s.eye_distance > 0)
+        {
+            // The eye's width on the picture: its meters over its distance, in the projection's pixels per unit of tangent.
+            const float window = std::clamp(s.eye_size / s.eye_distance * p11 * render.height * 0.5f, kDofEyeLeastWindow,
+                std::max(kDofEyeLeastWindow, kDofEyeWindowShare * render.height));
+            c.eye[0] = s.eye_distance;
+            c.eye[1] = window / (kDofEyeGrid - 1);
+        }
         return c;
     }
 
@@ -500,6 +509,7 @@ namespace enhancements
             shader::dof_highlight = f4(c.highlight);
             shader::dof_contrast = f4(c.contrast);
             shader::dof_display = f4(c.display);
+            shader::dof_eye = f4(c.eye);
             shader::dof_sizes = { c.sizes[0], c.sizes[1], c.sizes[2], c.sizes[3] };
             shader::dof_counts = { c.counts[0], c.counts[1], c.counts[2], c.counts[3] };
         }

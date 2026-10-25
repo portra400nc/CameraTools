@@ -420,6 +420,45 @@ int main(int argc, char **argv)
         autofocus.focus_point[0] = 0.1f;
         check("and at the left finds the background 30 m away", near(render(edge, autofocus).focus, 30, 0.01f));
     }
+    {
+        // An eye 0.5 m away at the picture's center, through the 50 mm lens's 1666.7 pixels per unit of tangent, 3333.3 pixels
+        // a meter there: its eyeball of radius 12 mm around the center, 40 pixels, behind a thin iris and lid 13 mm in front of
+        // the center, 26.7 pixels in radius, a face 4 mm in front of the center around the eyeball, a hair strand 22 mm in front
+        // over columns 640 and 641, where the nearest of 3x3 depths around the point lies, and bangs 50 mm in front over
+        // columns 655 to 669. The window is 50 pixels wide, its 9x9 samples
+        // 6.25 pixels apart: columns 615, 621, 627, 633, 640, 646, 652, 658 and 665.
+        Scene eye(30);
+        for (uint32_t y = 300; y < 500; y++)
+            for (uint32_t x = 540; x < 740; x++)
+            {
+                const float dx = x + 0.5f - 640, dy = y + 0.5f - 400, rho = std::sqrt(dx * dx + dy * dy) / 3333.33f;
+                float meters = rho < 0.012f ? 0.5f - std::sqrt(0.012f * 0.012f - rho * rho) : 0.496f;
+                if (rho < 0.008f)
+                    meters = 0.487f;
+                if (x == 640 || x == 641)
+                    meters = 0.478f;
+                if (x >= 655 && x < 670)
+                    meters = 0.45f;
+                eye.put(x, y, 0.5f, meters);
+            }
+        DepthOfFieldSettings on = lens_at(2, 0, 0);
+        on.eye_distance = 0.5f;
+        const DofConstants c = *dof_constants(on, eye.camera, eye.image.size, true, 0, 0);
+        check("an eye 0.5 m away through the 50 mm lens: its center, and 15 mm across in 9 samples 6.25 pixels apart", c.eye[0] == 0.5f && near(c.eye[1], 6.25f));
+        check("the autofocus on it takes the iris 13 mm in front of its center, past the strand that crosses a ninth of the window and the bangs "
+              "beyond the band", near(render(eye, on).focus, 0.487f));
+        on.eye_distance = 0.6f;
+        check("with nothing from 3 cm in front of a center 0.6 m away to 5 mm behind it, it takes 12 mm in front of the center", near(render(eye, on).focus, 0.588f));
+        on.focus_distance = 2;
+        check("a set distance still decides", render(eye, on).focus == 2);
+        on.focus_distance = 0;
+        on.eye_distance = 30;
+        check("an eye 30 m away gets the least window, 4 pixels, and one 0.05 m away the largest, an eighth of the height: 100 pixels",
+            near(dof_constants(on, eye.camera, eye.image.size, true, 0, 0)->eye[1], 0.5f)
+                && (on.eye_distance = 0.05f, near(dof_constants(on, eye.camera, eye.image.size, true, 0, 0)->eye[1], 12.5f)));
+        on.eye_distance = 0;
+        check("without an eye the window is off", dof_constants(on, eye.camera, eye.image.size, true, 0, 0)->eye[0] == 0);
+    }
 
     {
         // A glint of 50 over 2x2 pixels, one half-size texel, on black 30 m away, which the threshold takes as 2 x 0.25.

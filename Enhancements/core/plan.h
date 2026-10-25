@@ -158,6 +158,8 @@ namespace enhancements
         bool scatter = false;                   // highlights drawn as sprites
         float bokeh_contrast = 0;                // 0: sources keep their own light in the far field
         DofPlace place = DofPlace::scene;
+        float eye_distance = 0;                 // meters to an eyeball's center under focus_point; 0: no eye
+        float eye_size = 0.015f;                // the eye's window's width in meters
     };
 
     // Every value in range: non-finite floats take the default, the rest clamp, and 1 to 4 blades read as 5.

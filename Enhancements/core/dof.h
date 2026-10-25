@@ -100,7 +100,7 @@ namespace enhancements
     // The folder back. Empty, with why, when a file is missing or of the wrong size.
     std::optional<FrameSave> read_frame_folder(const std::filesystem::path &folder, std::string &why);
 
-    // shaders/dof.cbuffer.hlsli's cbuffer Dof at b1: 192 bytes.
+    // shaders/dof.cbuffer.hlsli's cbuffer Dof at b1: 208 bytes.
     struct DofConstants
     {
         float optics[4];    // focal length in mm, f-number, half-size pixels per mm of sensor, largest CoC radius in half-size pixels
@@ -117,8 +117,15 @@ namespace enhancements
         float contrast[4];  // the bokeh contrast's lift's power (0: off), and the share of the light it may move
         float display[4];   // on the display: the main depth's size, 1 when its rows run up the screen, 1 when the back buffer holds
                             // sRGB-encoded values (0: linear); all 0 in the scene
+        float eye[4];       // the eye's center in meters along the view axis (0: no eye), and the pixels between its window's samples
     };
-    static_assert(sizeof(DofConstants) == 192);
+    static_assert(sizeof(DofConstants) == 208);
+
+    // The autofocus on an eye: its window's samples along each side, and the window's least and largest width in pixels,
+    // the largest as a share of the render height, so a far eye still gets a few pixels and a near one stays a point.
+    constexpr uint32_t kDofEyeGrid = 9;
+    constexpr float kDofEyeLeastWindow = 4;
+    constexpr float kDofEyeWindowShare = 0.125f;
 
     // Pixels a tile holds along each side of the half-size picture; shaders/dof.hlsli's tiles say the same.
     constexpr uint32_t kDofTile = 8;
