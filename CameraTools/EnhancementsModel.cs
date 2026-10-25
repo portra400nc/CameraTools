@@ -17,7 +17,7 @@ namespace CameraTools
         MistSkyLight, LightShaftQuality,
         WetSurfaces, Wetness, WetDarkening, Puddles,
         ToneMap, ToneMapCurve, ToneMapExposure, ToneMapBloom, ToneMapSaturation, ToneMapContrast,
-        DepthOfField, DepthOfFieldFocusMode, DepthOfFieldFocusDistance, DepthOfFieldAperture, DepthOfFieldFocusX, DepthOfFieldFocusY, DepthOfFieldMaxBlur,
+        DepthOfField, DepthOfFieldFocusMode, DepthOfFieldFocusSpeed, DepthOfFieldFocusDistance, DepthOfFieldAperture, DepthOfFieldFocusX, DepthOfFieldFocusY, DepthOfFieldMaxBlur,
         BokehShape, BladeRoundness, BladeRotation, SoapBubble, BokehChromaticAberration, CatsEye, Swirl, AnamorphicRatio,
         HighlightDiscs, HighlightBoost, HighlightThreshold, BokehContrast,
     }
@@ -208,6 +208,7 @@ namespace CameraTools
             Slider(Enhancement.ToneMapContrast, Enhancement.ToneMap, "Contrast", 0.5f, 2f, 1f, 0.05f, 2),
             new(Enhancement.DepthOfField, EnhancementKind.Switch, "Depth of field", Enhancement.DepthOfField, 0f),
             Choice(Enhancement.DepthOfFieldFocusMode, Enhancement.DepthOfField, "Focus mode", FocusPoint, "Focus point", "Manual distance"),
+            Slider(Enhancement.DepthOfFieldFocusSpeed, Enhancement.DepthOfField, "Focus speed", 0f, 3f, 0.5f, 0.1f, 1, " s"),
             Slider(Enhancement.DepthOfFieldFocusDistance, Enhancement.DepthOfField, "Focus distance", NearFocus, FarFocus, 2f, 0.01f, 2, " m"),
             Choice(Enhancement.DepthOfFieldAperture, Enhancement.DepthOfField, "Aperture", Array.IndexOf(Stops, 2.8f), Stops.Select(stop => $"f/{stop:0.##}").ToArray()),
             Slider(Enhancement.DepthOfFieldFocusX, Enhancement.DepthOfField, "Focus point X", -1f, 1f, 0f, 0.02f, 3),
@@ -296,8 +297,8 @@ namespace CameraTools
         // The depth of field's block. The sensor is the one the focal length readout assumes, a full-frame diagonal in the
         // picture's shape, so the readout's millimeters and the blur describe the same lens; N times taller, the whole
         // lens grows with it and images as a 1:N miniature. The focus point's rows run from -1 at the left and the top to
-        // 1, the add-on's from 0 at the top left. Max blur is the largest disc's radius in hundredths of the picture's
-        // height.
+        // 1, the add-on's from 0 at the top left. Focus speed is the seconds the autofocus takes to cover 99% of the way.
+        // Max blur is the largest disc's radius in hundredths of the picture's height.
         public static EnhancementsDepthOfField DepthOfField(EnhancementValues values, LensView lens)
         {
             var dof = EnhancementsSettings.Defaults.DepthOfField;
@@ -307,6 +308,7 @@ namespace CameraTools
             dof.FocusDistance = values[Enhancement.DepthOfFieldFocusMode] == ManualFocus ? values[Enhancement.DepthOfFieldFocusDistance] : 0f;
             dof.FocusX = (values[Enhancement.DepthOfFieldFocusX] + 1f) * 0.5f;
             dof.FocusY = (values[Enhancement.DepthOfFieldFocusY] + 1f) * 0.5f;
+            dof.FocusSeconds = values[Enhancement.DepthOfFieldFocusSpeed];
             dof.MaxBlur = values[Enhancement.DepthOfFieldMaxBlur] / 100f;
             int shape = (int)values[Enhancement.BokehShape];
             dof.Blades = shape == 0 ? 0u : FewestBlades + (uint)shape - 1u;

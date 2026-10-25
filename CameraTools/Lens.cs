@@ -31,6 +31,14 @@ namespace CameraTools
 
         public static float Rail(float meters, float near, float far) => MathF.Log(meters / near) / MathF.Log(far / near);
 
+        // The Focus speed row's words for the seconds the autofocus takes to cover 99% of the way.
+        public static string Settle(float seconds) => MathF.Round(seconds, 1) <= 0f ? "Instant" : seconds.ToString("0.#' s'");
+
+        // iMMERSE's autofocus covers 99% of the way in 2 - 2 * AUTOFOCUS_SPEED seconds.
+        public static float ImmerseSeconds(float speed) => 2f - 2f * Math.Clamp(speed, 0f, 1f);
+
+        public static float ImmerseSpeed(float seconds) => 1f - Math.Clamp(seconds, 0f, 2f) / 2f;
+
         public static float FieldOfView(float focalLength, float aspect)
             => MathF.Atan(HalfDiagonal / (focalLength * MathF.Sqrt(1f + aspect * aspect))) * 360f / MathF.PI;
 

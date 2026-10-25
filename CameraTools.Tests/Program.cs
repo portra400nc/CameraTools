@@ -187,9 +187,9 @@ var fresh = EnhancementValues.Defaults;
 var outside = new LensView(false, 1.6f, 1, ShotStage.None);
 var inside = new LensView(true, 1.6f, 1, ShotStage.None);
 EnhancementsSettings Settings(EnhancementValues values) => EnhancementsModel.Settings(values, outside);
-Check("the table holds 57 fields, each at its own id's place, with the master switch and seven effects' switches, and 19 of the depth of field",
-    EnhancementsModel.Fields.Length == 57 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
-    && EnhancementsModel.Fields.Count(field => field.Lens) == 19
+Check("the table holds 58 fields, each at its own id's place, with the master switch and seven effects' switches, and 20 of the depth of field",
+    EnhancementsModel.Fields.Length == 58 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
+    && EnhancementsModel.Fields.Count(field => field.Lens) == 20
     && string.Join(",", EnhancementsModel.Effects.Select(field => field.Label)) == "Ambient light,Contact shadows,Soft sun shadows,Haze,Light shafts,Wet surfaces,Tone map");
 {
     var off = Settings(fresh);
@@ -305,10 +305,10 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
 // CameraTools' own depth of field: its rows' values and the add-on's depth of field block.
 {
     var dof = EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfField, 1f), inside);
-    Check("by default the depth of field is off, and on it is f/2.8 at the autofocus in the center, a disc of at most 3% of the height, round "
+    Check("by default the depth of field is off, and on it is f/2.8 at the autofocus in the center settling in 0.5 s, a disc of at most 3% of the height, round "
         + "with soap bubble 0.6, highlight discs off with their threshold at 2x the average and boost 2, and the bokeh contrast off",
         !fresh.On(Enhancement.DepthOfField) && EnhancementsModel.DepthOfField(fresh, inside).Enabled == 0
-        && dof is { Enabled: 1, FNumber: 2.8f, FocusDistance: 0f, FocusX: 0.5f, FocusY: 0.5f, FocusSeconds: 2f, MaxBlur: 0.03f, Blades: 0, BladeRoundness: 0.5f,
+        && dof is { Enabled: 1, FNumber: 2.8f, FocusDistance: 0f, FocusX: 0.5f, FocusY: 0.5f, FocusSeconds: 0.5f, MaxBlur: 0.03f, Blades: 0, BladeRoundness: 0.5f,
             BladeRotation: 0f, SphericalAberration: 0.6f, Chromatic: 0f, CatEye: 0f, Swirl: 0f, Anamorphic: 1f, Scatter: 0, HighlightGain: 2f, HighlightThreshold: 2f,
             BokehContrast: 0f, Samples: 49 });
     Check("the sensor is a full-frame diagonal's in the picture's shape: 22.949 mm at 16:10 and 21.228 mm at 16:9",
@@ -362,6 +362,16 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     Check("the Focus distance row's rail is logarithmic: 0 is 0.3 m, 1 is 50 m, the middle 3.873 m, and 2 m sits at 0.3708",
         MathF.Abs(Lens.Meters(0f, 0.3f, 50f) - 0.3f) < 1e-5f && MathF.Abs(Lens.Meters(1f, 0.3f, 50f) - 50f) < 1e-3f
         && MathF.Abs(Lens.Meters(0.5f, 0.3f, 50f) - 3.87298f) < 1e-3f && MathF.Abs(Lens.Rail(2f, 0.3f, 50f) - 0.370821f) < 1e-4f);
+    Check("Focus speed is the add-on's seconds to cover 99% of the way, 0 to 3 in tenths: 0 jumps, 7 is 3 and 0.123 is 0.1",
+        EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfFieldFocusSpeed, 0f), inside).FocusSeconds == 0f
+        && EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfFieldFocusSpeed, 1.5f), inside).FocusSeconds == 1.5f
+        && EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfFieldFocusSpeed, 7f), inside).FocusSeconds == 3f
+        && EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfFieldFocusSpeed, 0.123f), inside).FocusSeconds == 0.1f);
+    Check("Focus speed reads Instant at 0 and else the seconds: 0.1 s, 0.5 s and 3 s",
+        Lens.Settle(0f) == "Instant" && Lens.Settle(0.00001f) == "Instant" && Lens.Settle(0.1f) == "0.1 s" && Lens.Settle(0.5f) == "0.5 s" && Lens.Settle(3f) == "3 s");
+    Check("iMMERSE's AUTOFOCUS_SPEED 0 is 2 s, 0.75 is 0.5 s and 1 is Instant, and 0.5 s back is 0.75, 5 s 0",
+        Lens.ImmerseSeconds(0f) == 2f && Lens.ImmerseSeconds(0.75f) == 0.5f && Lens.ImmerseSeconds(1f) == 0f
+        && Lens.ImmerseSpeed(0.5f) == 0.75f && Lens.ImmerseSpeed(0f) == 1f && Lens.ImmerseSpeed(5f) == 0f);
 
     var haze = fresh.With(Enhancement.Haze, 1f).With(Enhancement.ToneMap, 1f).With(Enhancement.DepthOfField, 1f);
     var alone = EnhancementsModel.Settings(haze, inside);

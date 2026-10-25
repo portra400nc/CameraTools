@@ -37,6 +37,8 @@ namespace CameraTools
         private const float FocusLimit = 5f;
         // Of the Focus distance row's logarithmic rail: 200 steps from near to far.
         private const float RailStep = 0.005f;
+        // iMMERSE's slowest autofocus, at AUTOFOCUS_SPEED 0, in seconds to cover 99% of the way.
+        private const float ImmerseSlowest = 2f;
 
         private enum Kind { Technique, Int, Float, Float2 }
 
@@ -60,7 +62,7 @@ namespace CameraTools
 
         // Uniforms is indexed by Id and holds null for a value the shader does not have. Painted is the debug value that
         // paints the plane in focus over the picture. FocusSeconds is how long the autofocus takes at a speed, and
-        // DefaultSpeed the speed to assume while it cannot be read.
+        // DefaultSpeed the Focus speed, in the row's units, to assume while it cannot be read.
         private sealed class Shader
         {
             public readonly string Label;
@@ -152,17 +154,18 @@ namespace CameraTools
         }
 
         // The autofocus eases toward the distance under the focus point and covers 99% of the way in 2 - 2 *
-        // AUTOFOCUS_SPEED seconds, starting from nothing each time ReShade loads its effects again. Half as long again
-        // covers the rest. FOCUS_DEBUG's 3, "Enabled", paints the plane in focus. The shader squares the focus depth.
+        // AUTOFOCUS_SPEED seconds, which the Focus speed row shows, starting from nothing each time ReShade loads its
+        // effects again. Half as long again covers the rest. FOCUS_DEBUG's 3, "Enabled", paints the plane in focus. The
+        // shader squares the focus depth.
         private static readonly Shader Immerse = new("iMMERSE", "MartysMods_DEPTHOFFIELD.fx", 3,
-            speed => (2f - 2f * Math.Clamp(speed, 0f, 1f)) * 1.5f, 0f,
+            seconds => Math.Clamp(seconds, 0f, ImmerseSlowest) * 1.5f, ImmerseSlowest,
             (Id.Technique, new("MartysMods_DOF", Kind.Technique)),
             (Id.FocusMode, new("FOCUS_MODE", Kind.Int)),
             (Id.FocusDepth, new("RAW_FOCUS_PLANE_DEPTH", Kind.Float)),
             (Id.FocusDebug, new("FOCUS_DEBUG", Kind.Int)),
             (Id.FocusPoint, new("AUTOFOCUS_CENTER", Kind.Float2)),
             (Id.FocusRange, new("AUTOFOCUS_RANGE", Kind.Float)),
-            (Id.FocusSpeed, new("AUTOFOCUS_SPEED", Kind.Float)),
+            (Id.FocusSpeed, new("AUTOFOCUS_SPEED", Kind.Float, Lens.ImmerseSeconds, Lens.ImmerseSpeed)),
             (Id.FocalLength, new("FOCAL_LENGTH", Kind.Float)),
             (Id.Aperture, new("FSTOPS", Kind.Float)),
             (Id.Tangential, new("BOKEH_RATIO_TANGENTIAL", Kind.Float)),
@@ -248,6 +251,11 @@ namespace CameraTools
             Theirs(new ChoiceRow("Focus mode", ModeLabels, () => Known(Id.FocusMode) ? Array.IndexOf(Modes, Mode) : -1,
                 position => Change(Id.FocusMode, Modes[position]), null, Has(Id.FocusMode))),
             Mine(OwnChoice(Enhancement.DepthOfFieldFocusMode)),
+            // Cinematic DOF's speed is a share of the way per frame, which no time on the row can stand for.
+            Theirs(SpeedRow(ImmerseSlowest, () => Value(Id.FocusSpeed), seconds => Change(Id.FocusSpeed, seconds),
+                () => Known(Id.FocusSpeed) && Mode == PointFocus) with { Shown = () => Current == Immerse }),
+            Mine(SpeedRow(EnhancementsModel.Field(Enhancement.DepthOfFieldFocusSpeed).Max, () => Values[Enhancement.DepthOfFieldFocusSpeed],
+                seconds => SetOwn(Enhancement.DepthOfFieldFocusSpeed, seconds)) with { Shown = () => OwnMode == EnhancementsModel.FocusPoint }),
             Theirs(new SliderRow("Focus distance", 0.002f, 1f, 0.002f, "0.000", () => Value(Id.FocusDepth), depth => Repaint(Id.FocusDepth, depth),
                 Enabled: () => Known(Id.FocusDepth) && Mode == ManualFocus)),
             Mine(new SliderRow("Focus distance", 0f, 1f, RailStep, "0.000",
@@ -600,6 +608,11 @@ namespace CameraTools
             var field = EnhancementsModel.Field(id);
             return new SliderRow(field.Label, field.Min, field.Max, step ?? field.Step, field.Format, () => Values[id], value => SetOwn(id, value), Display: display);
         }
+
+        // Faster to the right: the rail runs from the slowest time to cover 99% of the way at 0 to Instant at its end.
+        private static SliderRow SpeedRow(float slowest, Func<float> seconds, Action<float> set, Func<bool> enabled = null)
+            => new("Focus speed", 0f, slowest, 0.1f, "0.0", () => slowest - seconds(), rail => set(MathF.Round(slowest - rail, 1)),
+                Display: rail => Lens.Settle(slowest - rail), Enabled: enabled);
 
         private static ChoiceRow OwnChoice(Enhancement id)
         {
