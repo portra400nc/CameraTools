@@ -364,7 +364,7 @@ namespace enhancements
             dof.focus_distance = d.focus_distance;
             dof.focus_point[0] = d.focus_point[0];
             dof.focus_point[1] = d.focus_point[1];
-            dof.focus_speed = d.focus_speed;
+            dof.focus_seconds = d.focus_seconds;
             dof.max_blur = d.max_blur;
             dof.blades = d.blades;
             dof.blade_roundness = d.blade_roundness;
@@ -401,7 +401,7 @@ namespace enhancements
         s.focus_distance = finite_or(d.focus_distance, defaults.focus_distance, 0.0f, 10000.0f);
         s.focus_point[0] = finite_or(d.focus_point[0], defaults.focus_point[0], 0.0f, 1.0f);
         s.focus_point[1] = finite_or(d.focus_point[1], defaults.focus_point[1], 0.0f, 1.0f);
-        s.focus_speed = finite_or(d.focus_speed, defaults.focus_speed, 0.0f, 0.999f);
+        s.focus_seconds = finite_or(d.focus_seconds, defaults.focus_seconds, 0.0f, 10.0f);
         s.max_blur = finite_or(d.max_blur, defaults.max_blur, 0.002f, 0.1f);
         s.blades = d.blades == 0 ? 0 : std::clamp<uint32_t>(d.blades, 5, 16);
         s.blade_roundness = finite_or(d.blade_roundness, defaults.blade_roundness, 0.0f, 1.0f);

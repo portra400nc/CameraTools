@@ -142,7 +142,7 @@ namespace enhancements
         float sensor_height_mm = 24;
         float focus_distance = 0;               // meters; 0: the autofocus at focus_point
         float focus_point[2] = { 0.5f, 0.5f };  // 0 to 1 from the top left
-        float focus_speed = 0.9f;               // the share of the way the autofocus goes in a second; 0 jumps
+        float focus_seconds = 2;                // the seconds the autofocus takes to cover 99% of the way; 0 jumps
         float max_blur = 0.03f;                 // the largest CoC radius over the render height
         uint32_t blades = 0;                    // 0 round, else 5 to 16
         float blade_roundness = 0.5f;

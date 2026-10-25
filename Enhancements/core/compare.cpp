@@ -164,7 +164,7 @@ namespace enhancements
                           "\ttrace.ao_samples\ttrace.sun_samples\ttrace.budget_ms\tgather.enabled\tgather.samples\tgather.sky\tgather.filter"
                           "\tgather.strength\tgather.hit_ambient\tdepth_of_field.enabled\tdepth_of_field.f_number"
                           "\tdepth_of_field.sensor_height_mm\tdepth_of_field.focus_distance\tdepth_of_field.focus_x\tdepth_of_field.focus_y"
-                          "\tdepth_of_field.focus_speed\tdepth_of_field.max_blur\tdepth_of_field.blades\tdepth_of_field.blade_roundness"
+                          "\tdepth_of_field.focus_seconds\tdepth_of_field.max_blur\tdepth_of_field.blades\tdepth_of_field.blade_roundness"
                           "\tdepth_of_field.blade_rotation\tdepth_of_field.spherical_aberration\tdepth_of_field.cat_eye\tdepth_of_field.swirl"
                           "\tdepth_of_field.anamorphic\tdepth_of_field.chromatic\tdepth_of_field.samples\tdepth_of_field.highlight_threshold"
                           "\tdepth_of_field.highlight_gain\tdepth_of_field.scatter\tdepth_of_field.bokeh_contrast\tdepth_of_field.place\n";
@@ -198,7 +198,7 @@ namespace enhancements
                 + number(r.budget_ms) + '\t' + (g.enabled ? "1" : "0") + '\t' + std::to_string(g.samples) + '\t' + kGatherSkyNames[static_cast<size_t>(g.sky)]
                 + '\t' + std::to_string(g.filter) + '\t' + number(g.strength) + '\t' + number(g.hit_ambient) + '\t' + (d.enabled ? "1" : "0") + '\t'
                 + number(d.f_number) + '\t' + number(d.sensor_height_mm) + '\t' + number(d.focus_distance) + '\t' + number(d.focus_point[0]) + '\t'
-                + number(d.focus_point[1]) + '\t' + number(d.focus_speed) + '\t' + number(d.max_blur) + '\t' + std::to_string(d.blades) + '\t'
+                + number(d.focus_point[1]) + '\t' + number(d.focus_seconds) + '\t' + number(d.max_blur) + '\t' + std::to_string(d.blades) + '\t'
                 + number(d.blade_roundness) + '\t' + number(d.blade_rotation) + '\t' + number(d.spherical_aberration) + '\t' + number(d.cat_eye) + '\t'
                 + number(d.swirl) + '\t' + number(d.anamorphic) + '\t' + number(d.chromatic) + '\t' + std::to_string(d.samples) + '\t'
                 + number(d.highlight_threshold) + '\t' + number(d.highlight_gain) + '\t' + (d.scatter ? "1" : "0") + '\t' + number(d.bokeh_contrast) + '\t'

@@ -10,7 +10,7 @@
 //     render_dof --seam-check <frame folder> <most levels> [key=value ...]
 //
 // Keys, the depth of field's settings (enabled; the rest at their defaults): f (f-number), sensor (mm), focus (meters, 0
-// autofocus), x and y (the focus point, 0 to 1 from the top left), speed, max_blur, blades, roundness, rotation (degrees),
+// autofocus), x and y (the focus point, 0 to 1 from the top left), focus_seconds, max_blur, blades, roundness, rotation (degrees),
 // sa (spherical aberration), cat_eye, swirl, anamorphic, chromatic, samples, threshold and gain (the highlights'),
 // scatter (0 or 1) and contrast (the bokeh contrast);
 // and frames (frames averaged, each with the frame's own turn of the spiral, as the accumulator averages a paused shot),
@@ -74,7 +74,7 @@ namespace
         else if (key == "focus") s.focus_distance = v;
         else if (key == "x") s.focus_point[0] = v;
         else if (key == "y") s.focus_point[1] = v;
-        else if (key == "speed") s.focus_speed = v;
+        else if (key == "focus_seconds") s.focus_seconds = v;
         else if (key == "max_blur") s.max_blur = v;
         else if (key == "blades") s.blades = static_cast<uint32_t>(v);
         else if (key == "roundness") s.blade_roundness = v;
@@ -370,7 +370,7 @@ namespace
         s.highlight_threshold = 2;
         s.highlight_gain = 2;
         s.scatter = true;
-        s.focus_speed = 0;
+        s.focus_seconds = 0;
         return s;
     }
 

@@ -1147,7 +1147,7 @@ int main()
         check("a whole 324-byte struct reads the depth of field: on, f/1.4 on a 36 mm sensor focused at 3 m, its point, speed, blur, 7 blades, "
               "highlights from 3 times the mean at gain 1.5, scatter, bokeh contrast 0.75, on the display, and the rest",
             sizeof raw == 324 && whole.place == DofPlace::display && whole.scatter && whole.bokeh_contrast == 0.75f && whole.enabled && whole.f_number == 1.4f && whole.sensor_height_mm == 36 && whole.focus_distance == 3
-                && whole.focus_point[0] == 0.25f && whole.focus_point[1] == 0.75f && whole.focus_speed == 0.5f && whole.max_blur == 0.05f
+                && whole.focus_point[0] == 0.25f && whole.focus_point[1] == 0.75f && whole.focus_seconds == 0.5f && whole.max_blur == 0.05f
                 && whole.blades == 7 && whole.blade_roundness == 0.2f && whole.blade_rotation == 15 && whole.spherical_aberration == 1
                 && whole.cat_eye == 0.6f && whole.swirl == 0.3f && whole.anamorphic == 1.33f && whole.chromatic == 1 && whole.samples == 256
                 && whole.highlight_threshold == 3 && whole.highlight_gain == 1.5f);
@@ -1170,30 +1170,34 @@ int main()
             eleven.enabled && eleven.f_number == 1.4f && eleven.samples == 256 && eleven.highlight_threshold == 2 && eleven.highlight_gain == 2);
         raw.size = 236;     // a caller of version 10
         const DepthOfFieldSettings before = parse_settings(raw).depth_of_field;
-        check("a 236-byte struct keeps the depth of field off at f/2.8, 24 mm, autofocus at the center, speed 0.9, blur 0.03, round, "
+        check("a 236-byte struct keeps the depth of field off at f/2.8, 24 mm, autofocus at the center, 2 seconds of focus, blur 0.03, round, "
               "spherical aberration 0.6 and 49 samples",
             !before.enabled && before.f_number == 2.8f && before.sensor_height_mm == 24 && before.focus_distance == 0 && before.focus_point[0] == 0.5f
-                && before.focus_point[1] == 0.5f && before.focus_speed == 0.9f && before.max_blur == 0.03f && before.blades == 0
+                && before.focus_point[1] == 0.5f && before.focus_seconds == 2 && before.max_blur == 0.03f && before.blades == 0
                 && before.spherical_aberration == 0.6f && before.anamorphic == 1 && before.chromatic == 0 && before.samples == 49);
         raw.size = sizeof raw;
-        raw.depth_of_field = { 1, 0, 1, -5, { -1, 2 }, 5, 1, 2, -1, 1000, -3, 7, -1, 0.1f, 9, 0, 0.5f, -1, 7, 3, 0 };
+        raw.depth_of_field = { 1, 0, 1, -5, { -1, 2 }, 50, 1, 2, -1, 1000, -3, 7, -1, 0.1f, 9, 0, 0.5f, -1, 7, 3, 0 };
         const DepthOfFieldSettings low = parse_settings(raw).depth_of_field;
-        check("the depth of field clamps: f/0 to f/1, a 1 mm sensor to 4, focus -5 to autofocus, the point into the picture, speed 5 to 0.999, "
+        check("the depth of field clamps: f/0 to f/1, a 1 mm sensor to 4, focus -5 to autofocus, the point into the picture, 50 seconds of focus to 10, "
               "blur 1 to 0.1, 2 blades to 5, rotation 1000 to 360, aberration -3 to -1, anamorphic 0.1 to 0.5, chromatic 9 to 5, 0 samples to 9, threshold 0.5 to 1, gain -1 to 0, bokeh contrast 3 to 2",
             low.f_number == 1 && low.sensor_height_mm == 4 && low.focus_distance == 0 && low.focus_point[0] == 0 && low.focus_point[1] == 1
-                && low.focus_speed == 0.999f && low.max_blur == 0.1f && low.blades == 5 && low.blade_roundness == 0 && low.blade_rotation == 360
+                && low.focus_seconds == 10 && low.max_blur == 0.1f && low.blades == 5 && low.blade_roundness == 0 && low.blade_rotation == 360
                 && low.spherical_aberration == -1 && low.cat_eye == 1 && low.swirl == 0 && low.anamorphic == 0.5f && low.chromatic == 5 && low.samples == 9
                 && low.highlight_threshold == 1 && low.highlight_gain == 0 && low.scatter && low.bokeh_contrast == 2);
         raw.depth_of_field = { 1, NAN, INFINITY, NAN, { NAN, NAN }, NAN, NAN, 99, NAN, NAN, NAN, NAN, NAN, NAN, NAN, 5000, NAN, INFINITY, 1, NAN, 0 };
         const DepthOfFieldSettings bad = parse_settings(raw).depth_of_field;
         check("NaN and infinities fall back to the defaults, 99 blades to 16 and 5000 samples to 1089", bad.f_number == 2.8f && bad.sensor_height_mm == 24
-            && bad.focus_point[0] == 0.5f && bad.focus_speed == 0.9f && bad.max_blur == 0.03f && bad.blades == 16 && bad.spherical_aberration == 0.6f
+            && bad.focus_point[0] == 0.5f && bad.focus_seconds == 2 && bad.max_blur == 0.03f && bad.blades == 16 && bad.spherical_aberration == 0.6f
             && bad.anamorphic == 1 && bad.samples == 1089 && bad.highlight_threshold == 2 && bad.highlight_gain == 2 && bad.bokeh_contrast == 0);
         raw.depth_of_field.sensor_height_mm = 12000;
         const float miniature = parse_settings(raw).depth_of_field.sensor_height_mm;
         raw.depth_of_field.sensor_height_mm = 50000;
         check("a 12000 mm sensor, a 1:500 miniature's, stays and a 50000 mm one clamps to 20000",
             miniature == 12000 && parse_settings(raw).depth_of_field.sensor_height_mm == 20000);
+        raw.depth_of_field.focus_seconds = 0.1f;
+        const float fast = parse_settings(raw).depth_of_field.focus_seconds;
+        raw.depth_of_field.focus_seconds = -1;
+        check("0.1 seconds of focus stays and -1 clamps to 0, which jumps", fast == 0.1f && parse_settings(raw).depth_of_field.focus_seconds == 0);
         check("the depth of field runs last at the bloom step and wants it", wanted_steps(parse_settings(raw)).has(Step::bloom)
             && kPasses[7].id == PassId::depth_of_field && std::string(kPasses[7].name) == "depth-of-field");
     }

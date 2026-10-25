@@ -371,7 +371,7 @@ typedef struct EnhancementsDepthOfField
                                 // it, which images as every distance divided by N does
     float focus_distance;       // meters along the view axis; 0 (the default) focuses on focus_point; clamped to 0..10000
     float focus_point[2];       // the autofocus's point, 0 to 1 from the top left; default the center
-    float focus_speed;          // the autofocus's ease: the share of the way it goes in a second; 0 jumps; default 0.9, clamped to 0..0.999
+    float focus_seconds;        // the autofocus's ease: the seconds it takes to cover 99% of the way; 0 jumps; default 2, clamped to 0..10
     float max_blur;             // the largest CoC radius as a share of the render height, which bounds the cost; default 0.03,
                                 // clamped to 0.002..0.1
     uint32_t blades;            // 0 (the default) round, else 5 to 16; 1 to 4 read as 5

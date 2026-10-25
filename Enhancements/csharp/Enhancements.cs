@@ -166,7 +166,7 @@ namespace CameraToolsEnhancements
         public float SensorHeightMm;    // 4 to 20000; N times taller blurs as a 1:N miniature
         public float FocusDistance;     // meters; 0 autofocuses at the focus point
         public float FocusX, FocusY;    // 0 to 1 from the top left
-        public float FocusSpeed;        // the share of the way the autofocus goes in a second; 0 jumps
+        public float FocusSeconds;      // the seconds the autofocus takes to cover 99% of the way; 0 jumps
         public float MaxBlur;           // the largest CoC radius over the render height
         public uint Blades;             // 0 round, else 5 to 16
         public float BladeRoundness;
@@ -240,7 +240,7 @@ namespace CameraToolsEnhancements
             Gather = new EnhancementsGather { Samples = 64, Sky = EnhancementsGatherSky.Visibility, Filter = 2, Strength = 1, HitAmbient = 0.5f },
             DepthOfField = new EnhancementsDepthOfField
             {
-                FNumber = 2.8f, SensorHeightMm = 24, FocusX = 0.5f, FocusY = 0.5f, FocusSpeed = 0.9f, MaxBlur = 0.03f, BladeRoundness = 0.5f,
+                FNumber = 2.8f, SensorHeightMm = 24, FocusX = 0.5f, FocusY = 0.5f, FocusSeconds = 2, MaxBlur = 0.03f, BladeRoundness = 0.5f,
                 SphericalAberration = 0.6f, Anamorphic = 1, Samples = 49, HighlightThreshold = 2, HighlightGain = 2,
             },
         };

@@ -308,7 +308,7 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     Check("by default the depth of field is off, and on it is f/2.8 at the autofocus in the center, a disc of at most 3% of the height, round "
         + "with soap bubble 0.6, highlight discs off with their threshold at 2x the average and boost 2, and the bokeh contrast off",
         !fresh.On(Enhancement.DepthOfField) && EnhancementsModel.DepthOfField(fresh, inside).Enabled == 0
-        && dof is { Enabled: 1, FNumber: 2.8f, FocusDistance: 0f, FocusX: 0.5f, FocusY: 0.5f, FocusSpeed: 0.9f, MaxBlur: 0.03f, Blades: 0, BladeRoundness: 0.5f,
+        && dof is { Enabled: 1, FNumber: 2.8f, FocusDistance: 0f, FocusX: 0.5f, FocusY: 0.5f, FocusSeconds: 2f, MaxBlur: 0.03f, Blades: 0, BladeRoundness: 0.5f,
             BladeRotation: 0f, SphericalAberration: 0.6f, Chromatic: 0f, CatEye: 0f, Swirl: 0f, Anamorphic: 1f, Scatter: 0, HighlightGain: 2f, HighlightThreshold: 2f,
             BokehContrast: 0f, Samples: 49 });
     Check("the sensor is a full-frame diagonal's in the picture's shape: 22.949 mm at 16:10 and 21.228 mm at 16:9",

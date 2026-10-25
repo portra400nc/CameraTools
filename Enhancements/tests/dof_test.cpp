@@ -250,7 +250,7 @@ int main(int argc, char **argv)
 
     DepthOfFieldSettings settings;
     settings.focus_point[1] = 0.25f;
-    settings.focus_speed = 0.9f;
+    settings.focus_seconds = 2;
     settings.blades = 7;
     settings.blade_roundness = 0;
     settings.blade_rotation = 90;
@@ -263,7 +263,7 @@ int main(int argc, char **argv)
     check("the constants: a 50 mm focal length from the projection and the 24 mm sensor, f/2.8, 16.667 half-size pixels a mm, a largest "
           "radius of 12",
         near(c.optics[0], 50) && near(c.optics[1], 2.8f) && near(c.optics[2], 16.6667f) && near(c.optics[3], 12));
-    check("the focus point stored upside down, and the autofocus 1 - 0.1^0.5 of the way after half a second",
+    check("the focus point stored upside down, and the autofocus at 2 seconds 1 - 0.01^0.25 of the way after half a second",
         c.focus[0] == 0 && c.focus[1] == 0.5f && c.focus[2] == 0.75f && near(c.focus[3], 0.683772f));
     check("seven straight blades turned 90 degrees, grown by 1.0715, which the gather's radius grows by too, chromatic aberration or not",
         c.shape[0] == 7 && c.shape[1] == 0 && near(c.shape[2], 1.570796f) && near(c.shape[3], 0.933288f) && near(c.bokeh[3], 1.07148f));
@@ -276,8 +276,11 @@ int main(int argc, char **argv)
           "the largest quad, 12 x 1.0715 + 1 pixels from its center, cover: 2666, and the near field's from slot 4096",
         c.highlight[0] == 2 && c.highlight[1] == 2 && c.highlight[2] == 2666 && c.highlight[3] == 4096);
     check("rings: 9 samples are 2, 64 are 4, 289 are 8 and 1089 are 16", dof_rings(9) == 2 && dof_rings(64) == 4 && dof_rings(289) == 8 && dof_rings(1089) == 16);
-    settings.focus_speed = 0;
-    check("a focus speed of 0 jumps", dof_constants(settings, lens, { 1280, 800 }, false, 0.5f, 0)->focus[3] == 1
+    settings.focus_seconds = 0.1f;
+    check("at 0.1 seconds the autofocus goes 1 - 0.01^(1/6) of the way in a frame at 60 fps",
+        near(dof_constants(settings, lens, { 1280, 800 }, false, 1.0f / 60, 0)->focus[3], 0.535841f));
+    settings.focus_seconds = 0;
+    check("0 seconds of focus jumps", dof_constants(settings, lens, { 1280, 800 }, false, 0.5f, 0)->focus[3] == 1
         && dof_constants(settings, lens, { 1280, 800 }, false, 0.5f, 0)->focus[2] == 0.25f);
     check("a projection without a focal length has no constants", !dof_constants(settings, Camera {}, { 1280, 800 }, true, 0, 0));
 

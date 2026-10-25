@@ -175,7 +175,7 @@ int main()
                "\ttrace.ao_samples\ttrace.sun_samples\ttrace.budget_ms\tgather.enabled\tgather.samples\tgather.sky\tgather.filter"
                "\tgather.strength\tgather.hit_ambient\tdepth_of_field.enabled\tdepth_of_field.f_number"
                "\tdepth_of_field.sensor_height_mm\tdepth_of_field.focus_distance\tdepth_of_field.focus_x\tdepth_of_field.focus_y"
-               "\tdepth_of_field.focus_speed\tdepth_of_field.max_blur\tdepth_of_field.blades\tdepth_of_field.blade_roundness"
+               "\tdepth_of_field.focus_seconds\tdepth_of_field.max_blur\tdepth_of_field.blades\tdepth_of_field.blade_roundness"
                "\tdepth_of_field.blade_rotation\tdepth_of_field.spherical_aberration\tdepth_of_field.cat_eye\tdepth_of_field.swirl"
                "\tdepth_of_field.anamorphic\tdepth_of_field.chromatic\tdepth_of_field.samples\tdepth_of_field.highlight_threshold"
                "\tdepth_of_field.highlight_gain\tdepth_of_field.scatter\tdepth_of_field.bokeh_contrast\tdepth_of_field.place\n"

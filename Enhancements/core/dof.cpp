@@ -384,7 +384,7 @@ namespace enhancements
         const uint32_t half_w = (render.width + 1) / 2, half_h = (render.height + 1) / 2;
         const float max_radius = s.max_blur * render.height * 0.5f;
         const float margin = dof_shape_reach(s.blades, s.blade_roundness, s.anamorphic);
-        const float step = s.focus_speed <= 0 ? 1 : 1 - std::pow(1 - s.focus_speed, std::max(seconds, 0.0f));
+        const float step = s.focus_seconds <= 0 ? 1 : 1 - std::pow(0.01f, std::max(seconds, 0.0f) / s.focus_seconds);
         const float c_optics[4] = { s.sensor_height_mm * 0.5f * p11, s.f_number, render.height * 0.5f / s.sensor_height_mm, max_radius };
         const float c_focus[4] = { s.focus_distance, s.focus_point[0], flip ? 1 - s.focus_point[1] : s.focus_point[1], step };
         const float c_shape[4] = { static_cast<float>(s.blades), s.blade_roundness, s.blade_rotation * 3.14159265f / 180,
