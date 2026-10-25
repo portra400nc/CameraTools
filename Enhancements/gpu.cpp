@@ -123,6 +123,8 @@ namespace enhancements
                 return DXGI_FORMAT_R8G8B8A8_TYPELESS;
             case DXGI_FORMAT_B8G8R8A8_TYPELESS: case DXGI_FORMAT_B8G8R8A8_UNORM: case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
                 return DXGI_FORMAT_B8G8R8A8_TYPELESS;
+            case DXGI_FORMAT_B8G8R8X8_TYPELESS: case DXGI_FORMAT_B8G8R8X8_UNORM: case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB:
+                return DXGI_FORMAT_B8G8R8X8_TYPELESS;
             case DXGI_FORMAT_R8G8_TYPELESS: case DXGI_FORMAT_R8G8_UNORM: case DXGI_FORMAT_R8G8_UINT:
                 return DXGI_FORMAT_R8G8_TYPELESS;
             case DXGI_FORMAT_R16_TYPELESS: case DXGI_FORMAT_R16_FLOAT: case DXGI_FORMAT_D16_UNORM: case DXGI_FORMAT_R16_UNORM:
@@ -141,6 +143,7 @@ namespace enhancements
             {
             case DXGI_FORMAT_R8G8B8A8_TYPELESS: case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: return DXGI_FORMAT_R8G8B8A8_UNORM;
             case DXGI_FORMAT_B8G8R8A8_TYPELESS: case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: return DXGI_FORMAT_B8G8R8A8_UNORM;
+            case DXGI_FORMAT_B8G8R8X8_TYPELESS: case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB: return DXGI_FORMAT_B8G8R8X8_UNORM;
             case DXGI_FORMAT_R10G10B10A2_TYPELESS: return DXGI_FORMAT_R10G10B10A2_UNORM;
             case DXGI_FORMAT_R16G16B16A16_TYPELESS: return DXGI_FORMAT_R16G16B16A16_FLOAT;
             case DXGI_FORMAT_R8G8_TYPELESS: return DXGI_FORMAT_R8G8_UNORM;
@@ -624,6 +627,8 @@ namespace enhancements
             && SUCCEEDED(device->CreateVertexShader(kDofSpriteVs, sizeof kDofSpriteVs, nullptr, &made.dof_sprite_vs_))
             && SUCCEEDED(device->CreatePixelShader(kDofSpritePs, sizeof kDofSpritePs, nullptr, &made.dof_sprite_ps_))
             && SUCCEEDED(device->CreatePixelShader(kDofLiftPs, sizeof kDofLiftPs, nullptr, &made.dof_lift_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kDofDisplayInPs, sizeof kDofDisplayInPs, nullptr, &made.dof_display_in_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kDofDisplayOutPs, sizeof kDofDisplayOutPs, nullptr, &made.dof_display_out_ps_))
             && SUCCEEDED(device->CreateBuffer(&sprites, nullptr, &made.dof_sprites_))
             && SUCCEEDED(device->CreateUnorderedAccessView(made.dof_sprites_.Get(), &sprites_uav, &made.dof_sprites_uav_))
             && SUCCEEDED(device->CreateShaderResourceView(made.dof_sprites_.Get(), &sprites_srv[0], &made.dof_sprites_srv_[0]))
@@ -1116,42 +1121,41 @@ namespace enhancements
         return GameCall::keep;
     }
 
-    std::optional<GameCall> Gpu::run_depth_of_field(const FrameMap &map, const DepthOfFieldSettings &settings, const Camera &camera, bool flip,
-        float seconds, uint64_t frame)
+    bool Gpu::sync_dof_chain(const DofConstants &dof)
     {
-        const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
-        const auto scene_format = static_cast<DXGI_FORMAT>(scene.format);
-        const std::optional<DofConstants> dof = dof_constants(settings, camera, map.render, flip, seconds, frame);
-        if (!dof)
-            return std::nullopt;
-        const Size half = { dof->sizes[0], dof->sizes[1] }, tiles = { dof->sizes[2], dof->sizes[3] }, one = { 1, 1 };
-        const bool scatter = dof->highlight[2] > 0, lift = dof->contrast[0] > 0;
+        const Size half = { dof.sizes[0], dof.sizes[1] }, tiles = { dof.sizes[2], dof.sizes[3] }, one = { 1, 1 };
+        const bool scatter = dof.highlight[2] > 0, lift = dof.contrast[0] > 0;
         ID3D11Device *d = device_.Get();
-        if (!scene_in_.sync(d, native(scene), scene_format, false) || !scene_out_.sync(d, native(scene), scene_format, true)
-            || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false) || !dof_focus_[0].sync(d, one, DXGI_FORMAT_R32G32_FLOAT)
-            || !dof_focus_[1].sync(d, one, DXGI_FORMAT_R32G32_FLOAT) || !dof_source_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT, true, true)
-            || (scatter && !dof_prefilter_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT))
-            || !dof_tiles_.sync(d, tiles, DXGI_FORMAT_R16G16_FLOAT) || !dof_dilated_.sync(d, tiles, DXGI_FORMAT_R16G16_FLOAT)
-            || (lift && !dof_lifted_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT, true))
-            || !dof_far_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT, lift) || !dof_near_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT)
-            || !dof_far_post_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT) || !dof_near_post_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT)
-            || !dof_cover_.sync(d, half, DXGI_FORMAT_R16G16_FLOAT) || !dof_cover_post_.sync(d, half, DXGI_FORMAT_R16G16_FLOAT))
-            return std::nullopt;
+        return dof_focus_[0].sync(d, one, DXGI_FORMAT_R32G32_FLOAT) && dof_focus_[1].sync(d, one, DXGI_FORMAT_R32G32_FLOAT)
+            && dof_source_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT, true, true) && (!scatter || dof_prefilter_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT))
+            && dof_tiles_.sync(d, tiles, DXGI_FORMAT_R16G16_FLOAT) && dof_dilated_.sync(d, tiles, DXGI_FORMAT_R16G16_FLOAT)
+            && (!lift || dof_lifted_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT, true))
+            && dof_far_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT, lift) && dof_near_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT)
+            && dof_far_post_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT) && dof_near_post_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT)
+            && dof_cover_.sync(d, half, DXGI_FORMAT_R16G16_FLOAT) && dof_cover_post_.sync(d, half, DXGI_FORMAT_R16G16_FLOAT);
+    }
+
+    bool Gpu::upload_dof(const DofConstants &dof)
+    {
         ID3D11DeviceContext1 *c = context_.Get();
         D3D11_MAPPED_SUBRESOURCE mapped;
         if (FAILED(c->Map(dof_constants_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
-            return std::nullopt;
-        std::memcpy(mapped.pData, &*dof, sizeof *dof);
+            return false;
+        std::memcpy(mapped.pData, &dof, sizeof dof);
         c->Unmap(dof_constants_.Get(), 0);
         ID3D11Buffer *const constants[] = { dof_constants_.Get() };
         c->PSSetConstantBuffers(1, 1, constants);
+        return true;
+    }
 
-        scene_in_.copy_from(c, native(scene));
-        depth_.copy_from(c, native(depth));
-        const Scratch &focus = dof_focus_[dof_focus_at_], &previous = dof_focus_[dof_focus_at_ ^ 1];
-        ID3D11ShaderResourceView *const focus_in[] = { depth_.srv(), previous.srv(), scene_in_.srv() };
-        draw_fullscreen(dof_focus_ps_.Get(), focus_in, 3, focus.rtv(), one);
-        ID3D11ShaderResourceView *const prefilter_in[] = { scene_in_.srv(), depth_.srv(), focus.srv() };
+    void Gpu::draw_dof_chain(const DofConstants &dof, ID3D11ShaderResourceView *scene, ID3D11ShaderResourceView *depth, const Scratch &focus,
+        ID3D11RenderTargetView *out, Size size)
+    {
+        ID3D11DeviceContext1 *c = context_.Get();
+        const Size half = { dof.sizes[0], dof.sizes[1] }, tiles = { dof.sizes[2], dof.sizes[3] };
+        const bool scatter = dof.highlight[2] > 0, lift = dof.contrast[0] > 0;
+        ID3D11Buffer *const constants[] = { dof_constants_.Get() };
+        ID3D11ShaderResourceView *const prefilter_in[] = { scene, depth, focus.srv() };
         draw_fullscreen(dof_prefilter_ps_.Get(), prefilter_in, 3, scatter ? dof_prefilter_.rtv() : dof_source_.rtv(), half);
         c->OMSetRenderTargets(0, nullptr, nullptr);
         if (scatter)
@@ -1216,14 +1220,97 @@ namespace enhancements
             c->VSSetShaderResources(0, 1, no_list);
             c->OMSetRenderTargets(0, nullptr, nullptr);
         }
-        ID3D11ShaderResourceView *const composite_in[] = { scene_in_.srv(), depth_.srv(), focus.srv(), dof_far_post_.srv(), dof_near_post_.srv(),
-            dof_cover_post_.srv() };
-        draw_fullscreen(dof_composite_ps_.Get(), composite_in, 6, scene_out_.rtv(), map.render);
+        ID3D11ShaderResourceView *const composite_in[] = { scene, depth, focus.srv(), dof_far_post_.srv(), dof_near_post_.srv(), dof_cover_post_.srv() };
+        draw_fullscreen(dof_composite_ps_.Get(), composite_in, 6, out, size);
+    }
+
+    std::optional<GameCall> Gpu::run_depth_of_field(const FrameMap &map, const DepthOfFieldSettings &settings, const Camera &camera, bool flip,
+        float seconds, uint64_t frame)
+    {
+        const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
+        const auto scene_format = static_cast<DXGI_FORMAT>(scene.format);
+        const std::optional<DofConstants> dof = dof_constants(settings, camera, map.render, flip, seconds, frame);
+        ID3D11Device *d = device_.Get();
+        if (!dof || !scene_in_.sync(d, native(scene), scene_format, false) || !scene_out_.sync(d, native(scene), scene_format, true)
+            || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false) || !sync_dof_chain(*dof) || !upload_dof(*dof))
+            return std::nullopt;
+        ID3D11DeviceContext1 *c = context_.Get();
+        scene_in_.copy_from(c, native(scene));
+        depth_.copy_from(c, native(depth));
+        const Scratch &focus = dof_focus_[dof_focus_at_], &previous = dof_focus_[dof_focus_at_ ^ 1];
+        ID3D11ShaderResourceView *const focus_in[] = { depth_.srv(), previous.srv(), scene_in_.srv() };
+        draw_fullscreen(dof_focus_ps_.Get(), focus_in, 3, focus.rtv(), { 1, 1 });
+        draw_dof_chain(*dof, scene_in_.srv(), depth_.srv(), focus, scene_out_.rtv(), map.render);
         scene_out_.copy_to(c, native(scene));
-        if (!dof_focus_pending_)
-            dof_focus_pending_ = dof_focus_read_.copy_from(d, c, focus.texture());
-        dof_focus_at_ ^= 1;
+        keep_dof_focus();
         return GameCall::keep;
+    }
+
+    std::optional<GameCall> Gpu::run_dof_focus(const FrameMap &map, const DepthOfFieldSettings &settings, const Camera &camera, bool flip, float seconds,
+        uint64_t frame)
+    {
+        const Texture &depth = *map[Entry::depth];
+        const std::optional<DofConstants> dof = dof_constants(settings, camera, map.render, flip, seconds, frame);
+        ID3D11Device *d = device_.Get();
+        const Size one = { 1, 1 };
+        if (!dof || !dof_depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false) || !dof_focus_[0].sync(d, one, DXGI_FORMAT_R32G32_FLOAT)
+            || !dof_focus_[1].sync(d, one, DXGI_FORMAT_R32G32_FLOAT) || !upload_dof(*dof))
+            return std::nullopt;
+        dof_depth_.copy_from(context_.Get(), native(depth));
+        // The frame's mean luminance is the back buffer's, which the display's own autofocus draw takes; the scene's is not
+        // read, so it stays unbound.
+        ID3D11ShaderResourceView *const focus_in[] = { dof_depth_.srv(), dof_focus_[dof_focus_at_ ^ 1].srv(), nullptr };
+        draw_fullscreen(dof_focus_ps_.Get(), focus_in, 3, dof_focus_[dof_focus_at_].rtv(), one);
+        keep_dof_focus();
+        return GameCall::keep;
+    }
+
+    void Gpu::keep_dof_focus()
+    {
+        if (!dof_focus_pending_)
+            dof_focus_pending_ = dof_focus_read_.copy_from(device_.Get(), context_.Get(), dof_focus_[dof_focus_at_].texture());
+        dof_focus_kept_ = dof_focus_at_;
+        dof_focus_at_ ^= 1;
+    }
+
+    const char *Gpu::run_depth_of_field_display(ID3D11Resource *back_buffer, const DofDisplayFrame &frame, bool &ran)
+    {
+        const char *moved = nullptr;
+        ran = false;
+        ComPtr<ID3D11Texture2D> texture;
+        if (FAILED(back_buffer->QueryInterface(IID_PPV_ARGS(texture.GetAddressOf()))))
+            return moved;
+        D3D11_TEXTURE2D_DESC desc;
+        texture->GetDesc(&desc);
+        const std::optional<DofTransfer> transfer = dof_display_transfer(desc.Format);
+        const Size back = { desc.Width, desc.Height }, one = { 1, 1 };
+        const std::optional<DofConstants> dof = transfer ? dof_display_constants(frame.settings, frame.camera, back, frame.render, frame.flip, *transfer, frame.frame)
+                                                         : std::nullopt;
+        ID3D11Device *d = device_.Get();
+        if (!dof || !dof_depth_.texture() || !(dof_depth_.size() == frame.render) || !back_buffer_.sync(d, back_buffer, desc.Format, true)
+            || !dof_display_.sync(d, back, DXGI_FORMAT_R16G16B16A16_FLOAT) || !dof_display_depth_.sync(d, back, DXGI_FORMAT_R32_FLOAT)
+            || !dof_blurred_.sync(d, back, DXGI_FORMAT_R16G16B16A16_FLOAT) || !dof_display_focus_.sync(d, one, DXGI_FORMAT_R32G32_FLOAT)
+            || !sync_dof_chain(*dof))
+            return moved;
+        {
+            StateGuard guard(context_.Get(), moved);
+            if (!upload_dof(*dof))
+                return moved;
+            ID3D11DeviceContext1 *c = context_.Get();
+            back_buffer_.copy_from(c, back_buffer);
+            ID3D11ShaderResourceView *const in[] = { back_buffer_.srv(), dof_depth_.srv() };
+            ID3D11RenderTargetView *const decoded[] = { dof_display_.rtv(), dof_display_depth_.rtv() };
+            draw_fullscreen(dof_display_in_ps_.Get(), in, 2, decoded, 2, back);
+            ID3D11ShaderResourceView *const focus_in[] = { dof_display_depth_.srv(), dof_focus_[dof_focus_kept_].srv(), dof_display_.srv() };
+            draw_fullscreen(dof_focus_ps_.Get(), focus_in, 3, dof_display_focus_.rtv(), one);
+            draw_dof_chain(*dof, dof_display_.srv(), dof_display_depth_.srv(), dof_display_focus_, dof_blurred_.rtv(), back);
+            ID3D11ShaderResourceView *const out_in[] = { dof_blurred_.srv(), dof_display_.srv() };
+            draw_fullscreen(dof_display_out_ps_.Get(), out_in, 2, back_buffer_.rtv(), back);
+            c->OMSetRenderTargets(0, nullptr, nullptr);
+        }
+        back_buffer_.copy_to(context_.Get(), back_buffer);
+        ran = true;
+        return moved;
     }
 
     std::optional<float> Gpu::read_dof_focus()

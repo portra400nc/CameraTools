@@ -210,6 +210,17 @@ namespace enhancements
         Mirror image;
     };
 
+    // What the display place's bloom step leaves for the back buffer: the frame's settings and camera, how its main depth is
+    // stored, and its count, which turns the gather's spiral.
+    struct DofDisplayFrame
+    {
+        DepthOfFieldSettings settings;
+        Camera camera {};
+        bool flip = true;
+        Size render;
+        uint64_t frame = 0;
+    };
+
     class Gpu
     {
     public:
@@ -296,6 +307,18 @@ namespace enhancements
             float seconds, uint64_t frame);
         // The focus distance run_depth_of_field last copied, once the GPU has it, read without waiting.
         std::optional<float> read_dof_focus();
+        // The depth of field at the bloom step in the display place: the autofocus alone, from a mirror of the main depth that
+        // run_depth_of_field_display reads later in the frame, its focus kept for it and copied for read_dof_focus. Empty
+        // when the projection has no focal length or a texture of ours failed.
+        std::optional<GameCall> run_dof_focus(const FrameMap &map, const DepthOfFieldSettings &settings, const Camera &camera, bool flip, float seconds,
+            uint64_t frame);
+        // The depth of field on the back buffer, after run_dof_focus in the same frame (shaders/dof_display.hlsli): mirror in the
+        // back buffer; decode it into dof_display_ beside the main depth at its size, upright; the autofocus there at step 0,
+        // which keeps the bloom step's focus and takes the back buffer's mean luminance; the passes run_depth_of_field runs,
+        // at the back buffer's size; encode their composite into the mirror and copy it over the back buffer. ran says whether
+        // it drew: not for a back buffer dof_display_transfer does not take, without run_dof_focus's depth of frame's size, or
+        // when a texture of ours failed. Returns the state guard's finding, null when state came back intact.
+        const char *run_depth_of_field_display(ID3D11Resource *back_buffer, const DofDisplayFrame &frame, bool &ran);
 
         // The pixel shader bound now, as the handle ReShade's pipeline events name it by, or 0.
         uint64_t bound_pixel_shader() const;
@@ -393,6 +416,15 @@ namespace enhancements
         // false when a texture of ours failed.
         bool mirror_gbuffer(const FrameMap &map, Scratch &scratch);
         bool mirror_gbuffer(const FrameMap &map);
+        // The depth of field's targets for dof's sizes, its constants uploaded at b1, and its passes from the prefilter to the
+        // composite into out at size, over scene and depth with focus's 1x1.
+        bool sync_dof_chain(const DofConstants &dof);
+        bool upload_dof(const DofConstants &dof);
+        // After the autofocus drew into dof_focus_at_'s: copies it for read_dof_focus when no copy waits, keeps it for the
+        // display place, and turns to the other for the next frame.
+        void keep_dof_focus();
+        void draw_dof_chain(const DofConstants &dof, ID3D11ShaderResourceView *scene, ID3D11ShaderResourceView *depth, const Scratch &focus,
+            ID3D11RenderTargetView *out, Size size);
 
         ComPtr<ID3D11Device> device_;
         ComPtr<ID3D11DeviceContext1> context_;
@@ -401,7 +433,7 @@ namespace enhancements
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_,
             tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
             apply_gather_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_,
-            dof_sprite_ps_, dof_lift_ps_;
+            dof_sprite_ps_, dof_lift_ps_, dof_display_in_ps_, dof_display_out_ps_;
         ComPtr<ID3D11SamplerState> point_, linear_, lit_compare_, wrap_;
         ComPtr<ID3D11Texture3D> lattice_;                   // noise_lattice(), R8_UNORM
         ComPtr<ID3D11ShaderResourceView> lattice_srv_;
@@ -453,6 +485,7 @@ namespace enhancements
         Snapshot pending_, shown_;
         Scratch dof_focus_[2];      // 1x1 R32G32_FLOAT: the focus distance in meters and the frame's mean luminance, this frame's and the last's in turn
         uint32_t dof_focus_at_ = 0; // the one this frame writes
+        uint32_t dof_focus_kept_ = 0;   // the one the last bloom step wrote, which the display place reads
         Readback dof_focus_read_;   // the focus for the status
         bool dof_focus_pending_ = false;
         Scratch dof_prefilter_;     // half size, R16G16B16A16_FLOAT: the scene and the green CoC before the scatter
@@ -467,6 +500,10 @@ namespace enhancements
         Scratch dof_far_, dof_near_, dof_far_post_, dof_near_post_;     // half size, R16G16B16A16_FLOAT: the gather's fields, the
                                                                         // far one with mips under the bokeh contrast
         Scratch dof_cover_, dof_cover_post_;    // half size, R16G16_FLOAT: the near field's red and blue coverage
+        // The display place: the main depth at the bloom step; at the back buffer's size, its decoded color (R16G16B16A16_FLOAT,
+        // with its alpha), the main depth resampled (R32_FLOAT) and the composite (R16G16B16A16_FLOAT); and the autofocus there.
+        Mirror dof_depth_;
+        Scratch dof_display_, dof_display_depth_, dof_blurred_, dof_display_focus_;
         Readback frame_hdr_, frame_depth_;  // EnhancementsSaveFrame's copies
         bool frame_pending_ = false;        // copied and not yet read
         Staging copies_[3];         // the comparison capture's two frames, and its variant's view

@@ -243,6 +243,18 @@ namespace enhancements
         float frame_seconds = 0;
         float dof_focus = 0;
 
+        // The depth of field's display place. Its bloom step leaves dof_display for the back buffer, which runs it within the
+        // frame's present: in ReShade's effects when they began for the back buffer the frame before, else at present before
+        // them. What is left at reshade_present is dropped, so a frame never takes another's depth.
+        std::optional<DofDisplayFrame> dof_display;
+        bool effects_began = false;         // reshade_begin_effects came for the back buffer since the last present
+        bool in_effects = false;            // between that and reshade_finish_effects
+        // This frame's enabled techniques in ReShade's order, and where among them it runs.
+        std::vector<uint64_t> dof_techniques;
+        DofEffectsPoint dof_point;
+        std::string dof_where;              // where it last ran, for the log
+        std::string dof_where_planned;      // where this frame plans it, for the log
+
         void log(reshade::log::level level, const std::string &message)
         {
             reshade::log::message(level, ("CameraTools Enhancements: " + message).c_str());
@@ -823,7 +835,20 @@ namespace enhancements
                         call = gpu.run_tonemap(map, settings.tonemap, grade.copied, grade.bloom);
                         break;
                     case PassId::depth_of_field:
-                        call = gpu.run_depth_of_field(map, settings.depth_of_field, camera, settings.flip, frame_seconds, frames);
+                        switch (dof_at_bloom(settings.depth_of_field.place, accumulate.mode))
+                        {
+                        case DofAtBloom::blur:
+                            call = gpu.run_depth_of_field(map, settings.depth_of_field, camera, settings.flip, frame_seconds, frames);
+                            break;
+                        case DofAtBloom::focus:
+                            call = gpu.run_dof_focus(map, settings.depth_of_field, camera, settings.flip, frame_seconds, frames);
+                            break;
+                        case DofAtBloom::defer:
+                            call = gpu.run_dof_focus(map, settings.depth_of_field, camera, settings.flip, frame_seconds, frames);
+                            if (call)
+                                dof_display = DofDisplayFrame { settings.depth_of_field, camera, settings.flip, map.render, frames };
+                            break;
+                        }
                         break;
                     case PassId::trace:
                     {
@@ -1822,11 +1847,151 @@ namespace enhancements
             status_box.put(published);
         }
 
+        // Runs the deferred depth of field on the back buffer, once; where says where, for the log, which names each new place.
+        void run_dof_display(ID3D11Resource *back_buffer, const std::string &where)
+        {
+            const DofDisplayFrame frame = *dof_display;
+            dof_display.reset();
+            bool ran = false;
+            if (const char *moved = gpu.run_depth_of_field_display(back_buffer, frame, ran))
+            {
+                trip(moved);
+                return;
+            }
+            const std::string said = ran ? where : "nowhere: the back buffer's format or a texture of ours did not allow it, " + where;
+            if (said != dof_where)
+                log(ran ? reshade::log::level::info : reshade::log::level::warning, "the depth of field ran on the back buffer " + said + ".");
+            dof_where = said;
+        }
+
+        bool on_back_buffer(effect_runtime *runtime, resource_view rtv)
+        {
+            return runtime->get_device()->get_resource_from_view(rtv) == runtime->get_current_back_buffer();
+        }
+
+        std::string effect_name_of(effect_runtime *runtime, effect_technique technique)
+        {
+            size_t size = 0;
+            runtime->get_technique_effect_name(technique, nullptr, &size);
+            std::string name(size, '\0');
+            runtime->get_technique_effect_name(technique, name.data(), &size);
+            name.resize(std::strlen(name.c_str()));
+            return name;
+        }
+
+        std::string technique_name_of(effect_runtime *runtime, effect_technique technique)
+        {
+            size_t size = 0;
+            runtime->get_technique_name(technique, nullptr, &size);
+            std::string name(size, '\0');
+            runtime->get_technique_name(technique, name.data(), &size);
+            name.resize(std::strlen(name.c_str()));
+            return name;
+        }
+
+        // Whether an effect has a texture whose binding is a depth buffer: the one ReShade binds to the DEPTH semantic, the
+        // game's own or a copy of it. An effect that includes ReShade.fxh declares that texture whether its techniques sample
+        // it or not, and ReShade's API does not say which do, so such an effect counts as reading the depth buffer.
+        bool effect_reads_depth(effect_runtime *runtime, const std::string &effect)
+        {
+            struct Search
+            {
+                device *dev;
+                bool found = false;
+            } search { runtime->get_device() };
+            runtime->enumerate_texture_variables(effect.c_str(), [](effect_runtime *rt, effect_texture_variable variable, void *user) {
+                auto &s = *static_cast<Search *>(user);
+                resource_view srv { 0 };
+                rt->get_texture_binding(variable, &srv, nullptr);
+                if (s.found || srv.handle == 0)
+                    return;
+                const resource res = s.dev->get_resource_from_view(srv);
+                if (res.handle == 0)
+                    return;
+                const resource_desc desc = s.dev->get_resource_desc(res);
+                s.found = desc.type == resource_type::texture_2d
+                    && ((desc.usage & resource_usage::depth_stencil) != 0 || dof_depth_format(static_cast<uint32_t>(desc.texture.format)));
+            }, &search);
+            return search.found;
+        }
+
+        // Before ReShade's first technique: this frame's enabled techniques in their order, and whether each reads the depth
+        // buffer, which say where the deferred depth of field runs; with none that does, it runs now.
+        void on_begin_effects(effect_runtime *runtime, command_list *, resource_view rtv, resource_view)
+        {
+            if (!on_back_buffer(runtime, rtv))
+                return;
+            effects_began = true;
+            in_effects = true;
+            dof_techniques.clear();
+            dof_point = {};
+            if (!dof_display)
+                return;
+            struct Listing
+            {
+                std::vector<effect_technique> enabled;
+            } listing;
+            if (runtime->get_effects_state())
+                runtime->enumerate_techniques(nullptr, [](effect_runtime *rt, effect_technique technique, void *user) {
+                    if (rt->get_technique_state(technique))
+                        static_cast<Listing *>(user)->enabled.push_back(technique);
+                }, &listing);
+            std::unordered_map<std::string, bool> effects;
+            std::vector<bool> reads;
+            for (const effect_technique technique : listing.enabled)
+            {
+                const std::string effect = effect_name_of(runtime, technique);
+                const auto known = effects.find(effect);
+                reads.push_back(known != effects.end() ? known->second : (effects[effect] = effect_reads_depth(runtime, effect)));
+                dof_techniques.push_back(technique.handle);
+            }
+            dof_point = dof_effects_point(reads);
+            if (!dof_point.after)
+                run_dof_display(reinterpret_cast<ID3D11Resource *>(runtime->get_current_back_buffer().handle), "before ReShade's "
+                    + std::to_string(listing.enabled.size()) + " enabled techniques, none of which reads the depth buffer");
+            else
+                dof_where_planned = "after " + technique_name_of(runtime, listing.enabled[*dof_point.after]) + " of " + effect_name_of(runtime,
+                    listing.enabled[*dof_point.after]) + ", the last of " + std::to_string(std::count(reads.begin(), reads.end(), true)) + " of ReShade's "
+                    + std::to_string(listing.enabled.size()) + " enabled techniques that read the depth buffer";
+        }
+
+        // After each technique: the deferred depth of field once the last that reads the depth buffer has rendered, or a later
+        // one when that one was skipped.
+        void on_render_technique(effect_runtime *runtime, effect_technique technique, command_list *, resource_view rtv, resource_view)
+        {
+            if (!dof_display || !in_effects || !on_back_buffer(runtime, rtv))
+                return;
+            const auto at = std::find(dof_techniques.begin(), dof_techniques.end(), technique.handle);
+            if (at == dof_techniques.end() || !dof_runs_after(dof_point, size_t(at - dof_techniques.begin())))
+                return;
+            run_dof_display(reinterpret_cast<ID3D11Resource *>(runtime->get_current_back_buffer().handle), size_t(at - dof_techniques.begin()) == *dof_point.after
+                ? dof_where_planned : "after " + technique_name_of(runtime, technique) + ", as the technique it was to follow did not render");
+        }
+
+        // After ReShade's last technique: a depth of field still waiting runs here, where its order against another add-on
+        // that saves the screenshot in this event, as CameraTools' bridge does, is the add-ons' load order.
+        void on_finish_effects(effect_runtime *runtime, command_list *, resource_view rtv, resource_view)
+        {
+            if (!on_back_buffer(runtime, rtv))
+                return;
+            in_effects = false;
+            if (dof_display)
+                run_dof_display(reinterpret_cast<ID3D11Resource *>(runtime->get_current_back_buffer().handle),
+                    "after ReShade's effects, as none of the techniques it was to follow rendered");
+        }
+
         // The frame boundary. Runs before ReShade's effects, so the frame it closes is the game's whole frame.
         void on_present(command_queue *queue, swapchain *chain, const rect *, const rect *, uint32_t, const rect *)
         {
             if (!gpu.ready() && sticky_error == ENHANCEMENTS_ERROR_NONE)
                 init(queue);
+            // ReShade drew no effects on the back buffer the frame before, so it most likely draws none on this one: the
+            // deferred depth of field runs now, before them.
+            const bool effects_expected = effects_began;
+            effects_began = false;
+            if (dof_display && !effects_expected && gpu.ready() && sticky_error == ENHANCEMENTS_ERROR_NONE)
+                run_dof_display(reinterpret_cast<ID3D11Resource *>(chain->get_current_back_buffer().handle),
+                    "at present, before ReShade's effects, which drew nothing on the back buffer the frame before");
 
             frames++;
             presents.store(frames, std::memory_order_relaxed);
@@ -1938,6 +2103,8 @@ namespace enhancements
         // After ReShade's effects: the debug view goes on top of everything, except during a comparison capture.
         void on_reshade_present(effect_runtime *runtime)
         {
+            dof_display.reset();
+            in_effects = false;
             if (!armed.load(std::memory_order_relaxed) || capture)
                 return;
             const resource back_buffer = runtime->get_current_back_buffer();
@@ -1978,6 +2145,7 @@ namespace enhancements
                 return;
             armed.store(false, std::memory_order_relaxed);
             gpu = Gpu {};
+            dof_display.reset();
             immediate = nullptr;
             accumulator = {};
             depth_copy.reset();
@@ -2141,6 +2309,9 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
             return FALSE;
         reshade::register_event<reshade::addon_event::present>(on_present);
         reshade::register_event<reshade::addon_event::reshade_present>(on_reshade_present);
+        reshade::register_event<reshade::addon_event::reshade_begin_effects>(on_begin_effects);
+        reshade::register_event<reshade::addon_event::reshade_render_technique>(on_render_technique);
+        reshade::register_event<reshade::addon_event::reshade_finish_effects>(on_finish_effects);
         reshade::register_event<reshade::addon_event::bind_render_targets_and_depth_stencil>(on_bind_render_targets);
         reshade::register_event<reshade::addon_event::clear_render_target_view>(on_clear_rtv);
         reshade::register_event<reshade::addon_event::draw>(on_draw);
