@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 14
+#define ENHANCEMENTS_VERSION 15
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -345,6 +345,19 @@ typedef struct EnhancementsGather
     float hit_ambient;          // the share of the game's ambient light a hit surface gets; default 0.5, clamped to 0..1
 } EnhancementsGather;
 
+// Where the depth of field blurs the picture, values of EnhancementsDepthOfField.place.
+enum
+{
+    ENHANCEMENTS_DOF_PLACE_SCENE = 0,  // in the HDR scene at the bloom step, before the game's bloom and tone map and ReShade's effects
+    ENHANCEMENTS_DOF_PLACE_DISPLAY,    // on the back buffer ReShade's effects draw into, decoded to linear light: right after the last
+                                    // enabled technique that reads the depth buffer, or before the first when none does, or at
+                                    // present when ReShade drew no effects the frame before; from the frame's own depth at the bloom
+                                    // step, where only the autofocus runs. While the accumulator adds, it does not blur at all. So
+                                    // effects such as RTGI see the sharp frame, and a screenshot ReShade saves after its effects
+                                    // has the blur. It blurs whatever the game drew over the scene too, its HUD among it
+    ENHANCEMENTS_DOF_PLACE_COUNT,
+};
+
 // Depth of field from the depth buffer in one frame: at the bloom step, after the light shafts, each point of the HDR
 // scene spreads into its circle of confusion, shaped like the aperture, with spherical aberration's light across it,
 // before the game's bloom and tone map read the scene, so highlights become bright discs. The focal length comes from the
@@ -383,6 +396,7 @@ typedef struct EnhancementsDepthOfField
     float bokeh_contrast;       // how much what stands out of its own surroundings, a grass tip or a leaf's glint, outweighs
                                 // them behind focus, so it blurs into a disc as a real lens's would; each place keeps its
                                 // light. 0 keeps every source's own light; default 0, clamped to 0..2
+    uint32_t place;             // ENHANCEMENTS_DOF_PLACE_*; unknown values read as SCENE, the default
 } EnhancementsDepthOfField;
 
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller

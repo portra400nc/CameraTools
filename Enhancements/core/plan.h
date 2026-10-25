@@ -132,6 +132,8 @@ namespace enhancements
         float hit_ambient = 0.5f;
     };
 
+    enum class DofPlace : uint8_t { scene, display, count };   // ENHANCEMENTS_DOF_PLACE_*
+
     // EnhancementsDepthOfField's.
     struct DepthOfFieldSettings
     {
@@ -155,6 +157,7 @@ namespace enhancements
         float highlight_gain = 2;               // 0: highlights keep their own light
         bool scatter = false;                   // highlights drawn as sprites
         float bokeh_contrast = 0;                // 0: sources keep their own light in the far field
+        DofPlace place = DofPlace::scene;
     };
 
     // Every value in range: non-finite floats take the default, the rest clamp, and 1 to 4 blades read as 5.

@@ -153,6 +153,10 @@ namespace CameraToolsEnhancements
         public float HitAmbient;
     }
 
+    // ENHANCEMENTS_DOF_PLACE_* in enhancements.h: in the HDR scene at the bloom step, or on the back buffer after the ReShade
+    // effects that read the depth buffer.
+    internal enum EnhancementsDofPlace : uint { Scene, Display }
+
     // EnhancementsDepthOfField in enhancements.h, field for field; focus_point is FocusX and FocusY.
     [StructLayout(LayoutKind.Sequential)]
     internal struct EnhancementsDepthOfField
@@ -177,6 +181,7 @@ namespace CameraToolsEnhancements
         public float HighlightGain;         // 0: highlights keep their own light
         public uint Scatter;                // 1: highlights drawn as sprites of their disc
         public float BokehContrast;         // 0: sources keep their own light behind focus
+        public EnhancementsDofPlace Place;
     }
 
     // EnhancementsSettings in enhancements.h, field for field.
@@ -368,7 +373,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 14;
+        private const uint Version = 15;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

@@ -458,6 +458,62 @@ int main(int argc, char **argv)
             && near(lamp.green(grown, 641, 401), 0.590820f) && near(lamp.green(render(lamp, lens_at2(2, 2, 0, 0)), 641, 401), 0.230591f));
     }
 
+    // The display place.
+    check("at the bloom step the scene place blurs, and the display place runs the autofocus, keeping the depth for the display "
+          "unless the accumulator adds",
+        dof_at_bloom(DofPlace::scene, AccumulateMode::add) == DofAtBloom::blur && dof_at_bloom(DofPlace::scene, AccumulateMode::off) == DofAtBloom::blur
+            && dof_at_bloom(DofPlace::display, AccumulateMode::off) == DofAtBloom::defer
+            && dof_at_bloom(DofPlace::display, AccumulateMode::present) == DofAtBloom::defer
+            && dof_at_bloom(DofPlace::display, AccumulateMode::add) == DofAtBloom::focus);
+    const DofEffectsPoint after_rtgi = dof_effects_point({ false, true, false, true, false });
+    check("among five techniques where the second and fourth read the depth buffer, it runs after the fourth, or after the fifth when "
+          "the fourth was skipped, and not after the first three",
+        after_rtgi.after == std::optional<size_t>(3) && !dof_runs_after(after_rtgi, 0) && !dof_runs_after(after_rtgi, 2)
+            && dof_runs_after(after_rtgi, 3) && dof_runs_after(after_rtgi, 4));
+    const DofEffectsPoint none_read = dof_effects_point({ false, false });
+    check("with no technique that reads the depth buffer, or none at all, it runs before the first", !none_read.after && !dof_effects_point({}).after
+        && !dof_runs_after(none_read, 0) && !dof_runs_after(none_read, 1));
+    check("8-bit and 10-bit back buffers are sRGB in either view, 16-bit float ones linear, and 32-bit float ones are not taken",
+        dof_display_transfer(28) == DofTransfer::srgb && dof_display_transfer(29) == DofTransfer::srgb && dof_display_transfer(87) == DofTransfer::srgb
+            && dof_display_transfer(91) == DofTransfer::srgb && dof_display_transfer(24) == DofTransfer::srgb
+            && dof_display_transfer(10) == DofTransfer::linear && !dof_display_transfer(2));
+    check("D32S8, D24S8, D32 and D16 and their views are depth formats; R32 and R16 typeless, R32F and RGBA8 are not", dof_depth_format(19)
+        && dof_depth_format(20) && dof_depth_format(21) && dof_depth_format(45) && dof_depth_format(47) && dof_depth_format(40) && dof_depth_format(55)
+        && !dof_depth_format(39) && !dof_depth_format(53) && !dof_depth_format(41) && !dof_depth_format(28));
+    check("the sRGB curve takes 0.5 to 0.214041 and back, and 0.02 to 0.001548", near(dof_srgb_decode(0.5f), 0.214041f, 1e-6f)
+        && near(dof_srgb_encode(0.214041f), 0.5f, 1e-6f) && near(dof_srgb_decode(0.02f), 0.00154799f, 1e-7f));
+    {
+        const Scene focused(2);
+        const DepthOfFieldSettings shallow = lens_at(2, 2, 0);
+        const std::optional<DofConstants> c = dof_display_constants(shallow, focused.camera, { 1280, 800 }, { 640, 400 }, true, DofTransfer::srgb, 3);
+        check("the display's constants: the chain at the back buffer's 1280x800, upright, the autofocus's step 0, and the main depth's "
+              "640x400 stored upside down with sRGB", c && c->counts[1] == 1280 && c->counts[2] == 800 && c->sampling[2] == -1 && c->focus[3] == 0
+            && c->focus[2] == 0.5f && c->display[0] == 640 && c->display[1] == 400 && c->display[2] == 1 && c->display[3] == 1);
+        // Every 8-bit level across the picture, all of it on the focus plane: the depth of field changes no pixel.
+        std::vector<float> back(size_t(1280) * 800 * 3);
+        for (size_t i = 0; i < back.size() / 3; i++)
+            for (int k = 0; k < 3; k++)
+                back[i * 3 + k] = float((i % 1280 + k * 85) % 256) / 255;
+        const std::vector<float> on_plane(size_t(640) * 400, focused.reversed(2));
+        const DofOutput sharp = render_dof_display(back, on_plane, *c, 0);
+        uint32_t moved = 0;
+        for (size_t i = 0; i < back.size(); i++)
+            moved += std::lround(sharp.rgb[i] * 255) != std::lround(back[i] * 255) ? 1 : 0;
+        check("a back buffer on the focus plane comes back level for level through the sRGB curve and R16F", moved == 0 && sharp.nonfinite == 0);
+        // Stripes 4 pixels wide, black and white; the main depth's stored rows 200 to 399, the picture's top half, 30 m away.
+        std::vector<float> depth = on_plane;
+        for (size_t i = size_t(640) * 200; i < depth.size(); i++)
+            depth[i] = focused.reversed(30);
+        for (size_t i = 0; i < back.size() / 3; i++)
+            for (int k = 0; k < 3; k++)
+                back[i * 3 + k] = (i % 1280) / 4 % 2 == 0 ? 0.0f : 1.0f;
+        const DofOutput split = render_dof_display(back, depth, *c, 0);
+        const auto green = [&split](uint32_t x, uint32_t y) { return split.rgb[(size_t(y) * 1280 + x) * 3 + 1]; };
+        check("the main depth comes upright: the far top's stripes blur to gray, 0.7205 and 0.7481 on a black and a white stripe "
+              "where sRGB's middle gray is 0.7354, while the bottom's on the focus plane stay black and white",
+            near(green(641, 100), 0.7205f, 0.002f) && near(green(645, 100), 0.7481f, 0.002f) && green(641, 700) == 0 && near(green(645, 700), 1, 1e-6f));
+    }
+
     FrameSave frame;
     frame.size = { 3, 2 };
     frame.flip = true;

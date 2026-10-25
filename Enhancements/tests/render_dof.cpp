@@ -14,6 +14,8 @@
 // sa (spherical aberration), cat_eye, swirl, anamorphic, chromatic, samples, threshold and gain (the highlights'),
 // scatter (0 or 1) and contrast (the bokeh contrast);
 // and frames (frames averaged, each with the frame's own turn of the spiral, as the accumulator averages a paused shot),
+// display (1: the display place, as a screenshot runs it after ReShade's effects: the frame through the tone curve into an
+// 8-bit sRGB back buffer, which render_dof_display decodes, blurs and encodes; 0, the default, the scene place in HDR),
 // exposure (0.985, the census's), and crop (x,y,w,h in the picture's pixels from the top left) with zoom (a whole number)
 // to write a magnified part; mm sets the sensor that gives that focal length on the frame's projection where a full-frame
 // diagonal's readout (sensor 22.95) gives sensor_height / 2 P11. Exits with 3 when a half-float target held infinity or NaN
@@ -660,6 +662,7 @@ int main(int argc, char **argv)
     DepthOfFieldSettings settings;
     settings.enabled = true;
     uint32_t frames = 1;
+    bool display = false;
     float exposure = 0.985f;
     int crop[4] = { 0, 0, int(frame->size.width), int(frame->size.height) };
     int zoom = 1;
@@ -670,6 +673,8 @@ int main(int argc, char **argv)
         const std::string key = arg.substr(0, eq), value = eq == std::string::npos ? "" : arg.substr(eq + 1);
         if (key == "frames")
             frames = std::max(1, std::atoi(value.c_str()));
+        else if (key == "display")
+            display = std::atoi(value.c_str()) != 0;
         else if (key == "exposure")
             exposure = std::strtof(value.c_str(), nullptr);
         else if (key == "zoom")
@@ -684,19 +689,34 @@ int main(int argc, char **argv)
     }
     settings = clamp_depth_of_field(settings);
     const DofImage image = image_of(*frame);
+    const uint32_t w = frame->size.width, h = frame->size.height;
+    // The display place's back buffer: the frame through the tone curve, quantized to 8 bits, upright.
+    std::vector<float> back;
+    if (display)
+    {
+        back.resize(image.rgb.size());
+        for (uint32_t y = 0; y < h; y++)
+            for (uint32_t x = 0; x < w; x++)
+                for (int c = 0; c < 3; c++)
+                    back[(size_t(y) * w + x) * 3 + c] = std::round(tone(image.rgb[(size_t(frame->flip ? h - 1 - y : y) * w + x) * 3 + c], exposure) * 255) / 255;
+    }
     const auto start = std::chrono::steady_clock::now();
+    // What the picture shows, 0 to 1 a channel, upright: the scene place's average through the tone curve, or the display
+    // place's encoded average.
     std::vector<float> sum(image.rgb.size(), 0.0f);
     float focus = 0, luminance = 0;
     uint32_t sprites[2] = {}, nonfinite = 0;
     for (uint32_t f = 0; f < frames; f++)
     {
-        const std::optional<DofConstants> constants = dof_constants(settings, frame->camera, frame->size, frame->flip, 0, f);
+        const std::optional<DofConstants> constants = display
+            ? dof_display_constants(settings, frame->camera, frame->size, frame->size, frame->flip, DofTransfer::srgb, f)
+            : dof_constants(settings, frame->camera, frame->size, frame->flip, 0, f);
         if (!constants)
         {
             std::fprintf(stderr, "the frame's projection does not invert\n");
             return 1;
         }
-        const DofOutput out = render_dof(image, *constants, focus);
+        const DofOutput out = display ? render_dof_display(back, frame->depth, *constants, focus) : render_dof(image, *constants, focus);
         focus = out.focus;
         luminance = out.luminance;
         sprites[0] = out.sprites[0];
@@ -706,7 +726,14 @@ int main(int argc, char **argv)
             sum[i] += out.rgb[i] / frames;
     }
     const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
-    const uint32_t w = frame->size.width, h = frame->size.height;
+    std::vector<float> shown(sum.size());
+    for (uint32_t y = 0; y < h; y++)
+        for (uint32_t x = 0; x < w; x++)
+            for (int c = 0; c < 3; c++)
+            {
+                const size_t to = (size_t(y) * w + x) * 3 + c;
+                shown[to] = display ? sum[to] : tone(sum[(size_t(frame->flip ? h - 1 - y : y) * w + x) * 3 + c], exposure);
+            }
     crop[0] = std::clamp(crop[0], 0, int(w) - 1);
     crop[1] = std::clamp(crop[1], 0, int(h) - 1);
     crop[2] = std::clamp(crop[2], 1, int(w) - crop[0]);
@@ -716,10 +743,9 @@ int main(int argc, char **argv)
     for (uint32_t y = 0; y < oh; y++)
         for (uint32_t x = 0; x < ow; x++)
         {
-            const uint32_t px = crop[0] + x / zoom, py = crop[1] + y / zoom;
-            const size_t at = (size_t(frame->flip ? h - 1 - py : py) * w + px) * 3;
+            const size_t at = (size_t(crop[1] + y / zoom) * w + crop[0] + x / zoom) * 3;
             for (int c = 0; c < 3; c++)
-                rgb[(size_t(y) * ow + x) * 3 + c] = static_cast<uint8_t>(tone(sum[at + c], exposure) * 255 + 0.5f);
+                rgb[(size_t(y) * ow + x) * 3 + c] = static_cast<uint8_t>(std::clamp(shown[at + c], 0.0f, 1.0f) * 255 + 0.5f);
         }
     std::ofstream(argv[2], std::ios::binary) << encode_png(rgb.data(), ow, oh);
     double energy = 0;

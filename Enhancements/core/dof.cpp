@@ -16,7 +16,7 @@
 
 namespace enhancements::shader
 {
-    thread_local float4 dof_optics, dof_focus, dof_depth, dof_shape, dof_lens, dof_bokeh, dof_sampling, dof_highlight, dof_contrast;
+    thread_local float4 dof_optics, dof_focus, dof_depth, dof_shape, dof_lens, dof_bokeh, dof_sampling, dof_highlight, dof_contrast, dof_display;
     thread_local uint4 dof_sizes, dof_counts;
 
     // The images the passes read on this thread, as the shaders' textures hold them.
@@ -34,6 +34,11 @@ namespace enhancements::shader
         // The lifted source's levels (dof_lift), and the gather's far field's, which the post-filter reads.
         std::vector<std::vector<float4>> lifted, far_levels;
         std::vector<uint2> lifted_sizes, far_sizes;
+        // The display place's ends: the back buffer's values, rgb a pixel and alpha 1, and the main depth as stored, at
+        // dof_display's size; then dof_display_in's color and the composite's, at the back buffer's.
+        const std::vector<float> *back = nullptr, *main_depth = nullptr;
+        std::vector<float4> display;
+        std::vector<float> blurred;
     };
     thread_local const DofTextures *textures = nullptr;
 
@@ -105,6 +110,19 @@ namespace enhancements::shader
     float2 dof_load_cover(int2 p) { return textures->cover[at(p, half_size())]; }
     float4 dof_sample_far(float2 position, float lod) { return sample_levels(textures->far_levels, textures->far_sizes, position, lod); }
 
+    float4 dof_load_back(int2 p)
+    {
+        const float *c = &(*textures->back)[at(p, render_size()) * 3];
+        return { c[0], c[1], c[2], 1.0f };
+    }
+    float dof_load_main_depth(int2 p) { return (*textures->main_depth)[at(p, { uint(dof_display.x), uint(dof_display.y) })]; }
+    float4 dof_load_display(int2 p) { return textures->display[at(p, render_size())]; }
+    float3 dof_load_blurred(int2 p)
+    {
+        const float *c = &textures->blurred[at(p, render_size()) * 3];
+        return { c[0], c[1], c[2] };
+    }
+
 #define DOF_FOCUS
 #define DOF_PREFILTER
 #define DOF_SCATTER
@@ -118,6 +136,9 @@ namespace enhancements::shader
 #define LOOP
 #define UNROLL
 #include "../shaders/dof.hlsli"
+#define DOF_DISPLAY_IN
+#define DOF_DISPLAY_OUT
+#include "../shaders/dof_display.hlsli"
 #undef UNROLL
 #undef LOOP
 
@@ -478,6 +499,7 @@ namespace enhancements
             shader::dof_sampling = f4(c.sampling);
             shader::dof_highlight = f4(c.highlight);
             shader::dof_contrast = f4(c.contrast);
+            shader::dof_display = f4(c.display);
             shader::dof_sizes = { c.sizes[0], c.sizes[1], c.sizes[2], c.sizes[3] };
             shader::dof_counts = { c.counts[0], c.counts[1], c.counts[2], c.counts[3] };
         }
@@ -627,6 +649,108 @@ namespace enhancements
         for (const float v : out.rgb)
             out.nonfinite += std::isfinite(v) ? 0 : 1;
         textures = nullptr;
+        return out;
+    }
+
+    DofAtBloom dof_at_bloom(DofPlace place, AccumulateMode accumulate)
+    {
+        if (place == DofPlace::scene)
+            return DofAtBloom::blur;
+        return accumulate == AccumulateMode::add ? DofAtBloom::focus : DofAtBloom::defer;
+    }
+
+    DofEffectsPoint dof_effects_point(const std::vector<bool> &reads_depth)
+    {
+        for (size_t i = reads_depth.size(); i-- > 0;)
+            if (reads_depth[i])
+                return { i };
+        return {};
+    }
+
+    bool dof_runs_after(const DofEffectsPoint &point, size_t rendered) { return point.after && rendered >= *point.after; }
+
+    std::optional<DofTransfer> dof_display_transfer(uint32_t format)
+    {
+        switch (format)
+        {
+        case 23: case 24:                   // R10G10B10A2_TYPELESS, _UNORM
+        case 27: case 28: case 29:          // R8G8B8A8_TYPELESS, _UNORM, _UNORM_SRGB
+        case 87: case 88: case 90: case 91: case 92: case 93:  // B8G8R8A8_UNORM, B8G8R8X8_UNORM, their TYPELESS and _UNORM_SRGB
+            return DofTransfer::srgb;
+        case 9: case 10:                    // R16G16B16A16_TYPELESS, _FLOAT: scRGB
+            return DofTransfer::linear;
+        default:
+            return std::nullopt;
+        }
+    }
+
+    bool dof_depth_format(uint32_t format)
+    {
+        switch (format)
+        {
+        case 19: case 20: case 21: case 22:     // R32G8X24_TYPELESS, D32_FLOAT_S8X24_UINT and its two views
+        case 44: case 45: case 46: case 47:     // R24G8_TYPELESS, D24_UNORM_S8_UINT and its two views
+        case 40: case 55:                       // D32_FLOAT, D16_UNORM
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    float dof_srgb_decode(float v) { return shader::dof_srgb_to_linear(v); }
+    float dof_srgb_encode(float c) { return shader::dof_linear_to_srgb(c); }
+
+    std::optional<DofConstants> dof_display_constants(const DepthOfFieldSettings &settings, const Camera &camera, Size back, Size main, bool main_flip,
+        DofTransfer transfer, uint64_t frame)
+    {
+        std::optional<DofConstants> c = dof_constants(settings, camera, back, false, 0, frame);
+        if (!c || main.width == 0 || main.height == 0)
+            return std::nullopt;
+        c->focus[3] = 0;
+        c->display[0] = float(main.width);
+        c->display[1] = float(main.height);
+        c->display[2] = main_flip ? 1.0f : 0.0f;
+        c->display[3] = transfer == DofTransfer::srgb ? 1.0f : 0.0f;
+        return c;
+    }
+
+    DofOutput render_dof_display(const std::vector<float> &back, const std::vector<float> &main_depth, const DofConstants &c, float previous_focus)
+    {
+        using namespace shader;
+        DofTextures t;
+        t.back = &back;
+        t.main_depth = &main_depth;
+        const uint32_t width = c.counts[1], height = c.counts[2];
+        DofImage image;
+        image.size = { width, height };
+        image.depth.resize(size_t(width) * height);
+        t.display.resize(image.depth.size());
+        draw(width, height, c, t, [&](uint32_t x, uint32_t y) {
+            const DofDisplayIn d = dof_display_in(int2(int(x), int(y)));
+            t.display[size_t(y) * width + x] = d.color;
+            image.depth[size_t(y) * width + x] = d.depth;
+        });
+        uint32_t nonfinite = store_half(t.display);
+        image.rgb.resize(image.depth.size() * 3);
+        for (size_t i = 0; i < t.display.size(); i++)
+        {
+            image.rgb[i * 3] = t.display[i].x;
+            image.rgb[i * 3 + 1] = t.display[i].y;
+            image.rgb[i * 3 + 2] = t.display[i].z;
+        }
+        DofOutput out = render_dof(image, c, previous_focus);
+        for (float &v : out.rgb)
+            v = half_stored(v);
+        t.blurred = std::move(out.rgb);
+        out.rgb.assign(t.blurred.size(), 0.0f);
+        draw(width, height, c, t, [&](uint32_t x, uint32_t y) {
+            const float4 v = dof_display_out(int2(int(x), int(y)));
+            float *o = &out.rgb[(size_t(y) * width + x) * 3];
+            o[0] = v.x;
+            o[1] = v.y;
+            o[2] = v.z;
+        });
+        out.nonfinite += nonfinite;
         return out;
     }
 }

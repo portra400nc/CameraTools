@@ -1142,15 +1142,21 @@ int main()
     }
     {
         EnhancementsSettings raw = raw_settings();
-        raw.depth_of_field = { 1, 1.4f, 36, 3, { 0.25f, 0.75f }, 0.5f, 0.05f, 7, 0.2f, 15, 1, 0.6f, 0.3f, 1.33f, 1, 256, 3, 1.5f, 1, 0.75f };
+        raw.depth_of_field = { 1, 1.4f, 36, 3, { 0.25f, 0.75f }, 0.5f, 0.05f, 7, 0.2f, 15, 1, 0.6f, 0.3f, 1.33f, 1, 256, 3, 1.5f, 1, 0.75f, 1 };
         const DepthOfFieldSettings whole = parse_settings(raw).depth_of_field;
-        check("a whole 320-byte struct reads the depth of field: on, f/1.4 on a 36 mm sensor focused at 3 m, its point, speed, blur, 7 blades, "
-              "highlights from 3 times the mean at gain 1.5, scatter, bokeh contrast 0.75 and the rest",
-            sizeof raw == 320 && whole.scatter && whole.bokeh_contrast == 0.75f && whole.enabled && whole.f_number == 1.4f && whole.sensor_height_mm == 36 && whole.focus_distance == 3
+        check("a whole 324-byte struct reads the depth of field: on, f/1.4 on a 36 mm sensor focused at 3 m, its point, speed, blur, 7 blades, "
+              "highlights from 3 times the mean at gain 1.5, scatter, bokeh contrast 0.75, on the display, and the rest",
+            sizeof raw == 324 && whole.place == DofPlace::display && whole.scatter && whole.bokeh_contrast == 0.75f && whole.enabled && whole.f_number == 1.4f && whole.sensor_height_mm == 36 && whole.focus_distance == 3
                 && whole.focus_point[0] == 0.25f && whole.focus_point[1] == 0.75f && whole.focus_speed == 0.5f && whole.max_blur == 0.05f
                 && whole.blades == 7 && whole.blade_roundness == 0.2f && whole.blade_rotation == 15 && whole.spherical_aberration == 1
                 && whole.cat_eye == 0.6f && whole.swirl == 0.3f && whole.anamorphic == 1.33f && whole.chromatic == 1 && whole.samples == 256
                 && whole.highlight_threshold == 3 && whole.highlight_gain == 1.5f);
+        raw.size = 320;     // a caller of version 14
+        const DepthOfFieldSettings fourteen = parse_settings(raw).depth_of_field;
+        check("a 320-byte struct reads the bokeh contrast but keeps the place in the scene", fourteen.bokeh_contrast == 0.75f && fourteen.place == DofPlace::scene);
+        raw.size = sizeof raw;
+        raw.depth_of_field.place = 7;
+        check("an unknown place reads as the scene", parse_settings(raw).depth_of_field.place == DofPlace::scene);
         raw.size = 316;     // a caller of version 13
         const DepthOfFieldSettings thirteen = parse_settings(raw).depth_of_field;
         check("a 316-byte struct reads the scatter but keeps the bokeh contrast off", thirteen.scatter && thirteen.bokeh_contrast == 0);
@@ -1170,7 +1176,7 @@ int main()
                 && before.focus_point[1] == 0.5f && before.focus_speed == 0.9f && before.max_blur == 0.03f && before.blades == 0
                 && before.spherical_aberration == 0.6f && before.anamorphic == 1 && before.chromatic == 0 && before.samples == 49);
         raw.size = sizeof raw;
-        raw.depth_of_field = { 1, 0, 1, -5, { -1, 2 }, 5, 1, 2, -1, 1000, -3, 7, -1, 0.1f, 9, 0, 0.5f, -1, 7, 3 };
+        raw.depth_of_field = { 1, 0, 1, -5, { -1, 2 }, 5, 1, 2, -1, 1000, -3, 7, -1, 0.1f, 9, 0, 0.5f, -1, 7, 3, 0 };
         const DepthOfFieldSettings low = parse_settings(raw).depth_of_field;
         check("the depth of field clamps: f/0 to f/1, a 1 mm sensor to 4, focus -5 to autofocus, the point into the picture, speed 5 to 0.999, "
               "blur 1 to 0.1, 2 blades to 5, rotation 1000 to 360, aberration -3 to -1, anamorphic 0.1 to 0.5, chromatic 9 to 5, 0 samples to 9, threshold 0.5 to 1, gain -1 to 0, bokeh contrast 3 to 2",
@@ -1178,7 +1184,7 @@ int main()
                 && low.focus_speed == 0.999f && low.max_blur == 0.1f && low.blades == 5 && low.blade_roundness == 0 && low.blade_rotation == 360
                 && low.spherical_aberration == -1 && low.cat_eye == 1 && low.swirl == 0 && low.anamorphic == 0.5f && low.chromatic == 5 && low.samples == 9
                 && low.highlight_threshold == 1 && low.highlight_gain == 0 && low.scatter && low.bokeh_contrast == 2);
-        raw.depth_of_field = { 1, NAN, INFINITY, NAN, { NAN, NAN }, NAN, NAN, 99, NAN, NAN, NAN, NAN, NAN, NAN, NAN, 5000, NAN, INFINITY, 1, NAN };
+        raw.depth_of_field = { 1, NAN, INFINITY, NAN, { NAN, NAN }, NAN, NAN, 99, NAN, NAN, NAN, NAN, NAN, NAN, NAN, 5000, NAN, INFINITY, 1, NAN, 0 };
         const DepthOfFieldSettings bad = parse_settings(raw).depth_of_field;
         check("NaN and infinities fall back to the defaults, 99 blades to 16 and 5000 samples to 1089", bad.f_number == 2.8f && bad.sensor_height_mm == 24
             && bad.focus_point[0] == 0.5f && bad.focus_speed == 0.9f && bad.max_blur == 0.03f && bad.blades == 16 && bad.spherical_aberration == 0.6f
@@ -1240,7 +1246,7 @@ int main()
     }
     {
         check("disabled settings want no step", wanted_steps(view_only(ENHANCEMENTS_VIEW_HDR_SCENE)).bits != 0
-            && wanted_steps(parse_settings(EnhancementsSettings { sizeof(EnhancementsSettings), 0, ENHANCEMENTS_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 8 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 2 }, { 1, 1, 1, 1, 1, 1 }, { 1, 2, 24, 0, { 0.5f, 0.5f }, 0, 0.03f, 0, 0, 0, 0, 0, 0, 1, 0, 49, 2, 2, 1, 1 } })).empty());
+            && wanted_steps(parse_settings(EnhancementsSettings { sizeof(EnhancementsSettings), 0, ENHANCEMENTS_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 8 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 2 }, { 1, 1, 1, 1, 1, 1 }, { 1, 2, 24, 0, { 0.5f, 0.5f }, 0, 0.03f, 0, 0, 0, 0, 0, 0, 1, 0, 49, 2, 2, 1, 1, 0 } })).empty());
     }
     {
         // A traced shot over the applied settings.
@@ -1278,10 +1284,10 @@ int main()
             && (shot = { sizeof shot, 0, 64, 100 }, !with_shot(on, parse_shot(&shot)).trace.enabled));
         // The status as a caller of each version reads it: it gets the bytes of its own size.
         check("the status is 152 bytes: the restarts at 132, in a version 9 caller's padding, their reason at 136, the shot at 140, the saved frames "
-              "at 144 and the focus at 148, and the shot is 16, in version 14",
+              "at 144 and the focus at 148, and the shot is 16, in version 15",
             sizeof(EnhancementsStatus) == 152 && offsetof(EnhancementsStatus, trace_light) == 128 && offsetof(EnhancementsStatus, trace_restarts) == 132
             && offsetof(EnhancementsStatus, trace_restart_reason) == 136 && offsetof(EnhancementsStatus, shot_active) == 140
-            && offsetof(EnhancementsStatus, frames_saved) == 144 && offsetof(EnhancementsStatus, dof_focus_meters) == 148 && sizeof(EnhancementsShot) == 16 && ENHANCEMENTS_VERSION == 14);
+            && offsetof(EnhancementsStatus, frames_saved) == 144 && offsetof(EnhancementsStatus, dof_focus_meters) == 148 && sizeof(EnhancementsShot) == 16 && ENHANCEMENTS_VERSION == 15);
     }
     {
         // Unity's GL.GetGPUProjectionMatrix for a 60 degree, 16:10 camera with near 0.1 and far 1000, reversed Z.

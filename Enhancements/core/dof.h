@@ -100,7 +100,7 @@ namespace enhancements
     // The folder back. Empty, with why, when a file is missing or of the wrong size.
     std::optional<FrameSave> read_frame_folder(const std::filesystem::path &folder, std::string &why);
 
-    // shaders/dof.cbuffer.hlsli's cbuffer Dof at b1: 176 bytes.
+    // shaders/dof.cbuffer.hlsli's cbuffer Dof at b1: 192 bytes.
     struct DofConstants
     {
         float optics[4];    // focal length in mm, f-number, half-size pixels per mm of sensor, largest CoC radius in half-size pixels
@@ -115,8 +115,10 @@ namespace enhancements
         float highlight[4]; // the highlights' threshold over the frame's mean luminance, gain, the sprites a field may draw (0: no
                             // scatter), and the near field's first slot in the sprites' buffer
         float contrast[4];  // the bokeh contrast's lift's power (0: off), and the share of the light it may move
+        float display[4];   // on the display: the main depth's size, 1 when its rows run up the screen, 1 when the back buffer holds
+                            // sRGB-encoded values (0: linear); all 0 in the scene
     };
-    static_assert(sizeof(DofConstants) == 176);
+    static_assert(sizeof(DofConstants) == 192);
 
     // Pixels a tile holds along each side of the half-size picture; shaders/dof.hlsli's tiles say the same.
     constexpr uint32_t kDofTile = 8;
@@ -162,4 +164,50 @@ namespace enhancements
     // in row order, where the GPU's take them in the order its threads come. Every half-float target is rounded as R16F
     // stores it, overflow to infinity included.
     DofOutput render_dof(const DofImage &image, const DofConstants &constants, float previous_focus);
+
+    // What the depth of field's pass does at the bloom step.
+    enum class DofAtBloom : uint8_t
+    {
+        blur,       // the whole chain in the HDR scene: the scene place
+        focus,      // the autofocus only: the display place while the accumulator adds, whose frames are never shown
+        defer,      // the autofocus and a copy of the main depth, for the display's chain later in the frame
+    };
+    DofAtBloom dof_at_bloom(DofPlace place, AccumulateMode accumulate);
+
+    // Where in ReShade's effects a deferred depth of field runs, given whether each enabled technique, in the order ReShade
+    // renders them, reads the depth buffer: after the last that does, or, empty, before the first.
+    struct DofEffectsPoint
+    {
+        std::optional<size_t> after;
+    };
+    DofEffectsPoint dof_effects_point(const std::vector<bool> &reads_depth);
+
+    // Whether it runs once the technique of index rendered in that order has rendered: the planned one, or a later one when
+    // the planned one was skipped this frame, as a technique disabled in screenshots is.
+    bool dof_runs_after(const DofEffectsPoint &point, size_t rendered);
+
+    // How a back buffer of a DXGI format holds its color: sRGB-encoded (8-bit and 10-bit UNORM, through either of the views
+    // ReShade draws with) or linear (16-bit float, scRGB). Empty for a format the display place does not take.
+    enum class DofTransfer : uint8_t { srgb, linear };
+    std::optional<DofTransfer> dof_display_transfer(uint32_t dxgi_format);
+
+    // Whether a DXGI format is a depth-stencil format or a view of one, which only a depth buffer has: what a ReShade texture
+    // bound to the depth buffer shows, and no effect's own texture can have.
+    bool dof_depth_format(uint32_t dxgi_format);
+
+    // shaders/dof_display.hlsli's sRGB curve and its inverse.
+    float dof_srgb_decode(float v);
+    float dof_srgb_encode(float c);
+
+    // The constants of the display place: dof_constants at the back buffer's size, upright, with the autofocus's step 0 so
+    // its pass there keeps the bloom step's focus and takes the back buffer's mean luminance, and display for
+    // dof_display.hlsli: the main depth's size and orientation, and the transfer.
+    std::optional<DofConstants> dof_display_constants(const DepthOfFieldSettings &settings, const Camera &camera, Size back, Size main, bool main_flip,
+        DofTransfer transfer, uint64_t frame);
+
+    // The display place as the GPU runs it: back holds the back buffer's values, rgb a pixel, upright, at the constants'
+    // size, and main_depth the main depth as stored at the display row's size. dof_display_in, render_dof over its color
+    // stored as R16F and its depth, and dof_display_out over the composite stored as R16F. rgb holds the encoded result.
+    DofOutput render_dof_display(const std::vector<float> &back, const std::vector<float> &main_depth, const DofConstants &constants, float previous_focus);
 }
+
