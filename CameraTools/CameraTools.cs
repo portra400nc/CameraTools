@@ -122,6 +122,7 @@ namespace CameraTools
             ReShade.Update();
             CameraToolsEnhancements.Enhancements.Update();
             EnhancementsControl.Update();
+            FrameSaveRequest.Update();
             EnhancementsScene.Update(freecamActive);
             DepthOfField.Update();
             LongExposure.Update();
