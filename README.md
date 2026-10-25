@@ -4,7 +4,7 @@
 
 **An advanced photo mode/free camera mod for Genshin Impact**
 
-[Features](#features) · [Showcase](#showcase) · [Getting started](#getting-started) · [Hotkeys](#hotkeys) · [Controller](#controller) · [Graphics](#graphics) · [Building](#building)
+[Features](#features) · [Showcase](#showcase) · [Installation](#installation) · [Getting started](#getting-started) · [Hotkeys](#hotkeys) · [Controller](#controller) · [Graphics](#graphics) · [Building](#building)
 
 </div>
 
@@ -52,6 +52,19 @@ https://github.com/user-attachments/assets/e898ae54-dfb5-4270-bfce-81479329b2ad
 </td>
 </tr>
 </table>
+
+## Installation
+
+This mod requires a [custom build of MelonLoader](https://github.com/portra400nc/melon/releases) that supports Genshin. [ReShade](https://reshade.me) with full add-on support is optional: without it, the Enhancements, depth of field, ReShade tab and sphere lights are unavailable.
+
+1. Download the latest release from the [Releases](https://github.com/portra400nc/CameraTools/releases) page.
+2. Copy `CameraTools.dll` into MelonLoader's `Mods` folder.
+3. Optional, with ReShade: copy `CameraToolsReShadeBridge.addon64` and `CameraToolsEnhancements.addon64` into the folder ReShade loads add-ons from: `reshade-shaders/Addons`, or the folder that `AddonPath` in `ReShade.ini` names.
+4. Start the game, load into the world, and press <kbd>Insert</kbd> or <kbd>L3</kbd>+<kbd>R3</kbd>. See [Getting started](#getting-started).
+
+Take all three files from the same release. CameraTools checks each add-on's version, and if one does not match, the tab that needs it says which version it found and which it needs. Without ReShade and the add-ons, the free camera, paths, replays, lights and posing still work.
+
+To update, replace the files with the ones from the new release. To uninstall, delete them. Your settings stay in `UserData/MelonPreferences.cfg`, and your camera paths, lights and poses in `UserData/CameraTools/`.
 
 ## Getting started
 
