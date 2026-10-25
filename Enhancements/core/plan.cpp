@@ -407,7 +407,7 @@ namespace enhancements
         s.cat_eye = finite_or(d.cat_eye, defaults.cat_eye, 0.0f, 1.0f);
         s.swirl = finite_or(d.swirl, defaults.swirl, 0.0f, 1.0f);
         s.anamorphic = finite_or(d.anamorphic, defaults.anamorphic, 0.5f, 2.0f);
-        s.chromatic = finite_or(d.chromatic, defaults.chromatic, 0.0f, 2.0f);
+        s.chromatic = finite_or(d.chromatic, defaults.chromatic, 0.0f, 5.0f);
         s.samples = std::clamp<uint32_t>(d.samples, 9, 1089);
         s.highlight_threshold = finite_or(d.highlight_threshold, defaults.highlight_threshold, 1.0f, 16.0f);
         s.highlight_gain = finite_or(d.highlight_gain, defaults.highlight_gain, 0.0f, 8.0f);

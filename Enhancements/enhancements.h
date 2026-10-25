@@ -370,7 +370,7 @@ typedef struct EnhancementsDepthOfField
     float swirl;                // 0 to 1: discs squeezed along the line from the center toward the corners; default 0
     float anamorphic;           // the aperture's width over its height is 1 / anamorphic; default 1, clamped to 0.5..2
     float chromatic;            // axial chromatic aberration, 1 a typical achromat's: green fringes behind focus and purple in
-                                // front; default 0, clamped to 0..2
+                                // front; above 1 exaggerates it; default 0, clamped to 0..5
     uint32_t samples;           // gather samples a pixel on a spiral, rounded to 4k (k + 1) + 1; default 49, clamped to 9..1089
     float highlight_threshold;  // highlights start at this many times the frame's mean luminance (at least 0.25); default 2,
                                 // clamped to 1..16

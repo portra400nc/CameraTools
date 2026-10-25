@@ -114,7 +114,18 @@ float dof_coc(float inverse_depth, float focus, DofLens l) { return l.scale * (1
 // Each channel's CoC from green's. Not clamped.
 float3 dof_channel_coc(float coc, DofLens l) { return float3(coc - l.shift.x, coc, coc - l.shift.z); }
 
-float dof_clamp_coc(float coc, DofLens l) { return clamp(coc, -l.max_radius, l.max_radius); }
+// Each channel's CoC from green's, capped at the largest radius as one disc: past it all three scale by the widest
+// channel's ratio to the cap, so a capped disc keeps its channels' proportions and its fringe. Clamping each channel on its
+// own would give every channel past the cap the same disc, and most of a strongly blurred frame lies past it.
+float3 dof_capped_coc(float coc, DofLens l)
+{
+    float3 c = dof_channel_coc(coc, l);
+    float widest = max(max(abs(c.x), abs(c.y)), abs(c.z));
+    return widest > l.max_radius ? c * (l.max_radius / widest) : c;
+}
+
+// A capped CoC's disc radii, at least half a half-size pixel.
+float3 dof_radii(float3 capped) { return float3(max(abs(capped.x), 0.5f), max(abs(capped.y), 0.5f), max(abs(capped.z), 0.5f)); }
 
 // 1 / view depth of a reversed depth through the constants' inverse projection: -(x d + y) / (z d + w).
 float dof_inverse_depth(float reversed, float4 k) { return max(-(k.x * reversed + k.y) / (k.z * reversed + k.w), 0.0f); }
@@ -268,8 +279,8 @@ struct DofSprite
 // shape's reach, and the edge's pixel.
 float dof_sprite_extent(float coc, DofLens l)
 {
-    float3 c = dof_channel_coc(coc, l);
-    float r = max(max(abs(dof_clamp_coc(c.x, l)), abs(dof_clamp_coc(c.y, l))), abs(dof_clamp_coc(c.z, l)));
+    float3 c = dof_capped_coc(coc, l);
+    float r = max(max(abs(c.x), abs(c.y)), abs(c.z));
     return max(r, 0.5f) * dof_bokeh.w + 1.0f;
 }
 
@@ -391,7 +402,7 @@ DofDetect dof_detect(int2 h)
     if (l < kDofSpritePeak * near_ring / 16.0f && contrast < kDofHighlightContrast)
         return o;
     DofLens lens = dof_frame_lens(lens_key.x);
-    float3 grown = c * (dof_grow_highlight(l, contrast, curve, max(abs(dof_clamp_coc(o.source.w, lens)), 0.5f)) / l);
+    float3 grown = c * (dof_grow_highlight(l, contrast, curve, max(abs(dof_capped_coc(o.source.w, lens).y), 0.5f)) / l);
     o.sprite = true;
     o.as.at.w = dof_sprite_extent(o.source.w, lens);
     o.as.light = float4(grown.x - least.x, grown.y - least.y, grown.z - least.z, 0.0f);
@@ -417,7 +428,7 @@ float4 dof_lift(int2 h)
 #endif
 
 #ifdef DOF_TILES
-// A tile's widest disc behind and in front of focus over its 8x8 half-size pixels, clamped to the largest radius: of each
+// A tile's widest disc behind and in front of focus over its 8x8 half-size pixels, capped at the largest radius: of each
 // out-of-focus source, its widest channel's. With chromatic aberration that is not green's in front of focus, nor near it,
 // where green's disc is under a pixel and red's spans several at a long focal length; a gather out to green's reach only
 // would find a fraction of red's and blue's discs, and so a fraction of their light and coverage.
@@ -429,7 +440,7 @@ float2 dof_tile(int2 tile)
         UNROLL for (int x = 0; x < 8; x++)
         {
             float c = dof_load_source(int2(tile.x * 8 + x, tile.y * 8 + y)).w;
-            float3 r = dof_channel_coc(c, lens);
+            float3 r = dof_capped_coc(c, lens);
             float widest = max(max(abs(r.x), abs(r.y)), abs(r.z));
             if (c > kDofInFocus)
                 far = max(far, widest);
@@ -489,10 +500,9 @@ DofFields dof_gather(int2 p)
     DofLens lens = dof_frame_lens(focus);
     DofShape shape = dof_frame_shape();
     float own = own_source.w;
-    float3 own_c = dof_channel_coc(own, lens);
-    float3 own_far = own > 0.0f ? float3(max(dof_clamp_coc(own_c.x, lens), 0.5f), max(dof_clamp_coc(own_c.y, lens), 0.5f), max(dof_clamp_coc(own_c.z, lens), 0.5f))
-                                : float3(100000.0f, 100000.0f, 100000.0f);
-    float own_near = own < -kDofInFocus ? min(-own, lens.max_radius) : 0.0f;
+    float3 own_c = dof_capped_coc(own, lens);
+    float3 own_far = own > 0.0f ? float3(max(own_c.x, 0.5f), max(own_c.y, 0.5f), max(own_c.z, 0.5f)) : float3(100000.0f, 100000.0f, 100000.0f);
+    float own_near = own < -kDofInFocus ? -own_c.y : 0.0f;
     int rings = int(dof_sampling.x);
     int count = 4 * rings * (rings + 1) + 1;
     float spacing = radius / float(rings);
@@ -516,8 +526,7 @@ DofFields dof_gather(int2 p)
         float2 o_px = i < count ? float2(cos(angle), sin(angle)) * (reach_px * sqrt((float(i) + 0.5f) / float(count))) : float2(0.0f, 0.0f);
         float2 q = float2(float(p.x) + 0.5f + o_px.x, float(p.y) + 0.5f + o_px.y);
         float c = dof_load_source(int2(int(floor(q.x)), int(floor(q.y)))).w;
-        float3 cq = dof_channel_coc(c, lens);
-        float3 r = float3(max(abs(dof_clamp_coc(cq.x, lens)), 0.5f), max(abs(dof_clamp_coc(cq.y, lens)), 0.5f), max(abs(dof_clamp_coc(cq.z, lens)), 0.5f));
+        float3 r = dof_radii(dof_capped_coc(c, lens));
         // A source within half a full-size pixel of focus belongs to neither field, the composite keeping it sharp, as its
         // small disc's weight would swamp the fields' wider ones; but it fills in behind a pixel in front of focus.
         if (abs(c) <= kDofInFocus && own_near == 0.0f)
@@ -667,15 +676,14 @@ float3 dof_sprite_light(DofSprite s, int2 p)
     DofShape shape = dof_frame_shape();
     float c = s.at.z;
     bool behind = c > 0.0f;
-    float3 cq = dof_channel_coc(c, lens);
-    float3 r = float3(max(abs(dof_clamp_coc(cq.x, lens)), 0.5f), max(abs(dof_clamp_coc(cq.y, lens)), 0.5f), max(abs(dof_clamp_coc(cq.z, lens)), 0.5f));
+    float3 r = dof_radii(dof_capped_coc(c, lens));
     float up = dof_sampling.z;
     float2 o = float2(float(p.x) + 0.5f - s.at.x, float(p.y) + 0.5f - s.at.y);
     float2 u = behind ? float2(o.x, o.y * up) : float2(-o.x, -o.y * up);
     float2 ndc = float2(s.at.x / float(dof_sizes.x) * 2.0f - 1.0f, up * (s.at.y / float(dof_sizes.y) * 2.0f - 1.0f));
     float d = dof_shape_distance(u, ndc, shape);
     float own = dof_load_source(p).w;
-    float reach = behind && own > kDofInFocus && own < c ? max(dof_clamp_coc(own, lens), 0.5f) : 100000.0f;
+    float reach = behind && own > kDofInFocus && own < c ? max(dof_capped_coc(own, lens).y, 0.5f) : 100000.0f;
     float scale = dof_swirl_density(ndc, shape) * saturate(reach - d + 0.5f);
     float3 w = dof_weights(r, d, scale, behind ? dof_bokeh.x : -dof_bokeh.x, behind ? dof_bokeh.y : dof_bokeh.z) * dof_cat_eye_cuts(u, r, ndc, shape);
     return float3(min(s.light.x * w.x, kDofSpriteMostAdded), min(s.light.y * w.y, kDofSpriteMostAdded), min(s.light.z * w.z, kDofSpriteMostAdded));

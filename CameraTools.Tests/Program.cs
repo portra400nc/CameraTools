@@ -348,6 +348,7 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
             Anamorphic: 2f, Scatter: 1, HighlightGain: 4f, HighlightThreshold: 3.5f, BokehContrast: 0.75f });
     Check("the rows keep to the mockup's ranges", fresh.With(Enhancement.HighlightThreshold, 1f)[Enhancement.HighlightThreshold] == 1.5f
         && fresh.With(Enhancement.AnamorphicRatio, 3f)[Enhancement.AnamorphicRatio] == 2f && fresh.With(Enhancement.BokehContrast, 2f)[Enhancement.BokehContrast] == 1f
+        && fresh.With(Enhancement.BokehChromaticAberration, 7f)[Enhancement.BokehChromaticAberration] == 5f
         && fresh.With(Enhancement.DepthOfFieldFocusDistance, 0.1f)[Enhancement.DepthOfFieldFocusDistance] == 0.3f
         && fresh.With(Enhancement.DepthOfFieldFocusDistance, 77f)[Enhancement.DepthOfFieldFocusDistance] == 50f
         && fresh.With(Enhancement.DepthOfFieldFocusX, 0.1234f)[Enhancement.DepthOfFieldFocusX] == 0.123f);

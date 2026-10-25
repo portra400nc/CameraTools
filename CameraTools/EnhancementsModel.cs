@@ -213,7 +213,7 @@ namespace CameraTools
             Slider(Enhancement.BladeRoundness, Enhancement.DepthOfField, "Blade roundness", 0f, 1f, 0.5f, 0.05f, 2),
             Slider(Enhancement.BladeRotation, Enhancement.DepthOfField, "Blade rotation", 0f, 90f, 0f, 1f, 0, "°"),
             Slider(Enhancement.SoapBubble, Enhancement.DepthOfField, "Soap bubble", -1f, 1f, 0.6f, 0.05f, 2),
-            Slider(Enhancement.BokehChromaticAberration, Enhancement.DepthOfField, "Chromatic aberration", 0f, 2f, 0f, 0.05f, 2),
+            Slider(Enhancement.BokehChromaticAberration, Enhancement.DepthOfField, "Chromatic aberration", 0f, 5f, 0f, 0.05f, 2),
             Slider(Enhancement.CatsEye, Enhancement.DepthOfField, "Cat's eye", 0f, 1f, 0f, 0.05f, 2),
             Slider(Enhancement.Swirl, Enhancement.DepthOfField, "Swirl", 0f, 1f, 0f, 0.05f, 2),
             Slider(Enhancement.AnamorphicRatio, Enhancement.DepthOfField, "Anamorphic ratio", 1f, 2f, 1f, 0.05f, 2, "x"),

@@ -1173,10 +1173,10 @@ int main()
         raw.depth_of_field = { 1, 0, 1, -5, { -1, 2 }, 5, 1, 2, -1, 1000, -3, 7, -1, 0.1f, 9, 0, 0.5f, -1, 7, 3 };
         const DepthOfFieldSettings low = parse_settings(raw).depth_of_field;
         check("the depth of field clamps: f/0 to f/1, a 1 mm sensor to 4, focus -5 to autofocus, the point into the picture, speed 5 to 0.999, "
-              "blur 1 to 0.1, 2 blades to 5, rotation 1000 to 360, aberration -3 to -1, anamorphic 0.1 to 0.5, chromatic 9 to 2, 0 samples to 9, threshold 0.5 to 1, gain -1 to 0, bokeh contrast 3 to 2",
+              "blur 1 to 0.1, 2 blades to 5, rotation 1000 to 360, aberration -3 to -1, anamorphic 0.1 to 0.5, chromatic 9 to 5, 0 samples to 9, threshold 0.5 to 1, gain -1 to 0, bokeh contrast 3 to 2",
             low.f_number == 1 && low.sensor_height_mm == 4 && low.focus_distance == 0 && low.focus_point[0] == 0 && low.focus_point[1] == 1
                 && low.focus_speed == 0.999f && low.max_blur == 0.1f && low.blades == 5 && low.blade_roundness == 0 && low.blade_rotation == 360
-                && low.spherical_aberration == -1 && low.cat_eye == 1 && low.swirl == 0 && low.anamorphic == 0.5f && low.chromatic == 2 && low.samples == 9
+                && low.spherical_aberration == -1 && low.cat_eye == 1 && low.swirl == 0 && low.anamorphic == 0.5f && low.chromatic == 5 && low.samples == 9
                 && low.highlight_threshold == 1 && low.highlight_gain == 0 && low.scatter && low.bokeh_contrast == 2);
         raw.depth_of_field = { 1, NAN, INFINITY, NAN, { NAN, NAN }, NAN, NAN, 99, NAN, NAN, NAN, NAN, NAN, NAN, NAN, 5000, NAN, INFINITY, 1, NAN };
         const DepthOfFieldSettings bad = parse_settings(raw).depth_of_field;

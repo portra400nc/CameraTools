@@ -205,6 +205,13 @@ namespace enhancements
         return { c.x, c.y, c.z };
     }
 
+    std::array<float, 3> dof_capped_cocs(float depth, float focus, const DofOptics &optics)
+    {
+        const shader::DofLens lens = shader::lens_of(focus, optics);
+        const shader::float3 c = shader::dof_capped_coc(shader::dof_coc(1 / depth, focus, lens), lens);
+        return { c.x, c.y, c.z };
+    }
+
     float dof_green_coc(float depth, float focus, const DofOptics &optics)
     {
         return shader::dof_coc(1 / depth, focus, shader::lens_of(focus, optics));

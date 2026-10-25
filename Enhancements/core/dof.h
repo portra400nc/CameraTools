@@ -40,6 +40,9 @@ namespace enhancements
     // the lens focused at focus meters, through dof_channel_coc from green's as the passes take it. Not clamped.
     std::array<float, 3> dof_channel_cocs(float depth, float focus, const DofOptics &optics);
 
+    // The same through dof_capped_coc, capped at optics.max_radius as the passes cap them.
+    std::array<float, 3> dof_capped_cocs(float depth, float focus, const DofOptics &optics);
+
     // The green CoC straight from dof_coc.
     float dof_green_coc(float depth, float focus, const DofOptics &optics);
 

@@ -153,6 +153,18 @@ int main(int argc, char **argv)
     check("through a 200 mm lens the shift grows with the focal length, over 4 times the 50 mm lens's: green's CoC 86.4198 at 30 m, "
           "red's 0.4627 less and blue's 1.1098",
         near(long_lens[1], 86.4198f, 2e-3f) && near(long_lens[1] - long_lens[0], 0.46273f, 2e-4f) && near(long_lens[1] - long_lens[2], 1.10978f, 2e-4f));
+    tele.max_radius = 20;
+    const std::array<float, 3> capped = dof_capped_cocs(30, 2, tele);
+    check("capped at 20 half-size pixels, the 200 mm lens's discs keep their proportions: green's 20, red's 19.8929 and blue's 19.7432, "
+          "not three discs of 20",
+        near(capped[1], 20) && near(capped[0], 19.8929f, 2e-4f) && near(capped[2], 19.7432f, 2e-4f));
+    DofOptics capped50 = lens50(1);
+    capped50.max_radius = 5;
+    const std::array<float, 3> capped_front = dof_capped_cocs(1, 2, capped50);
+    check("in front of focus the widest channel, blue's, meets the cap of 5: red's -4.8666, green's -4.7713 and blue's -5",
+        near(capped_front[0], -4.86663f) && near(capped_front[1], -4.77126f) && near(capped_front[2], -5));
+    const std::array<float, 3> under = dof_capped_cocs(30, 2, capped50);
+    check("discs under the cap keep their CoCs", under[0] == behind[0] && under[1] == behind[1] && under[2] == behind[2]);
     // A sensor 10 times taller on the same projection is a 500 mm lens with a tenth of the pixels a mm, the whole lens scaled
     // by 10, which images as the 50 mm lens does with every distance divided by 10: a 1:10 miniature.
     DofOptics model = lens50(1);
