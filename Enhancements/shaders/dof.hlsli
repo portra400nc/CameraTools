@@ -44,6 +44,10 @@ static const float kDofInFocus = 0.25f;
 // At a pixel in front of focus, the CoC in half-size pixels by which a source in front of focus must differ from the
 // pixel's own to lie in front of its surface, occluding it, or behind it.
 static const float kDofLayer = 1.0f;
+// The share of a pixel's own raw CoC within which a source in front of focus lies on the pixel's own surface: a face's
+// depth varies by a few percent, a shoulder in front of it by much more. A fixed band split a face far out of focus into
+// thin contours of equal depth, each averaged on its own, which kept its detail: a sharp face under a translucent blur.
+static const float kDofLayerShare = 0.15f;
 // How much swirl at 1 compresses a disc's radial axis at the picture's corners.
 static const float kDofSwirl = 1.5f;
 static const float3 kDofLuma = float3(0.2126f, 0.7152f, 0.0722f);
@@ -574,6 +578,11 @@ DofFields dof_gather(int2 p)
     bool lifted = dof_contrast.x > 0.0f;
     float3 near_sum = float3(0.0f, 0.0f, 0.0f), near_w = float3(0.0f, 0.0f, 0.0f);
     float3 level_sum = float3(0.0f, 0.0f, 0.0f), level_w = float3(0.0f, 0.0f, 0.0f);
+    // The pixel's own texel, kept aside when the spiral could find its disc: it counts only for a field or layer the
+    // spiral left empty.
+    float3 own_far_color = float3(0.0f, 0.0f, 0.0f), own_far_w = float3(0.0f, 0.0f, 0.0f);
+    float own_far_light = 0.0f;
+    float3 own_level_sum = float3(0.0f, 0.0f, 0.0f), own_level_w = float3(0.0f, 0.0f, 0.0f);
     LOOP for (int i = 0; i <= count; i++)
     {
         // The golden angle apart, at radii that split the disc into equal areas, so every sample has its own radius: rings
@@ -586,13 +595,17 @@ DofFields dof_gather(int2 p)
         float4 at_q = dof_load_source(int2(int(floor(q.x)), int(floor(q.y))));
         float c = at_q.w;
         float3 r = dof_radii(dof_capped_coc(c, lens));
+        // In a disc the spiral finds, the pixel's own texel would be a sample at the center on top of the spiral's,
+        // and the pixel's own detail would show through the blur: it is kept aside.
+        bool aside = i == count && min(min(r.x, r.y), r.z) >= spacing;
         // A source within half a full-size pixel of focus belongs to neither field, the composite keeping it sharp, as its
         // small disc's weight would swamp the fields' wider ones; but it fills in behind a pixel in front of focus.
         if (abs(c) <= kDofInFocus && own_near == 0.0f)
             continue;
         bool behind = c > -kDofInFocus;
-        bool occluder = !behind && (own_near == 0.0f || c < own - kDofLayer);
-        bool level = !behind && !occluder && c <= own + kDofLayer;
+        float layer = max(kDofLayer, kDofLayerShare * abs(own));
+        bool occluder = !behind && (own_near == 0.0f || c < own - layer);
+        bool level = !behind && !occluder && c <= own + layer;
         bool beneath = behind || (!occluder && !level);
         if (behind && c > own)
             r = float3(min(r.x, own_far.x), min(r.y, own_far.y), min(r.z, own_far.z));
@@ -612,6 +625,13 @@ DofFields dof_gather(int2 p)
             bool lift = lifted && behind;
             float4 lit = lift ? dof_sample_lifted(q, lod) : float4(0.0f, 0.0f, 0.0f, 0.0f);
             float3 color = lift ? float3(lit.x, lit.y, lit.z) : dof_sample_source(q, lod);
+            if (aside)
+            {
+                own_far_color = color;
+                own_far_w = w;
+                own_far_light = (lift ? lit.w : dot(color, kDofLuma)) * w.y;
+                continue;
+            }
             far_sum = far_sum + color * w;
             far_w = far_w + w;
             far_by_green = far_by_green + float2(color.x, color.z) * w.y;
@@ -628,12 +648,29 @@ DofFields dof_gather(int2 p)
                 near_sum = near_sum + color * w;
                 near_w = near_w + w;
             }
+            else if (aside)
+            {
+                own_level_sum = color * w;
+                own_level_w = w;
+            }
             else
             {
                 level_sum = level_sum + color * w;
                 level_w = level_w + w;
             }
         }
+    }
+    if (far_w.y <= 0.0f)
+    {
+        far_sum = own_far_color * own_far_w;
+        far_w = own_far_w;
+        far_by_green = float2(own_far_color.x, own_far_color.z) * own_far_w.y;
+        far_light = own_far_light;
+    }
+    if (level_w.y <= 0.0f)
+    {
+        level_sum = own_level_sum;
+        level_w = own_level_w;
     }
     // Behind a pixel in front of focus, red's or blue's discs of the sources behind may be too small to reach it where
     // green's do: that channel then takes its sources' light by green's weights, not none.
@@ -805,8 +842,15 @@ float3 dof_composite(int2 pixel)
         float4 f = dof_load_far(q);
         float4 n = dof_load_near(q);
         float2 v = dof_load_cover(q);
-        float3 under = sharp + ((f.w > 0.0f ? float3(f.x, f.y, f.z) : pooled) - sharp) * t;
-        color = color + (under * float3(1.0f - v.x, 1.0f - n.w, 1.0f - v.y) + float3(n.x, n.y, n.z)) * b;
+        // An out-of-focus pixel never shows its sharp color: where nothing lies behind it, as inside a blurred face, the
+        // near field's own light fills what its sampled coverage leaves short of whole, or the sharp face would show
+        // through at that share, a sharp image under a translucent blur.
+        float3 cover = float3(v.x, n.w, v.y);
+        float3 blurred = f.w > 0.0f ? float3(f.x, f.y, f.z)
+            : far_weight > 0.0f ? pooled
+            : n.w > 0.0f ? float3(n.x / max(cover.x, 1e-4f), n.y / max(cover.y, 1e-4f), n.z / max(cover.z, 1e-4f)) : sharp;
+        float3 under = sharp + (blurred - sharp) * t;
+        color = color + (under * (float3(1.0f, 1.0f, 1.0f) - cover) + float3(n.x, n.y, n.z)) * b;
     }
     return color;
 }
