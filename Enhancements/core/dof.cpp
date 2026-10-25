@@ -29,7 +29,7 @@ namespace enhancements::shader
         std::vector<std::vector<float4>> source;
         std::vector<uint2> source_sizes;
         std::vector<float2> tiles, dilated;
-        std::vector<float4> far, near;
+        std::vector<float4> far, near, near_layer;
         std::vector<float2> cover;
         // The lifted source's levels (dof_lift), and the gather's far field's, which the post-filter reads.
         std::vector<std::vector<float4>> lifted, far_levels;
@@ -108,6 +108,7 @@ namespace enhancements::shader
     float4 dof_load_far(int2 p) { return textures->far[at(p, half_size())]; }
     float4 dof_load_near(int2 p) { return textures->near[at(p, half_size())]; }
     float2 dof_load_cover(int2 p) { return textures->cover[at(p, half_size())]; }
+    float4 dof_load_near_layer(int2 p) { return textures->near_layer[at(p, half_size())]; }
     float4 dof_sample_far(float2 position, float lod) { return sample_levels(textures->far_levels, textures->far_sizes, position, lod); }
 
     float4 dof_load_back(int2 p)
@@ -132,6 +133,7 @@ namespace enhancements::shader
 #define DOF_GATHER
 #define DOF_POST
 #define DOF_SPRITE
+#define DOF_NEAR
 #define DOF_COMPOSITE
 #define LOOP
 #define UNROLL
@@ -641,6 +643,11 @@ namespace enhancements
                 field[i] = field[i] + added[i];
             nonfinite += store_half(field);
         }
+        // dof_near_ps.hlsl: the near plane over the post-filtered far field with its sprites.
+        std::vector<float4> layer(t.far.size());
+        draw(half.x, half.y, c, t, [&](uint32_t x, uint32_t y) { layer[size_t(y) * half.x + x] = dof_near_layer(int2(int(x), int(y))); });
+        t.near_layer = std::move(layer);
+        nonfinite += store_half(t.near_layer);
         DofOutput out;
         out.sprites[0] = static_cast<uint32_t>(sprites[0].size());
         out.sprites[1] = static_cast<uint32_t>(sprites[1].size());
