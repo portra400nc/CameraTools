@@ -217,7 +217,7 @@ namespace CameraTools
             Slider(Enhancement.CatsEye, Enhancement.DepthOfField, "Cat's eye", 0f, 1f, 0f, 0.05f, 2),
             Slider(Enhancement.Swirl, Enhancement.DepthOfField, "Swirl", 0f, 1f, 0f, 0.05f, 2),
             Slider(Enhancement.AnamorphicRatio, Enhancement.DepthOfField, "Anamorphic ratio", 1f, 2f, 1f, 0.05f, 2, "x"),
-            new(Enhancement.HighlightDiscs, EnhancementKind.Switch, "Highlight discs", Enhancement.DepthOfField, 1f),
+            new(Enhancement.HighlightDiscs, EnhancementKind.Switch, "Highlight discs", Enhancement.DepthOfField, 0f),
             Slider(Enhancement.HighlightBoost, Enhancement.DepthOfField, "Highlight boost", 0f, 4f, 2f, 0.1f, 1),
             Slider(Enhancement.HighlightThreshold, Enhancement.DepthOfField, "Highlight threshold", 1.5f, 4f, 2f, 0.1f, 1, "x average"),
             Slider(Enhancement.BokehContrast, Enhancement.DepthOfField, "Bokeh contrast", 0f, 1f, 0f, 0.05f, 2),

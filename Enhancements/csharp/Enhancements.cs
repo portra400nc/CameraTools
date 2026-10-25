@@ -236,7 +236,7 @@ namespace CameraToolsEnhancements
             DepthOfField = new EnhancementsDepthOfField
             {
                 FNumber = 2.8f, SensorHeightMm = 24, FocusX = 0.5f, FocusY = 0.5f, FocusSpeed = 0.9f, MaxBlur = 0.03f, BladeRoundness = 0.5f,
-                SphericalAberration = 0.6f, Anamorphic = 1, Samples = 49, HighlightThreshold = 2, HighlightGain = 2, Scatter = 1,
+                SphericalAberration = 0.6f, Anamorphic = 1, Samples = 49, HighlightThreshold = 2, HighlightGain = 2,
             },
         };
     }

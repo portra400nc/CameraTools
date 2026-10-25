@@ -153,7 +153,7 @@ namespace enhancements
         uint32_t samples = 49;
         float highlight_threshold = 2;          // over the frame's mean luminance
         float highlight_gain = 2;               // 0: highlights keep their own light
-        bool scatter = true;                    // highlights drawn as sprites
+        bool scatter = false;                   // highlights drawn as sprites
         float bokeh_contrast = 0;                // 0: sources keep their own light in the far field
     };
 

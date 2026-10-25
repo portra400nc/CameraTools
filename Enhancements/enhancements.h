@@ -377,9 +377,9 @@ typedef struct EnhancementsDepthOfField
     float highlight_gain;       // how readily a small light that stands out of everything around it grows into a bright disc,
                                 // as a real lamp's would; 0 keeps every light as bright as the game drew it; default 2, clamped
                                 // to 0..8. Needs scatter
-    uint32_t scatter;           // 1 (the default): highlights above the threshold that stand out of their surroundings, glints
-                                // and small lamps, are drawn as sprites of their disc instead of gathered, so their edges stay
-                                // smooth and their rims and colors show; 0 gathers them with the rest
+    uint32_t scatter;           // 1: highlights above the threshold that stand out of their surroundings, glints and small
+                                // lamps, are drawn as sprites of their disc instead of gathered, so their edges stay smooth and
+                                // their rims and colors show; 0 (the default) gathers them with the rest
     float bokeh_contrast;       // how much what stands out of its own surroundings, a grass tip or a leaf's glint, outweighs
                                 // them behind focus, so it blurs into a disc as a real lens's would; each place keeps its
                                 // light. 0 keeps every source's own light; default 0, clamped to 0..2

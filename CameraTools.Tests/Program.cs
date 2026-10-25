@@ -273,7 +273,7 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     Check("the values write as name=number pairs and read back the same",
         text.StartsWith("Enabled=0;AmbientLight=0;AmbientLevel=0.6;AmbientOcclusion=0.5;AmbientOcclusionRadius=1;") && text.Contains(";Haze=1;HazeDensity=2.5;")
         && text.Contains(";ToneMap=0;ToneMapCurve=1;ToneMapExposure=0;ToneMapBloom=1;ToneMapSaturation=1;ToneMapContrast=1;DepthOfField=0;")
-        && text.EndsWith(";HighlightDiscs=1;HighlightBoost=2;HighlightThreshold=2;BokehContrast=0")
+        && text.EndsWith(";HighlightDiscs=0;HighlightBoost=2;HighlightThreshold=2;BokehContrast=0")
         && EnhancementsModel.Parse(text, skipped).Equals(fresh.With(Enhancement.Haze, 1f).With(Enhancement.HazeDensity, 2.5f)) && skipped.Count == 0);
     var partial = EnhancementsModel.Parse("Haze=1; nonsense; Fog=3; HazeDensity=x; ToneMapBloom=0", skipped);
     Check("a text that leaves fields out takes their defaults, and names what is no field's",
@@ -305,10 +305,10 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
 {
     var dof = EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfField, 1f), inside);
     Check("by default the depth of field is off, and on it is f/2.8 at the autofocus in the center, a disc of at most 3% of the height, round "
-        + "with soap bubble 0.6, highlight discs from 2x the average at boost 2, and the bokeh contrast off",
+        + "with soap bubble 0.6, highlight discs off with their threshold at 2x the average and boost 2, and the bokeh contrast off",
         !fresh.On(Enhancement.DepthOfField) && EnhancementsModel.DepthOfField(fresh, inside).Enabled == 0
         && dof is { Enabled: 1, FNumber: 2.8f, FocusDistance: 0f, FocusX: 0.5f, FocusY: 0.5f, FocusSpeed: 0.9f, MaxBlur: 0.03f, Blades: 0, BladeRoundness: 0.5f,
-            BladeRotation: 0f, SphericalAberration: 0.6f, Chromatic: 0f, CatEye: 0f, Swirl: 0f, Anamorphic: 1f, Scatter: 1, HighlightGain: 2f, HighlightThreshold: 2f,
+            BladeRotation: 0f, SphericalAberration: 0.6f, Chromatic: 0f, CatEye: 0f, Swirl: 0f, Anamorphic: 1f, Scatter: 0, HighlightGain: 2f, HighlightThreshold: 2f,
             BokehContrast: 0f, Samples: 49 });
     Check("the sensor is a full-frame diagonal's in the picture's shape: 22.949 mm at 16:10 and 21.228 mm at 16:9",
         MathF.Abs(dof.SensorHeightMm - 22.94895f) < 1e-3f
@@ -342,10 +342,10 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
         && string.Join(",", Enumerable.Range(0, 6).Select(shape => EnhancementsModel.DepthOfField(fresh.With(Enhancement.BokehShape, shape), inside).Blades)) == "0,5,6,7,8,9");
     var bokeh = fresh.With(Enhancement.BladeRoundness, 0.25f).With(Enhancement.BladeRotation, 45f).With(Enhancement.SoapBubble, -1f)
         .With(Enhancement.BokehChromaticAberration, 2f).With(Enhancement.CatsEye, 1f).With(Enhancement.Swirl, 0.5f).With(Enhancement.AnamorphicRatio, 2f)
-        .With(Enhancement.HighlightDiscs, 0f).With(Enhancement.HighlightBoost, 4f).With(Enhancement.HighlightThreshold, 3.5f).With(Enhancement.BokehContrast, 0.75f);
+        .With(Enhancement.HighlightDiscs, 1f).With(Enhancement.HighlightBoost, 4f).With(Enhancement.HighlightThreshold, 3.5f).With(Enhancement.BokehContrast, 0.75f);
     Check("the bokeh and highlight rows reach the block as they read: soap bubble is the spherical aberration, discs the scatter and boost the gain",
         EnhancementsModel.DepthOfField(bokeh, inside) is { BladeRoundness: 0.25f, BladeRotation: 45f, SphericalAberration: -1f, Chromatic: 2f, CatEye: 1f, Swirl: 0.5f,
-            Anamorphic: 2f, Scatter: 0, HighlightGain: 4f, HighlightThreshold: 3.5f, BokehContrast: 0.75f });
+            Anamorphic: 2f, Scatter: 1, HighlightGain: 4f, HighlightThreshold: 3.5f, BokehContrast: 0.75f });
     Check("the rows keep to the mockup's ranges", fresh.With(Enhancement.HighlightThreshold, 1f)[Enhancement.HighlightThreshold] == 1.5f
         && fresh.With(Enhancement.AnamorphicRatio, 3f)[Enhancement.AnamorphicRatio] == 2f && fresh.With(Enhancement.BokehContrast, 2f)[Enhancement.BokehContrast] == 1f
         && fresh.With(Enhancement.DepthOfFieldFocusDistance, 0.1f)[Enhancement.DepthOfFieldFocusDistance] == 0.3f

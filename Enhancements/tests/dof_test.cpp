@@ -87,6 +87,7 @@ namespace
         s.focus_distance = focus;
         s.spherical_aberration = aberration;
         s.highlight_gain = 0;
+        s.scatter = true;
         s.bokeh_contrast = 0;
         return s;
     }
@@ -244,6 +245,8 @@ int main(int argc, char **argv)
     settings.spherical_aberration = -1;
     settings.chromatic = 1;
     const Camera lens = reversed_camera(50.0f / 12 / 1.6f, 50.0f / 12);
+    check("highlight sprites are off by default", !settings.scatter && dof_constants(settings, lens, { 1280, 800 }, true, 0.5f, 1)->highlight[2] == 0);
+    settings.scatter = true;
     const DofConstants c = *dof_constants(settings, lens, { 1280, 800 }, true, 0.5f, 1);
     check("the constants: a 50 mm focal length from the projection and the 24 mm sensor, f/2.8, 16.667 half-size pixels a mm, a largest "
           "radius of 12",
@@ -257,12 +260,9 @@ int main(int argc, char **argv)
         c.sampling[0] == 3 && near(c.sampling[1], 0.618034f) && c.sampling[2] == 1 && c.sampling[3] == 1.6f);
     check("the half size 640x400 in 80x50 tiles, a reach of 2 tiles, and depth samples 8 pixels apart", c.sizes[0] == 640 && c.sizes[1] == 400
         && c.sizes[2] == 80 && c.sizes[3] == 50 && c.counts[0] == 2 && c.counts[1] == 1280 && c.counts[2] == 800 && c.counts[3] == 8);
-    check("the highlights from twice the frame's mean luminance at gain 2 by default, with as many sprites a field as 8 half-size pictures of "
+    check("the highlights from twice the frame's mean luminance at gain 2 by default, with scatter as many sprites a field as 8 half-size pictures of "
           "the largest quad, 12 x 1.0715 + 1 pixels from its center, cover: 2666, and the near field's from slot 4096",
         c.highlight[0] == 2 && c.highlight[1] == 2 && c.highlight[2] == 2666 && c.highlight[3] == 4096);
-    settings.scatter = false;
-    check("without scatter, no sprites", dof_constants(settings, lens, { 1280, 800 }, true, 0.5f, 1)->highlight[2] == 0);
-    settings.scatter = true;
     check("rings: 9 samples are 2, 64 are 4, 289 are 8 and 1089 are 16", dof_rings(9) == 2 && dof_rings(64) == 4 && dof_rings(289) == 8 && dof_rings(1089) == 16);
     settings.focus_speed = 0;
     check("a focus speed of 0 jumps", dof_constants(settings, lens, { 1280, 800 }, false, 0.5f, 0)->focus[3] == 1

@@ -24,7 +24,7 @@
 // branches, the kind of background that shows soap-bubble bokeh.
 //
 // --chromatic-sweep renders every frame folder in the folder at chromatic 0 and 1 with the given settings (by default the
-// user's: f/2.8, spherical aberration 0.6, cat's eye 0.6, bokeh contrast 0.5, highlights from 2x at gain 2) at focal lengths
+// user's: f/2.8, spherical aberration 0.6, cat's eye 0.6, bokeh contrast 0.5, highlight discs from 2x at gain 2) at focal lengths
 // of 90, 120, 180 and 300 mm, focused at the autofocus's distance and at 0.98, 1.02, 0.85 and 1.3 times it, and counts the
 // pixels whose chromatic aberration is broken (chromatic_flags). --chromatic-check renders one frame so and exits with 1
 // when more than most flagged pixels are; mask, last, writes its chromatic render with them painted magenta (uncompressed).
@@ -367,6 +367,7 @@ namespace
         s.bokeh_contrast = 0.5f;
         s.highlight_threshold = 2;
         s.highlight_gain = 2;
+        s.scatter = true;
         s.focus_speed = 0;
         return s;
     }
