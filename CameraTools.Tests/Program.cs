@@ -332,7 +332,7 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     Check("Manual distance focuses at the Focus distance in meters, and Focus point at 0, the add-on's autofocus",
         EnhancementsModel.DepthOfField(manual, inside).FocusDistance == 3.5f
         && EnhancementsModel.DepthOfField(manual.With(Enhancement.DepthOfFieldFocusMode, EnhancementsModel.FocusPoint), inside).FocusDistance == 0f
-        && string.Join(",", Field(Enhancement.DepthOfFieldFocusMode).Options) == "Focus point,Manual distance");
+        && string.Join(",", Field(Enhancement.DepthOfFieldFocusMode).Options) == "Focus point,Manual distance,Eyes");
     Check("the focus point's -1 to 1 from the left and the top is the add-on's 0 to 1 from the top left",
         EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfFieldFocusX, -1f).With(Enhancement.DepthOfFieldFocusY, -1f), inside) is { FocusX: 0f, FocusY: 0f }
         && EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfFieldFocusX, 1f).With(Enhancement.DepthOfFieldFocusY, 0.5f), inside) is { FocusX: 1f, FocusY: 0.75f });
@@ -367,6 +367,25 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
         && EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfFieldFocusSpeed, 1.5f), inside).FocusSeconds == 1.5f
         && EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfFieldFocusSpeed, 7f), inside).FocusSeconds == 3f
         && EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfFieldFocusSpeed, 0.123f), inside).FocusSeconds == 0.1f);
+    var onEyes = fresh.With(Enhancement.DepthOfFieldFocusMode, EnhancementsModel.EyeFocus).With(Enhancement.DepthOfFieldFocusSpeed, 1f);
+    Check("Eyes focuses at the eye's meters at the Focus speed, and with no eye at 0, the autofocus at the focus point, as fast",
+        EnhancementsModel.DepthOfField(onEyes, inside with { EyeMeters = 1.234f }) is { FocusDistance: 1.234f, FocusSeconds: 1f }
+        && EnhancementsModel.DepthOfField(onEyes, inside) is { FocusDistance: 0f, FocusSeconds: 1f });
+    Check("the distance to an eye is along the view axis: 2 m ahead and 1 m aside is 2 m, 4 m ahead of a moved camera 4 m, and behind it -1 m",
+        Lens.AlongView(new Vec3(1f, 0f, 2f), Vec3.Zero, Vec3.UnitZ) == 2f
+        && Lens.AlongView(new Vec3(3f, 1f, 5f), new Vec3(3f, 1f, 1f), new Vec3(0f, 0f, 4f)) == 4f
+        && Lens.AlongView(new Vec3(0f, 0f, -1f), Vec3.Zero, Vec3.UnitZ) == -1f);
+    EyeSight eyeAt100 = new(1.00f, 0.1f, 0f), eyeAt102 = new(1.02f, 0.2f, 0f), eyeAt105 = new(1.05f, 0.2f, 0f);
+    Check("Eyes picks the nearer eye, and keeps the one in focus until the other is 3 cm nearer",
+        Lens.NearerEye(eyeAt100, eyeAt102, -1) == 0 && Lens.NearerEye(eyeAt102, eyeAt100, -1) == 1
+        && Lens.NearerEye(eyeAt102, eyeAt100, 0) == 0 && Lens.NearerEye(eyeAt100, eyeAt102, 1) == 1
+        && Lens.NearerEye(eyeAt105, eyeAt100, 0) == 1 && Lens.NearerEye(eyeAt100, eyeAt105, 1) == 0);
+    Check("Eyes falls back to the focus point with no eyes, both behind the camera or both off the screen, and takes the one eye still seen",
+        Lens.NearerEye(null, null, 0) == -1
+        && Lens.NearerEye(new EyeSight(-0.5f, 0f, 0f), new EyeSight(-0.4f, 0f, 0f), 1) == -1
+        && Lens.NearerEye(new EyeSight(1f, 1.2f, 0f), new EyeSight(1f, 0f, -1.1f), -1) == -1
+        && Lens.NearerEye(null, eyeAt102, 0) == 1 && Lens.NearerEye(new EyeSight(0.9f, -1.01f, 0f), eyeAt102, 0) == 1
+        && Lens.NearerEye(eyeAt105, new EyeSight(0f, 0f, 0f), 1) == 0);
     Check("a manual distance jumps whatever the Focus speed", EnhancementsModel.DepthOfField(manual.With(Enhancement.DepthOfFieldFocusSpeed, 2f), inside).FocusSeconds == 0f);
     Check("Focus speed reads Instant at 0 and else the seconds: 0.1 s, 0.5 s and 3 s",
         Lens.Settle(0f) == "Instant" && Lens.Settle(0.00001f) == "Instant" && Lens.Settle(0.1f) == "0.1 s" && Lens.Settle(0.5f) == "0.5 s" && Lens.Settle(3f) == "3 s");

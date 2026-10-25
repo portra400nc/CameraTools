@@ -1,7 +1,16 @@
+using Vec3 = System.Numerics.Vector3;
+
 namespace CameraTools
 {
     // A rectangle on the screen as fractions of its width and height, measured from the top left.
     internal readonly record struct ScreenBox(float Left, float Top, float Right, float Bottom);
+
+    // An eye as the camera sees it: meters along the view axis, and where it is on the screen from -1 at the left and the
+    // top to 1, as the focus point is.
+    internal readonly record struct EyeSight(float Meters, float X, float Y)
+    {
+        public bool Seen => Meters > 0f && MathF.Abs(X) <= 1f && MathF.Abs(Y) <= 1f;
+    }
 
     // The arithmetic of the depth of field shader's camera, which has a full-frame sensor. It uses nothing of Unity's, so
     // it can be checked outside the game.
@@ -9,6 +18,9 @@ namespace CameraTools
     {
         // Half of the sensor's 43.3 mm diagonal.
         private const float HalfDiagonal = 21.65f;
+        // The eye in focus keeps it until the other is this many meters nearer, so a face turned to the camera does not
+        // flicker between them.
+        public const float EyeMargin = 0.03f;
 
         // Third-stops, as lenses mark them.
         public static readonly float[] Stops =
@@ -30,6 +42,25 @@ namespace CameraTools
         public static float Meters(float rail, float near, float far) => near * MathF.Pow(far / near, rail);
 
         public static float Rail(float meters, float near, float far) => MathF.Log(meters / near) / MathF.Log(far / near);
+
+        // The distance from the camera to a point along the view axis, which the add-on's focus distance is measured on.
+        public static float AlongView(Vec3 point, Vec3 camera, Vec3 forward) => Vec3.Dot(point - camera, Vec3.Normalize(forward));
+
+        // The Eyes mode's eye in focus after current, 0 the left and 1 the right, or -1 while neither is seen and the focus
+        // point stands in: the nearer seen eye, and the current one until the other is EyeMargin nearer.
+        public static int NearerEye(EyeSight? left, EyeSight? right, int current)
+        {
+            bool seesLeft = left is { Seen: true }, seesRight = right is { Seen: true };
+            if (!seesLeft || !seesRight)
+                return seesLeft ? 0 : seesRight ? 1 : -1;
+            float toLeft = left.Value.Meters, toRight = right.Value.Meters;
+            return current switch
+            {
+                0 => toRight < toLeft - EyeMargin ? 1 : 0,
+                1 => toLeft < toRight - EyeMargin ? 0 : 1,
+                _ => toLeft <= toRight ? 0 : 1,
+            };
+        }
 
         // The Focus speed row's words for the seconds the autofocus takes to cover 99% of the way.
         public static string Settle(float seconds) => MathF.Round(seconds, 1) <= 0f ? "Instant" : seconds.ToString("0.#' s'");

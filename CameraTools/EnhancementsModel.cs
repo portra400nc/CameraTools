@@ -140,15 +140,17 @@ namespace CameraTools
 
     // What the depth of field's block needs beside the values: whether the free camera is on, which it runs in only; the
     // picture's width over its height, which gives the sensor; the miniature scale's N, which makes the sensor N times
-    // taller; and the screenshot's stage: a screenshot gathers more samples, and while it captures, the add-on blurs after
-    // the ReShade effects that read the depth buffer, so RTGI and the like light the sharp frame and the shot has the blur.
-    public readonly record struct LensView(bool FreeCamera, float Aspect, int Miniature, ShotStage Shot);
+    // taller; the screenshot's stage: a screenshot gathers more samples, and while it captures, the add-on blurs after
+    // the ReShade effects that read the depth buffer, so RTGI and the like light the sharp frame and the shot has the blur;
+    // and the meters along the view axis to the eye that Eyes focuses on, 0 while the focus point stands in for it.
+    public readonly record struct LensView(bool FreeCamera, float Aspect, int Miniature, ShotStage Shot, float EyeMeters = 0f);
 
     // The Enhancements category's rules, apart from the game, the preferences and the add-on, so tests run them.
     internal static class EnhancementsModel
     {
-        // The depth of field's Focus mode: the autofocus at the focus point, or the Focus distance.
-        public const int FocusPoint = 0, ManualFocus = 1;
+        // The depth of field's Focus mode: the autofocus at the focus point, the Focus distance, or the active character's
+        // nearer eye.
+        public const int FocusPoint = 0, ManualFocus = 1, EyeFocus = 2;
         // Focus distance's range in meters.
         public const float NearFocus = 0.3f, FarFocus = 50f;
         // Gather samples a pixel while composing, and in a screenshot.
@@ -207,7 +209,7 @@ namespace CameraTools
             Slider(Enhancement.ToneMapSaturation, Enhancement.ToneMap, "Saturation", 0f, 2f, 1f, 0.05f, 2),
             Slider(Enhancement.ToneMapContrast, Enhancement.ToneMap, "Contrast", 0.5f, 2f, 1f, 0.05f, 2),
             new(Enhancement.DepthOfField, EnhancementKind.Switch, "Depth of field", Enhancement.DepthOfField, 0f),
-            Choice(Enhancement.DepthOfFieldFocusMode, Enhancement.DepthOfField, "Focus mode", FocusPoint, "Focus point", "Manual distance"),
+            Choice(Enhancement.DepthOfFieldFocusMode, Enhancement.DepthOfField, "Focus mode", FocusPoint, "Focus point", "Manual distance", "Eyes"),
             Slider(Enhancement.DepthOfFieldFocusSpeed, Enhancement.DepthOfField, "Focus speed", 0f, 3f, 0.5f, 0.1f, 1, " s"),
             Slider(Enhancement.DepthOfFieldFocusDistance, Enhancement.DepthOfField, "Focus distance", NearFocus, FarFocus, 2f, 0.01f, 2, " m"),
             Choice(Enhancement.DepthOfFieldAperture, Enhancement.DepthOfField, "Aperture", Array.IndexOf(Stops, 2.8f), Stops.Select(stop => $"f/{stop:0.##}").ToArray()),
@@ -297,15 +299,21 @@ namespace CameraTools
         // The depth of field's block. The sensor is the one the focal length readout assumes, a full-frame diagonal in the
         // picture's shape, so the readout's millimeters and the blur describe the same lens; N times taller, the whole
         // lens grows with it and images as a 1:N miniature. The focus point's rows run from -1 at the left and the top to
-        // 1, the add-on's from 0 at the top left. Focus speed is the seconds the autofocus takes to cover 99% of the way;
-        // a manual distance jumps. Max blur is the largest disc's radius in hundredths of the picture's height.
+        // 1, the add-on's from 0 at the top left. Focus speed is the seconds the autofocus, and the focus on an eye, take
+        // to cover 99% of the way; a manual distance jumps. Max blur is the largest disc's radius in hundredths of the
+        // picture's height.
         public static EnhancementsDepthOfField DepthOfField(EnhancementValues values, LensView lens)
         {
             var dof = EnhancementsSettings.Defaults.DepthOfField;
             dof.Enabled = values.On(Enhancement.DepthOfField) && lens.FreeCamera ? 1u : 0u;
             dof.FNumber = Stops[(int)values[Enhancement.DepthOfFieldAperture]];
             dof.SensorHeightMm = Lens.SensorHeight(lens.Aspect) * Math.Max(lens.Miniature, 1);
-            dof.FocusDistance = values[Enhancement.DepthOfFieldFocusMode] == ManualFocus ? values[Enhancement.DepthOfFieldFocusDistance] : 0f;
+            dof.FocusDistance = (int)values[Enhancement.DepthOfFieldFocusMode] switch
+            {
+                ManualFocus => values[Enhancement.DepthOfFieldFocusDistance],
+                EyeFocus => lens.EyeMeters,
+                _ => 0f,
+            };
             dof.FocusX = (values[Enhancement.DepthOfFieldFocusX] + 1f) * 0.5f;
             dof.FocusY = (values[Enhancement.DepthOfFieldFocusY] + 1f) * 0.5f;
             dof.FocusSeconds = values[Enhancement.DepthOfFieldFocusMode] == ManualFocus ? 0f : values[Enhancement.DepthOfFieldFocusSpeed];

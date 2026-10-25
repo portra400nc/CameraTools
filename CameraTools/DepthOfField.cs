@@ -255,7 +255,7 @@ namespace CameraTools
             Theirs(SpeedRow(ImmerseSlowest, () => Value(Id.FocusSpeed), seconds => Change(Id.FocusSpeed, seconds),
                 () => Known(Id.FocusSpeed) && Mode == PointFocus) with { Shown = () => Current == Immerse }),
             Mine(SpeedRow(EnhancementsModel.Field(Enhancement.DepthOfFieldFocusSpeed).Max, () => Values[Enhancement.DepthOfFieldFocusSpeed],
-                seconds => SetOwn(Enhancement.DepthOfFieldFocusSpeed, seconds)) with { Shown = () => OwnMode == EnhancementsModel.FocusPoint }),
+                seconds => SetOwn(Enhancement.DepthOfFieldFocusSpeed, seconds)) with { Shown = () => OwnMode != EnhancementsModel.ManualFocus }),
             Theirs(new SliderRow("Focus distance", 0.002f, 1f, 0.002f, "0.000", () => Value(Id.FocusDepth), depth => Repaint(Id.FocusDepth, depth),
                 Enabled: () => Known(Id.FocusDepth) && Mode == ManualFocus)),
             Mine(new SliderRow("Focus distance", 0f, 1f, RailStep, "0.000",
@@ -405,16 +405,20 @@ namespace CameraTools
         private static bool DiscsOn => Values.On(Enhancement.HighlightDiscs);
 
         // The focus point decides the focus, with its point readable: in the autofocus mode, or as the pivot of a tilted
-        // plane in focus, also at a manual distance.
-        private static bool Aiming => Ours ? OwnMode == EnhancementsModel.FocusPoint
+        // plane in focus, also at a manual distance. Eyes shows the eye in focus, or the focus point that stands in.
+        private static bool Aiming => Ours ? OwnMode != EnhancementsModel.ManualFocus
             : Known(Id.FocusPoint) && (!Current.Offers(Id.FocusRange) || Known(Id.FocusRange)) && (Mode == PointFocus || Tilted);
+
+        // CameraTools' own focuses on the active character's eyes, which place the point.
+        private static bool Tracking => Ours && OwnMode == EnhancementsModel.EyeFocus;
 
         private static bool Tilted => Known(Id.TiltAngle) && Value(Id.TiltAngle) != 0f;
 
         private static float Range => Ours ? OwnRange : Current.Offers(Id.FocusRange) ? Value(Id.FocusRange) : PixelRange;
 
         // The focus point from -1 at the left and the top to 1.
-        private static (float X, float Y) Point => Ours ? (Values[Enhancement.DepthOfFieldFocusX], Values[Enhancement.DepthOfFieldFocusY])
+        private static (float X, float Y) Point => Ours
+            ? FocusEyes.Target is { } eye ? (eye.X, eye.Y) : (Values[Enhancement.DepthOfFieldFocusX], Values[Enhancement.DepthOfFieldFocusY])
             : (Current.Cells[(int)Id.FocusPoint].X, Current.Cells[(int)Id.FocusPoint].Y);
 
         // The focus point can be seen and moved while the depth of field is on, also with ReShade's global switch off for
@@ -424,7 +428,7 @@ namespace CameraTools
 
         // Back with the right stick moves the focus point, so the camera does not also turn. A binding is a chord of
         // buttons or one stick direction and never both, so the pad is read here, as the panel's navigation reads it.
-        public static bool Steering => Marked && CameraUi.View == View.Hud && Controls.Owner == InputOwner.CameraTools
+        public static bool Steering => Marked && !Tracking && CameraUi.View == View.Hud && Controls.Owner == InputOwner.CameraTools
             && (Gamepad.Current.Buttons & PadButtons.Back) != 0;
 
         // The focus plane's paint is on, or may be: a set has not read back yet, or ReShade has only just loaded its
@@ -454,26 +458,26 @@ namespace CameraTools
         }
 
         // Whether the depth of field has focused, elapsed seconds after ReShade began drawing at the screenshot's size:
-        // CameraTools' own once the add-on's autofocus has held still, or at FocusLimit, and a ReShade shader after its
-        // autofocus's time.
+        // CameraTools' own once the add-on's focus, on the focus point or an eye, has held still, or at FocusLimit, and a
+        // ReShade shader after its autofocus's time.
         public static bool Focused(float elapsed)
         {
             if (!Ours)
                 return elapsed >= FocusSeconds;
-            if (!OwnOn || !Enhancements.Connected || OwnMode != EnhancementsModel.FocusPoint || elapsed >= FocusLimit)
+            if (!OwnOn || !Enhancements.Connected || OwnMode == EnhancementsModel.ManualFocus || elapsed >= FocusLimit)
                 return true;
             return focusMeters > 0f && elapsed >= FocusStill && Time.unscaledTime - focusSince >= FocusStill;
         }
 
         // What the add-on's depth of field block is made for: it runs in the free camera, its sensor follows the
-        // picture's shape and the miniature scale, and a screenshot gathers more samples and, past its countdown, blurs after
-        // ReShade's effects.
+        // picture's shape and the miniature scale, a screenshot gathers more samples and, past its countdown, blurs after
+        // ReShade's effects, and Eyes focuses on the eye it found.
         public static LensView Frame => new(freecamActive, Aspect, Miniature, Screenshot.State switch
         {
             ShotState.Idle => ShotStage.None,
             ShotState.Countdown => ShotStage.Countdown,
             _ => ShotStage.Capture,
-        });
+        }, FocusEyes.Target?.Meters ?? 0f);
 
         private static string Problem => Ours ? Enhancements.Missing
             : !ReShade.Connected ? ReShade.Missing
@@ -545,6 +549,7 @@ namespace CameraTools
                 settled = presents + SetPresents;
             }
             ready = loaded;
+            FocusEyes.Update(freecamActive && Tracking && OwnOn && Enhancements.Connected ? cam : null);
             bool active = freecamActive && ReShade.Connected;
             bool panel = CameraUi.PanelOpen;
             float now = Time.unscaledTime;
@@ -743,6 +748,8 @@ namespace CameraTools
 
         private static void Steer()
         {
+            if (Tracking)
+                return;
             var point = Point;
             if (Marked && CameraUi.View == View.Hud && Controls.Pressed(CamAction.CenterFocusPoint))
                 SetPoint(0f, 0f);
@@ -760,7 +767,7 @@ namespace CameraTools
         // the same place at every resolution.
         private static void Click()
         {
-            if (!Marked || Freecam.Focused || !Input.GetMouseButtonDown(0))
+            if (!Marked || Tracking || Freecam.Focused || !Input.GetMouseButtonDown(0))
                 return;
             var mouse = Input.mousePosition;
             if (CameraUi.View != View.Hud
