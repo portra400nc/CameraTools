@@ -135,10 +135,14 @@ namespace CameraTools
         public EnhancementRun Release() => Shot == null ? this : this with { Shot = null };
     }
 
+    // Where a screenshot is: none, counting down with its toast on screen, or past that, capturing with ReShade's effects on.
+    public enum ShotStage { None, Countdown, Capture }
+
     // What the depth of field's block needs beside the values: whether the free camera is on, which it runs in only; the
     // picture's width over its height, which gives the sensor; the miniature scale's N, which makes the sensor N times
-    // taller; and whether a screenshot is being taken, which gathers more samples.
-    public readonly record struct LensView(bool FreeCamera, float Aspect, int Miniature, bool Shot);
+    // taller; and the screenshot's stage: a screenshot gathers more samples, and while it captures, the add-on blurs after
+    // the ReShade effects that read the depth buffer, so RTGI and the like light the sharp frame and the shot has the blur.
+    public readonly record struct LensView(bool FreeCamera, float Aspect, int Miniature, ShotStage Shot);
 
     // The Enhancements category's rules, apart from the game, the preferences and the add-on, so tests run them.
     internal static class EnhancementsModel
@@ -317,7 +321,9 @@ namespace CameraTools
             dof.HighlightGain = values[Enhancement.HighlightBoost];
             dof.HighlightThreshold = values[Enhancement.HighlightThreshold];
             dof.BokehContrast = values[Enhancement.BokehContrast];
-            dof.Samples = lens.Shot ? ShotSamples : LiveSamples;
+            dof.Samples = lens.Shot != ShotStage.None ? ShotSamples : LiveSamples;
+            // Live play and the countdown blur in the scene, so the HUD, the panel and the countdown's toast stay sharp.
+            dof.Place = lens.Shot == ShotStage.Capture ? EnhancementsDofPlace.Display : EnhancementsDofPlace.Scene;
             return dof;
         }
 

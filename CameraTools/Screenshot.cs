@@ -348,7 +348,8 @@ namespace CameraTools
                 string hold = Supersampling.Hold();
                 Supersampling.Accumulate(CameraToolsEnhancements.EnhancementsAccumulateMode.Add, generation);
                 // ReShade's effects draw on the finished frame, after the add-on's sum, so the samples need none of them;
-                // with RTGI on, they cost most of each 4K frame on the Deck (build 263: 64 frames in 40 s).
+                // with RTGI on, they cost most of each 4K frame on the Deck (build 263: 64 frames in 40 s). The depth of
+                // field skips the samples too while the add-on adds them, and blurs the average once after the effects.
                 ReShade.SetEffects(false);
                 Melon<CameraTools>.Logger.Msg($"Screenshot: settled {now - settling.Started:0.0} s after the button; {hold}; "
                     + $"{Supersampling.Samples} samples for generation {generation}; window {Window}; {bridge}.");

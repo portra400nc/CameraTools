@@ -458,8 +458,14 @@ namespace CameraTools
         }
 
         // What the add-on's depth of field block is made for: it runs in the free camera, its sensor follows the
-        // picture's shape and the miniature scale, and a screenshot gathers more samples.
-        public static LensView Frame => new(freecamActive, Aspect, Miniature, Screenshot.State is not ShotState.Idle);
+        // picture's shape and the miniature scale, and a screenshot gathers more samples and, past its countdown, blurs after
+        // ReShade's effects.
+        public static LensView Frame => new(freecamActive, Aspect, Miniature, Screenshot.State switch
+        {
+            ShotState.Idle => ShotStage.None,
+            ShotState.Countdown => ShotStage.Countdown,
+            _ => ShotStage.Capture,
+        });
 
         private static string Problem => Ours ? Enhancements.Missing
             : !ReShade.Connected ? ReShade.Missing

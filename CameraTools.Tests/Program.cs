@@ -184,8 +184,8 @@ Check("at the timeout a frame traced from 16 samples or more is saved as it is; 
 // field does not run; in it, on a 16:10 picture at real size.
 EnhancementField Field(Enhancement id) => EnhancementsModel.Field(id);
 var fresh = EnhancementValues.Defaults;
-var outside = new LensView(false, 1.6f, 1, false);
-var inside = new LensView(true, 1.6f, 1, false);
+var outside = new LensView(false, 1.6f, 1, ShotStage.None);
+var inside = new LensView(true, 1.6f, 1, ShotStage.None);
 EnhancementsSettings Settings(EnhancementValues values) => EnhancementsModel.Settings(values, outside);
 Check("the table holds 57 fields, each at its own id's place, with the master switch and seven effects' switches, and 19 of the depth of field",
     EnhancementsModel.Fields.Length == 57 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
@@ -319,7 +319,13 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     Check("a 1:N miniature makes the sensor N times taller: 229.49 mm at 1:10 and 11474.5 mm at 1:500",
         MathF.Abs(EnhancementsModel.DepthOfField(fresh, inside with { Miniature = 10 }).SensorHeightMm - 229.4895f) < 1e-2f
         && MathF.Abs(EnhancementsModel.DepthOfField(fresh, inside with { Miniature = 500 }).SensorHeightMm - 11474.48f) < 0.5f);
-    Check("a screenshot gathers 289 samples a pixel", EnhancementsModel.DepthOfField(fresh, inside with { Shot = true }).Samples == 289);
+    Check("a screenshot gathers 289 samples a pixel, from its countdown on", EnhancementsModel.DepthOfField(fresh, inside with { Shot = ShotStage.Countdown }).Samples == 289
+        && EnhancementsModel.DepthOfField(fresh, inside with { Shot = ShotStage.Capture }).Samples == 289);
+    Check("live play and the countdown blur in the scene, and the capture after ReShade's effects",
+        EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfField, 1f), inside).Place == EnhancementsDofPlace.Scene
+        && EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfField, 1f), inside with { Shot = ShotStage.Countdown }).Place == EnhancementsDofPlace.Scene
+        && EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfField, 1f), inside with { Shot = ShotStage.Capture }).Place == EnhancementsDofPlace.Display
+        && EnhancementsModel.Settings(fresh.With(Enhancement.DepthOfField, 1f), inside with { Shot = ShotStage.Capture }).DepthOfField is { Enabled: 1, Place: EnhancementsDofPlace.Display });
     Check("outside the free camera the depth of field does not run", EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfField, 1f), outside).Enabled == 0);
 
     var manual = fresh.With(Enhancement.DepthOfFieldFocusMode, EnhancementsModel.ManualFocus).With(Enhancement.DepthOfFieldFocusDistance, 3.5f);
