@@ -413,6 +413,15 @@ int main(int argc, char **argv)
         const DofOutput behind = render(edge, lens_at(2, 1, 0));
         check("behind focus at 1 m, with the background black at 30 m behind it, it spreads as evenly",
             near(edge.green(behind, 399, 400) + edge.green(behind, 400, 400), 1, 0.05f) && edge.green(behind, 412, 400) > 0.97f);
+        Scene wall(10);
+        for (uint32_t y = 200; y < 600; y++)
+            for (uint32_t x = 400; x < 800; x++)
+                wall.put(x, y, 1, 2);
+        const DofOutput over_wall = render(wall, lens_at(2, 30, 0));
+        check("over a black wall 10 m away, itself a little in front of focus at 30 m, it spreads as evenly: half at the edge and 0.2572 "
+              "four pixels out, where the wall's own near field had kept it to 0.0943",
+            near(wall.green(over_wall, 399, 400) + wall.green(over_wall, 400, 400), 1, 0.05f) && near(wall.green(over_wall, 396, 400), 0.2572f, 0.002f)
+                && wall.green(over_wall, 388, 400) < 0.02f && wall.green(over_wall, 412, 400) > 0.98f);
         DepthOfFieldSettings autofocus = lens_at(2, 0, 0);
         const DofOutput focused = render(edge, autofocus);
         check("the autofocus at the picture's center finds the square 2 m away, and keeps it sharp", near(focused.focus, 2, 0.001f)

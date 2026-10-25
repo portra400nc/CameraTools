@@ -41,6 +41,9 @@ static const float kDofChromaticRed = 0.0005f;
 static const float kDofChromaticBlue = 0.0012f;
 // The CoC radius in half-size pixels below which a point is in focus: half a full-size pixel.
 static const float kDofInFocus = 0.25f;
+// At a pixel in front of focus, the CoC in half-size pixels by which a source in front of focus must differ from the
+// pixel's own to lie in front of its surface, occluding it, or behind it.
+static const float kDofLayer = 1.0f;
 // How much swirl at 1 compresses a disc's radial axis at the picture's corners.
 static const float kDofSwirl = 1.5f;
 static const float3 kDofLuma = float3(0.2126f, 0.7152f, 0.0722f);
@@ -524,10 +527,14 @@ float2 dof_dilate(int2 tile)
 // across its disc over the disc's area, times the area the sample stands for. Sources behind the focus plane go to the
 // far field, normalized, with the bokeh contrast's lifted light and, in a, the plain luminance the post-filter weighs it
 // against; a source deeper than a pixel behind focus spreads no wider than that pixel's own disc, so the background does
-// not spill over a nearer blurred surface. Sources in front go to the near field, premultiplied,
-// whose coverage is their summed weight. At a pixel in front of focus the far field is what shows through its blurred
-// edge, so there every source not in front spreads at least as wide as the pixel's own disc: the background around an
-// out-of-focus foreground fills in behind it.
+// not spill over a nearer blurred surface. Sources in front go to the near field, premultiplied, whose coverage is their
+// summed weight. At a pixel in front of focus the near field holds two layers, each by its own coverage: the sources nearer
+// than the pixel's own surface by kDofLayer over the sources on it. A wall a little in front of focus covers its own
+// pixels fully with its small discs, and in one layer with a blurred shoulder in front of it would swamp the shoulder's
+// share of the light, so the shoulder's blur would end at its silhouette. Sources in front of focus but behind the
+// pixel's surface go to the far field. The far field is what shows through a pixel's blurred edge, so at a pixel in front
+// of focus every source there spreads at least as wide as the pixel's own disc: what lies around an out-of-focus
+// foreground, in focus, behind it or in front of it, fills in behind it.
 DofFields dof_gather(int2 p)
 {
     DofFields o;
@@ -566,6 +573,7 @@ DofFields dof_gather(int2 p)
     float far_light = 0.0f;
     bool lifted = dof_contrast.x > 0.0f;
     float3 near_sum = float3(0.0f, 0.0f, 0.0f), near_w = float3(0.0f, 0.0f, 0.0f);
+    float3 level_sum = float3(0.0f, 0.0f, 0.0f), level_w = float3(0.0f, 0.0f, 0.0f);
     LOOP for (int i = 0; i <= count; i++)
     {
         // The golden angle apart, at radii that split the disc into equal areas, so every sample has its own radius: rings
@@ -575,16 +583,20 @@ DofFields dof_gather(int2 p)
         float angle = 2.0f * kDofPi * (turn + float(i) * 0.38196601f);
         float2 o_px = i < count ? float2(cos(angle), sin(angle)) * (reach_px * sqrt((float(i) + 0.5f) / float(count))) : float2(0.0f, 0.0f);
         float2 q = float2(float(p.x) + 0.5f + o_px.x, float(p.y) + 0.5f + o_px.y);
-        float c = dof_load_source(int2(int(floor(q.x)), int(floor(q.y)))).w;
+        float4 at_q = dof_load_source(int2(int(floor(q.x)), int(floor(q.y))));
+        float c = at_q.w;
         float3 r = dof_radii(dof_capped_coc(c, lens));
         // A source within half a full-size pixel of focus belongs to neither field, the composite keeping it sharp, as its
         // small disc's weight would swamp the fields' wider ones; but it fills in behind a pixel in front of focus.
         if (abs(c) <= kDofInFocus && own_near == 0.0f)
             continue;
         bool behind = c > -kDofInFocus;
+        bool occluder = !behind && (own_near == 0.0f || c < own - kDofLayer);
+        bool level = !behind && !occluder && c <= own + kDofLayer;
+        bool beneath = behind || (!occluder && !level);
         if (behind && c > own)
             r = float3(min(r.x, own_far.x), min(r.y, own_far.y), min(r.z, own_far.z));
-        if (behind)
+        if (beneath)
             r = float3(max(r.x, own_near), max(r.y, own_near), max(r.z, own_near));
         // Where the pixel lies in the source's disc, y up; a source in front of focus shows the aperture mirrored.
         float2 u = behind ? float2(-o_px.x, -o_px.y * up) : float2(o_px.x, o_px.y * up);
@@ -595,20 +607,32 @@ DofFields dof_gather(int2 p)
         float3 w = dof_weights(r, d, dof_swirl_density(ndc, shape) * area, behind ? dof_bokeh.x : -dof_bokeh.x, behind ? dof_bokeh.y : dof_bokeh.z)
             * dof_cat_eye_cuts(u, r, ndc, shape);
         float lod = log2(clamp(min(spacing, r.y), 1.0f, 256.0f));
-        if (behind)
+        if (beneath)
         {
-            float4 lit = lifted ? dof_sample_lifted(q, lod) : float4(0.0f, 0.0f, 0.0f, 0.0f);
-            float3 color = lifted ? float3(lit.x, lit.y, lit.z) : dof_sample_source(q, lod);
+            bool lift = lifted && behind;
+            float4 lit = lift ? dof_sample_lifted(q, lod) : float4(0.0f, 0.0f, 0.0f, 0.0f);
+            float3 color = lift ? float3(lit.x, lit.y, lit.z) : dof_sample_source(q, lod);
             far_sum = far_sum + color * w;
             far_w = far_w + w;
             far_by_green = far_by_green + float2(color.x, color.z) * w.y;
-            far_light = far_light + (lifted ? lit.w : dot(color, kDofLuma)) * w.y;
+            far_light = far_light + (lift ? lit.w : dot(color, kDofLuma)) * w.y;
         }
         else
         {
-            float3 color = dof_sample_source(q, lod);
-            near_sum = near_sum + color * w;
-            near_w = near_w + w;
+            // A source on the pixel's own surface takes the color of the texel its CoC came from: its disc is small, and a
+            // filtered sample beside a blurred foreground's silhouette would bring the foreground's light in a second time,
+            // a bright line along the silhouette.
+            float3 color = occluder ? dof_sample_source(q, lod) : float3(at_q.x, at_q.y, at_q.z);
+            if (occluder)
+            {
+                near_sum = near_sum + color * w;
+                near_w = near_w + w;
+            }
+            else
+            {
+                level_sum = level_sum + color * w;
+                level_w = level_w + w;
+            }
         }
     }
     // Behind a pixel in front of focus, red's or blue's discs of the sources behind may be too small to reach it where
@@ -616,9 +640,14 @@ DofFields dof_gather(int2 p)
     if (far_w.y > 0.0f)
         o.far = float4(far_w.x > 0.0f ? far_sum.x / far_w.x : far_by_green.x / far_w.y, far_sum.y / far_w.y,
             far_w.z > 0.0f ? far_sum.z / far_w.z : far_by_green.y / far_w.y, max(far_light / far_w.y, 1e-4f));
-    float3 near = float3(near_sum.x / max(near_w.x, 1e-20f), near_sum.y / max(near_w.y, 1e-20f), near_sum.z / max(near_w.z, 1e-20f));
-    o.near = float4(near.x * min(near_w.x, 1.0f), near.y * min(near_w.y, 1.0f), near.z * min(near_w.z, 1.0f), min(near_w.y, 1.0f));
-    o.cover = float2(min(near_w.x, 1.0f), min(near_w.z, 1.0f));
+    float3 front = float3(min(near_w.x, 1.0f), min(near_w.y, 1.0f), min(near_w.z, 1.0f));
+    float3 under = float3(min(level_w.x / max(1.0f - front.x, 1e-4f), 1.0f), min(level_w.y / max(1.0f - front.y, 1e-4f), 1.0f),
+        min(level_w.z / max(1.0f - front.z, 1e-4f), 1.0f));
+    float3 near = near_sum / float3(max(near_w.x, 1e-20f), max(near_w.y, 1e-20f), max(near_w.z, 1e-20f)) * front
+        + level_sum / float3(max(level_w.x, 1e-20f), max(level_w.y, 1e-20f), max(level_w.z, 1e-20f)) * under * (float3(1.0f, 1.0f, 1.0f) - front);
+    float3 cover = front + under * (float3(1.0f, 1.0f, 1.0f) - front);
+    o.near = float4(near.x, near.y, near.z, cover.y);
+    o.cover = float2(cover.x, cover.z);
     return o;
 }
 #endif
@@ -741,10 +770,12 @@ float3 dof_sprite_light(DofSprite s, int2 p)
 #endif
 
 #ifdef DOF_COMPOSITE
-// A full-size pixel: its sharp color while its own green CoC is under half a pixel, the far field blended in above that
-// (bilinear over the half-size texels with weight), and the near field over both, each channel by its own coverage: one
-// coverage for all would hide a channel whose disc reaches less than green's, or add one whose disc reaches more, over
-// what lies behind.
+// A full-size pixel: its sharp color while its own green CoC is under half a pixel, the far field blended in above that,
+// and the near field over both, each channel by its own coverage: one coverage for all would hide a channel whose disc
+// reaches less than green's, or add one whose disc reaches more, over what lies behind. Each of the four half-size texels
+// around the pixel is composited on its own and the results blended bilinearly: a texel's near field may cover all of its
+// far field, which then holds what lies hidden behind a blurred foreground, and blended with its neighbor's before the
+// cover it would show through theirs. A texel without far field takes the mean of those that have one, or the sharp color.
 float3 dof_composite(int2 pixel)
 {
     float3 sharp = dof_load_scene(pixel);
@@ -755,8 +786,6 @@ float3 dof_composite(int2 pixel)
     float fx = at.x - floor(at.x), fy = at.y - floor(at.y);
     float3 far = float3(0.0f, 0.0f, 0.0f);
     float far_weight = 0.0f;
-    float4 near = float4(0.0f, 0.0f, 0.0f, 0.0f);
-    float2 cover = float2(0.0f, 0.0f);
     UNROLL for (int i = 0; i < 4; i++)
     {
         int2 q = int2(base.x + i % 2, base.y + i / 2);
@@ -765,11 +794,20 @@ float3 dof_composite(int2 pixel)
         float w = f.w > 0.0f ? b : 0.0f;
         far = far + float3(f.x, f.y, f.z) * w;
         far_weight = far_weight + w;
-        near = near + dof_load_near(q) * b;
-        cover = cover + dof_load_cover(q) * b;
     }
     float t = saturate(abs(coc) - 0.5f);
-    float3 color = far_weight > 0.0f ? sharp + (far / far_weight - sharp) * t : sharp;
-    return color * float3(1.0f - cover.x, 1.0f - near.w, 1.0f - cover.y) + float3(near.x, near.y, near.z);
+    float3 pooled = far_weight > 0.0f ? far / far_weight : sharp;
+    float3 color = float3(0.0f, 0.0f, 0.0f);
+    UNROLL for (int j = 0; j < 4; j++)
+    {
+        int2 q = int2(base.x + j % 2, base.y + j / 2);
+        float b = (j % 2 == 0 ? 1.0f - fx : fx) * (j / 2 == 0 ? 1.0f - fy : fy);
+        float4 f = dof_load_far(q);
+        float4 n = dof_load_near(q);
+        float2 v = dof_load_cover(q);
+        float3 under = sharp + ((f.w > 0.0f ? float3(f.x, f.y, f.z) : pooled) - sharp) * t;
+        color = color + (under * float3(1.0f - v.x, 1.0f - n.w, 1.0f - v.y) + float3(n.x, n.y, n.z)) * b;
+    }
+    return color;
 }
 #endif
