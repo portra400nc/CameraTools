@@ -17,7 +17,7 @@ namespace CameraTools
         MistSkyLight, LightShaftQuality,
         WetSurfaces, Wetness, WetDarkening, Puddles,
         ToneMap, ToneMapCurve, ToneMapExposure, ToneMapBloom, ToneMapSaturation, ToneMapContrast,
-        LensFlare, LensFlareSource, LensFlareX, LensFlareY, LensFlareStrength, LensFlareArcs, LensFlareFilledArcs, LensFlareGhosts, LensFlareStreaks,
+        LensFlare, LensFlareSource, LensFlareX, LensFlareY, LensFlareStrength, LensFlareArcs, LensFlareRainbow, LensFlareFilledArcs, LensFlareGhosts, LensFlareStreaks,
         LensFlareGlare, LensFlareSize, LensFlareWarmth, LensFlareRedFringe,
         DepthOfField, DepthOfFieldFocusMode, DepthOfFieldFocusSpeed, DepthOfFieldFocusDistance, DepthOfFieldAperture, DepthOfFieldFocusX, DepthOfFieldFocusY, DepthOfFieldMaxBlur,
         BokehShape, BladeRoundness, BladeRotation, SoapBubble, BokehChromaticAberration, CatsEye, Swirl, AnamorphicRatio,
@@ -223,6 +223,7 @@ namespace CameraTools
             Slider(Enhancement.LensFlareY, Enhancement.LensFlare, "Position Y", -2f, 2f, -0.76f, 0.05f, 2),
             Slider(Enhancement.LensFlareStrength, Enhancement.LensFlare, "Strength", 0f, 4f, 1f, 0.05f, 2),
             Slider(Enhancement.LensFlareArcs, Enhancement.LensFlare, "Arcs", 0f, 4f, 1f, 0.05f, 2),
+            Slider(Enhancement.LensFlareRainbow, Enhancement.LensFlare, "Rainbow", 0f, 4f, 0.5f, 0.05f, 2),
             Slider(Enhancement.LensFlareFilledArcs, Enhancement.LensFlare, "Filled arcs", 0f, 4f, 0.5f, 0.05f, 2),
             Slider(Enhancement.LensFlareGhosts, Enhancement.LensFlare, "Ghosts", 0f, 4f, 1f, 0.05f, 2),
             Slider(Enhancement.LensFlareStreaks, Enhancement.LensFlare, "Streaks", 0f, 4f, 1f, 0.05f, 2),
@@ -333,6 +334,7 @@ namespace CameraTools
             flare.Y = (values[Enhancement.LensFlareY] + 1f) * 0.5f;
             flare.Strength = values[Enhancement.LensFlareStrength];
             flare.Arcs = values[Enhancement.LensFlareArcs];
+            flare.Rainbow = values[Enhancement.LensFlareRainbow];
             flare.FilledArcs = values[Enhancement.LensFlareFilledArcs];
             flare.Ghosts = values[Enhancement.LensFlareGhosts];
             flare.Streaks = values[Enhancement.LensFlareStreaks];

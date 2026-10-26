@@ -449,6 +449,8 @@ typedef struct EnhancementsLensFlare
                                 // clamped to 0..5
     float filled_arcs;          // the light of the filled discs with a thick rim, some cut into a D; default 0.5, clamped to 0..4
     uint32_t place;             // ENHANCEMENTS_FLARE_PLACE_*; unknown values read as SCENE, the default
+    float rainbow;              // the light of a rainbow band across each arc, violet inside to red outside; default 0.5, clamped
+                                // to 0..4
 } EnhancementsLensFlare;
 
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller

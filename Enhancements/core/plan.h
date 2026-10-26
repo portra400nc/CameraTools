@@ -182,6 +182,7 @@ namespace enhancements
         float visibility_seconds = 0.15f;       // how long the sun's visibility takes to follow a change, 99% of the way
         float filled_arcs = 0.5f;
         FlarePlace place = FlarePlace::scene;
+        float rainbow = 0.5f;                   // the arcs' spectral band
     };
 
     // Every value in range: non-finite floats take the default and the rest clamp.

@@ -208,6 +208,7 @@ namespace CameraToolsEnhancements
         public float VisibilitySeconds;     // how long the flare takes to follow the sun's visibility, 99% of the way
         public float FilledArcs;            // the filled discs with a thick rim, some cut into a D, 0 to 4
         public EnhancementsFlarePlace Place;
+        public float Rainbow;               // the arcs' rainbow band, 0 to 4
     }
 
     // EnhancementsSettings in enhancements.h, field for field.
@@ -275,7 +276,7 @@ namespace CameraToolsEnhancements
             LensFlare = new EnhancementsLensFlare
             {
                 Source = EnhancementsFlareSource.Sun, X = 0.8f, Y = 0.12f, Strength = 1, Arcs = 1, Ghosts = 1, Streaks = 1, Glare = 0.5f, Size = 1, Warmth = 0.5f,
-                Chromatic = 1, VisibilitySeconds = 0.15f, FilledArcs = 0.5f,
+                Chromatic = 1, VisibilitySeconds = 0.15f, FilledArcs = 0.5f, Rainbow = 0.5f,
             },
         };
     }

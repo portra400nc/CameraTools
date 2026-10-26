@@ -216,7 +216,7 @@ If the heading says the add-on was not found, ReShade has not loaded it.
 
 ### Lens flare
 
-**Lens flare** draws the flare of an old single-coated lens: thin orange-red arcs, filled arcs with a thick rim (one is cut into a D), soft ghost discs with a bright spot, diagonal streaks and a warm glare toward the light. It needs the **Enhancements** switch on.
+**Lens flare** draws the flare of an old single-coated lens: thin orange-red arcs with a faint rainbow along them, filled arcs with a thick rim, soft ghost discs with a bright spot, diagonal streaks and a warm glare toward the light. It needs the **Enhancements** switch on.
 
 | Row | Does |
 |--|--|
@@ -224,6 +224,7 @@ If the heading says the add-on was not found, ReShade has not loaded it.
 | **Position X**, **Position Y** | Manual only. -1 is the left or top edge and 1 the right or bottom edge; up to 2 places the light past the edge, where most arcs and streaks show. |
 | **Strength** | Scales the whole flare. |
 | **Arcs**, **Filled arcs**, **Ghosts**, **Streaks**, **Glare** | Each part's brightness. Glare and Filled arcs start at 0.5, the others at 1. |
+| **Rainbow** | A band of spectral color along each arc, violet inside and red outside. 0.5, the default, is a faint fringe; 4 is a full rainbow ring. |
 | **Size** | Scales every part. |
 | **Warmth** | 0 is cool, 0.5 the lens's own orange, 1 a deeper orange. |
 | **Red fringe** | The red edge outside each arc and ghost. |

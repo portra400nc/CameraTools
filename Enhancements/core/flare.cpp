@@ -94,6 +94,7 @@ namespace enhancements
         c.frame[3] = settings.chromatic;
         c.more[0] = settings.filled_arcs;
         c.more[1] = flip ? 1.0f : 0.0f;
+        c.more[2] = settings.rainbow;
         return c;
     }
 

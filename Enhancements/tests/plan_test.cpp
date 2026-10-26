@@ -88,7 +88,7 @@ namespace
     {
         EnhancementsSettings raw = raw_settings();
         raw.ambient.enabled = 0;
-        raw.lens_flare = { 1, ENHANCEMENTS_FLARE_SOURCE_SUN, { 0.8f, 0.12f }, 1, 1, 1, 1, 1, 1, 0.5f, 1, 0.15f, 1, ENHANCEMENTS_FLARE_PLACE_SCENE };
+        raw.lens_flare = { 1, ENHANCEMENTS_FLARE_SOURCE_SUN, { 0.8f, 0.12f }, 1, 1, 1, 1, 1, 1, 0.5f, 1, 0.15f, 1, ENHANCEMENTS_FLARE_PLACE_SCENE, 0.5f };
         return parse_settings(raw);
     }
 
@@ -1167,9 +1167,9 @@ int main()
         EnhancementsSettings raw = raw_settings();
         raw.depth_of_field = { 1, 1.4f, 36, 3, { 0.25f, 0.75f }, 0.5f, 0.05f, 7, 0.2f, 15, 1, 0.6f, 0.3f, 1.33f, 1, 256, 3, 1.5f, 1, 0.75f, 1, 0.42f, 0.02f };
         const DepthOfFieldSettings whole = parse_settings(raw).depth_of_field;
-        check("a whole 392-byte struct reads the depth of field: on, f/1.4 on a 36 mm sensor focused at 3 m, its point, speed, blur, 7 blades, "
+        check("a whole 396-byte struct reads the depth of field: on, f/1.4 on a 36 mm sensor focused at 3 m, its point, speed, blur, 7 blades, "
               "highlights from 3 times the mean at gain 1.5, scatter, bokeh contrast 0.75, on the display, an eye 0.42 m away in a 0.02 m window, and the rest",
-            sizeof raw == 392 && whole.eye_distance == 0.42f && whole.eye_size == 0.02f && whole.place == DofPlace::display && whole.scatter && whole.bokeh_contrast == 0.75f && whole.enabled && whole.f_number == 1.4f && whole.sensor_height_mm == 36 && whole.focus_distance == 3
+            sizeof raw == 396 && whole.eye_distance == 0.42f && whole.eye_size == 0.02f && whole.place == DofPlace::display && whole.scatter && whole.bokeh_contrast == 0.75f && whole.enabled && whole.f_number == 1.4f && whole.sensor_height_mm == 36 && whole.focus_distance == 3
                 && whole.focus_point[0] == 0.25f && whole.focus_point[1] == 0.75f && whole.focus_seconds == 0.5f && whole.max_blur == 0.05f
                 && whole.blades == 7 && whole.blade_roundness == 0.2f && whole.blade_rotation == 15 && whole.spherical_aberration == 1
                 && whole.cat_eye == 0.6f && whole.swirl == 0.3f && whole.anamorphic == 1.33f && whole.chromatic == 1 && whole.samples == 256

@@ -32,6 +32,14 @@ static const float4 kFlareRingB[FLARE_RINGS] = {
     float4(0.20f, 6.0f, 0.02f, 0.010f),
     float4(2.60f, 8.0f, 0.00f, 0.008f),
 };
+// Each ring's rainbow: (its share of the rainbow's light; the band's half width over the radius; unused; unused). The big
+// rings show it most, as dispersion spreads farther the larger the ring.
+static const float4 kFlareRingC[FLARE_RINGS] = {
+    float4(0.50f, 0.12f, 0.0f, 0.0f),
+    float4(0.85f, 0.11f, 0.0f, 0.0f),
+    float4(0.80f, 0.10f, 0.0f, 0.0f),
+    float4(1.00f, 0.08f, 0.0f, 0.0f),
+};
 
 // Each filled disc: (where its center lies along the line; radius; its rim's width over the radius; light) and (the turn of
 // its rim from the side away from the source, in radians; how narrow the rim is; the fill's light; where the straight cut
@@ -105,6 +113,28 @@ float3 flare_ring_light(float d, float width, float fill, float radius, float fr
     return float3(1.0f, 0.45f, 0.18f) * stroke + float3(1.0f, 0.2f, 0.07f) * halo + float3(1.0f, 0.55f, 0.3f) * inside;
 }
 
+// The spectrum across a rainbow band, x from 0 at its inside (violet) to 1 at its outside (red), each channel a soft bump,
+// with a little red back in at the violet end.
+float flare_bump(float x, float center, float width)
+{
+    float t = (x - center) / width;
+    return saturate(1.0f - t * t);
+}
+
+float3 flare_spectrum(float x)
+{
+    return float3(flare_bump(x, 0.82f, 0.26f) + 0.35f * flare_bump(x, 0.05f, 0.12f), flare_bump(x, 0.52f, 0.24f), flare_bump(x, 0.2f, 0.22f));
+}
+
+// A rainbow band centered on a ring's line, d its signed distance from the line and band its half width: the spectrum
+// across it, faded to nothing at its edges.
+float3 flare_rainbow(float d, float band)
+{
+    float x = d / band;
+    float window = saturate(1.0f - x * x);
+    return flare_spectrum(saturate(0.5f + 0.5f * x)) * window;
+}
+
 float3 flare_rings(float2 q, float2 sun, float2 axis, float size)
 {
     float3 sum = float3(0.0f, 0.0f, 0.0f);
@@ -118,7 +148,10 @@ float3 flare_rings(float2 q, float2 sun, float2 axis, float size)
         float2 drawn = flare_rotate(facing, b.x);
         float part = pow(saturate(0.5f + 0.5f * dot(flare_normalize(offset, drawn), drawn)), b.y);
         float radius = a.y * size;
-        sum = sum + flare_ring_light(length(offset) - radius, a.z * size, b.z, radius, b.w * flare_frame.w) * (a.w * part);
+        float d = length(offset) - radius;
+        float4 c = kFlareRingC[i];
+        float3 rainbow = flare_rainbow(d, c.y * radius) * (c.x * flare_more.z * 0.6f);
+        sum = sum + (flare_ring_light(d, a.z * size, b.z, radius, b.w * flare_frame.w) + rainbow) * (a.w * part);
     }
     return sum;
 }

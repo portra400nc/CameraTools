@@ -93,6 +93,20 @@ int main(int, char **)
     check("a sun in front gives it the setting's strength and the picture's aspect", shown.sun[2] == 2 && near(shown.sun[3], 1.6f));
     check("the flare lights the picture around a sun on it", brightest(shown, 1) > 0.05f);
     check("without visibility the flare draws nothing", brightest(shown, 0) == 0);
+    FlareSettings plain = settings, spectral = settings;
+    plain.rainbow = 0;
+    spectral.rainbow = 4;
+    const FlareConstants without = flare_constants(plain, FlareSun { 0.3f, -0.3f, true }, { 1280, 800 }, true);
+    const FlareConstants with = flare_constants(spectral, FlareSun { 0.3f, -0.3f, true }, { 1280, 800 }, true);
+    float blue_gain = 0, red_shift = 0;
+    for (uint32_t y = 0; y < 800; y += 4)
+        for (uint32_t x = 0; x < 1280; x += 4)
+        {
+            const std::array<float, 3> a = flare_light_at(x + 0.5f, y + 0.5f, without, 1), b = flare_light_at(x + 0.5f, y + 0.5f, with, 1);
+            blue_gain = std::fmax(blue_gain, b[2] - a[2]);
+            red_shift = std::fmax(red_shift, b[0] - a[0]);
+        }
+    check("the rainbow adds blue to the arcs, which the lens's orange lacks, as well as red", blue_gain > 0.02f && red_shift > 0.02f);
     const FlareConstants flipped = flare_constants(settings, FlareSun { 0.3f, -0.3f, true }, { 1280, 800 }, true, true);
     bool mirrored = true;
     for (uint32_t y = 0; y < 800; y += 40)

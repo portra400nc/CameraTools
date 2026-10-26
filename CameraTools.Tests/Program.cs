@@ -39,9 +39,9 @@ Check("the binding's status is enhancements.h's 160 bytes, with the restarts at 
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceLight)) == 128 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceRestarts)) == 132
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceRestartReason)) == 136 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.ShotActive)) == 140
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.FramesSaved)) == 144 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.DofFocusMeters)) == 148);
-Check("the binding's shot is 16 bytes, its settings 392 with the depth of field at 236 and its highlights at 68, scatter at 76, bokeh contrast at 80, place at 84 and the eye at 88 in it, the lens flare at 332 and 60 bytes long, and its scene request 20",
-    Marshal.SizeOf<EnhancementsShot>() == 16 && Offset<EnhancementsShot>(nameof(EnhancementsShot.BudgetMs)) == 12 && Marshal.SizeOf<EnhancementsSettings>() == 392
-    && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.LensFlare)) == 332 && Marshal.SizeOf<EnhancementsLensFlare>() == 60
+Check("the binding's shot is 16 bytes, its settings 396 with the depth of field at 236 and its highlights at 68, scatter at 76, bokeh contrast at 80, place at 84 and the eye at 88 in it, the lens flare at 332 and 64 bytes long, and its scene request 20",
+    Marshal.SizeOf<EnhancementsShot>() == 16 && Offset<EnhancementsShot>(nameof(EnhancementsShot.BudgetMs)) == 12 && Marshal.SizeOf<EnhancementsSettings>() == 396
+    && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.LensFlare)) == 332 && Marshal.SizeOf<EnhancementsLensFlare>() == 64
     && (uint)EnhancementsFlareSource.Manual == 1
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.DepthOfField)) == 236 && Marshal.SizeOf<EnhancementsDepthOfField>() == 96
     && Offset<EnhancementsDepthOfField>(nameof(EnhancementsDepthOfField.EyeDistance)) == 88 && Offset<EnhancementsDepthOfField>(nameof(EnhancementsDepthOfField.EyeSize)) == 92
@@ -190,8 +190,8 @@ var fresh = EnhancementValues.Defaults;
 var outside = new LensView(false, 1.6f, 1, ShotStage.None);
 var inside = new LensView(true, 1.6f, 1, ShotStage.None);
 EnhancementsSettings Settings(EnhancementValues values) => EnhancementsModel.Settings(values, outside);
-Check("the table holds 71 fields, each at its own id's place, with the master switch and eight effects' switches, and 20 of the depth of field",
-    EnhancementsModel.Fields.Length == 71 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
+Check("the table holds 72 fields, each at its own id's place, with the master switch and eight effects' switches, and 20 of the depth of field",
+    EnhancementsModel.Fields.Length == 72 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
     && EnhancementsModel.Fields.Count(field => field.Lens) == 20
     && string.Join(",", EnhancementsModel.Effects.Select(field => field.Label)) == "Ambient light,Contact shadows,Soft sun shadows,Haze,Light shafts,Wet surfaces,Tone map,Lens flare");
 {
@@ -206,8 +206,8 @@ Check("the table holds 71 fields, each at its own id's place, with the master sw
         && off.LightShafts is { Strength: 3f, Density: 0.006f, Height: 5f, Anisotropy: 0.6f, Distance: 150f, Patchiness: 1f, PatchSize: 6f, Ambient: 0.3f, Steps: 48 }
         && off.Wetness is { Wetness: 0f, Darkening: 0.35f, Puddles: 0.3f }
         && off.Tonemap is { Curve: EnhancementsCurve.AgX, ExposureEv: 0f, BloomStrength: 1f, Saturation: 1f, Contrast: 1f });
-    Check("the lens flare is off, from the sun, at the user's tuning: everything 1 but glare and filled arcs 0.5, and its manual light where the add-on puts it",
-        off.LensFlare is { Enabled: 0, Source: EnhancementsFlareSource.Sun, Strength: 1f, Arcs: 1f, FilledArcs: 0.5f, Ghosts: 1f, Streaks: 1f, Glare: 0.5f, Size: 1f,
+    Check("the lens flare is off, from the sun, at the user's tuning: everything 1 but glare, filled arcs and the rainbow 0.5, and its manual light where the add-on puts it",
+        off.LensFlare is { Enabled: 0, Source: EnhancementsFlareSource.Sun, Strength: 1f, Arcs: 1f, Rainbow: 0.5f, FilledArcs: 0.5f, Ghosts: 1f, Streaks: 1f, Glare: 0.5f, Size: 1f,
             Warmth: 0.5f, Chromatic: 1f, VisibilitySeconds: 0.15f }
         && MathF.Abs(off.LensFlare.X - 0.8f) < 1e-6f && MathF.Abs(off.LensFlare.Y - 0.12f) < 1e-6f && !EnhancementsModel.FlareRuns(fresh));
     Check("a field without a row keeps the add-on's default", off.ContactShadows.Thickness == 0.25f && off.SunShadows.MinPenumbra == 0.02f
