@@ -8,6 +8,7 @@ cbuffer Flare : register(b1)
     float4 flare_amounts;   // arcs, ghosts, streaks, glare
     float4 flare_tint;      // rgb the flare's color, linear; w its size
     float4 flare_frame;     // the back buffer's width and height, 1 when it holds sRGB-encoded values (0: linear), chromatic spread
+    float4 flare_more;      // filled arcs; three unused
 };
 
 #define LOOP [loop]

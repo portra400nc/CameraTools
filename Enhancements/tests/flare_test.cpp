@@ -37,9 +37,9 @@ namespace
         for (int i = 0; i < 4; i++)
             c.world_to_view[i * 5] = 1;
         const float l = std::sqrt(x * x + y * y + z * z);
-        c.toward_sun[0] = x / l;
-        c.toward_sun[1] = y / l;
-        c.toward_sun[2] = z / l;
+        c.toward_sky_sun[0] = x / l;
+        c.toward_sky_sun[1] = y / l;
+        c.toward_sky_sun[2] = z / l;
         return c;
     }
 
@@ -68,6 +68,19 @@ int main(int, char **)
     const std::optional<FlareSun> behind = flare_sun(camera_toward(0.1f, 0.2f, 1));
     check("a sun behind the camera is not in front", behind && !behind->in_front);
     check("no sun direction gives no sun", !flare_sun(Camera {}));
+    check("a sun below the horizon has set and gives no sun", !flare_sun(camera_toward(0, -0.05f, -1)));
+
+    EnhancementsCamera pushed {};
+    pushed.sun_direction[1] = 2;
+    pushed.sky_sun[0] = 3;
+    pushed.sky_sun[1] = 4;
+    const Camera both = parse_camera(pushed);
+    check("the sky's sun is read apart from the shadows' sun, at unit length", near(both.toward_sky_sun[0], 0.6f) && near(both.toward_sky_sun[1], 0.8f)
+        && near(both.toward_sun[1], 1));
+    pushed.sky_sun[0] = pushed.sky_sun[1] = 0;
+    pushed.sky_sun[2] = NAN;
+    const Camera none = parse_camera(pushed);
+    check("without one, the sky's sun is the shadows' sun", none.toward_sky_sun[0] == 0 && near(none.toward_sky_sun[1], 1) && none.toward_sky_sun[2] == 0);
     const FlareSun corner = flare_point(1, 0, 1.6f);
     check("the manual source at the top right corner lies 0.8 right and 0.5 up", near(corner.x, 0.8f) && near(corner.y, -0.5f));
 

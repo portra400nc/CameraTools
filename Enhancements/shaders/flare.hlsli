@@ -1,6 +1,7 @@
 // The lens flare: light a bright source just inside or outside the frame scatters and reflects inside an old, single-coated
 // lens, drawn over the finished picture. Four parts, after the vintage portraits the look follows:
-//   arcs     thin orange-red rings near the source, partly drawn, from light bouncing off the barrel's inner edges
+//   arcs     thin orange-red rings near the source, partly drawn, from light bouncing off the barrel's inner edges, and
+//            filled discs whose rim glows thick on one side, some cut straight on the other into a D
 //   ghosts   soft discs with a bright spot, on the line from the source through the picture's center, from reflections
 //            between the elements
 //   streaks  thin lines along that line, from light glancing off the glass
@@ -13,6 +14,7 @@
 
 #define FLARE_RINGS 4
 #define FLARE_GHOSTS 6
+#define FLARE_DISCS 2
 #define FLARE_STREAKS 3
 
 // Each ring: (where its center lies along the line, as a multiple of the source's position; radius; line width; light)
@@ -29,6 +31,18 @@ static const float4 kFlareRingB[FLARE_RINGS] = {
     float4(-1.20f, 6.0f, 0.04f, 0.012f),
     float4(0.20f, 6.0f, 0.02f, 0.010f),
     float4(2.60f, 8.0f, 0.00f, 0.008f),
+};
+
+// Each filled disc: (where its center lies along the line; radius; its rim's width over the radius; light) and (the turn of
+// its rim from the side away from the source, in radians; how narrow the rim is; the fill's light; where the straight cut
+// on the side opposite the rim lies, from the center over the radius, 1 for none).
+static const float4 kFlareDiscA[FLARE_DISCS] = {
+    float4(0.25f, 0.20f, 0.10f, 0.75f),
+    float4(0.60f, 0.26f, 0.08f, 0.50f),
+};
+static const float4 kFlareDiscB[FLARE_DISCS] = {
+    float4(0.00f, 1.5f, 0.35f, 1.00f),
+    float4(0.50f, 2.0f, 0.30f, -0.20f),
 };
 
 // Each ghost: (where its center lies along the line; radius; light; its bright spot's light) and (color; edge softness).
@@ -105,6 +119,31 @@ float3 flare_rings(float2 q, float2 sun, float2 axis, float size)
         float part = pow(saturate(0.5f + 0.5f * dot(flare_normalize(offset, drawn), drawn)), b.y);
         float radius = a.y * size;
         sum = sum + flare_ring_light(length(offset) - radius, a.z * size, b.z, radius, b.w * flare_frame.w) * (a.w * part);
+    }
+    return sum;
+}
+
+float3 flare_discs(float2 q, float2 sun, float2 axis, float size)
+{
+    float3 sum = float3(0.0f, 0.0f, 0.0f);
+    UNROLL for (int i = 0; i < FLARE_DISCS; i++)
+    {
+        float4 a = kFlareDiscA[i];
+        float4 b = kFlareDiscB[i];
+        float2 center = sun * a.x;
+        float radius = a.y * size;
+        float2 offset = q - center;
+        float t = length(offset) / radius;
+        float2 rim_side = flare_rotate(-axis, b.x);
+        float along = dot(offset, rim_side) / radius;
+        // Soft inside the edge, and cut straight at b.w on the far side, softly.
+        float inside = (1.0f - smoothstep(0.94f, 1.02f, t)) * smoothstep(-b.w - 0.12f, -b.w + 0.12f, along);
+        float side = saturate(0.5f + 0.5f * dot(flare_normalize(offset, rim_side), rim_side));
+        // The rim falls off fast outward and slowly inward, as light piling up against the edge.
+        float r = t - 1.0f + a.z;
+        float rim = exp(-(r * r) / (a.z * a.z * (r > 0.0f ? 0.5f : 2.0f))) * pow(side, b.y);
+        float fill = b.z * pow(side, 1.5f) * t;
+        sum = sum + (float3(1.0f, 0.34f, 0.08f) * rim + float3(1.0f, 0.42f, 0.13f) * fill) * (inside * a.w);
     }
     return sum;
 }
@@ -190,7 +229,7 @@ float3 flare_light(float2 pixel)
     float outside = flare_outside(sun);
     float present = 1.0f - smoothstep(0.1f, 0.65f, outside);
     float size = flare_tint.w;
-    float3 light = flare_rings(q, sun, axis, size) * flare_amounts.x + flare_ghosts(q, sun, axis, size) * flare_amounts.y
+    float3 light = flare_rings(q, sun, axis, size) * flare_amounts.x + flare_discs(q, sun, axis, size) * flare_more.x + flare_ghosts(q, sun, axis, size) * flare_amounts.y
         + flare_streaks(q, sun, axis, size) * flare_amounts.z + flare_glare(q, sun) * flare_amounts.w;
     float3 tint = float3(flare_tint.x, flare_tint.y, flare_tint.z);
     return light * tint * (visibility * present);

@@ -8,7 +8,7 @@
 
 namespace enhancements::shader
 {
-    thread_local float4 flare_sun, flare_amounts, flare_tint, flare_frame;
+    thread_local float4 flare_sun, flare_amounts, flare_tint, flare_frame, flare_more;
     thread_local float flare_visibility = 1;
 
     float flare_load_visibility() { return flare_visibility; }
@@ -33,14 +33,16 @@ namespace enhancements
             shader::flare_amounts = float4(c.amounts[0], c.amounts[1], c.amounts[2], c.amounts[3]);
             shader::flare_tint = float4(c.tint[0], c.tint[1], c.tint[2], c.tint[3]);
             shader::flare_frame = float4(c.frame[0], c.frame[1], c.frame[2], c.frame[3]);
+            shader::flare_more = float4(c.more[0], c.more[1], c.more[2], c.more[3]);
             shader::flare_visibility = visibility;
         }
     }
 
     std::optional<FlareSun> flare_sun(const Camera &camera)
     {
-        const float *d = camera.toward_sun;
-        if (d[0] == 0 && d[1] == 0 && d[2] == 0)
+        const float *d = camera.toward_sky_sun;
+        // Below the horizon it has set: the night's light is the moon's.
+        if ((d[0] == 0 && d[1] == 0 && d[2] == 0) || d[1] < kFlareHorizon)
             return std::nullopt;
         // Column-major: element (row r, column c) at [c * 4 + r]. A direction has w 0.
         const float *v = camera.world_to_view, *p = camera.view_to_clip;
@@ -90,6 +92,7 @@ namespace enhancements
         c.frame[1] = float(back.height);
         c.frame[2] = srgb ? 1.0f : 0.0f;
         c.frame[3] = settings.chromatic;
+        c.more[0] = settings.filled_arcs;
         return c;
     }
 

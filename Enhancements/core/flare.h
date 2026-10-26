@@ -12,15 +12,16 @@
 
 namespace enhancements
 {
-    // shaders/flare.cbuffer.hlsli's cbuffer Flare at b1: 64 bytes.
+    // shaders/flare.cbuffer.hlsli's cbuffer Flare at b1: 80 bytes.
     struct FlareConstants
     {
         float sun[4];       // the source in picture units, its visibility times the strength, width over height
         float amounts[4];   // arcs, ghosts, streaks, glare
         float tint[4];      // rgb linear, w size
         float frame[4];     // back buffer width and height, 1 when sRGB-encoded, chromatic spread
+        float more[4];      // filled arcs; three unused
     };
-    static_assert(sizeof(FlareConstants) == 64, "the cbuffer's size");
+    static_assert(sizeof(FlareConstants) == 80, "the cbuffer's size");
 
     // Where the sun falls on the picture: in picture units (height 1, center 0, x right, y down), and whether it lies in
     // front of the camera. Off the picture, even far off, the position is still the projection's.
@@ -30,7 +31,11 @@ namespace enhancements
         bool in_front = false;
     };
 
-    // The sun's direction from the camera through its view and projection, upright whatever the flip. Empty without a sun.
+    // A sun whose direction's height (world y) is below this has set.
+    constexpr float kFlareHorizon = -0.03f;
+
+    // The sky's sun disc through the camera's view and projection, upright whatever the flip. Empty without a sun, or with one
+    // that has set.
     std::optional<FlareSun> flare_sun(const Camera &camera);
 
     // A point from 0 to 1 from the top left in picture units, on a picture of aspect width over height.

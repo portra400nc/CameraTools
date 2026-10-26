@@ -5,7 +5,7 @@
 //     render_flare <frame folder | picture.ppm | black | gray> <out.png> sun=<u>,<v> [key=value ...]
 //
 // sun is the source, 0 to 1 from the top left, and may lie off the picture. A binary PPM (P6, 8-bit sRGB) is drawn over
-// as it is; black and gray draw over a plain 1280x800 picture. Keys: strength, arcs, ghosts, streaks, glare, size, warmth, chromatic, visibility, exposure, and width and height
+// as it is; black and gray draw over a plain 1280x800 picture. Keys: strength, arcs, filled (the filled arcs), ghosts, streaks, glare, size, warmth, chromatic, visibility, exposure, and width and height
 // for black and gray.
 #include "../core/dof.h"
 #include "../core/flare.h"
@@ -52,6 +52,7 @@ int main(int argc, char **argv)
         if (key == "sun" && std::sscanf(value.c_str(), "%f,%f", &sun_u, &sun_v) == 2) continue;
         else if (key == "strength") settings.strength = v;
         else if (key == "arcs") settings.arcs = v;
+        else if (key == "filled") settings.filled_arcs = v;
         else if (key == "ghosts") settings.ghosts = v;
         else if (key == "streaks") settings.streaks = v;
         else if (key == "glare") settings.glare = v;

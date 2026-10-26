@@ -33,7 +33,15 @@ namespace CameraTools
             Light = new SkyLight(new Vec3(towardSun.x, towardSun.y, towardSun.z), new Vec3(sunColor.r, sunColor.g, sunColor.b),
                 new Vec3(skyColor.r, skyColor.g, skyColor.b), wetness);
             Enhancements.SetCamera(camera.worldToCameraMatrix, GL.GetGPUProjectionMatrix(camera.nonJitteredProjectionMatrix, false), towardSun,
-                sunColor, skyColor, Supersampling.Sample, wetness);
+                sunColor, skyColor, Supersampling.Sample, wetness, sky ? SkySun(sky) : Vector3.zero);
+        }
+
+        // The sun disc the sky draws: the game's own sun direction over the sky profile's sun angles, which differ from the
+        // shadows' light, by about 5 degrees at noon and more toward sunset. The function returns the way the light shines.
+        private static Vector3 SkySun(EnviroSky sky)
+        {
+            var config = sky.skySettings.config;
+            return -sky.GetSunLightDirection(sky.curTimeOfDay24, config.sunAngle, config.sunInclination, config.sunInclinationOffset);
         }
     }
 }

@@ -48,7 +48,7 @@ namespace enhancements
         // Callers built before foliage_ao_strength send 32 bytes, those before contact shadows 36, those before their
         // foliage_strength 52, those before atmosphere 56, those before tonemap 76, those before sun shadows 100, those
         // before light shafts 132, those before the trace 172, those before the gather 212, those before the depth of field 236, those before its highlights 304, those before its scatter 312, those before its bokeh contrast 316, those before its place 320, those before its eye 324, those before the lens flare 332. Version 6 dropped the leaves blocks, which moved wetness from 128 to 116, so a binding of
-        // version 5 must not call EnhancementsApply; csharp/Enhancements.cs checks the version and marshals 384.
+        // version 5 must not call EnhancementsApply; csharp/Enhancements.cs checks the version and marshals 388.
         static_assert(offsetof(EnhancementsSettings, ambient) + offsetof(EnhancementsAmbient, foliage_ao_strength) == 32
             && offsetof(EnhancementsSettings, contact_shadows) == 36
             && offsetof(EnhancementsSettings, contact_shadows) + offsetof(EnhancementsContactShadows, foliage_strength) == 52
@@ -58,11 +58,11 @@ namespace enhancements
             && offsetof(EnhancementsSettings, depth_of_field) == 236 && offsetof(EnhancementsDepthOfField, highlight_threshold) == 68
             && offsetof(EnhancementsDepthOfField, scatter) == 76 && offsetof(EnhancementsDepthOfField, bokeh_contrast) == 80
             && offsetof(EnhancementsDepthOfField, place) == 84 && offsetof(EnhancementsDepthOfField, eye_distance) == 88
-            && offsetof(EnhancementsSettings, lens_flare) == 332 && sizeof(EnhancementsSettings) == 384);
+            && offsetof(EnhancementsSettings, lens_flare) == 332 && sizeof(EnhancementsSettings) == 388);
         static_assert(ENHANCEMENTS_FLARE_SOURCE_MANUAL == static_cast<int>(FlareSource::manual)
             && ENHANCEMENTS_FLARE_SOURCE_COUNT == static_cast<int>(FlareSource::count));
         static_assert(ENHANCEMENTS_DOF_PLACE_DISPLAY == static_cast<int>(DofPlace::display) && ENHANCEMENTS_DOF_PLACE_COUNT == static_cast<int>(DofPlace::count));
-        static_assert(sizeof(EnhancementsCamera) == 48 * sizeof(float));
+        static_assert(sizeof(EnhancementsCamera) == 52 * sizeof(float));
         static_assert(ENHANCEMENTS_ACCUMULATE_PRESENT == static_cast<int>(AccumulateMode::present)
             && ENHANCEMENTS_ACCUMULATE_COUNT == static_cast<int>(AccumulateMode::count));
         static_assert(offsetof(EnhancementsAccumulate, mode) == 4 && sizeof(EnhancementsAccumulate) == 20);
@@ -418,6 +418,7 @@ namespace enhancements
             flare.warmth = lf.warmth;
             flare.chromatic = lf.chromatic;
             flare.visibility_seconds = lf.visibility_seconds;
+            flare.filled_arcs = lf.filled_arcs;
             s.flare = clamp_flare(flare);
         }
         return s;
@@ -471,6 +472,7 @@ namespace enhancements
         s.warmth = finite_or(f.warmth, defaults.warmth, 0.0f, 1.0f);
         s.chromatic = finite_or(f.chromatic, defaults.chromatic, 0.0f, 4.0f);
         s.visibility_seconds = finite_or(f.visibility_seconds, defaults.visibility_seconds, 0.0f, 5.0f);
+        s.filled_arcs = finite_or(f.filled_arcs, defaults.filled_arcs, 0.0f, 4.0f);
         return s;
     }
 
@@ -495,6 +497,10 @@ namespace enhancements
         const float index = raw.lens_sample[2];
         c.lens.index = std::isfinite(index) && index >= 0 && index < 4294967296.0f ? static_cast<uint32_t>(index) : 0;
         c.lens.mark = std::isfinite(raw.lens_sample[3]) && raw.lens_sample[3] != 0;
+        const double sx = raw.sky_sun[0], sy = raw.sky_sun[1], sz = raw.sky_sun[2];
+        const double sky_length = std::sqrt(sx * sx + sy * sy + sz * sz);
+        for (int i = 0; i < 3; i++)
+            c.toward_sky_sun[i] = std::isfinite(sky_length) && sky_length > 0 ? static_cast<float>(raw.sky_sun[i] / sky_length) : c.toward_sun[i];
         return c;
     }
 

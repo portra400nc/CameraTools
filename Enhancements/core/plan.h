@@ -179,6 +179,7 @@ namespace enhancements
         float warmth = 0.5f;                    // 0 cool, 0.5 the lens's own orange, 1 deeper
         float chromatic = 1;
         float visibility_seconds = 0.15f;       // how long the sun's visibility takes to follow a change, 99% of the way
+        float filled_arcs = 1;
     };
 
     // Every value in range: non-finite floats take the default and the rest clamp.
@@ -220,7 +221,8 @@ namespace enhancements
     {
         float world_to_view[16];
         float view_to_clip[16];
-        float toward_sun[3];    // unit length, or zero when there is no sun
+        float toward_sun[3];    // unit length, or zero when there is no sun: the light that casts the shadows
+        float toward_sky_sun[3];    // the sun disc the sky draws, unit length; toward_sun when the caller sent none
         float sun_color[3];     // linear RGB times intensity, each at least 0
         float sky_color[3];     // linear RGB, each at least 0
         float wetness;          // the weather's, 0 dry to 1 soaked
@@ -230,7 +232,8 @@ namespace enhancements
     // Copies the matrices and normalizes the sun direction. A zero or non-finite direction becomes zero. A color
     // component that is not finite becomes 0, and a negative one 0 too. The weather's wetness clamps to 0..1, and one that
     // is not finite reads as dry. A lens coordinate that is not finite becomes 0 and the rest clamp to -1..1; an index that
-    // is not a finite number from 0 to 2^32 becomes 0, and a mark that is not a finite nonzero number reads as unmarked.
+    // is not a finite number from 0 to 2^32 becomes 0, and a mark that is not a finite nonzero number reads as unmarked. A sky
+    // sun that is zero or not finite takes the sun's direction.
     Camera parse_camera(const EnhancementsCamera &raw);
 
     enum class AccumulateMode : uint8_t { off, add, present, count };  // ENHANCEMENTS_ACCUMULATE_*

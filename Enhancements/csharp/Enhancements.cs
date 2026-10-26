@@ -202,6 +202,7 @@ namespace CameraToolsEnhancements
         public float Warmth;                // 0 cool, 0.5 the lens's own orange, 1 deeper
         public float Chromatic;             // the red fringe, 0 to 4
         public float VisibilitySeconds;     // how long the flare takes to follow the sun's visibility, 99% of the way
+        public float FilledArcs;            // the filled discs with a thick rim, some cut into a D, 0 to 4
     }
 
     // EnhancementsSettings in enhancements.h, field for field.
@@ -269,7 +270,7 @@ namespace CameraToolsEnhancements
             LensFlare = new EnhancementsLensFlare
             {
                 Source = EnhancementsFlareSource.Sun, X = 0.8f, Y = 0.12f, Strength = 1, Arcs = 1, Ghosts = 1, Streaks = 1, Glare = 1, Size = 1, Warmth = 0.5f,
-                Chromatic = 1, VisibilitySeconds = 0.15f,
+                Chromatic = 1, VisibilitySeconds = 0.15f, FilledArcs = 1,
             },
         };
     }
@@ -411,7 +412,7 @@ namespace CameraToolsEnhancements
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate ulong ApplyCall(ref EnhancementsSettings settings);
 
-        // EnhancementsCamera is two float[16] and four float[4] in a row, so one float[48] passes it without a struct.
+        // EnhancementsCamera is two float[16] and five float[4] in a row, so one float[52] passes it without a struct.
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void SetCameraCall([In] float[] camera);
 
@@ -445,7 +446,7 @@ namespace CameraToolsEnhancements
         private sealed record AddOn(IntPtr Module, ApplyCall Apply, SetCameraCall SetCamera, GetStatusCall GetStatus, DescribeCall Describe, CompareCall Compare,
             SetAccumulateCall SetAccumulate, DepthAtCall DepthAt, CaptureSceneCall CaptureScene, SaveTraceCall SaveTrace, SetShotCall SetShot, SaveFrameCall SaveFrame);
 
-        private static readonly float[] camera = new float[48];
+        private static readonly float[] camera = new float[52];
         private static readonly byte[] line = new byte[512];
         private static AddOn addOn;
         // A loaded module that is not an add-on of this version, so it is reported once and not tried again.
@@ -481,9 +482,10 @@ namespace CameraToolsEnhancements
         // times its intensity, and skyColor the sky's ambient light in linear RGB; the atmosphere pass scatters both, and
         // their alpha is ignored. lens is the aperture point this frame renders from, default while no depth of field is
         // being sampled. wetness is the weather's, 0 dry to 1 soaked, which the wetness pass follows while
-        // Settings.Wetness.Wetness is 0.
+        // Settings.Wetness.Wetness is 0. towardSkySun is the direction toward the sun disc the sky draws, which Genshin places
+        // apart from the shadows' sun light; only the lens flare follows it, and Vector3.zero means along towardSun.
         public static void SetCamera(Matrix4x4 worldToView, Matrix4x4 viewToClip, Vector3 towardSun, Color sunColor, Color skyColor, LensSample lens,
-            float wetness)
+            float wetness, Vector3 towardSkySun)
         {
             if (addOn == null)
                 return;
@@ -505,6 +507,10 @@ namespace CameraToolsEnhancements
             camera[45] = lens.Y;
             camera[46] = lens.Index;
             camera[47] = lens.Mark ? 1 : 0;
+            camera[48] = towardSkySun.x;
+            camera[49] = towardSkySun.y;
+            camera[50] = towardSkySun.z;
+            camera[51] = 0;
             addOn.SetCamera(camera);
         }
 

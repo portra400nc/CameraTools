@@ -437,6 +437,7 @@ typedef struct EnhancementsLensFlare
     float chromatic;            // the red fringe outside each arc and ghost; default 1, clamped to 0..4
     float visibility_seconds;   // how long the flare takes to follow the sun's visibility, 99% of the way; default 0.15,
                                 // clamped to 0..5
+    float filled_arcs;          // the light of the filled discs with a thick rim, some cut into a D; default 1, clamped to 0..4
 } EnhancementsLensFlare;
 
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller
@@ -561,6 +562,10 @@ typedef struct EnhancementsCamera
     float lens_sample[4];       // xy: the point in the unit aperture disk the camera was moved to, x right and y up, clamped
                                 // to -1..1; z: the sample's index, a whole number; w: 1 on the one frame of the sample the
                                 // accumulator adds, else 0. All zero when no depth of field is being sampled.
+    float sky_sun[4];           // xyz: the direction toward the sun disc the sky draws, which Genshin places apart from the sun
+                                // light that casts the shadows; any length, and zero or non-finite means the sky draws it along
+                                // sun_direction. Only the lens flare follows it. w is unused. Version 17 added it, so a binding
+                                // of an earlier version must not call EnhancementsSetCamera.
 } EnhancementsCamera;
 
 typedef struct EnhancementsStatus
