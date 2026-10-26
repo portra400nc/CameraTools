@@ -206,8 +206,8 @@ Check("the table holds 73 fields, each at its own id's place, with the master sw
         && off.LightShafts is { Strength: 3f, Density: 0.006f, Height: 5f, Anisotropy: 0.6f, Distance: 150f, Patchiness: 1f, PatchSize: 6f, Ambient: 0.3f, Steps: 48 }
         && off.Wetness is { Wetness: 0f, Darkening: 0.35f, Puddles: 0.3f }
         && off.Tonemap is { Curve: EnhancementsCurve.AgX, ExposureEv: 0f, BloomStrength: 1f, Saturation: 1f, Contrast: 1f });
-    Check("the lens flare is off, from the sun, at the user's tuning: everything 1 but glare, filled arcs and the rainbow 0.5, and its manual light where the add-on puts it",
-        off.LensFlare is { Enabled: 0, Source: EnhancementsFlareSource.Sun, Strength: 1f, Arcs: 1f, Rainbow: 0.5f, FilledArcs: 0.5f, Ghosts: 1f, Streaks: 1f, Glare: 0.5f, Size: 1f,
+    Check("the lens flare is off, from the sun, at the user's tuning: everything 1 but glare and filled arcs 0.5, and its manual light where the add-on puts it",
+        off.LensFlare is { Enabled: 0, Source: EnhancementsFlareSource.Sun, Strength: 1f, Arcs: 1f, Rainbow: 1f, FilledArcs: 0.5f, Ghosts: 1f, Streaks: 1f, Glare: 0.5f, Size: 1f,
             Warmth: 0.5f, Chromatic: 1f, VisibilitySeconds: 0.15f, Texture: 1f }
         && MathF.Abs(off.LensFlare.X - 0.8f) < 1e-6f && MathF.Abs(off.LensFlare.Y - 0.12f) < 1e-6f && !EnhancementsModel.FlareRuns(fresh));
     Check("a field without a row keeps the add-on's default", off.ContactShadows.Thickness == 0.25f && off.SunShadows.MinPenumbra == 0.02f

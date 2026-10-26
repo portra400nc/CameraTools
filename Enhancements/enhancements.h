@@ -449,7 +449,7 @@ typedef struct EnhancementsLensFlare
                                 // clamped to 0..5
     float filled_arcs;          // the light of the filled discs with a thick rim, some cut into a D; default 0.5, clamped to 0..4
     uint32_t place;             // ENHANCEMENTS_FLARE_PLACE_*; unknown values read as SCENE, the default
-    float rainbow;              // the light of a rainbow band across each arc, violet inside to red outside; default 0.5, clamped
+    float rainbow;              // the light of a rainbow band across each arc, violet inside to red outside; default 1, clamped
                                 // to 0..4
     float texture;              // how textured the flare is, as a real lens's dust, scratches and coatings make it: striations and
                                 // uneven light along the arcs, dust in the ghosts, rays in the glare; 0 smooth, default 1, clamped

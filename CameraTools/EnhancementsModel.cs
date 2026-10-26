@@ -223,7 +223,7 @@ namespace CameraTools
             Slider(Enhancement.LensFlareY, Enhancement.LensFlare, "Position Y", -2f, 2f, -0.76f, 0.05f, 2),
             Slider(Enhancement.LensFlareStrength, Enhancement.LensFlare, "Strength", 0f, 4f, 1f, 0.05f, 2),
             Slider(Enhancement.LensFlareArcs, Enhancement.LensFlare, "Arcs", 0f, 4f, 1f, 0.05f, 2),
-            Slider(Enhancement.LensFlareRainbow, Enhancement.LensFlare, "Rainbow", 0f, 4f, 0.5f, 0.05f, 2),
+            Slider(Enhancement.LensFlareRainbow, Enhancement.LensFlare, "Rainbow", 0f, 4f, 1f, 0.05f, 2),
             Slider(Enhancement.LensFlareFilledArcs, Enhancement.LensFlare, "Filled arcs", 0f, 4f, 0.5f, 0.05f, 2),
             Slider(Enhancement.LensFlareGhosts, Enhancement.LensFlare, "Ghosts", 0f, 4f, 1f, 0.05f, 2),
             Slider(Enhancement.LensFlareStreaks, Enhancement.LensFlare, "Streaks", 0f, 4f, 1f, 0.05f, 2),
