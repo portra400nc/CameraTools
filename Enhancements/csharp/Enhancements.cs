@@ -186,6 +186,24 @@ namespace CameraToolsEnhancements
         public float EyeSize;               // the eye's window's width in meters
     }
 
+    // ENHANCEMENTS_FLARE_SOURCE_* in enhancements.h: the sun, dimmed where anything blocks it, or a light at Position.
+    internal enum EnhancementsFlareSource : uint { Sun, Manual }
+
+    // EnhancementsLensFlare in enhancements.h, field for field; position is X and Y.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct EnhancementsLensFlare
+    {
+        public uint Enabled;
+        public EnhancementsFlareSource Source;
+        public float X, Y;                  // the manual source, 0 to 1 from the top left, and beyond it to -2 and 3
+        public float Strength;              // the whole flare, 0 to 4
+        public float Arcs, Ghosts, Streaks, Glare;  // each part's light, 0 to 4
+        public float Size;                  // 0.25 to 4
+        public float Warmth;                // 0 cool, 0.5 the lens's own orange, 1 deeper
+        public float Chromatic;             // the red fringe, 0 to 4
+        public float VisibilitySeconds;     // how long the flare takes to follow the sun's visibility, 99% of the way
+    }
+
     // EnhancementsSettings in enhancements.h, field for field.
     [StructLayout(LayoutKind.Sequential)]
     internal struct EnhancementsSettings
@@ -204,6 +222,7 @@ namespace CameraToolsEnhancements
         public EnhancementsTrace Trace;
         public EnhancementsGather Gather;
         public EnhancementsDepthOfField DepthOfField;
+        public EnhancementsLensFlare LensFlare;
 
         // The add-on's defaults: everything off, game targets upside down, and when switched on ambient level 0.6, AO
         // strength 0.5 at a 1 m radius, half that strength on grass, vegetation and foliage, full-strength contact
@@ -220,7 +239,8 @@ namespace CameraToolsEnhancements
         // and a depth of field at f/2.8 on a full-frame sensor that autofocuses at the center at 0.9 of the way a second, blurs at
         // most 0.03 of the height, has round discs with spherical aberration 0.6, gathers 49 samples a pixel, and draws highlights
         // above twice the frame's mean luminance as sprites, growing small lamps at gain 2, with the bokeh contrast off
-        // and no eye, whose window would be 15 mm wide.
+        // and no eye, whose window would be 15 mm wide, and a lens flare from the sun at full strength in every part, at the lens's
+        // own size and orange, that follows the sun's visibility over 0.15 s.
         public static EnhancementsSettings Defaults => new()
         {
             Size = (uint)Marshal.SizeOf<EnhancementsSettings>(),
@@ -245,6 +265,11 @@ namespace CameraToolsEnhancements
             {
                 FNumber = 2.8f, SensorHeightMm = 24, FocusX = 0.5f, FocusY = 0.5f, FocusSeconds = 2, MaxBlur = 0.03f, BladeRoundness = 0.5f,
                 SphericalAberration = 0.6f, Anamorphic = 1, Samples = 49, HighlightThreshold = 2, HighlightGain = 2, EyeSize = 0.015f,
+            },
+            LensFlare = new EnhancementsLensFlare
+            {
+                Source = EnhancementsFlareSource.Sun, X = 0.8f, Y = 0.12f, Strength = 1, Arcs = 1, Ghosts = 1, Streaks = 1, Glare = 1, Size = 1, Warmth = 0.5f,
+                Chromatic = 1, VisibilitySeconds = 0.15f,
             },
         };
     }
@@ -370,13 +395,14 @@ namespace CameraToolsEnhancements
         public uint ShotActive;     // 1 when the last frame ran with SetShot's shot, so TraceConverged is the shot's
         public uint FramesSaved;    // frames SaveFrame has saved since the add-on loaded
         public float DofFocusMeters;    // the depth of field's focus distance, read back a few frames late; 0 before it ran
+        public float FlareVisibility;   // the lens flare's source's visibility, 0 to 1, read back a few frames late; 0 before it ran
     }
 
     // The only class that knows CameraToolsEnhancements.addon64.
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 16;
+        private const uint Version = 17;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

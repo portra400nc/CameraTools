@@ -12,17 +12,18 @@ namespace enhancements
     namespace
     {
         static_assert(ENHANCEMENTS_COMPARE_MAX == kCompareMax && sizeof(EnhancementsVariant) == 32 + sizeof(EnhancementsSettings));
-        static_assert(sizeof(EnhancementsSettings) == 332, "settings_tsv writes every field: give a new one a column");
+        static_assert(sizeof(EnhancementsSettings) == 384, "settings_tsv writes every field: give a new one a column");
         // compare_remaining took the padding at the end, so a caller built before it still sends 72 bytes. The accumulator's
         // three fields follow, and the scene capture's three took the 4 bytes of padding after them and one more row, so a
         // caller of version 6 sends 88 and gets scene_face in its padding. The trace's five follow them, and the gather's four
         // follow those, the first in the 4 bytes of padding a caller of version 8 has. The restarts, their reason and the
         // shot follow, the first in the 4 bytes of padding a caller of version 9 has after its 132. The saved frames and the
-        // depth of field's focus follow.
+        // depth of field's focus follow, then the lens flare's visibility.
         static_assert(offsetof(EnhancementsStatus, compare_remaining) == 68 && offsetof(EnhancementsStatus, accum_generation) == 80
             && offsetof(EnhancementsStatus, scene_face) == 84 && offsetof(EnhancementsStatus, trace_state) == 96 && offsetof(EnhancementsStatus, trace_target) == 116
             && offsetof(EnhancementsStatus, trace_restarts) == 132 && offsetof(EnhancementsStatus, shot_active) == 140
-            && offsetof(EnhancementsStatus, frames_saved) == 144 && offsetof(EnhancementsStatus, dof_focus_meters) == 148 && sizeof(EnhancementsStatus) == 152);
+            && offsetof(EnhancementsStatus, frames_saved) == 144 && offsetof(EnhancementsStatus, dof_focus_meters) == 148
+            && offsetof(EnhancementsStatus, flare_visibility) == 152 && sizeof(EnhancementsStatus) == 160);
 
         constexpr uint32_t kPeriod = kSettlePresents + 2;
 
@@ -168,7 +169,9 @@ namespace enhancements
                           "\tdepth_of_field.blade_rotation\tdepth_of_field.spherical_aberration\tdepth_of_field.cat_eye\tdepth_of_field.swirl"
                           "\tdepth_of_field.anamorphic\tdepth_of_field.chromatic\tdepth_of_field.samples\tdepth_of_field.highlight_threshold"
                           "\tdepth_of_field.highlight_gain\tdepth_of_field.scatter\tdepth_of_field.bokeh_contrast\tdepth_of_field.place"
-                          "\tdepth_of_field.eye_distance\tdepth_of_field.eye_size\n";
+                          "\tdepth_of_field.eye_distance\tdepth_of_field.eye_size\tlens_flare.enabled\tlens_flare.source\tlens_flare.x"
+                          "\tlens_flare.y\tlens_flare.strength\tlens_flare.arcs\tlens_flare.ghosts\tlens_flare.streaks\tlens_flare.glare"
+                          "\tlens_flare.size\tlens_flare.warmth\tlens_flare.chromatic\tlens_flare.visibility_seconds\n";
         for (size_t i = 0; i < variants.size(); i++)
         {
             const Settings &s = variants[i].settings;
@@ -182,6 +185,7 @@ namespace enhancements
             const TraceSettings &r = s.trace;
             const GatherSettings &g = s.gather;
             const DepthOfFieldSettings &d = s.depth_of_field;
+            const FlareSettings &l = s.flare;
             out += std::to_string(i) + '\t' + variants[i].name + '\t' + (s.enabled ? "1" : "0") + '\t' + kViews[static_cast<size_t>(s.view)].name
                 + '\t' + (s.flip ? "1" : "0") + '\t' + (a.enabled ? "1" : "0") + '\t' + number(a.level) + '\t' + number(a.ao_strength) + '\t'
                 + number(a.ao_radius) + '\t' + number(a.foliage_ao_strength) + '\t' + (c.enabled ? "1" : "0") + '\t' + number(c.length) + '\t'
@@ -203,7 +207,10 @@ namespace enhancements
                 + number(d.blade_roundness) + '\t' + number(d.blade_rotation) + '\t' + number(d.spherical_aberration) + '\t' + number(d.cat_eye) + '\t'
                 + number(d.swirl) + '\t' + number(d.anamorphic) + '\t' + number(d.chromatic) + '\t' + std::to_string(d.samples) + '\t'
                 + number(d.highlight_threshold) + '\t' + number(d.highlight_gain) + '\t' + (d.scatter ? "1" : "0") + '\t' + number(d.bokeh_contrast) + '\t'
-                + (d.place == DofPlace::display ? "display" : "scene") + '\t' + number(d.eye_distance) + '\t' + number(d.eye_size) + '\n';
+                + (d.place == DofPlace::display ? "display" : "scene") + '\t' + number(d.eye_distance) + '\t' + number(d.eye_size) + '\t'
+                + (l.enabled ? "1" : "0") + '\t' + (l.source == FlareSource::manual ? "manual" : "sun") + '\t' + number(l.position[0]) + '\t'
+                + number(l.position[1]) + '\t' + number(l.strength) + '\t' + number(l.arcs) + '\t' + number(l.ghosts) + '\t' + number(l.streaks) + '\t'
+                + number(l.glare) + '\t' + number(l.size) + '\t' + number(l.warmth) + '\t' + number(l.chromatic) + '\t' + number(l.visibility_seconds) + '\n';
         }
         return out;
     }

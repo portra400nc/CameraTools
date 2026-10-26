@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 16
+#define ENHANCEMENTS_VERSION 17
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -97,6 +97,7 @@ enum
     ENHANCEMENTS_PASS_LIGHT_SHAFTS = 1u << 6,
     ENHANCEMENTS_PASS_TRACE = 1u << 7,
     ENHANCEMENTS_PASS_DEPTH_OF_FIELD = 1u << 8,
+    ENHANCEMENTS_PASS_LENS_FLARE = 1u << 9,
 };
 
 // The tonemap pass's curves, values of EnhancementsTonemap.curve.
@@ -406,6 +407,38 @@ typedef struct EnhancementsDepthOfField
     float eye_size;             // the window's width in meters at eye_distance; default 0.015, clamped to 0.005..0.1
 } EnhancementsDepthOfField;
 
+// Where the lens flare's source lies, values of EnhancementsLensFlare.source.
+enum
+{
+    ENHANCEMENTS_FLARE_SOURCE_SUN = 0,     // the sun, from EnhancementsCamera's direction, dimmed where anything blocks it
+    ENHANCEMENTS_FLARE_SOURCE_MANUAL,      // a light at position, always unblocked
+    ENHANCEMENTS_FLARE_SOURCE_COUNT,
+};
+
+// A vintage lens's flare over the finished picture: thin orange-red arcs near the source, soft ghost discs with a bright
+// spot on the line from the source through the picture's center, thin streaks along that line, and a warm glare toward
+// the source. It is drawn on the back buffer after ReShade's effects and the depth of field, so no effect blurs or relights
+// it, and a screenshot ReShade saves after its effects has it. The sun's flare dims as the sun is hidden: on the picture,
+// by the depth buffer around the sun; off it, by the game's sun shadow atlas at the camera. The last block of
+// EnhancementsSettings.
+typedef struct EnhancementsLensFlare
+{
+    uint32_t enabled;           // default 0
+    uint32_t source;            // ENHANCEMENTS_FLARE_SOURCE_*; unknown values read as SUN, the default
+    float position[2];          // the manual source, 0 to 1 from the top left of the picture, and beyond it to -2 and 3; default
+                                // 0.8, 0.12
+    float strength;             // multiplies the whole flare; default 1, clamped to 0..4
+    float arcs;                 // each part's light; default 1, clamped to 0..4
+    float ghosts;
+    float streaks;
+    float glare;
+    float size;                 // scales every part; default 1, clamped to 0.25..4
+    float warmth;               // 0 cool, 0.5 (the default) the lens's own orange, 1 deeper orange
+    float chromatic;            // the red fringe outside each arc and ghost; default 1, clamped to 0..4
+    float visibility_seconds;   // how long the flare takes to follow the sun's visibility, 99% of the way; default 0.15,
+                                // clamped to 0..5
+} EnhancementsLensFlare;
+
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller
 // knows, and fields past it keep their defaults.
 typedef struct EnhancementsSettings
@@ -425,6 +458,7 @@ typedef struct EnhancementsSettings
     EnhancementsTrace trace;
     EnhancementsGather gather;
     EnhancementsDepthOfField depth_of_field;
+    EnhancementsLensFlare lens_flare;
 } EnhancementsSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and
@@ -572,6 +606,7 @@ typedef struct EnhancementsStatus
                                 // shot's
     uint32_t frames_saved;      // frames EnhancementsSaveFrame has saved since the add-on loaded; the status line names the last folder
     float dof_focus_meters;     // the depth of field's focus distance, read back a few frames late; 0 before the pass ran
+    float flare_visibility;     // the lens flare's source's visibility, 0 to 1, read back a few frames late; 0 before the pass ran
 } EnhancementsStatus;
 
 ENHANCEMENTS_EXPORT uint32_t EnhancementsVersion(void);

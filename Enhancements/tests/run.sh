@@ -22,6 +22,10 @@ RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh --synthetic "$out/frame-synthe
 RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$out/frame-synthetic" "$out/dof.png" sa=1 > /dev/null
 python3 -c "import struct, sys; d = open(sys.argv[1], 'rb').read(); sys.exit(0 if d[12:24] == b'IHDR' + struct.pack('>II', 1280, 800) else 1)" "$out/dof.png"
 echo "PASS render_dof renders the synthetic frame into a 1280x800 PNG"
+# The lens flare's harness: the flare over a plain picture, with the sun just past its top right corner.
+RENDER_FLARE_BIN="$out/render_flare" sh render_flare.sh black "$out/flare.png" sun=1.05,-0.05 > /dev/null
+python3 -c "import struct, sys; d = open(sys.argv[1], 'rb').read(); sys.exit(0 if d[12:24] == b'IHDR' + struct.pack('>II', 1280, 800) else 1)" "$out/flare.png"
+echo "PASS render_flare draws the flare into a 1280x800 PNG"
 # A blurred plane 1 m away over a plane in focus at 10 m or a little in front of it: its edge must spread over what lies
 # behind with a disc's edge spread, within 5% of its 10-90% width, at 800 and 2160 rows in both places. Over a background
 # 8 m away, at 2160 rows, f/1 and max blur 0.08, it spread 4.0 px of 139.8 while a pixel's own surface in front of focus

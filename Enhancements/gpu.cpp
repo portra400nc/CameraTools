@@ -67,9 +67,13 @@ namespace enhancements
         float shafts_patch_size;
         float shafts_ambient;
         uint32_t shafts_steps;
-        float padding3[2];
+        float flare_sun_uv[2];
+        float flare_ease;
+        float flare_disc;
+        uint32_t flare_mode;
+        uint32_t flare_atlas;
     };
-    static_assert(sizeof(Constants) == 464 && offsetof(Constants, wetness) == 408 && offsetof(Constants, shafts_anisotropy) == 432 && offsetof(Constants, label) == 272 && offsetof(Constants, sun_color) == 304
+    static_assert(sizeof(Constants) == 480 && offsetof(Constants, flare_sun_uv) == 456 && offsetof(Constants, wetness) == 408 && offsetof(Constants, shafts_anisotropy) == 432 && offsetof(Constants, label) == 272 && offsetof(Constants, sun_color) == 304
         && offsetof(Constants, sky_color) == 320 && offsetof(Constants, bloom_strength) == 352 && offsetof(Constants, sun_cascades) == 368
         && offsetof(Constants, lens_sample) == 392, "Constants must match common.hlsli");
 
@@ -527,6 +531,8 @@ namespace enhancements
         gather_apply.ByteWidth = sizeof(GatherApplyConstants);
         D3D11_BUFFER_DESC dof_constants = buffer;
         dof_constants.ByteWidth = sizeof(DofConstants);
+        D3D11_BUFFER_DESC flare_constants = buffer;
+        flare_constants.ByteWidth = sizeof(FlareConstants);
         // Zeros until a grade is copied in, which the shader takes for no grade.
         D3D11_BUFFER_DESC game_grade = {};
         game_grade.ByteWidth = kGameGradeBytes;
@@ -631,6 +637,8 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kDofLiftPs, sizeof kDofLiftPs, nullptr, &made.dof_lift_ps_))
             && SUCCEEDED(device->CreatePixelShader(kDofDisplayInPs, sizeof kDofDisplayInPs, nullptr, &made.dof_display_in_ps_))
             && SUCCEEDED(device->CreatePixelShader(kDofDisplayOutPs, sizeof kDofDisplayOutPs, nullptr, &made.dof_display_out_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kFlareVisibilityPs, sizeof kFlareVisibilityPs, nullptr, &made.flare_visibility_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kFlarePs, sizeof kFlarePs, nullptr, &made.flare_ps_))
             && SUCCEEDED(device->CreateBuffer(&sprites, nullptr, &made.dof_sprites_))
             && SUCCEEDED(device->CreateUnorderedAccessView(made.dof_sprites_.Get(), &sprites_uav, &made.dof_sprites_uav_))
             && SUCCEEDED(device->CreateShaderResourceView(made.dof_sprites_.Get(), &sprites_srv[0], &made.dof_sprites_srv_[0]))
@@ -646,6 +654,7 @@ namespace enhancements
             && SUCCEEDED(device->CreateBuffer(&buffer, nullptr, &made.constants_))
             && SUCCEEDED(device->CreateBuffer(&gather_apply, nullptr, &made.gather_apply_))
             && SUCCEEDED(device->CreateBuffer(&dof_constants, nullptr, &made.dof_constants_))
+            && SUCCEEDED(device->CreateBuffer(&flare_constants, nullptr, &made.flare_constants_))
             && SUCCEEDED(device->CreateBuffer(&game_grade, &no_grade_data, &made.game_grade_))
             && SUCCEEDED(device->CreateBuffer(&grade_stage, nullptr, &made.grade_stage_))
             && SUCCEEDED(device->CreateBlendState(&blend, &made.opaque_))
@@ -1322,6 +1331,108 @@ namespace enhancements
             c->OMSetRenderTargets(0, nullptr, nullptr);
         }
         back_buffer_.copy_to(context_.Get(), back_buffer);
+        ran = true;
+        return moved;
+    }
+
+    bool Gpu::upload_flare(const FlareConstants &flare)
+    {
+        ID3D11DeviceContext1 *c = context_.Get();
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        if (FAILED(c->Map(flare_constants_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+            return false;
+        std::memcpy(mapped.pData, &flare, sizeof flare);
+        c->Unmap(flare_constants_.Get(), 0);
+        ID3D11Buffer *const constants[] = { flare_constants_.Get() };
+        c->PSSetConstantBuffers(1, 1, constants);
+        return true;
+    }
+
+    std::optional<GameCall> Gpu::run_flare_visibility(const FrameMap &map, const FlareSettings &settings, const Camera &camera,
+        const std::optional<FlareSun> &sun, const SunShadowConstants *atlas, bool flip, float seconds)
+    {
+        const Texture &depth = *map[Entry::depth];
+        ID3D11Device *d = device_.Get();
+        const Size one = { 1, 1 };
+        Constants constants;
+        if (!flare_depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false) || !flare_visibility_[0].sync(d, one, DXGI_FORMAT_R32_FLOAT)
+            || !flare_visibility_[1].sync(d, one, DXGI_FORMAT_R32_FLOAT) || !pass_constants(camera, map.render, flip, constants))
+            return std::nullopt;
+        const float aspect = static_cast<float>(map.render.width) / static_cast<float>(map.render.height);
+        constants.flare_mode = settings.source == FlareSource::manual ? 1 : sun && sun->in_front ? 0 : 2;
+        if (sun)
+        {
+            constants.flare_sun_uv[0] = sun->x / aspect + 0.5f;
+            constants.flare_sun_uv[1] = sun->y + 0.5f;
+        }
+        constants.flare_ease = flare_ease(settings.visibility_seconds, seconds);
+        constants.flare_disc = kFlareDisc;
+        const bool read_atlas = atlas && sun_ready_;
+        constants.flare_atlas = read_atlas ? 1 : 0;
+        if (read_atlas)
+        {
+            constants.sun_cascades = atlas->cascades;
+            constants.sun_columns = atlas->columns;
+            constants.sun_rows = atlas->rows;
+        }
+        upload(constants);
+
+        ID3D11DeviceContext1 *c = context_.Get();
+        flare_depth_.copy_from(c, native(depth));
+        if (read_atlas)
+        {
+            ID3D11Buffer *const game[] = { game_sun_[0].Get(), game_sun_[1].Get(), game_sun_[2].Get(), game_sun_[3].Get() };
+            c->PSSetConstantBuffers(1, 4, game);
+        }
+        ID3D11ShaderResourceView *const in[] = { nullptr, nullptr, flare_depth_.srv(), nullptr, nullptr, read_atlas ? sun_atlas_.srv() : nullptr,
+            flare_visibility_[flare_at_ ^ 1].srv() };
+        draw_fullscreen(flare_visibility_ps_.Get(), in, 7, flare_visibility_[flare_at_].rtv(), one);
+        if (!flare_pending_)
+            flare_pending_ = flare_read_.copy_from(d, c, flare_visibility_[flare_at_].texture());
+        flare_kept_ = flare_at_;
+        flare_at_ ^= 1;
+        flare_drawn_ = true;
+        return GameCall::keep;
+    }
+
+    std::optional<float> Gpu::read_flare_visibility()
+    {
+        std::vector<uint8_t> bytes;
+        if (!flare_pending_ || flare_read_.read(context_.Get(), bytes) == Readback::Read::not_ready)
+            return std::nullopt;
+        flare_pending_ = false;
+        if (bytes.size() < sizeof(float))
+            return std::nullopt;
+        float visibility;
+        std::memcpy(&visibility, bytes.data(), sizeof visibility);
+        return visibility;
+    }
+
+    const char *Gpu::run_lens_flare(ID3D11Resource *back_buffer, const FlareDisplayFrame &frame, bool &ran)
+    {
+        const char *moved = nullptr;
+        ran = false;
+        ComPtr<ID3D11Texture2D> texture;
+        if (!flare_drawn_ || FAILED(back_buffer->QueryInterface(IID_PPV_ARGS(texture.GetAddressOf()))))
+            return moved;
+        D3D11_TEXTURE2D_DESC desc;
+        texture->GetDesc(&desc);
+        const std::optional<DofTransfer> transfer = dof_display_transfer(desc.Format);
+        const Size back = { desc.Width, desc.Height };
+        ID3D11Device *d = device_.Get();
+        if (!transfer || !back_buffer_.sync(d, back_buffer, desc.Format, true) || !flare_out_.sync(d, back_buffer, desc.Format, true))
+            return moved;
+        {
+            StateGuard guard(context_.Get(), moved);
+            if (!upload_flare(flare_constants(frame.settings, frame.sun, back, *transfer == DofTransfer::srgb)))
+                return moved;
+            ID3D11DeviceContext1 *c = context_.Get();
+            back_buffer_.copy_from(c, back_buffer);
+            ID3D11ShaderResourceView *const in[] = { back_buffer_.srv(), flare_visibility_[flare_kept_].srv() };
+            draw_fullscreen(flare_ps_.Get(), in, 2, flare_out_.rtv(), back);
+            c->OMSetRenderTargets(0, nullptr, nullptr);
+        }
+        flare_out_.copy_to(context_.Get(), back_buffer);
         ran = true;
         return moved;
     }

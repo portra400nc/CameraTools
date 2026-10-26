@@ -33,14 +33,16 @@ bool Fails(Action read)
     }
 }
 
-// The binding: what enhancements.h's static_asserts say of version 16.
-Check("the binding's status is enhancements.h's 152 bytes, with the restarts at 132, their reason at 136, the shot at 140, the saved frames at 144 and the focus at 148",
-    Marshal.SizeOf<EnhancementsStatus>() == 152 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceTarget)) == 116
+// The binding: what enhancements.h's static_asserts say of version 17.
+Check("the binding's status is enhancements.h's 160 bytes, with the restarts at 132, their reason at 136, the shot at 140, the saved frames at 144, the focus at 148 and the flare's visibility at 152",
+    Marshal.SizeOf<EnhancementsStatus>() == 160 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.FlareVisibility)) == 152 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceTarget)) == 116
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceLight)) == 128 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceRestarts)) == 132
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceRestartReason)) == 136 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.ShotActive)) == 140
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.FramesSaved)) == 144 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.DofFocusMeters)) == 148);
-Check("the binding's shot is 16 bytes, its settings 332 with the depth of field at 236 and its highlights at 68, scatter at 76, bokeh contrast at 80, place at 84 and the eye at 88 in it, and its scene request 20",
-    Marshal.SizeOf<EnhancementsShot>() == 16 && Offset<EnhancementsShot>(nameof(EnhancementsShot.BudgetMs)) == 12 && Marshal.SizeOf<EnhancementsSettings>() == 332
+Check("the binding's shot is 16 bytes, its settings 384 with the depth of field at 236 and its highlights at 68, scatter at 76, bokeh contrast at 80, place at 84 and the eye at 88 in it, the lens flare at 332 and 52 bytes long, and its scene request 20",
+    Marshal.SizeOf<EnhancementsShot>() == 16 && Offset<EnhancementsShot>(nameof(EnhancementsShot.BudgetMs)) == 12 && Marshal.SizeOf<EnhancementsSettings>() == 384
+    && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.LensFlare)) == 332 && Marshal.SizeOf<EnhancementsLensFlare>() == 52
+    && (uint)EnhancementsFlareSource.Manual == 1
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.DepthOfField)) == 236 && Marshal.SizeOf<EnhancementsDepthOfField>() == 96
     && Offset<EnhancementsDepthOfField>(nameof(EnhancementsDepthOfField.EyeDistance)) == 88 && Offset<EnhancementsDepthOfField>(nameof(EnhancementsDepthOfField.EyeSize)) == 92
     && Offset<EnhancementsDepthOfField>(nameof(EnhancementsDepthOfField.HighlightThreshold)) == 68

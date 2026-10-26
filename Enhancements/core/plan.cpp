@@ -20,6 +20,7 @@ namespace enhancements
         bool light_shafts_wanted(const Settings &s) { return s.light_shafts.enabled; }
         bool trace_wanted(const Settings &s) { return s.trace.enabled; }
         bool depth_of_field_wanted(const Settings &s) { return s.depth_of_field.enabled; }
+        bool lens_flare_wanted(const Settings &s) { return s.flare.enabled; }
 
         float finite_or(float value, float fallback, float low, float high)
         {
@@ -32,7 +33,8 @@ namespace enhancements
             && ENHANCEMENTS_PASS_ATMOSPHERE == bit(PassId::atmosphere) && ENHANCEMENTS_PASS_TONEMAP == bit(PassId::tonemap)
             && ENHANCEMENTS_PASS_SUN_SHADOWS == bit(PassId::sun_shadows) && ENHANCEMENTS_PASS_WETNESS == bit(PassId::wetness)
             && ENHANCEMENTS_PASS_LIGHT_SHAFTS == bit(PassId::light_shafts) && ENHANCEMENTS_PASS_TRACE == bit(PassId::trace)
-            && ENHANCEMENTS_PASS_DEPTH_OF_FIELD == bit(PassId::depth_of_field) && static_cast<int>(PassId::count) == 9);
+            && ENHANCEMENTS_PASS_DEPTH_OF_FIELD == bit(PassId::depth_of_field) && ENHANCEMENTS_PASS_LENS_FLARE == bit(PassId::lens_flare)
+            && static_cast<int>(PassId::count) == 10);
         static_assert(ENHANCEMENTS_TRACE_STATE_FAILED == static_cast<int>(TraceState::failed) && static_cast<int>(TraceState::count) == 6);
         static_assert(ENHANCEMENTS_CURVE_AGX == static_cast<int>(Curve::agx) && ENHANCEMENTS_CURVE_COUNT == static_cast<int>(Curve::count));
         static_assert(ENHANCEMENTS_VIEW_COUNT == static_cast<int>(View::count) && ENHANCEMENTS_VIEW_STENCIL == static_cast<int>(View::stencil)
@@ -45,8 +47,8 @@ namespace enhancements
         static_assert(ENHANCEMENTS_ERROR_STATE == 4);
         // Callers built before foliage_ao_strength send 32 bytes, those before contact shadows 36, those before their
         // foliage_strength 52, those before atmosphere 56, those before tonemap 76, those before sun shadows 100, those
-        // before light shafts 132, those before the trace 172, those before the gather 212, those before the depth of field 236, those before its highlights 304, those before its scatter 312, those before its bokeh contrast 316, those before its place 320. Version 6 dropped the leaves blocks, which moved wetness from 128 to 116, so a binding of
-        // version 5 must not call EnhancementsApply; csharp/Enhancements.cs checks the version and marshals 324.
+        // before light shafts 132, those before the trace 172, those before the gather 212, those before the depth of field 236, those before its highlights 304, those before its scatter 312, those before its bokeh contrast 316, those before its place 320, those before its eye 324, those before the lens flare 332. Version 6 dropped the leaves blocks, which moved wetness from 128 to 116, so a binding of
+        // version 5 must not call EnhancementsApply; csharp/Enhancements.cs checks the version and marshals 384.
         static_assert(offsetof(EnhancementsSettings, ambient) + offsetof(EnhancementsAmbient, foliage_ao_strength) == 32
             && offsetof(EnhancementsSettings, contact_shadows) == 36
             && offsetof(EnhancementsSettings, contact_shadows) + offsetof(EnhancementsContactShadows, foliage_strength) == 52
@@ -56,7 +58,9 @@ namespace enhancements
             && offsetof(EnhancementsSettings, depth_of_field) == 236 && offsetof(EnhancementsDepthOfField, highlight_threshold) == 68
             && offsetof(EnhancementsDepthOfField, scatter) == 76 && offsetof(EnhancementsDepthOfField, bokeh_contrast) == 80
             && offsetof(EnhancementsDepthOfField, place) == 84 && offsetof(EnhancementsDepthOfField, eye_distance) == 88
-            && sizeof(EnhancementsSettings) == 332);
+            && offsetof(EnhancementsSettings, lens_flare) == 332 && sizeof(EnhancementsSettings) == 384);
+        static_assert(ENHANCEMENTS_FLARE_SOURCE_MANUAL == static_cast<int>(FlareSource::manual)
+            && ENHANCEMENTS_FLARE_SOURCE_COUNT == static_cast<int>(FlareSource::count));
         static_assert(ENHANCEMENTS_DOF_PLACE_DISPLAY == static_cast<int>(DofPlace::display) && ENHANCEMENTS_DOF_PLACE_COUNT == static_cast<int>(DofPlace::count));
         static_assert(sizeof(EnhancementsCamera) == 48 * sizeof(float));
         static_assert(ENHANCEMENTS_ACCUMULATE_PRESENT == static_cast<int>(AccumulateMode::present)
@@ -108,6 +112,9 @@ namespace enhancements
           light_shafts_wanted },
         // Last at bloom, so haze and mist blur with what lies behind them; the camera's projection gives the focal length.
         { PassId::depth_of_field, "depth-of-field", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::none, depth_of_field_wanted },
+        // At bloom only the sun's visibility, from the depth and, off the picture, the atlas when this frame's passed their
+        // checks; the flare itself is drawn on the back buffer after ReShade's effects.
+        { PassId::lens_flare, "lens-flare", Step::bloom, { Entry::depth }, true, SunUse::optional, lens_flare_wanted },
         // bloom-final is optional: a tone map draw without one still gets ours, without bloom.
         { PassId::tonemap, "tonemap", Step::tonemap, { Entry::hdr_scene, Entry::tonemap_out }, false, SunUse::none, tonemap_wanted },
     } };
@@ -394,6 +401,25 @@ namespace enhancements
             }
             s.depth_of_field = clamp_depth_of_field(dof);
         }
+        const EnhancementsLensFlare &lf = raw.lens_flare;
+        if (knows(offsetof(EnhancementsSettings, lens_flare), sizeof lf))
+        {
+            FlareSettings flare;
+            flare.enabled = lf.enabled != 0;
+            flare.source = lf.source < static_cast<uint32_t>(FlareSource::count) ? static_cast<FlareSource>(lf.source) : FlareSource::sun;
+            flare.position[0] = lf.position[0];
+            flare.position[1] = lf.position[1];
+            flare.strength = lf.strength;
+            flare.arcs = lf.arcs;
+            flare.ghosts = lf.ghosts;
+            flare.streaks = lf.streaks;
+            flare.glare = lf.glare;
+            flare.size = lf.size;
+            flare.warmth = lf.warmth;
+            flare.chromatic = lf.chromatic;
+            flare.visibility_seconds = lf.visibility_seconds;
+            s.flare = clamp_flare(flare);
+        }
         return s;
     }
 
@@ -425,6 +451,26 @@ namespace enhancements
         s.place = d.place;
         s.eye_distance = finite_or(d.eye_distance, defaults.eye_distance, 0.0f, 10000.0f);
         s.eye_size = finite_or(d.eye_size, defaults.eye_size, 0.005f, 0.1f);
+        return s;
+    }
+
+    FlareSettings clamp_flare(const FlareSettings &f)
+    {
+        const FlareSettings defaults;
+        FlareSettings s;
+        s.enabled = f.enabled;
+        s.source = f.source < FlareSource::count ? f.source : FlareSource::sun;
+        s.position[0] = finite_or(f.position[0], defaults.position[0], -2.0f, 3.0f);
+        s.position[1] = finite_or(f.position[1], defaults.position[1], -2.0f, 3.0f);
+        s.strength = finite_or(f.strength, defaults.strength, 0.0f, 4.0f);
+        s.arcs = finite_or(f.arcs, defaults.arcs, 0.0f, 4.0f);
+        s.ghosts = finite_or(f.ghosts, defaults.ghosts, 0.0f, 4.0f);
+        s.streaks = finite_or(f.streaks, defaults.streaks, 0.0f, 4.0f);
+        s.glare = finite_or(f.glare, defaults.glare, 0.0f, 4.0f);
+        s.size = finite_or(f.size, defaults.size, 0.25f, 4.0f);
+        s.warmth = finite_or(f.warmth, defaults.warmth, 0.0f, 1.0f);
+        s.chromatic = finite_or(f.chromatic, defaults.chromatic, 0.0f, 4.0f);
+        s.visibility_seconds = finite_or(f.visibility_seconds, defaults.visibility_seconds, 0.0f, 5.0f);
         return s;
     }
 
@@ -493,7 +539,7 @@ namespace enhancements
             s.enabled = true;
             s.view = View::off;
             s.ambient.enabled = s.contact_shadows.enabled = s.atmosphere.enabled = s.tonemap.enabled = s.sun_shadows.enabled = s.wetness.enabled
-                = s.light_shafts.enabled = s.depth_of_field.enabled = false;
+                = s.light_shafts.enabled = s.depth_of_field.enabled = s.flare.enabled = false;
         }
         s.trace.enabled = true;
         s.gather.enabled = true;

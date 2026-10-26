@@ -54,7 +54,11 @@ cbuffer Constants : register(b0)
     float shafts_patch_size;    // meters
     float shafts_ambient;       // multiplies the sky light in the mist
     uint shafts_steps;          // samples per ray
-    float2 padding3;
+    float2 flare_sun_uv;        // the lens flare's sun, 0 to 1 from the top left of the picture, upright; may lie off it
+    float flare_ease;           // the share of the way the flare's visibility moves toward this frame's in one frame
+    float flare_disc;           // the radius of the disc around the sun the flare's visibility looks at, over the height
+    uint flare_mode;            // 0 the sun in front of the camera, 1 the manual source, 2 a sun behind the camera
+    uint flare_atlas;           // 1 when this frame's sun constants passed their checks, so the atlas can be read
 };
 
 SamplerState point_clamp : register(s0);

@@ -165,6 +165,25 @@ namespace enhancements
     // Every value in range: non-finite floats take the default, the rest clamp, and 1 to 4 blades read as 5.
     DepthOfFieldSettings clamp_depth_of_field(const DepthOfFieldSettings &settings);
 
+    enum class FlareSource : uint8_t { sun, manual, count };   // ENHANCEMENTS_FLARE_SOURCE_*
+
+    // EnhancementsLensFlare's.
+    struct FlareSettings
+    {
+        bool enabled = false;
+        FlareSource source = FlareSource::sun;
+        float position[2] = { 0.8f, 0.12f };    // the manual source, 0 to 1 from the top left; may lie off the picture
+        float strength = 1;
+        float arcs = 1, ghosts = 1, streaks = 1, glare = 1;
+        float size = 1;
+        float warmth = 0.5f;                    // 0 cool, 0.5 the lens's own orange, 1 deeper
+        float chromatic = 1;
+        float visibility_seconds = 0.15f;       // how long the sun's visibility takes to follow a change, 99% of the way
+    };
+
+    // Every value in range: non-finite floats take the default and the rest clamp.
+    FlareSettings clamp_flare(const FlareSettings &settings);
+
     // The domain form of EnhancementsSettings. Built only by parse_settings, so every value in it is in range.
     struct Settings
     {
@@ -181,6 +200,7 @@ namespace enhancements
         TraceSettings trace;
         GatherSettings gather;
         DepthOfFieldSettings depth_of_field;
+        FlareSettings flare;
     };
 
     // Honors size (fields past it keep their defaults), maps an unknown view to off and an unknown curve to the game's,
@@ -288,7 +308,7 @@ namespace enhancements
     enum class GameCall : bool { keep, skip };
 
     // The ENHANCEMENTS_PASS_* bit order, not the run order.
-    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, wetness, light_shafts, trace, depth_of_field, count };
+    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, wetness, light_shafts, trace, depth_of_field, lens_flare, count };
 
     // ENHANCEMENTS_TRACE_STATE_*: where the traced scene the trace pass needs is. The names follow in kTraceStateNames.
     enum class TraceState : uint8_t { none, building, uploading, ready, stale, failed, count };
@@ -315,7 +335,7 @@ namespace enhancements
     };
 
     // Table order is run order within a step: wetness at gbuffer-done; the trace, sun shadows, contact shadows, then ambient
-    // at combine; atmosphere, light shafts, then depth of field at bloom; tonemap at tonemap.
+    // at combine; atmosphere, light shafts, depth of field, then the lens flare at bloom; tonemap at tonemap.
     extern const std::array<PassSpec, static_cast<size_t>(PassId::count)> kPasses;
 
     struct ViewSpec

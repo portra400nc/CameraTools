@@ -8,6 +8,7 @@
 #include "core/accumulate.h"
 #include "core/compare.h"
 #include "core/dof.h"
+#include "core/flare.h"
 #include "core/grade.h"
 #include "core/light.h"
 #include "core/plan.h"
@@ -221,6 +222,13 @@ namespace enhancements
         uint64_t frame = 0;
     };
 
+    // What the lens flare's bloom step leaves for the back buffer: its settings and where its source falls on the picture.
+    struct FlareDisplayFrame
+    {
+        FlareSettings settings;
+        FlareSun sun;
+    };
+
     class Gpu
     {
     public:
@@ -319,6 +327,21 @@ namespace enhancements
         // it drew: not for a back buffer dof_display_transfer does not take, without run_dof_focus's depth of frame's size, or
         // when a texture of ours failed. Returns the state guard's finding, null when state came back intact.
         const char *run_depth_of_field_display(ID3D11Resource *back_buffer, const DofDisplayFrame &frame, bool &ran);
+
+        // The lens flare at the bloom step: mirror in the main depth; draw its source's visibility into one of two 1x1 textures
+        // from the other, eased over the setting's seconds of seconds, from the depth around the sun where it is on the picture
+        // and, with atlas, the atlas and the constants gather_sun copied this frame around the camera; copy it for
+        // read_flare_visibility when no copy waits. sun is where the sun falls, empty without one. Empty when a texture of
+        // ours failed.
+        std::optional<GameCall> run_flare_visibility(const FrameMap &map, const FlareSettings &settings, const Camera &camera,
+            const std::optional<FlareSun> &sun, const SunShadowConstants *atlas, bool flip, float seconds);
+        // The visibility run_flare_visibility last copied, once the GPU has it, read without waiting.
+        std::optional<float> read_flare_visibility();
+        // The lens flare on the back buffer, after run_flare_visibility in a frame (shaders/flare_ps.hlsl): mirror in the back
+        // buffer; draw it with the flare screened over it into another mirror; copy that over the back buffer. ran says
+        // whether it drew: not for a back buffer dof_display_transfer does not take, before any visibility, or when a texture
+        // of ours failed. Returns the state guard's finding, null when state came back intact.
+        const char *run_lens_flare(ID3D11Resource *back_buffer, const FlareDisplayFrame &frame, bool &ran);
 
         // The pixel shader bound now, as the handle ReShade's pipeline events name it by, or 0.
         uint64_t bound_pixel_shader() const;
@@ -420,6 +443,7 @@ namespace enhancements
         // composite into out at size, over scene and depth with focus's 1x1.
         bool sync_dof_chain(const DofConstants &dof);
         bool upload_dof(const DofConstants &dof);
+        bool upload_flare(const FlareConstants &flare);
         // After the autofocus drew into dof_focus_at_'s: copies it for read_dof_focus when no copy waits, keeps it for the
         // display place, and turns to the other for the next frame.
         void keep_dof_focus();
@@ -433,13 +457,14 @@ namespace enhancements
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_,
             tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
             apply_gather_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_,
-            dof_sprite_ps_, dof_lift_ps_, dof_display_in_ps_, dof_display_out_ps_, dof_near_ps_, dof_near_mask_ps_;
+            dof_sprite_ps_, dof_lift_ps_, dof_display_in_ps_, dof_display_out_ps_, dof_near_ps_, dof_near_mask_ps_, flare_visibility_ps_, flare_ps_;
         ComPtr<ID3D11SamplerState> point_, linear_, lit_compare_, wrap_;
         ComPtr<ID3D11Texture3D> lattice_;                   // noise_lattice(), R8_UNORM
         ComPtr<ID3D11ShaderResourceView> lattice_srv_;
         ComPtr<ID3D11Buffer> constants_;
         ComPtr<ID3D11Buffer> gather_apply_;    // core/trace.h's GatherApplyConstants, at b2 for the gather's draws
         ComPtr<ID3D11Buffer> dof_constants_;   // core/dof.h's DofConstants, at b1 for the depth of field's draws
+        ComPtr<ID3D11Buffer> flare_constants_; // core/flare.h's FlareConstants, at b1 for the lens flare's draw
         ComPtr<ID3D11Buffer> game_grade_;      // shaders/tonemap_ps.hlsl's GameGrade, filled by copy_game_grade
         ComPtr<ID3D11Buffer> grade_stage_;     // game_grade_ for the CPU to read
         bool grade_staged_ = false;
@@ -507,6 +532,15 @@ namespace enhancements
         // with its alpha), the main depth resampled (R32_FLOAT) and the composite (R16G16B16A16_FLOAT); and the autofocus there.
         Mirror dof_depth_;
         Scratch dof_display_, dof_display_depth_, dof_blurred_, dof_display_focus_;
+        // The lens flare: the main depth at the bloom step, its source's visibility (1x1 R32_FLOAT, this frame's and the last's in
+        // turn), and the back buffer with the flare.
+        Mirror flare_depth_, flare_out_;
+        Scratch flare_visibility_[2];
+        uint32_t flare_at_ = 0;     // the one this frame writes
+        uint32_t flare_kept_ = 0;   // the one the last bloom step wrote, which the back buffer's draw reads
+        bool flare_drawn_ = false;  // a bloom step has written one
+        Readback flare_read_;
+        bool flare_pending_ = false;
         Readback frame_hdr_, frame_depth_;  // EnhancementsSaveFrame's copies
         bool frame_pending_ = false;        // copied and not yet read
         Staging copies_[3];         // the comparison capture's two frames, and its variant's view

@@ -242,6 +242,7 @@ namespace enhancements
         std::chrono::steady_clock::time_point last_present;
         float frame_seconds = 0;
         float dof_focus = 0;
+        float flare_visibility = 0;
 
         // The depth of field's display place. Its bloom step leaves dof_display for the back buffer, which runs it within the
         // frame's present: in ReShade's effects when they began for the back buffer the frame before, else at present before
@@ -254,6 +255,10 @@ namespace enhancements
         DofEffectsPoint dof_point;
         std::string dof_where;              // where it last ran, for the log
         std::string dof_where_planned;      // where this frame plans it, for the log
+        // The lens flare's bloom step leaves flare_display for the back buffer, which draws it after ReShade's effects, or at
+        // present when they drew nothing the frame before, after the depth of field either way.
+        std::optional<FlareDisplayFrame> flare_display;
+        bool flare_failed_logged = false;   // the log said once that it could not draw
 
         void log(reshade::log::level level, const std::string &message)
         {
@@ -850,6 +855,18 @@ namespace enhancements
                             break;
                         }
                         break;
+                    case PassId::lens_flare:
+                    {
+                        const std::optional<FlareSun> sun = settings.flare.source == FlareSource::manual
+                            ? std::optional(flare_point(settings.flare.position[0], settings.flare.position[1],
+                                static_cast<float>(map.render.width) / static_cast<float>(map.render.height)))
+                            : flare_sun(camera);
+                        call = gpu.run_flare_visibility(map, settings.flare, camera, sun, d.uses_sun ? &sun_parse.constants : nullptr, settings.flip,
+                            frame_seconds);
+                        if (call && sun)
+                            flare_display = FlareDisplayFrame { settings.flare, *sun };
+                        break;
+                    }
                     case PassId::trace:
                     {
                         // A save waits for a frame the trace writes; run_trace copies it then.
@@ -1842,6 +1859,7 @@ namespace enhancements
             s.shot_active = shot_frame ? 1 : 0;
             s.frames_saved = frames_saved;
             s.dof_focus_meters = dof_focus;
+            s.flare_visibility = flare_visibility;
             report.accumulated = accumulator.samples;
             published.line = describe(report);
             status_box.put(published);
@@ -1862,6 +1880,21 @@ namespace enhancements
             if (said != dof_where)
                 log(ran ? reshade::log::level::info : reshade::log::level::warning, "the depth of field ran on the back buffer " + said + ".");
             dof_where = said;
+        }
+
+        // Draws the lens flare the bloom step left on the back buffer, once.
+        void run_flare(ID3D11Resource *back_buffer)
+        {
+            const FlareDisplayFrame frame = *flare_display;
+            flare_display.reset();
+            bool ran = false;
+            if (const char *moved = gpu.run_lens_flare(back_buffer, frame, ran))
+                trip(moved);
+            else if (!ran && !flare_failed_logged)
+            {
+                log(reshade::log::level::warning, "the lens flare could not draw on the back buffer: its format or a texture of ours did not allow it.");
+                flare_failed_logged = true;
+            }
         }
 
         bool on_back_buffer(effect_runtime *runtime, resource_view rtv)
@@ -1978,6 +2011,8 @@ namespace enhancements
             if (dof_display)
                 run_dof_display(reinterpret_cast<ID3D11Resource *>(runtime->get_current_back_buffer().handle),
                     "after ReShade's effects, as none of the techniques it was to follow rendered");
+            if (flare_display)
+                run_flare(reinterpret_cast<ID3D11Resource *>(runtime->get_current_back_buffer().handle));
         }
 
         // The frame boundary. Runs before ReShade's effects, so the frame it closes is the game's whole frame.
@@ -1992,6 +2027,8 @@ namespace enhancements
             if (dof_display && !effects_expected && gpu.ready() && sticky_error == ENHANCEMENTS_ERROR_NONE)
                 run_dof_display(reinterpret_cast<ID3D11Resource *>(chain->get_current_back_buffer().handle),
                     "at present, before ReShade's effects, which drew nothing on the back buffer the frame before");
+            if (flare_display && !effects_expected && gpu.ready() && sticky_error == ENHANCEMENTS_ERROR_NONE)
+                run_flare(reinterpret_cast<ID3D11Resource *>(chain->get_current_back_buffer().handle));
 
             frames++;
             presents.store(frames, std::memory_order_relaxed);
@@ -2005,6 +2042,8 @@ namespace enhancements
                 read_frame_save();
                 if (const std::optional<float> focus = gpu.read_dof_focus())
                     dof_focus = *focus;
+                if (const std::optional<float> visibility = gpu.read_flare_visibility())
+                    flare_visibility = *visibility;
             }
             if (report.armed)
                 report.finish(tracker, settings, inputs());
@@ -2104,6 +2143,7 @@ namespace enhancements
         void on_reshade_present(effect_runtime *runtime)
         {
             dof_display.reset();
+            flare_display.reset();
             in_effects = false;
             if (!armed.load(std::memory_order_relaxed) || capture)
                 return;
@@ -2146,6 +2186,7 @@ namespace enhancements
             armed.store(false, std::memory_order_relaxed);
             gpu = Gpu {};
             dof_display.reset();
+            flare_display.reset();
             immediate = nullptr;
             accumulator = {};
             depth_copy.reset();
