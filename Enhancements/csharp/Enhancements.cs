@@ -240,8 +240,8 @@ namespace CameraToolsEnhancements
         // and a depth of field at f/2.8 on a full-frame sensor that autofocuses at the center at 0.9 of the way a second, blurs at
         // most 0.03 of the height, has round discs with spherical aberration 0.6, gathers 49 samples a pixel, and draws highlights
         // above twice the frame's mean luminance as sprites, growing small lamps at gain 2, with the bokeh contrast off
-        // and no eye, whose window would be 15 mm wide, and a lens flare from the sun at full strength in every part, at the lens's
-        // own size and orange, that follows the sun's visibility over 0.15 s.
+        // and no eye, whose window would be 15 mm wide, and a lens flare from the sun at full strength with half its glare and
+        // filled arcs, at the lens's own size and orange, that follows the sun's visibility over 0.15 s.
         public static EnhancementsSettings Defaults => new()
         {
             Size = (uint)Marshal.SizeOf<EnhancementsSettings>(),
@@ -269,8 +269,8 @@ namespace CameraToolsEnhancements
             },
             LensFlare = new EnhancementsLensFlare
             {
-                Source = EnhancementsFlareSource.Sun, X = 0.8f, Y = 0.12f, Strength = 1, Arcs = 1, Ghosts = 1, Streaks = 1, Glare = 1, Size = 1, Warmth = 0.5f,
-                Chromatic = 1, VisibilitySeconds = 0.15f, FilledArcs = 1,
+                Source = EnhancementsFlareSource.Sun, X = 0.8f, Y = 0.12f, Strength = 1, Arcs = 1, Ghosts = 1, Streaks = 1, Glare = 0.5f, Size = 1, Warmth = 0.5f,
+                Chromatic = 1, VisibilitySeconds = 0.15f, FilledArcs = 0.5f,
             },
         };
     }

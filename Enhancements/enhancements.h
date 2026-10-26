@@ -428,7 +428,7 @@ typedef struct EnhancementsLensFlare
     float position[2];          // the manual source, 0 to 1 from the top left of the picture, and beyond it to -2 and 3; default
                                 // 0.8, 0.12
     float strength;             // multiplies the whole flare; default 1, clamped to 0..4
-    float arcs;                 // each part's light; default 1, clamped to 0..4
+    float arcs;                 // each part's light, clamped to 0..4: arcs, ghosts and streaks default to 1, glare to 0.5
     float ghosts;
     float streaks;
     float glare;
@@ -437,7 +437,7 @@ typedef struct EnhancementsLensFlare
     float chromatic;            // the red fringe outside each arc and ghost; default 1, clamped to 0..4
     float visibility_seconds;   // how long the flare takes to follow the sun's visibility, 99% of the way; default 0.15,
                                 // clamped to 0..5
-    float filled_arcs;          // the light of the filled discs with a thick rim, some cut into a D; default 1, clamped to 0..4
+    float filled_arcs;          // the light of the filled discs with a thick rim, some cut into a D; default 0.5, clamped to 0..4
 } EnhancementsLensFlare;
 
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller

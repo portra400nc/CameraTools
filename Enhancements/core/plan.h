@@ -174,12 +174,12 @@ namespace enhancements
         FlareSource source = FlareSource::sun;
         float position[2] = { 0.8f, 0.12f };    // the manual source, 0 to 1 from the top left; may lie off the picture
         float strength = 1;
-        float arcs = 1, ghosts = 1, streaks = 1, glare = 1;
+        float arcs = 1, ghosts = 1, streaks = 1, glare = 0.5f;
         float size = 1;
         float warmth = 0.5f;                    // 0 cool, 0.5 the lens's own orange, 1 deeper
         float chromatic = 1;
         float visibility_seconds = 0.15f;       // how long the sun's visibility takes to follow a change, 99% of the way
-        float filled_arcs = 1;
+        float filled_arcs = 0.5f;
     };
 
     // Every value in range: non-finite floats take the default and the rest clamp.
