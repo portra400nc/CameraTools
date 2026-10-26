@@ -37,13 +37,13 @@ namespace CameraTools
         // While the Keybinds tab waits for new buttons, the pad fires no actions, the free camera's toggle included.
         public static bool PadCapture { get; set; }
 
-        // While the settings panel is open, the sticks move a light, or they turn a joint, the pad is read there, so the
-        // camera ignores it.
-        private static bool PadActive => Owner == InputOwner.CameraTools && CameraUi.View is not (View.Panel or View.Moving or View.Joints);
+        // While the settings panel is open, the sticks move a light, or they turn a joint or move the character, the pad is
+        // read there, so the camera ignores it.
+        private static bool PadActive => Owner == InputOwner.CameraTools && CameraUi.View is not (View.Panel or View.Moving or View.Joints or View.Placing);
 
-        // Pose joints reads the arrow keys, which also change the game speed, and the camera's movement keys, so there the
-        // keyboard fires no actions.
-        private static bool KeysActive => Owner == InputOwner.CameraTools && CameraUi.View != View.Joints;
+        // Pose joints reads the arrow keys, which also change the game speed, and the camera's movement keys, and Move
+        // character reads those and the roll keys, so there the keyboard fires no actions.
+        private static bool KeysActive => Owner == InputOwner.CameraTools && CameraUi.View is not (View.Joints or View.Placing);
 
         public static void Load()
         {

@@ -29,6 +29,9 @@ namespace CameraTools
         private const float Radians = MathF.PI / 180f;
 
         private static readonly string[] EyeBones = { "+EyeBone L A01", "+EyeBone R A01" };
+        // The biped's root, which carries every other bone, and the bone the whole character turns about.
+        private const string RootBone = "Bip001";
+        private const string PivotBone = "Bip001 Pelvis";
         private static readonly NumericsVector3 Right = NumericsVector3.UnitX;
         private static readonly NumericsVector3 Up = NumericsVector3.UnitY;
 
@@ -41,6 +44,8 @@ namespace CameraTools
 
         // The inverse of the character's rotation at the freeze, which turns the scene's directions into the character's.
         private readonly NumericsQuaternion toCharacter;
+        // The biped's root with its frozen local position, and the hips from it in the character's frame; null without either.
+        private readonly Root root;
         private readonly Dictionary<string, Transform> bones = new();
         private readonly List<(Animator Animator, bool Paused)> animators = new();
         private readonly Bone[] joints = new Bone[Joints.All.Length];
@@ -74,6 +79,9 @@ namespace CameraTools
             Collect(avatar);
             for (int i = 0; i < joints.Length; i++)
                 joints[i] = BoneOf(Joints.All[i].Bone);
+            if (BoneOf(RootBone) is { } rootBone && bones.GetValueOrDefault(PivotBone) is { } pivot)
+                root = new Root(rootBone, rootBone.Transform.localPosition,
+                    NumericsVector3.Transform(pivot.position.ToNumerics() - rootBone.Transform.position.ToNumerics(), toCharacter));
             foreach (var side in Sides.Both)
                 hands[(int)side] = BuildHand(side);
             for (int i = 0; i < eyes.Length; i++)
@@ -113,7 +121,7 @@ namespace CameraTools
             var missing = Joints.All.Where((_, i) => joints[i] == null).Select(info => info.Bone).ToArray();
             Melon<CameraTools>.Logger.Msg($"Posing {avatar.name}: {joints.Length - missing.Length} of {joints.Length} joints"
                 + (missing.Length > 0 ? $" (no {string.Join(", ", missing)})" : "")
-                + $", hands {(hands[0] != null ? "left" : "no left")} and {(hands[1] != null ? "right" : "no right")}, {(HasEyes ? "eye bones" : "no eye bones")},"
+                + $"{(root != null ? "" : $" (no {RootBone} to move)")}, hands {(hands[0] != null ? "left" : "no left")} and {(hands[1] != null ? "right" : "no right")}, {(HasEyes ? "eye bones" : "no eye bones")},"
                 + $" {shapes.Count} face shapes, {Emotions.Length} expressions, {hair.Count} hair physics, {animators.Count} animators.");
             Melon<CameraTools>.Logger.Msg($"Posing {avatar.name}: {strands.Length} strands, {strands.Count(strand => strand.Hair)} of them hair"
                 + (strands.Length > 0 ? $": {string.Join(", ", strands.Select(strand => $"{strand.Info.Name} ({strand.Info.Bone})"))}." : "."));
@@ -136,6 +144,11 @@ namespace CameraTools
 
         public bool HasEyes => eyes.Any(eye => eye != null);
 
+        public bool CanMove => root != null;
+
+        // A direction in the scene, in the character's frame at the freeze.
+        public NumericsVector3 ToCharacter(Vector3 direction) => NumericsVector3.Transform(direction.ToNumerics(), toCharacter);
+
         // index is a position in Targets.
         public ScreenPoint? Point(int index, Camera camera)
             => index < targetBones.Length && targetBones[index] is { } bone && ScreenPoint.Of(camera, bone.Transform.position) is { OnScreen: true } point
@@ -145,6 +158,7 @@ namespace CameraTools
         // the posed bones they hang from.
         public void WriteBody(PoseSetup pose, Transform camera)
         {
+            WritePlace(pose.Place);
             for (int i = 0; i < joints.Length; i++)
             {
                 if (joints[i] is not { } bone)
@@ -280,6 +294,8 @@ namespace CameraTools
                 foreach (var bone in AllBones())
                     if (bone.Transform)
                         bone.Write(NumericsQuaternion.Identity);
+                if (root != null && root.Bone.Transform)
+                    root.Bone.Transform.localPosition = root.Position;
             });
             Step("face", () =>
             {
@@ -336,7 +352,7 @@ namespace CameraTools
         }
 
         private IEnumerable<Bone> AllBones()
-            => joints.Concat(hands.Where(hand => hand != null).SelectMany(hand => hand).Where(finger => finger != null).SelectMany(finger => finger.Joints))
+            => joints.Append(root?.Bone).Concat(hands.Where(hand => hand != null).SelectMany(hand => hand).Where(finger => finger != null).SelectMany(finger => finger.Joints))
                 .Concat(eyes)
                 .Concat(strands.Select(strand => strand.Bone))
                 .Where(bone => bone != null);
@@ -485,19 +501,34 @@ namespace CameraTools
             return AngleAxis(Up, yaw) * AngleAxis(Right, -pitch);
         }
 
+        // The root turns about its own origin, so it also moves by what that turn swings the hips by, which keeps the hips
+        // where the move puts them. The offset goes into the root's parent's frame, which carries the root's position.
+        private void WritePlace(PosePlace place)
+        {
+            if (root == null)
+                return;
+            var turn = place.Rotation();
+            var move = place.Offset() + root.Pivot - NumericsVector3.Transform(root.Pivot, turn);
+            var transform = root.Bone.Transform;
+            var world = NumericsVector3.Transform(move, NumericsQuaternion.Inverse(toCharacter)).ToUnity();
+            transform.localPosition = root.Position + (transform.parent ? transform.parent.InverseTransformVector(world) : world);
+            root.Bone.Write(turn);
+        }
+
         // Below 100, Hair follows head takes back part of the turn a hair strand's posed parents carry it by; at 0 the strand
-        // keeps the world rotation it froze with. The strand's own turn comes first, so a strand turned by hand keeps that
-        // turn from where it hangs.
+        // keeps the rotation it froze with, as the whole character is placed. The strand's own turn comes first, so a strand
+        // turned by hand keeps that turn from where it hangs.
         private void WriteStrands(PoseSetup pose)
         {
             float keep = 1f - pose.HairFollow / 100f;
+            var placed = NumericsQuaternion.Inverse(toCharacter) * pose.Place.Rotation() * toCharacter;
             for (int s = 0; s < strands.Length; s++)
             {
                 var strand = strands[s];
                 var turn = Rotation(joints.Length + s, pose.Turn(strand.Info.Target), pose.Axes);
                 if (strand.Hair && keep > 0f)
                 {
-                    var carried = strand.Bone.Transform.parent.rotation.ToNumerics() * NumericsQuaternion.Inverse(strand.Bone.ParentWorld);
+                    var carried = NumericsQuaternion.Inverse(placed) * strand.Bone.Transform.parent.rotation.ToNumerics() * NumericsQuaternion.Inverse(strand.Bone.ParentWorld);
                     var undo = NumericsQuaternion.Slerp(NumericsQuaternion.Identity, NumericsQuaternion.Inverse(carried), keep);
                     turn = toCharacter * undo * NumericsQuaternion.Inverse(toCharacter) * turn;
                 }
@@ -651,6 +682,8 @@ namespace CameraTools
         }
 
         private sealed record Strand(JointInfo Info, Bone Bone, bool Hair);
+
+        private sealed record Root(Bone Bone, Vector3 Position, NumericsVector3 Pivot);
 
         // The axes are in the character's frame, and the thumb's alone has AcrossAxis and TwistAxis; Bent is each joint's bend
         // at the freeze, in degrees.

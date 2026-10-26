@@ -22,7 +22,7 @@
 | **Camera paths** | Record views as nodes and fly the camera through them in one shot |
 | **Replays** | Record the party, their skills and the enemies near them, and play it back alone or along a camera path to film the moment again |
 | **Lights** | Point, spot and soft sphere lights, for the world or only characters |
-| **Posing** | Freeze the active character, turn their joints, shape hands and face, save poses |
+| **Posing** | Freeze the active character, move and turn them, turn their joints, shape hands and face, save poses |
 | **Depth of field** | A real lens's blur inside the game, from the focal length, aperture and focus distance: autofocus on a point or on the character's eyes, bokeh with blades, soap-bubble rims, chromatic fringes, cat's eye and swirl, through CameraTools' Enhancements add-on. Cinematic DOF and iMMERSE work too. |
 | **ReShade** | One-button screenshots at your highest settings, also as long exposures |
 | **Input** | Hotkeys you change in the panel; XInput controllers, including the Steam Deck |
@@ -81,7 +81,7 @@ While the free camera is on, the game ignores the keyboard, mouse and controller
 |--|--|
 | [Camera paths](CAMERA-PATHS.md) | Record camera positions as nodes and fly the free camera through them |
 | [Lights](LIGHTS.md) | Add point, spot and sphere lights, aim them with the sticks, attach them to the camera or the character |
-| [Pose](POSE.md) | Turn joints, shape hands, set expression and gaze, save poses |
+| [Pose](POSE.md) | Move the character, turn joints, shape hands, set expression and gaze, save poses |
 | [ReShade](RESHADE.md) | Depth of field, one-button screenshots, long exposure shots |
 
 ## Hotkeys
@@ -91,7 +91,7 @@ To change a hotkey, open the panel's **Keybinds** tab and click the key or the c
 - <kbd>Esc</kbd> cancels and <kbd>Backspace</kbd> clears the key. A controller rebind gives up after 5 seconds with nothing pressed.
 - A key that another hotkey uses swaps: that hotkey takes the old key, and a notice says so.
 - **Restore defaults**, at the top of the tab, puts every hotkey back. Press it twice.
-- Toggle free camera always keeps a key and a controller binding, so you can always leave the free camera. <kbd>Enter</kbd> cannot be bound, because Move light, Pose joints and Edit replay use it.
+- Toggle free camera always keeps a key and a controller binding, so you can always leave the free camera. <kbd>Enter</kbd> cannot be bound, because Move light, Pose joints, Move character and Edit replay use it.
 
 The bindings are saved in `UserData/MelonPreferences.cfg`, under the hotkeys' names: keys in `[CameraTools]` as [Unity key codes](https://docs.unity3d.com/ScriptReference/KeyCode.html), and controller bindings in `[CameraToolsController]`.
 

@@ -6,11 +6,16 @@ namespace CameraTools
     // The Pose tab's runtime. Posing is either off or a session on the active character, which Start and End alone begin
     // and finish. A session freezes the character and writes the pose over the frozen game pose every frame. It needs the
     // free camera, so leaving the free camera ends it, and so does switching character. Ending keeps the pose for Bring
-    // back last pose. Inside a session, Pose joints closes the panel while the sticks turn one joint at a time.
+    // back last pose. Inside a session, Pose joints closes the panel while the sticks turn one joint at a time, and Move
+    // character closes it while they move and turn the whole character.
     internal static class Posing
     {
         // Degrees a second at full stick, on unscaled time so a paused game still poses.
         private const float TurnSpeed = 90f;
+        // Move character's meters a second at full stick or trigger, and degrees a second on a held bumper.
+        private const float MoveSpeed = 0.5f;
+        private const float RiseSpeed = 0.3f;
+        private const float SpinSpeed = 60f;
         // A click this far from a marker, as a share of the screen's height, picks its joint: 24 units of the 800 tall canvas.
         private const float PickRadius = 0.03f;
         // How often, and how many times a session, the log says how many frames had a canvases callback.
@@ -36,7 +41,9 @@ namespace CameraTools
 
         public static bool On => session != null;
 
-        public static bool Editing => session?.Edit != null;
+        public static bool Editing => session?.Edit?.Mode == EditMode.Joints;
+
+        public static bool Moving => session?.Edit?.Mode == EditMode.Place;
 
         // The pose has changes since it was last saved, loaded or reset.
         public static bool Changed { get; private set; }
@@ -86,6 +93,8 @@ namespace CameraTools
         public static bool HasBrows(string pair) => session?.Rig.HasBrows(pair) ?? true;
 
         public static bool HasEyes => session?.Rig.HasEyes ?? true;
+
+        public static bool CanMove => On && session.Rig.CanMove;
 
         // The head waits while it turns toward the camera.
         public static bool CanTurnJoint => On && Has(Selected.Target) && !(Selected.Target == PoseJoint.Head && Current.Gaze.HeadAtCamera);
@@ -197,14 +206,39 @@ namespace CameraTools
         {
             if (session == null)
                 return;
-            session.Edit = new JointEdit(session.Pose.Clone(), Changed, Time.frameCount);
+            session.Edit = new PoseEdit(EditMode.Joints, session.Pose.Clone(), Changed, Time.frameCount);
             CameraUi.ClosePanel();
             // The mouse picks joints, so the cursor stays free.
             Freecam.Focused = false;
             CameraUi.Toast($"Posing the {Selected.Name.ToLowerInvariant()}");
         }
 
+        public static void StartMoving()
+        {
+            if (!CanMove)
+                return;
+            session.Edit = new PoseEdit(EditMode.Place, session.Pose.Clone(), Changed, Time.frameCount);
+            CameraUi.ClosePanel();
+            CameraUi.Toast("Moving the character");
+        }
+
+        public static void ResetPlace()
+        {
+            Edit(pose => pose.Place = default);
+            CameraUi.Toast("The character is back where the game froze them");
+        }
+
         public static ScreenPoint? JointPoint(int joint, Camera camera) => session?.Rig.Point(joint, camera);
+
+        // Move character's numbers for its readout; the tilts are left to their rows.
+        public static string PlaceReadout
+        {
+            get
+            {
+                var place = Current.Place;
+                return $"Up {place.Up:0.00} m · Forward {place.Forward:0.00} m · Left {place.Left:0.00} m · Turn {Whole(place.Turn)}°";
+            }
+        }
 
         public static (string Name, string Angles) Readout
         {
@@ -262,8 +296,10 @@ namespace CameraTools
                 return;
             }
             CountFrames(current);
-            if (current.Edit != null)
+            if (Editing)
                 EditJoints(current);
+            else if (Moving)
+                MoveCharacter(current);
             var camera = Lights.Camera();
             var view = camera ? camera.transform : null;
             var pose = current.Pose;
@@ -388,9 +424,55 @@ namespace CameraTools
             });
         }
 
+        // The left stick moves the character over their ground in the direction the camera looks, the triggers lower and
+        // raise them, and the bumpers turn them. The keyboard uses the free camera's movement keys, and its roll keys turn.
+        private static void MoveCharacter(Session current)
+        {
+            if (Time.frameCount == current.Edit.Frame)
+                return;
+            var now = Gamepad.Current;
+            var before = Gamepad.Previous;
+            bool pad = Controls.Owner == InputOwner.CameraTools;
+            if (pad && PadA.Pressed(now, before) || Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
+            {
+                FinishEditing(current, true);
+                return;
+            }
+            if (pad && PadB.Pressed(now, before) || Input.GetKeyDown(KeyCode.Escape))
+            {
+                FinishEditing(current, false);
+                return;
+            }
+            float forward = (pad ? now.LeftY : 0f) + Key(CamAction.Forward) - Key(CamAction.Back);
+            float sideways = (pad ? now.LeftX : 0f) + Key(CamAction.Right) - Key(CamAction.Left);
+            float rise = (pad ? now.Axis(PadAxis.RT) - now.Axis(PadAxis.LT) : 0f) + Key(CamAction.Up) - Key(CamAction.Down);
+            float spin = (pad && PadRB.Held(now) ? 1f : 0f) - (pad && PadLB.Held(now) ? 1f : 0f) + Key(CamAction.RollRight) - Key(CamAction.RollLeft);
+            var camera = Lights.Camera();
+            if (forward == 0f && sideways == 0f && rise == 0f && spin == 0f || !camera)
+                return;
+            // The camera's view along the character's ground; looking straight down, its up points the way it faces.
+            var view = current.Rig.ToCharacter(camera.transform.forward);
+            if (view.X * view.X + view.Z * view.Z < 0.01f)
+                view = current.Rig.ToCharacter(camera.transform.up);
+            float length = MathF.Sqrt(view.X * view.X + view.Z * view.Z);
+            if (length < 1e-4f)
+                return;
+            float ahead = view.Z / length, across = view.X / length;
+            float dt = Time.unscaledDeltaTime;
+            float x = (across * forward + ahead * sideways) * MoveSpeed * dt;
+            float z = (ahead * forward - across * sideways) * MoveSpeed * dt;
+            Edit(pose => pose.Place = pose.Place with
+            {
+                Left = pose.Place.Left - x,
+                Forward = pose.Place.Forward + z,
+                Up = pose.Place.Up + rise * RiseSpeed * dt,
+                Turn = pose.Place.Turn + spin * SpinSpeed * dt,
+            });
+        }
+
         private static float Key(CamAction action) => Input.GetKey(Controls.Binding(action).Key) ? 1f : 0f;
 
-        // Keeping leaves the pose as it is; cancelling puts back the pose from before Pose joints.
+        // Keeping leaves the pose as it is; cancelling puts back the pose from before Pose joints or Move character.
         private static void FinishEditing(Session current, bool keep)
         {
             var edit = current.Edit;
@@ -402,7 +484,8 @@ namespace CameraTools
                 Revision++;
             }
             CameraUi.OpenPanel();
-            CameraUi.Toast(keep ? "Pose kept" : "Pose change cancelled");
+            bool place = edit.Mode == EditMode.Place;
+            CameraUi.Toast(keep ? place ? "Position kept" : "Pose kept" : place ? "Move cancelled" : "Pose change cancelled");
         }
 
         private static void Pick(Session current)
@@ -432,7 +515,7 @@ namespace CameraTools
         {
             public readonly CharacterRig Rig;
             public PoseSetup Pose = new();
-            public JointEdit Edit;
+            public PoseEdit Edit;
             public int Frames;
             public int Canvases;
             public int Reports;
@@ -444,8 +527,14 @@ namespace CameraTools
             }
         }
 
-        // Before is the pose Pose joints started from, which cancelling puts back with its unsaved state. Frame is the
-        // frame it started on, whose A press must not also finish it.
-        private sealed record JointEdit(PoseSetup Before, bool Changed, int Frame);
+        private enum EditMode
+        {
+            Joints,
+            Place,
+        }
+
+        // Before is the pose Pose joints or Move character started from, which cancelling puts back with its unsaved state.
+        // Frame is the frame it started on, whose A press must not also finish it.
+        private sealed record PoseEdit(EditMode Mode, PoseSetup Before, bool Changed, int Frame);
     }
 }

@@ -118,7 +118,7 @@ namespace CameraTools
     // Hidden: the free camera is off. Hud: legends and the field of view bar. Playing: the play bar of a camera path, a
     // recording or a replay playing on its own. Panel: settings. Moving: the sticks move a light, and the legends say how.
     // Joints: the sticks turn the posed character's joints, with a marker on each. Editing: a replay held on the timeline.
-    public enum View { Hidden, Hud, Playing, Panel, Moving, Joints, Editing }
+    public enum View { Hidden, Hud, Playing, Panel, Moving, Joints, Placing, Editing }
 
     internal static class UiModel
     {
@@ -387,6 +387,14 @@ namespace CameraTools
         private static readonly string[] AxesNames = { "The joint itself", "The character" };
 
         // notes holds what the row turns about in each JointAxes.
+        private static SliderRow PlaceSlider(string label, float max, float step, string format, Func<PosePlace, float> get,
+            Func<PosePlace, float, PosePlace> set, string note)
+            => new(label, -max, max, step, format, () => get(Posing.Current.Place), value => Posing.Edit(pose => pose.Place = set(pose.Place, value)),
+                Enabled: () => Posing.CanMove)
+            {
+                Detail = () => note,
+            };
+
         private static SliderRow JointSlider(string label, float max, Func<JointTurn, float> get, Func<JointTurn, float, JointTurn> set, string[] notes)
             => new(label, -max, max, 5f, "0'°'", () => get(Posing.Current.Turn(Posing.Selected.Target)),
                 value => Posing.Edit(pose => pose.SetTurn(Posing.Selected.Target, set(pose.Turn(Posing.Selected.Target), MathF.Round(value)))),
@@ -518,6 +526,21 @@ namespace CameraTools
             new ActionRow("Save as new pose", Posing.SaveNew, "Save", Posed),
             new ActionRow("Save over this pose", Posing.SaveOver, "Save", () => Posing.On && Poses.Current != null),
             new ActionRow("Delete pose", Posing.DeleteSaved, "Delete", () => Poses.Current != null, Confirm: () => $"delete {Poses.Current?.Name}"),
+            new Section("Position"),
+            new ActionRow("Move character", Posing.StartMoving, "Move", () => Posing.CanMove) { Detail = () => "Move and turn the whole character with the sticks" },
+            PlaceSlider("Up and down", PosePlace.MaxMove, 0.01f, "0.00' m'", place => place.Up, (place, value) => place with { Up = value },
+                "Lowers a sitting or kneeling character onto the ground"),
+            PlaceSlider("Forward and back", PosePlace.MaxMove, 0.01f, "0.00' m'", place => place.Forward, (place, value) => place with { Forward = value },
+                "Along the way the character faced when posing began"),
+            PlaceSlider("Left and right", PosePlace.MaxMove, 0.01f, "0.00' m'", place => place.Left, (place, value) => place with { Left = value },
+                "To the character's left, or right below 0"),
+            PlaceSlider("Turn", PosePlace.MaxAngle, 1f, "0'°'", place => place.Turn, (place, value) => place with { Turn = MathF.Round(value) },
+                "Spins the whole character about their up axis"),
+            PlaceSlider("Tilt forward", PosePlace.MaxAngle, 1f, "0'°'", place => place.TiltForward, (place, value) => place with { TiltForward = MathF.Round(value) },
+                "90° lies them face down, -90° on their back"),
+            PlaceSlider("Tilt sideways", PosePlace.MaxAngle, 1f, "0'°'", place => place.TiltSideways, (place, value) => place with { TiltSideways = MathF.Round(value) },
+                "Leans them to their left, or right below 0"),
+            new ActionRow("Reset position", Posing.ResetPlace, "Reset", () => Posing.CanMove && Posing.Current.Place != default),
             new Section("Body"),
             new ActionRow("Pose joints", Posing.StartEditing, "Pose", Posed) { Detail = () => "Pick joints on the character and turn them with the sticks" },
             new StepperRow("Joint", () => Posing.Targets.Count, () => Posing.Joint, Posing.SelectJoint, JointNote, Posed)

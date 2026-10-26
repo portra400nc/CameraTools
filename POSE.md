@@ -1,6 +1,6 @@
 # Pose
 
-The Pose tab freezes the active character and lets you pose them for a shot: turn their joints, shape their hands, set their face, and choose where they look. CameraTools saves poses you want to keep, so they are back the next time you play.
+The Pose tab freezes the active character and lets you pose them for a shot: move and turn them, turn their joints, shape their hands, set their face, and choose where they look. CameraTools saves poses you want to keep, so they are back the next time you play.
 
 ## Posing
 
@@ -14,7 +14,36 @@ Back to the game's pose clears every change and keeps the character frozen.
 
 Save as new pose keeps the current pose as Pose 1, Pose 2, and on. Saved pose picks one, and its note says how many joints it poses and whether the current pose has changes that no saved pose holds. Load pose starts posing if it is off. Save over this pose replaces the picked pose with the current one. Name renames the picked pose: select the row and type the name (Steam+X opens the keyboard on the Deck), then press Enter. Save an empty name to number the pose again. Delete pose asks you to press again to confirm.
 
-Poses are saved in `UserData/CameraTools/Poses.json` a second after the last change. A pose keeps expressions and face shapes by their names, so a pose made on one character loads on another. Anything the other character lacks, such as an expression, a face shape or a hair strand, is left out, and the notice says how many parts were left out.
+Poses are saved in `UserData/CameraTools/Poses.json` a second after the last change. A pose saves the character's position too. A pose keeps expressions and face shapes by their names, so a pose made on one character loads on another. Anything the other character lacks, such as an expression, a face shape or a hair strand, is left out, and the notice says how many parts were left out.
+
+## Position
+
+Posing holds the character where the game froze them, so a sitting or kneeling pose floats at standing height. The Position section moves and turns the whole character on top of the pose. Every joint, hand, strand and the face move with them.
+
+| Row | What it does |
+|--|--|
+| Up and down | Lowers or raises the character, up to 3 m either way, in steps of 1 cm. |
+| Forward and back | Moves them along the way they faced when posing began. |
+| Left and right | Moves them to their left, or to their right below 0. |
+| Turn | Spins them about their up axis. |
+| Tilt forward | Tips them forward or back: 90° lies them face down, -90° on their back. |
+| Tilt sideways | Leans them to their left, or to their right below 0. |
+
+All six are measured from where the character stood and faced when posing began, never from the scene or the ground, so a saved pose loads at the same place relative to the character wherever you load it. The three turns are about the hips. Reset position puts the character back where the game froze them and keeps the rest of the pose. Back to the game's pose clears the position with everything else.
+
+Move character is the quicker way. It hides the panel and puts a marker on the hips, with the position at the bottom left. The free camera holds still while you move the character.
+
+| Controller | Keyboard | In Move character |
+|--|--|--|
+| Left stick | W and S, A and D | Move over the ground, in the direction the camera looks |
+| LT and RT | Ctrl and Space | Lower and raise |
+| LB and RB | The roll keys | Turn left and right |
+| A | Enter | Keep the position |
+| B | Esc | Cancel, putting back the position from before |
+
+The keyboard uses the free camera's keys, so these follow your bindings.
+
+The game's character stays where it was: only the body you see moves. A light that follows the character follows the game's character, not the moved body.
 
 ## Body
 

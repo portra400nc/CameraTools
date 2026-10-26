@@ -87,6 +87,7 @@ namespace CameraTools
             : !CameraTools.freecamActive ? View.Hidden
             : Lights.Moving ? View.Moving
             : Posing.Editing ? View.Joints
+            : Posing.Moving ? View.Placing
             : ReplayPlayer.Editing != null ? View.Editing
             : panelOpen ? View.Panel
             : PathPlayback.State is PlaybackState.Playing || ReplayPlayer.Solo != null ? View.Playing
@@ -108,7 +109,7 @@ namespace CameraTools
         // Whether anything of CameraTools' is on screen, a part that is still fading out included.
         public static bool OnScreen => live != null
             ? live.Hud.Visible || live.Guide.Visible || live.Focus.Visible || live.PlayBar.Visible || live.Panel.Visible || live.Toast.Visible
-                || live.Move.Visible || live.Markers.Visible || live.JointLayer.Visible || live.Timeline.Visible
+                || live.Move.Visible || live.Markers.Visible || live.JointLayer.Visible || live.PlaceLayer.Visible || live.Timeline.Visible
             : FallbackToast != null;
 
         public static bool PanelOpen => panelOpen;
@@ -210,6 +211,7 @@ namespace CameraTools
                 BuildHud(ui, built, root.transform);
                 BuildMove(ui, built, root.transform);
                 BuildJoints(ui, built, root.transform);
+                BuildPlace(ui, built, root.transform);
                 BuildPlayBar(ui, built, root.transform);
                 BuildTimeline(ui, built, root.transform);
                 BuildPanel(ui, built, root.transform, model);
@@ -400,6 +402,53 @@ namespace CameraTools
             ui.KeyHint(keysBottom, KeyCode.Escape, "Cancel");
             target.JointsPad = pad.gameObject;
             target.JointsKeys = keys.gameObject;
+        }
+
+        // Move character: one marker at the hips, the position at the bottom left, and legends for the sticks and keys that
+        // move the character in place of the free camera's.
+        private static void BuildPlace(Builder ui, Live target, Transform root)
+        {
+            var layer = Node("Place", root);
+            Fill(layer);
+            target.PlaceLayer = new Fader(layer, V(0f, 0f), Style.HudFade);
+            float size = Style.JointDotSelected;
+            target.PlaceMarker = Node("Hips", layer);
+            Place(target.PlaceMarker, V(0f, 0f), V(0f, 0f), V(0.5f, 0.5f), V(0f, 0f), V(size + Style.JointRing, size + Style.JointRing));
+            Fill(Picture(target.PlaceMarker, "Ring", Shapes.Disc, Style.MarkerRing).rectTransform);
+            Pin(Picture(target.PlaceMarker, "Dot", Shapes.Disc, Style.Cream).rectTransform, 0.5f, 0.5f, 0f, 0f, size, size);
+
+            var readout = Node("Readout", layer);
+            Pin(readout, 0f, 0f, Style.Margin, Style.Margin, LegendWidth, Style.HintHeight);
+            Flow(readout.gameObject, Style.ReadoutGap, TextAnchor.MiddleLeft);
+            var name = ui.Label(readout, "Name", "Position", Style.HintSize, Style.Text, TextAnchor.MiddleLeft);
+            target.PlaceNumbers = ui.Label(readout, "Numbers", "", Style.ValueSize, Style.Dim, TextAnchor.MiddleLeft);
+            foreach (var label in new[] { name, target.PlaceNumbers })
+            {
+                label.rectTransform.sizeDelta = V(0f, Style.HintHeight);
+                DropShadow(label, Style.TextShadow);
+            }
+
+            var pad = Node("Pad", layer);
+            Fill(pad);
+            var (padTop, padBottom) = LegendRows(pad);
+            ui.GlyphHint(padTop, PadButtons.L3, "Move");
+            ui.GlyphHint(padTop, PadButtons.LT, "Lower");
+            ui.GlyphHint(padTop, PadButtons.RT, "Raise");
+            ui.GlyphHint(padTop, PadButtons.LB, "Turn left");
+            ui.GlyphHint(padTop, PadButtons.RB, "Turn right");
+            ui.PadHint(padBottom, PadA, "Done");
+            ui.PadHint(padBottom, PadB, "Cancel");
+            var keys = Node("Keys", layer);
+            Fill(keys);
+            var (keysTop, keysBottom) = LegendRows(keys);
+            ui.KeysHint(keysTop, BoundKeys(CamAction.Forward, CamAction.Left, CamAction.Back, CamAction.Right), "Move");
+            ui.KeyHint(keysTop, Controls.Binding(CamAction.Down).Key, "Lower");
+            ui.KeyHint(keysTop, Controls.Binding(CamAction.Up).Key, "Raise");
+            ui.KeysHint(keysTop, BoundKeys(CamAction.RollLeft, CamAction.RollRight), "Turn");
+            ui.KeyHint(keysBottom, KeyCode.Return, "Done");
+            ui.KeyHint(keysBottom, KeyCode.Escape, "Cancel");
+            target.PlacePad = pad.gameObject;
+            target.PlaceKeys = keys.gameObject;
         }
 
         // Where the HUD's legends go: one row at the top right and one at the bottom right.
@@ -1329,6 +1378,7 @@ namespace CameraTools
             RenderFocus(view, deltaTime);
             RenderMarkers(view, deltaTime);
             RenderJoints(view, deltaTime);
+            RenderPlace(view, deltaTime);
             // Edit replay keeps the free camera's legends at the top and the field of view bar; the timeline takes the bottom.
             live.Hud.Update(view is View.Hud or View.Editing, deltaTime);
             if (live.HudBottom.activeSelf != (view != View.Editing))
@@ -1409,6 +1459,8 @@ namespace CameraTools
             live.MoveKeys.SetActive(!pad);
             live.JointsPad.SetActive(pad);
             live.JointsKeys.SetActive(!pad);
+            live.PlacePad.SetActive(pad);
+            live.PlaceKeys.SetActive(!pad);
             live.TimelinePad.SetActive(pad);
             live.TimelineKeys.SetActive(!pad);
             float glyph = Style.TabBarPadding + Shapes.Bumper.Width + Style.TabClipGap;
@@ -1490,6 +1542,24 @@ namespace CameraTools
             {
                 live.ReadoutAngles.text = angles;
                 live.ShownAngles = angles;
+            }
+        }
+
+        private static void RenderPlace(View view, float deltaTime)
+        {
+            live.PlaceLayer.Update(view == View.Placing, deltaTime);
+            if (!live.PlaceLayer.Visible)
+                return;
+            var camera = Lights.Camera();
+            var point = camera ? Posing.JointPoint((int)PoseJoint.Hips, camera) : null;
+            live.PlaceMarker.gameObject.SetActive(point.HasValue);
+            if (point is { } at)
+                Anchor(live.PlaceMarker, at);
+            var numbers = Posing.PlaceReadout;
+            if (numbers != live.ShownPlace)
+            {
+                live.PlaceNumbers.text = numbers;
+                live.ShownPlace = numbers;
             }
         }
 
@@ -1936,6 +2006,12 @@ namespace CameraTools
             public GameObject JointsKeys;
             public string ShownJoint;
             public string ShownAngles;
+            public Fader PlaceLayer;
+            public RectTransform PlaceMarker;
+            public Text PlaceNumbers;
+            public GameObject PlacePad;
+            public GameObject PlaceKeys;
+            public string ShownPlace;
             public Legend[] Legends;
             public RectTransform FovHandle;
             public GameObject Lens;

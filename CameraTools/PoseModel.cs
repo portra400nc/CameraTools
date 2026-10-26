@@ -450,6 +450,33 @@ namespace CameraTools
         public static readonly GazePose Default = new(EyesLook.Camera, 0f, 0f, false);
     }
 
+    // Where the whole character stands, from where they froze, in the character's frame at the freeze, so it never depends
+    // on the scene: Left, Up and Forward in meters, and Turn about the up axis, then TiltForward about the right axis, then
+    // TiltSideways about the forward axis, in degrees, about the hips. A positive Turn turns them to their right, and a
+    // positive TiltSideways leans them to their left.
+    public readonly record struct PosePlace(float Left, float Up, float Forward, float Turn, float TiltForward, float TiltSideways)
+    {
+        public const float MaxMove = 3f;
+        public const float MaxAngle = 180f;
+
+        // Methods, not properties, so Poses.json stores only the six numbers.
+        public Vector3 Offset() => new(-Left, Up, Forward);
+
+        public PosePlace Clamped() => new(Move(Left), Move(Up), Move(Forward), Angle(Turn), Angle(TiltForward), Angle(TiltSideways));
+
+        public Quaternion Rotation()
+        {
+            const float radians = MathF.PI / 180f;
+            return Quaternion.CreateFromAxisAngle(Vector3.UnitY, Turn * radians) * Quaternion.CreateFromAxisAngle(Vector3.UnitX, TiltForward * radians)
+                * Quaternion.CreateFromAxisAngle(Vector3.UnitZ, TiltSideways * radians);
+        }
+
+        // Centimeters and whole degrees, as the rows step.
+        private static float Move(float meters) => float.IsFinite(meters) ? MathF.Round(Math.Clamp(meters, -MaxMove, MaxMove), 2) : 0f;
+
+        private static float Angle(float degrees) => float.IsFinite(degrees) ? Math.Clamp(degrees, -MaxAngle, MaxAngle) : 0f;
+    }
+
     // One choice of a face row: the label it shows and the blend shape it sets, or null to keep the expression's.
     public sealed record FaceChoice(string Label, string Shape);
 
@@ -502,8 +529,9 @@ namespace CameraTools
         public static string Brow(string pair, Side side) => $"{pair}_{side.Letter()}";
     }
 
-    // One pose as the Pose tab edits it and Poses.json stores it: a turn for each joint and strand that has one, on top of
-    // the frozen game pose, in Axes, each hand, the face, the gaze, and how much the hair follows the head, in percent.
+    // One pose as the Pose tab edits it and Poses.json stores it: where the character stands, a turn for each joint and
+    // strand that has one, on top of the frozen game pose, in Axes, each hand, the face, the gaze, and how much the hair
+    // follows the head, in percent.
     public sealed class PoseSetup
     {
         public PoseSetup(JointAxes axes = JointAxes.Joint)
@@ -513,6 +541,14 @@ namespace CameraTools
 
         // Changes only through SetAxes, which keeps the pose's look.
         public JointAxes Axes { get; private set; }
+
+        private PosePlace place;
+
+        public PosePlace Place
+        {
+            get => place;
+            set => place = value.Clamped();
+        }
 
         public Dictionary<PoseJoint, JointTurn> Joints { get; private init; } = new();
         // By the strand root bone's name.
@@ -567,6 +603,7 @@ namespace CameraTools
         // Hands, face and gaze are records that are replaced, never changed, so only the turns need copying.
         public PoseSetup Clone() => new(Axes)
         {
+            Place = Place,
             Joints = new Dictionary<PoseJoint, JointTurn>(Joints),
             Strands = new Dictionary<string, JointTurn>(Strands),
             Left = Left,

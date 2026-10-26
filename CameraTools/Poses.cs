@@ -167,6 +167,7 @@ namespace CameraTools
             {
                 Name = saved.Name,
                 Axes = setup.Axes,
+                Place = setup.Place == default ? null : setup.Place,
                 Joints = setup.Joints.ToDictionary(each => each.Key.ToString(), each => Numbers(each.Value)),
                 Strands = setup.Strands.ToDictionary(each => each.Key, each => Numbers(each.Value)),
                 Left = ToFile(setup.Left),
@@ -188,7 +189,7 @@ namespace CameraTools
 
         private static SavedPose FromFile(PoseFile file)
         {
-            var setup = new PoseSetup(file.Axes ?? JointAxes.Character);
+            var setup = new PoseSetup(file.Axes ?? JointAxes.Character) { Place = file.Place ?? default };
             foreach (var (name, values) in file.Joints ?? new())
                 if (Enum.TryParse<PoseJoint>(name, out var joint) && values is { Length: 3 })
                     setup.SetTurn(joint, new JointTurn(values[0], values[1], values[2]));
@@ -233,11 +234,13 @@ namespace CameraTools
 
         // Joints as [bend, turn, twist] by PoseJoint name, and strands by their root bone's name. A file from before strands
         // has neither Strands nor HairFollow, and loads with no strands posed and the hair following the head. One from before
-        // Axes made its numbers in the character's axes.
+        // Axes made its numbers in the character's axes. A pose with the character where they froze has no Place.
         private sealed class PoseFile
         {
             public string Name { get; set; }
             public JointAxes? Axes { get; set; }
+            [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+            public PosePlace? Place { get; set; }
             public Dictionary<string, float[]> Joints { get; set; }
             public Dictionary<string, float[]> Strands { get; set; }
             public float? HairFollow { get; set; }
