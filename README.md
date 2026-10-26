@@ -18,7 +18,7 @@
 | **Time** | Pause, slow motion and speed up; time of day with time-lapse; weather override (sunny, cloudy, rain, thunderstorm, snow, mist) |
 | **Composition** | Hide UI for clean shots; frame guide for any crop ratio, such as 7:5 or 21:9 |
 | **Graphics** | Game settings and resolution from the free camera, with two presets you can make your own |
-| **Enhancements** | Ambient light, contact shadows, soft sun shadows, haze, light shafts, wet surfaces and a tone map, through CameraTools' ReShade add-on |
+| **Enhancements** | Ambient light, contact shadows, soft sun shadows, haze, light shafts, wet surfaces, a tone map and a vintage lens flare, through CameraTools' ReShade add-on |
 | **Camera paths** | Record views as nodes and fly the camera through them in one shot |
 | **Replays** | Record the party, their skills and the enemies near them, and play it back alone or along a camera path to film the moment again |
 | **Lights** | Point, spot and soft sphere lights, for the world or only characters |
@@ -213,6 +213,22 @@ This category controls the effects of CameraTools' ReShade add-on, `CameraToolsE
 - Built-in presets leave enhancements alone. A saved preset sets them too, and Restore puts them back.
 
 If the heading says the add-on was not found, ReShade has not loaded it.
+
+### Lens flare
+
+**Lens flare** draws the flare of an old single-coated lens: thin orange-red arcs, filled arcs with a thick rim (one is cut into a D), soft ghost discs with a bright spot, diagonal streaks and a warm glare toward the light. It needs the **Enhancements** switch on.
+
+| Row | Does |
+|--|--|
+| **Source** | **Sun** follows the sun disc the sky draws and fades while trees, buildings or characters hide it, on the picture or off it. **Manual** places a light that is never hidden. |
+| **Position X**, **Position Y** | Manual only. -1 is the left or top edge and 1 the right or bottom edge; up to 2 places the light past the edge, where most arcs and streaks show. |
+| **Strength** | Scales the whole flare. |
+| **Arcs**, **Filled arcs**, **Ghosts**, **Streaks**, **Glare** | Each part's brightness. Glare and Filled arcs start at 0.5, the others at 1. |
+| **Size** | Scales every part. |
+| **Warmth** | 0 is cool, 0.5 the lens's own orange, 1 a deeper orange. |
+| **Red fringe** | The red edge outside each arc and ghost. |
+
+While you compose, the flare is drawn into the picture before the game's HUD and the CameraTools panel, so neither is covered. The screenshot button draws it after ReShade's effects and the depth of field, so no effect blurs it. The game's own sun flare is off while this one runs.
 
 ## Frame guide
 
