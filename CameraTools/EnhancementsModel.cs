@@ -18,7 +18,7 @@ namespace CameraTools
         WetSurfaces, Wetness, WetDarkening, Puddles,
         ToneMap, ToneMapCurve, ToneMapExposure, ToneMapBloom, ToneMapSaturation, ToneMapContrast,
         LensFlare, LensFlareSource, LensFlareX, LensFlareY, LensFlareStrength, LensFlareArcs, LensFlareRainbow, LensFlareFilledArcs, LensFlareGhosts, LensFlareStreaks,
-        LensFlareGlare, LensFlareSize, LensFlareWarmth, LensFlareRedFringe,
+        LensFlareGlare, LensFlareSize, LensFlareWarmth, LensFlareRedFringe, LensFlareTexture,
         DepthOfField, DepthOfFieldFocusMode, DepthOfFieldFocusSpeed, DepthOfFieldFocusDistance, DepthOfFieldAperture, DepthOfFieldFocusX, DepthOfFieldFocusY, DepthOfFieldMaxBlur,
         BokehShape, BladeRoundness, BladeRotation, SoapBubble, BokehChromaticAberration, CatsEye, Swirl, AnamorphicRatio,
         HighlightDiscs, HighlightBoost, HighlightThreshold, BokehContrast,
@@ -231,6 +231,7 @@ namespace CameraTools
             Slider(Enhancement.LensFlareSize, Enhancement.LensFlare, "Size", 0.25f, 4f, 1f, 0.05f, 2),
             Slider(Enhancement.LensFlareWarmth, Enhancement.LensFlare, "Warmth", 0f, 1f, 0.5f, 0.05f, 2),
             Slider(Enhancement.LensFlareRedFringe, Enhancement.LensFlare, "Red fringe", 0f, 4f, 1f, 0.05f, 2),
+            Slider(Enhancement.LensFlareTexture, Enhancement.LensFlare, "Texture", 0f, 2f, 1f, 0.05f, 2),
             new(Enhancement.DepthOfField, EnhancementKind.Switch, "Depth of field", Enhancement.DepthOfField, 0f),
             Choice(Enhancement.DepthOfFieldFocusMode, Enhancement.DepthOfField, "Focus mode", FocusPoint, "Focus point", "Manual distance", "Eyes"),
             Slider(Enhancement.DepthOfFieldFocusSpeed, Enhancement.DepthOfField, "Focus speed", 0f, 3f, 0.5f, 0.1f, 1, " s"),
@@ -342,6 +343,7 @@ namespace CameraTools
             flare.Size = values[Enhancement.LensFlareSize];
             flare.Warmth = values[Enhancement.LensFlareWarmth];
             flare.Chromatic = values[Enhancement.LensFlareRedFringe];
+            flare.Texture = values[Enhancement.LensFlareTexture];
             flare.Place = shot == ShotStage.Capture ? EnhancementsFlarePlace.Display : EnhancementsFlarePlace.Scene;
             return flare;
         }

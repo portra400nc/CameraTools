@@ -107,6 +107,21 @@ int main(int, char **)
             red_shift = std::fmax(red_shift, b[0] - a[0]);
         }
     check("the rainbow adds blue to the arcs, which the lens's orange lacks, as well as red", blue_gain > 0.02f && red_shift > 0.02f);
+    FlareSettings smooth = settings, rough = settings;
+    smooth.texture = 0;
+    rough.texture = 2;
+    const FlareConstants flat = flare_constants(smooth, FlareSun { 0.3f, -0.3f, true }, { 1280, 800 }, true);
+    const FlareConstants grained = flare_constants(rough, FlareSun { 0.3f, -0.3f, true }, { 1280, 800 }, true);
+    float changed = 0;
+    bool finite = true;
+    for (uint32_t y = 0; y < 800; y += 4)
+        for (uint32_t x = 0; x < 1280; x += 4)
+        {
+            const std::array<float, 3> a = flare_light_at(x + 0.5f, y + 0.5f, flat, 1), b = flare_light_at(x + 0.5f, y + 0.5f, grained, 1);
+            changed = std::fmax(changed, std::fabs(b[0] - a[0]));
+            finite = finite && std::isfinite(b[0]) && b[0] >= 0 && b[1] >= 0 && b[2] >= 0;
+        }
+    check("texture changes the flare's light, and at its strongest never takes a channel below 0", changed > 0.02f && finite);
     const FlareConstants flipped = flare_constants(settings, FlareSun { 0.3f, -0.3f, true }, { 1280, 800 }, true, true);
     bool mirrored = true;
     for (uint32_t y = 0; y < 800; y += 40)

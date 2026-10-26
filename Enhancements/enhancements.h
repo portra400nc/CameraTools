@@ -451,6 +451,9 @@ typedef struct EnhancementsLensFlare
     uint32_t place;             // ENHANCEMENTS_FLARE_PLACE_*; unknown values read as SCENE, the default
     float rainbow;              // the light of a rainbow band across each arc, violet inside to red outside; default 0.5, clamped
                                 // to 0..4
+    float texture;              // how textured the flare is, as a real lens's dust, scratches and coatings make it: striations and
+                                // uneven light along the arcs, dust in the ghosts, rays in the glare; 0 smooth, default 1, clamped
+                                // to 0..2
 } EnhancementsLensFlare;
 
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller

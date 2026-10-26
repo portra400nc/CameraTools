@@ -19,7 +19,7 @@ namespace enhancements
         float amounts[4];   // arcs, ghosts, streaks, glare
         float tint[4];      // rgb linear, w size
         float frame[4];     // back buffer width and height, 1 when sRGB-encoded, chromatic spread
-        float more[4];      // filled arcs, 1 when the target's rows run up the screen (a game target stored upside down), rainbow; one unused
+        float more[4];      // filled arcs, 1 when the target's rows run up the screen (a game target stored upside down), rainbow, texture
     };
     static_assert(sizeof(FlareConstants) == 80, "the cbuffer's size");
 

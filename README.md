@@ -228,6 +228,7 @@ If the heading says the add-on was not found, ReShade has not loaded it.
 | **Size** | Scales every part. |
 | **Warmth** | 0 is cool, 0.5 the lens's own orange, 1 a deeper orange. |
 | **Red fringe** | The red edge outside each arc and ghost. |
+| **Texture** | The marks a real lens leaves: fine streaks and uneven light along the arcs, dust in the ghosts and faint rays in the glare. 0 is smooth, 1 the default, 2 rough. |
 
 While you compose, the flare is drawn into the picture before the game's HUD and the CameraTools panel, so neither is covered. The screenshot button draws it after ReShade's effects and the depth of field, so no effect blurs it. The game's own sun flare is off while this one runs.
 

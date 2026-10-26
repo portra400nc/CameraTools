@@ -39,9 +39,9 @@ Check("the binding's status is enhancements.h's 160 bytes, with the restarts at 
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceLight)) == 128 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceRestarts)) == 132
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceRestartReason)) == 136 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.ShotActive)) == 140
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.FramesSaved)) == 144 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.DofFocusMeters)) == 148);
-Check("the binding's shot is 16 bytes, its settings 396 with the depth of field at 236 and its highlights at 68, scatter at 76, bokeh contrast at 80, place at 84 and the eye at 88 in it, the lens flare at 332 and 64 bytes long, and its scene request 20",
-    Marshal.SizeOf<EnhancementsShot>() == 16 && Offset<EnhancementsShot>(nameof(EnhancementsShot.BudgetMs)) == 12 && Marshal.SizeOf<EnhancementsSettings>() == 396
-    && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.LensFlare)) == 332 && Marshal.SizeOf<EnhancementsLensFlare>() == 64
+Check("the binding's shot is 16 bytes, its settings 400 with the depth of field at 236 and its highlights at 68, scatter at 76, bokeh contrast at 80, place at 84 and the eye at 88 in it, the lens flare at 332 and 68 bytes long, and its scene request 20",
+    Marshal.SizeOf<EnhancementsShot>() == 16 && Offset<EnhancementsShot>(nameof(EnhancementsShot.BudgetMs)) == 12 && Marshal.SizeOf<EnhancementsSettings>() == 400
+    && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.LensFlare)) == 332 && Marshal.SizeOf<EnhancementsLensFlare>() == 68
     && (uint)EnhancementsFlareSource.Manual == 1
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.DepthOfField)) == 236 && Marshal.SizeOf<EnhancementsDepthOfField>() == 96
     && Offset<EnhancementsDepthOfField>(nameof(EnhancementsDepthOfField.EyeDistance)) == 88 && Offset<EnhancementsDepthOfField>(nameof(EnhancementsDepthOfField.EyeSize)) == 92
@@ -190,8 +190,8 @@ var fresh = EnhancementValues.Defaults;
 var outside = new LensView(false, 1.6f, 1, ShotStage.None);
 var inside = new LensView(true, 1.6f, 1, ShotStage.None);
 EnhancementsSettings Settings(EnhancementValues values) => EnhancementsModel.Settings(values, outside);
-Check("the table holds 72 fields, each at its own id's place, with the master switch and eight effects' switches, and 20 of the depth of field",
-    EnhancementsModel.Fields.Length == 72 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
+Check("the table holds 73 fields, each at its own id's place, with the master switch and eight effects' switches, and 20 of the depth of field",
+    EnhancementsModel.Fields.Length == 73 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
     && EnhancementsModel.Fields.Count(field => field.Lens) == 20
     && string.Join(",", EnhancementsModel.Effects.Select(field => field.Label)) == "Ambient light,Contact shadows,Soft sun shadows,Haze,Light shafts,Wet surfaces,Tone map,Lens flare");
 {
@@ -208,7 +208,7 @@ Check("the table holds 72 fields, each at its own id's place, with the master sw
         && off.Tonemap is { Curve: EnhancementsCurve.AgX, ExposureEv: 0f, BloomStrength: 1f, Saturation: 1f, Contrast: 1f });
     Check("the lens flare is off, from the sun, at the user's tuning: everything 1 but glare, filled arcs and the rainbow 0.5, and its manual light where the add-on puts it",
         off.LensFlare is { Enabled: 0, Source: EnhancementsFlareSource.Sun, Strength: 1f, Arcs: 1f, Rainbow: 0.5f, FilledArcs: 0.5f, Ghosts: 1f, Streaks: 1f, Glare: 0.5f, Size: 1f,
-            Warmth: 0.5f, Chromatic: 1f, VisibilitySeconds: 0.15f }
+            Warmth: 0.5f, Chromatic: 1f, VisibilitySeconds: 0.15f, Texture: 1f }
         && MathF.Abs(off.LensFlare.X - 0.8f) < 1e-6f && MathF.Abs(off.LensFlare.Y - 0.12f) < 1e-6f && !EnhancementsModel.FlareRuns(fresh));
     Check("a field without a row keeps the add-on's default", off.ContactShadows.Thickness == 0.25f && off.SunShadows.MinPenumbra == 0.02f
         && off.Trace is { AoSamples: 64, SunSamples: 32, BudgetMs: 100f } && off.Gather is { Samples: 64, Filter: 2 });
@@ -281,7 +281,7 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     Check("the values write as name=number pairs and read back the same",
         text.StartsWith("Enabled=0;AmbientLight=0;AmbientLevel=0.6;AmbientOcclusion=0.5;AmbientOcclusionRadius=1;") && text.Contains(";Haze=1;HazeDensity=2.5;")
         && text.Contains(";ToneMap=0;ToneMapCurve=1;ToneMapExposure=0;ToneMapBloom=1;ToneMapSaturation=1;ToneMapContrast=1;LensFlare=0;LensFlareSource=0;")
-        && text.Contains(";LensFlareWarmth=0.5;LensFlareRedFringe=1;DepthOfField=0;")
+        && text.Contains(";LensFlareWarmth=0.5;LensFlareRedFringe=1;LensFlareTexture=1;DepthOfField=0;")
         && text.EndsWith(";HighlightDiscs=0;HighlightBoost=2;HighlightThreshold=2;BokehContrast=0")
         && EnhancementsModel.Parse(text, skipped).Equals(fresh.With(Enhancement.Haze, 1f).With(Enhancement.HazeDensity, 2.5f)) && skipped.Count == 0);
     var partial = EnhancementsModel.Parse("Haze=1; nonsense; Fog=3; HazeDensity=x; ToneMapBloom=0", skipped);
@@ -457,7 +457,7 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     var saved = Presets.Saved(PresetSlot.Highest, new Dictionary<int, int>(), Overrides.None, null, lens);
     string text = Presets.Text(saved);
     Check("a saved preset holds none of the depth of field's values: it ends with the lens flare's",
-        !text.Contains("DepthOfField") && !text.Contains("SoapBubble") && !text.Contains("BokehContrast") && text.EndsWith(";LensFlareRedFringe=1")
+        !text.Contains("DepthOfField") && !text.Contains("SoapBubble") && !text.Contains("BokehContrast") && text.EndsWith(";LensFlareTexture=1")
         && skipped.Count == 0);
     var userLens = fresh.With(Enhancement.DepthOfField, 1f).With(Enhancement.DepthOfFieldFocusMode, EnhancementsModel.EyeFocus)
         .With(Enhancement.DepthOfFieldFocusSpeed, 1.5f).With(Enhancement.DepthOfFieldAperture, 5f).With(Enhancement.SoapBubble, 0.2f);

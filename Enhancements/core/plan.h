@@ -183,6 +183,7 @@ namespace enhancements
         float filled_arcs = 0.5f;
         FlarePlace place = FlarePlace::scene;
         float rainbow = 0.5f;                   // the arcs' spectral band
+        float texture = 1;                      // streaks, mottling, dust and rays; 0 smooth
     };
 
     // Every value in range: non-finite floats take the default and the rest clamp.

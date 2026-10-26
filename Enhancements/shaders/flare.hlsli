@@ -84,6 +84,45 @@ static const float4 kFlareStreakB[FLARE_STREAKS] = {
     float4(0.1f, 0.90f, 0.0f, 0.0f),
 };
 
+// Value noise for the flare's texture, as lens dust, scratches and uneven coatings give a real flare: a hash of the lattice
+// cell, smoothed between cells. x repeats every period cells, so noise around a circle has no seam.
+float flare_hash(float x, float y)
+{
+    return frac(sin(x * 127.1f + y * 311.7f) * 43758.5453f);
+}
+
+float flare_wrap(float i, float period)
+{
+    return i - period * floor(i / period);
+}
+
+float flare_noise(float x, float y, float period)
+{
+    float ix = floor(x), iy = floor(y);
+    float fx = x - ix, fy = y - iy;
+    float ux = fx * fx * (3.0f - 2.0f * fx), uy = fy * fy * (3.0f - 2.0f * fy);
+    float x0 = flare_wrap(ix, period), x1 = flare_wrap(ix + 1.0f, period);
+    float low = lerp(flare_hash(x0, iy), flare_hash(x1, iy), ux);
+    float high = lerp(flare_hash(x0, iy + 1.0f), flare_hash(x1, iy + 1.0f), ux);
+    return lerp(low, high, uy);
+}
+
+// The share of a turn around a center, 0 to 1.
+float flare_turn(float2 offset)
+{
+    return atan2(offset.y, offset.x) * 0.15915494f + 0.5f;
+}
+
+// An arc's texture at turn around its center and across, the distance from its line in band widths: fine striations
+// smeared across the arc as in a real lens's, and an uneven brightness along it, at amount times the texture setting; 1 on
+// average, 1 everywhere at 0, and never below 0.
+float flare_arc_texture(float turn, float across, float seed, float amount)
+{
+    float streaks = flare_noise(turn * 600.0f, across * 0.6f + seed * 7.0f, 600.0f);
+    float mottle = flare_noise(turn * 24.0f + seed * 3.1f, seed * 5.0f, 24.0f);
+    return max(lerp(1.0f, (0.5f + 1.0f * streaks) * (0.6f + 0.8f * mottle), amount * flare_more.w), 0.0f);
+}
+
 float2 flare_normalize(float2 v, float2 fallback)
 {
     float l = length(v);
@@ -150,8 +189,13 @@ float3 flare_rings(float2 q, float2 sun, float2 axis, float size)
         float radius = a.y * size;
         float d = length(offset) - radius;
         float4 c = kFlareRingC[i];
-        float3 rainbow = flare_rainbow(d, c.y * radius) * (c.x * flare_more.z * 0.6f);
-        sum = sum + (flare_ring_light(d, a.z * size, b.z, radius, b.w * flare_frame.w) + rainbow) * (a.w * part);
+        float band = c.y * radius;
+        float turn = flare_turn(offset);
+        // The rainbow's colors wander a little across the arc where the texture streaks it.
+        float wander = (flare_noise(turn * 60.0f, float(i) * 11.0f, 60.0f) - 0.5f) * 0.3f * flare_more.w;
+        float3 rainbow = flare_rainbow(d + wander * band, band) * (c.x * flare_more.z * 0.6f);
+        float grain = flare_arc_texture(turn, d / band, float(i), 1.0f);
+        sum = sum + (flare_ring_light(d, a.z * size, b.z, radius, b.w * flare_frame.w) + rainbow) * (a.w * part * grain);
     }
     return sum;
 }
@@ -176,7 +220,8 @@ float3 flare_discs(float2 q, float2 sun, float2 axis, float size)
         float r = t - 1.0f + a.z;
         float rim = exp(-(r * r) / (a.z * a.z * (r > 0.0f ? 0.5f : 2.0f))) * pow(side, b.y);
         float fill = b.z * pow(side, 1.5f) * t;
-        sum = sum + (float3(1.0f, 0.34f, 0.08f) * rim + float3(1.0f, 0.42f, 0.13f) * fill) * (inside * a.w);
+        float grain = flare_arc_texture(flare_turn(offset), r / a.z, float(i) + 20.0f, 0.5f);
+        sum = sum + (float3(1.0f, 0.34f, 0.08f) * rim * grain + float3(1.0f, 0.42f, 0.13f) * fill) * (inside * a.w);
     }
     return sum;
 }
@@ -211,7 +256,9 @@ float3 flare_ghosts(float2 q, float2 sun, float2 axis, float size)
         float2 to_spot = q - spot;
         float along = dot(to_spot, outward), across = dot(to_spot, float2(-outward.y, outward.x));
         float spot_light = a.w * exp(-(along * along / 0.09f + across * across / 0.02f) / (radius * radius));
-        sum = sum + float3(b.x * red, b.y * green, b.z * blue) * a.z + float3(1.0f, 0.5f, 0.2f) * spot_light * a.z;
+        // Dust on the glass mottles the disc.
+        float dust = max(lerp(1.0f, 0.65f + 0.7f * flare_noise(q.x * 30.0f + float(i) * 17.0f, q.y * 30.0f, 4096.0f), flare_more.w), 0.0f);
+        sum = sum + float3(b.x * red, b.y * green, b.z * blue) * (a.z * dust) + float3(1.0f, 0.5f, 0.2f) * spot_light * a.z;
     }
     return sum;
 }
@@ -245,7 +292,11 @@ float3 flare_glare(float2 q, float2 sun)
     float2 d = q - sun;
     float r2 = dot(d, d);
     float haze = 0.30f / (1.0f + r2 / 0.02f) + 0.10f * exp(-r2 / 0.3f) + 0.02f;
-    return float3(1.0f, 0.62f, 0.34f) * haze;
+    // Faint rays out of the source, as scratches and the aperture's edges scatter light along lines.
+    float turn = flare_turn(d);
+    float spread = flare_noise(turn * 140.0f, 0.0f, 140.0f) * flare_noise(turn * 37.0f, 3.0f, 37.0f);
+    float rays = max(lerp(1.0f, 0.7f + 1.2f * spread, 0.3f * flare_more.w), 0.0f);
+    return float3(1.0f, 0.62f, 0.34f) * (haze * rays);
 }
 
 // The flare's light at a pixel center, linear, before the screen blend: rgb.
