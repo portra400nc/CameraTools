@@ -17,6 +17,8 @@ namespace CameraTools
         MistSkyLight, LightShaftQuality,
         WetSurfaces, Wetness, WetDarkening, Puddles,
         ToneMap, ToneMapCurve, ToneMapExposure, ToneMapBloom, ToneMapSaturation, ToneMapContrast,
+        LensFlare, LensFlareSource, LensFlareX, LensFlareY, LensFlareStrength, LensFlareArcs, LensFlareFilledArcs, LensFlareGhosts, LensFlareStreaks,
+        LensFlareGlare, LensFlareSize, LensFlareWarmth, LensFlareRedFringe,
         DepthOfField, DepthOfFieldFocusMode, DepthOfFieldFocusSpeed, DepthOfFieldFocusDistance, DepthOfFieldAperture, DepthOfFieldFocusX, DepthOfFieldFocusY, DepthOfFieldMaxBlur,
         BokehShape, BladeRoundness, BladeRotation, SoapBubble, BokehChromaticAberration, CatsEye, Swirl, AnamorphicRatio,
         HighlightDiscs, HighlightBoost, HighlightThreshold, BokehContrast,
@@ -33,7 +35,7 @@ namespace CameraTools
     {
         public string Name => Id.ToString();
 
-        // One of the seven effects' switches.
+        // One of the eight effects' switches.
         public bool IsEffect => Kind == EnhancementKind.Switch && Effect == Enhancement.Enabled && Id != Enhancement.Enabled;
 
         // One of the depth of field's, whose rows are in the ReShade tab.
@@ -169,6 +171,8 @@ namespace CameraTools
         private static readonly uint[] ShaftSteps = { 24, 48, 96 };
         // Wet surfaces' Wetness: 0 follows the weather, and 1 is soaked.
         private static readonly float[] WetnessLevels = { 0f, 0.25f, 0.5f, 0.75f, 1f };
+        // The lens flare's Source: the sun disc the sky draws, or a light at Position X and Y.
+        public const int FlareSun = 0, FlareManual = 1;
         // Haze's Density row counts in multiples of this, the add-on's default.
         private static readonly float HazeDensity = EnhancementsSettings.Defaults.Atmosphere.Density;
 
@@ -213,6 +217,19 @@ namespace CameraTools
             Slider(Enhancement.ToneMapBloom, Enhancement.ToneMap, "Bloom", 0f, 2f, 1f, 0.05f, 2),
             Slider(Enhancement.ToneMapSaturation, Enhancement.ToneMap, "Saturation", 0f, 2f, 1f, 0.05f, 2),
             Slider(Enhancement.ToneMapContrast, Enhancement.ToneMap, "Contrast", 0.5f, 2f, 1f, 0.05f, 2),
+            Switch(Enhancement.LensFlare, "Lens flare"),
+            Choice(Enhancement.LensFlareSource, Enhancement.LensFlare, "Source", FlareSun, "Sun", "Manual"),
+            Slider(Enhancement.LensFlareX, Enhancement.LensFlare, "Position X", -2f, 2f, 0.6f, 0.05f, 2),
+            Slider(Enhancement.LensFlareY, Enhancement.LensFlare, "Position Y", -2f, 2f, -0.76f, 0.05f, 2),
+            Slider(Enhancement.LensFlareStrength, Enhancement.LensFlare, "Strength", 0f, 4f, 1f, 0.05f, 2),
+            Slider(Enhancement.LensFlareArcs, Enhancement.LensFlare, "Arcs", 0f, 4f, 1f, 0.05f, 2),
+            Slider(Enhancement.LensFlareFilledArcs, Enhancement.LensFlare, "Filled arcs", 0f, 4f, 0.5f, 0.05f, 2),
+            Slider(Enhancement.LensFlareGhosts, Enhancement.LensFlare, "Ghosts", 0f, 4f, 1f, 0.05f, 2),
+            Slider(Enhancement.LensFlareStreaks, Enhancement.LensFlare, "Streaks", 0f, 4f, 1f, 0.05f, 2),
+            Slider(Enhancement.LensFlareGlare, Enhancement.LensFlare, "Glare", 0f, 4f, 0.5f, 0.05f, 2),
+            Slider(Enhancement.LensFlareSize, Enhancement.LensFlare, "Size", 0.25f, 4f, 1f, 0.05f, 2),
+            Slider(Enhancement.LensFlareWarmth, Enhancement.LensFlare, "Warmth", 0f, 1f, 0.5f, 0.05f, 2),
+            Slider(Enhancement.LensFlareRedFringe, Enhancement.LensFlare, "Red fringe", 0f, 4f, 1f, 0.05f, 2),
             new(Enhancement.DepthOfField, EnhancementKind.Switch, "Depth of field", Enhancement.DepthOfField, 0f),
             Choice(Enhancement.DepthOfFieldFocusMode, Enhancement.DepthOfField, "Focus mode", FocusPoint, "Focus point", "Manual distance", "Eyes"),
             Slider(Enhancement.DepthOfFieldFocusSpeed, Enhancement.DepthOfField, "Focus speed", 0f, 3f, 0.5f, 0.1f, 1, " s"),
@@ -284,6 +301,7 @@ namespace CameraTools
             settings.Tonemap.BloomStrength = values[Enhancement.ToneMapBloom];
             settings.Tonemap.Saturation = values[Enhancement.ToneMapSaturation];
             settings.Tonemap.Contrast = values[Enhancement.ToneMapContrast];
+            settings.LensFlare = LensFlare(values);
             settings.Trace.Enabled = 0;
             settings.Gather.Enabled = 0;
             settings.DepthOfField = DepthOfField(values, lens);
@@ -297,9 +315,34 @@ namespace CameraTools
                 settings.LightShafts.Enabled = 0;
                 settings.Wetness.Enabled = 0;
                 settings.Tonemap.Enabled = 0;
+                settings.LensFlare.Enabled = 0;
             }
             return settings;
         }
+
+        // The lens flare's block. Position X and Y run from -1 at the left and top edges to 1 at the right and bottom, as the
+        // focus point's do, and the add-on's from 0 at the top left; past the edges they place the light off the picture.
+        public static EnhancementsLensFlare LensFlare(EnhancementValues values)
+        {
+            var flare = EnhancementsSettings.Defaults.LensFlare;
+            flare.Enabled = values.On(Enhancement.LensFlare) ? 1u : 0u;
+            flare.Source = (int)values[Enhancement.LensFlareSource] == FlareManual ? EnhancementsFlareSource.Manual : EnhancementsFlareSource.Sun;
+            flare.X = (values[Enhancement.LensFlareX] + 1f) * 0.5f;
+            flare.Y = (values[Enhancement.LensFlareY] + 1f) * 0.5f;
+            flare.Strength = values[Enhancement.LensFlareStrength];
+            flare.Arcs = values[Enhancement.LensFlareArcs];
+            flare.FilledArcs = values[Enhancement.LensFlareFilledArcs];
+            flare.Ghosts = values[Enhancement.LensFlareGhosts];
+            flare.Streaks = values[Enhancement.LensFlareStreaks];
+            flare.Glare = values[Enhancement.LensFlareGlare];
+            flare.Size = values[Enhancement.LensFlareSize];
+            flare.Warmth = values[Enhancement.LensFlareWarmth];
+            flare.Chromatic = values[Enhancement.LensFlareRedFringe];
+            return flare;
+        }
+
+        // Whether the add-on draws the lens flare for these values, and the game's own sun flare is to stay off.
+        public static bool FlareRuns(EnhancementValues values) => values.On(Enhancement.Enabled) && values.On(Enhancement.LensFlare);
 
         // The depth of field's block. The sensor is the one the focal length readout assumes, a full-frame diagonal in the
         // picture's shape, so the readout's millimeters and the blur describe the same lens; N times taller, the whole
@@ -341,9 +384,10 @@ namespace CameraTools
         }
 
         // A folded category shows only its heading. Open, every switch shows, and an effect's own rows show while its
-        // switch is on, whatever the master switch says.
+        // switch is on, whatever the master switch says; the lens flare's position only for its manual light.
         public static bool Shown(EnhancementField field, EnhancementValues values, bool folded)
-            => !folded && (field.Kind == EnhancementKind.Switch || values.On(field.Effect));
+            => !folded && (field.Kind == EnhancementKind.Switch || values.On(field.Effect))
+            && (field.Id is not (Enhancement.LensFlareX or Enhancement.LensFlareY) || (int)values[Enhancement.LensFlareSource] == FlareManual);
 
         // While the master switch is off, every row but the master switch is greyed and ignores input.
         public static bool Usable(EnhancementField field, EnhancementValues values)

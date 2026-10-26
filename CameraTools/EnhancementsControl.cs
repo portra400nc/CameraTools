@@ -104,6 +104,7 @@ namespace CameraTools
         // of field's block follows the free camera, the picture's shape, the miniature scale and the screenshot.
         public static void Update()
         {
+            GameFlare.Update(Enhancements.Connected && EnhancementsModel.FlareRuns(Running));
             var now = DepthOfField.Frame;
             if (connections != Enhancements.Connections)
             {

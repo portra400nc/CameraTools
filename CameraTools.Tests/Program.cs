@@ -190,10 +190,10 @@ var fresh = EnhancementValues.Defaults;
 var outside = new LensView(false, 1.6f, 1, ShotStage.None);
 var inside = new LensView(true, 1.6f, 1, ShotStage.None);
 EnhancementsSettings Settings(EnhancementValues values) => EnhancementsModel.Settings(values, outside);
-Check("the table holds 58 fields, each at its own id's place, with the master switch and seven effects' switches, and 20 of the depth of field",
-    EnhancementsModel.Fields.Length == 58 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
+Check("the table holds 71 fields, each at its own id's place, with the master switch and eight effects' switches, and 20 of the depth of field",
+    EnhancementsModel.Fields.Length == 71 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
     && EnhancementsModel.Fields.Count(field => field.Lens) == 20
-    && string.Join(",", EnhancementsModel.Effects.Select(field => field.Label)) == "Ambient light,Contact shadows,Soft sun shadows,Haze,Light shafts,Wet surfaces,Tone map");
+    && string.Join(",", EnhancementsModel.Effects.Select(field => field.Label)) == "Ambient light,Contact shadows,Soft sun shadows,Haze,Light shafts,Wet surfaces,Tone map,Lens flare");
 {
     var off = Settings(fresh);
     Check("everything is off by default, the add-on's master switch too, and the path tracer has no part",
@@ -206,6 +206,10 @@ Check("the table holds 58 fields, each at its own id's place, with the master sw
         && off.LightShafts is { Strength: 3f, Density: 0.006f, Height: 5f, Anisotropy: 0.6f, Distance: 150f, Patchiness: 1f, PatchSize: 6f, Ambient: 0.3f, Steps: 48 }
         && off.Wetness is { Wetness: 0f, Darkening: 0.35f, Puddles: 0.3f }
         && off.Tonemap is { Curve: EnhancementsCurve.AgX, ExposureEv: 0f, BloomStrength: 1f, Saturation: 1f, Contrast: 1f });
+    Check("the lens flare is off, from the sun, at the user's tuning: everything 1 but glare and filled arcs 0.5, and its manual light where the add-on puts it",
+        off.LensFlare is { Enabled: 0, Source: EnhancementsFlareSource.Sun, Strength: 1f, Arcs: 1f, FilledArcs: 0.5f, Ghosts: 1f, Streaks: 1f, Glare: 0.5f, Size: 1f,
+            Warmth: 0.5f, Chromatic: 1f, VisibilitySeconds: 0.15f }
+        && MathF.Abs(off.LensFlare.X - 0.8f) < 1e-6f && MathF.Abs(off.LensFlare.Y - 0.12f) < 1e-6f && !EnhancementsModel.FlareRuns(fresh));
     Check("a field without a row keeps the add-on's default", off.ContactShadows.Thickness == 0.25f && off.SunShadows.MinPenumbra == 0.02f
         && off.Trace is { AoSamples: 64, SunSamples: 32, BudgetMs: 100f } && off.Gather is { Samples: 64, Filter: 2 });
 }
@@ -276,7 +280,8 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     var skipped = new List<string>();
     Check("the values write as name=number pairs and read back the same",
         text.StartsWith("Enabled=0;AmbientLight=0;AmbientLevel=0.6;AmbientOcclusion=0.5;AmbientOcclusionRadius=1;") && text.Contains(";Haze=1;HazeDensity=2.5;")
-        && text.Contains(";ToneMap=0;ToneMapCurve=1;ToneMapExposure=0;ToneMapBloom=1;ToneMapSaturation=1;ToneMapContrast=1;DepthOfField=0;")
+        && text.Contains(";ToneMap=0;ToneMapCurve=1;ToneMapExposure=0;ToneMapBloom=1;ToneMapSaturation=1;ToneMapContrast=1;LensFlare=0;LensFlareSource=0;")
+        && text.Contains(";LensFlareWarmth=0.5;LensFlareRedFringe=1;DepthOfField=0;")
         && text.EndsWith(";HighlightDiscs=0;HighlightBoost=2;HighlightThreshold=2;BokehContrast=0")
         && EnhancementsModel.Parse(text, skipped).Equals(fresh.With(Enhancement.Haze, 1f).With(Enhancement.HazeDensity, 2.5f)) && skipped.Count == 0);
     var partial = EnhancementsModel.Parse("Haze=1; nonsense; Fog=3; HazeDensity=x; ToneMapBloom=0", skipped);
@@ -295,6 +300,17 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     Check("every switch shows while the category is open", EnhancementsModel.Fields.Where(field => field.Kind == EnhancementKind.Switch)
         .All(field => EnhancementsModel.Shown(field, fresh, false)));
     Check("folded, none of the category's rows show", EnhancementsModel.Fields.All(field => !EnhancementsModel.Shown(field, running, true)));
+    var flaring = fresh.With(Enhancement.Enabled, 1).With(Enhancement.LensFlare, 1);
+    var manual = flaring.With(Enhancement.LensFlareSource, EnhancementsModel.FlareManual);
+    Check("the lens flare's position shows only for its manual light", EnhancementsModel.Shown(Field(Enhancement.LensFlareStrength), flaring, false)
+        && !EnhancementsModel.Shown(Field(Enhancement.LensFlareX), flaring, false) && !EnhancementsModel.Shown(Field(Enhancement.LensFlareY), flaring, false)
+        && EnhancementsModel.Shown(Field(Enhancement.LensFlareX), manual, false) && EnhancementsModel.Shown(Field(Enhancement.LensFlareY), manual, false));
+    var placed = Settings(manual.With(Enhancement.LensFlareX, -1f).With(Enhancement.LensFlareY, 2f).With(Enhancement.LensFlareRedFringe, 3f)).LensFlare;
+    Check("a manual light at the left edge and a height below the bottom goes to the add-on as 0 and 1.5, with the red fringe as the chromatic spread",
+        placed is { Enabled: 1, Source: EnhancementsFlareSource.Manual, X: 0f, Y: 1.5f, Chromatic: 3f });
+    Check("the lens flare runs with the master switch, and not without it, also beside the depth of field",
+        EnhancementsModel.FlareRuns(flaring) && !EnhancementsModel.FlareRuns(flaring.With(Enhancement.Enabled, 0))
+        && EnhancementsModel.Settings(flaring.With(Enhancement.Enabled, 0).With(Enhancement.DepthOfField, 1), inside).LensFlare.Enabled == 0);
     Check("every row but the master switch is greyed while the master switch is off",
         EnhancementsModel.Usable(Field(Enhancement.Enabled), fresh) && !EnhancementsModel.Usable(Field(Enhancement.Haze), haze)
         && !EnhancementsModel.Usable(Field(Enhancement.HazeDensity), haze) && EnhancementsModel.Fields.All(field => EnhancementsModel.Usable(field, running)));
@@ -437,8 +453,8 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     var skipped = new List<string>();
     var saved = Presets.Saved(PresetSlot.Highest, new Dictionary<int, int>(), Overrides.None, null, lens);
     string text = Presets.Text(saved);
-    Check("a saved preset holds none of the depth of field's values: it ends with the tone map's",
-        !text.Contains("DepthOfField") && !text.Contains("SoapBubble") && !text.Contains("BokehContrast") && text.EndsWith(";ToneMapContrast=1")
+    Check("a saved preset holds none of the depth of field's values: it ends with the lens flare's",
+        !text.Contains("DepthOfField") && !text.Contains("SoapBubble") && !text.Contains("BokehContrast") && text.EndsWith(";LensFlareRedFringe=1")
         && skipped.Count == 0);
     var userLens = fresh.With(Enhancement.DepthOfField, 1f).With(Enhancement.DepthOfFieldFocusMode, EnhancementsModel.EyeFocus)
         .With(Enhancement.DepthOfFieldFocusSpeed, 1.5f).With(Enhancement.DepthOfFieldAperture, 5f).With(Enhancement.SoapBubble, 0.2f);
