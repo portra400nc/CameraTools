@@ -259,6 +259,7 @@ namespace enhancements
         // present when they drew nothing the frame before, after the depth of field either way.
         std::optional<FlareDisplayFrame> flare_display;
         bool flare_failed_logged = false;   // the log said once that it could not draw
+        void run_flare(ID3D11Resource *back_buffer, const FrameMap *map = nullptr);
 
         void log(reshade::log::level level, const std::string &message)
         {
@@ -920,6 +921,8 @@ namespace enhancements
                 accumulate_at_bloom(map);
                 copy_depth_at_bloom(map);
             }
+            if (step == Step::tonemap_read && flare_display && flare_display->settings.place == FlarePlace::scene)
+                run_flare(nullptr, &map);
             const ViewSpec &view = kViews[static_cast<size_t>(report.view)];
             // A gather view shows only while the trace gathers.
             const bool gather_shown = gather_view(report.view) == GatherView::none || (trace_frame && trace_frame->gathering);
@@ -1882,13 +1885,14 @@ namespace enhancements
             dof_where = said;
         }
 
-        // Draws the lens flare the bloom step left on the back buffer, once.
-        void run_flare(ID3D11Resource *back_buffer)
+        // Draws the lens flare the bloom step left, once: on the tone map's output at the tonemap-read step in the scene place,
+        // else on the back buffer, where the scene place's flare also goes on a frame whose tonemap-read step never came.
+        void run_flare(ID3D11Resource *back_buffer, const FrameMap *map)
         {
             const FlareDisplayFrame frame = *flare_display;
             flare_display.reset();
             bool ran = false;
-            if (const char *moved = gpu.run_lens_flare(back_buffer, frame, ran))
+            if (const char *moved = map ? gpu.run_lens_flare_scene(*map, frame, ran) : gpu.run_lens_flare(back_buffer, frame, ran))
                 trip(moved);
             else if (!ran && !flare_failed_logged)
             {

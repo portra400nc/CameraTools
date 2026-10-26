@@ -107,7 +107,7 @@ namespace enhancements
     // Each entry's name in status lines.
     extern const std::array<const char *, static_cast<size_t>(Entry::count)> kEntryNames;
 
-    enum class Step : uint8_t { gbuffer, quarter_shadow, shadow_mask, ambient_pair, combine, bloom, tonemap, forward, gbuffer_done, count };
+    enum class Step : uint8_t { gbuffer, quarter_shadow, shadow_mask, ambient_pair, combine, bloom, tonemap, forward, gbuffer_done, tonemap_read, count };
 
     // A bitset over an enum whose bits are the ABI bits in enhancements.h.
     template <class E>

@@ -342,6 +342,9 @@ namespace enhancements
         // whether it drew: not for a back buffer dof_display_transfer does not take, before any visibility, or when a texture
         // of ours failed. Returns the state guard's finding, null when state came back intact.
         const char *run_lens_flare(ID3D11Resource *back_buffer, const FlareDisplayFrame &frame, bool &ran);
+        // The same on the tone map's output, at the tonemap-read step: before the game's first draw that reads it, so the HUD
+        // and the mod's UI the game draws later stay clear of the flare.
+        const char *run_lens_flare_scene(const FrameMap &map, const FlareDisplayFrame &frame, bool &ran);
 
         // The pixel shader bound now, as the handle ReShade's pipeline events name it by, or 0.
         uint64_t bound_pixel_shader() const;
@@ -444,6 +447,8 @@ namespace enhancements
         bool sync_dof_chain(const DofConstants &dof);
         bool upload_dof(const DofConstants &dof);
         bool upload_flare(const FlareConstants &flare);
+        // The flare screened over target through mirrors of it, view_format as the target is viewed.
+        const char *draw_flare(ID3D11Resource *target, DXGI_FORMAT view_format, const FlareDisplayFrame &frame, bool &ran);
         // After the autofocus drew into dof_focus_at_'s: copies it for read_dof_focus when no copy waits, keeps it for the
         // display place, and turns to the other for the next frame.
         void keep_dof_focus();
@@ -534,7 +539,7 @@ namespace enhancements
         Scratch dof_display_, dof_display_depth_, dof_blurred_, dof_display_focus_;
         // The lens flare: the main depth at the bloom step, its source's visibility (1x1 R32_FLOAT, this frame's and the last's in
         // turn), and the back buffer with the flare.
-        Mirror flare_depth_, flare_out_;
+        Mirror flare_depth_, flare_in_, flare_out_;
         Scratch flare_visibility_[2];
         uint32_t flare_at_ = 0;     // the one this frame writes
         uint32_t flare_kept_ = 0;   // the one the last bloom step wrote, which the back buffer's draw reads

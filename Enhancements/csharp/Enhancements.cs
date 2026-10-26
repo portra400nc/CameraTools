@@ -186,6 +186,10 @@ namespace CameraToolsEnhancements
         public float EyeSize;               // the eye's window's width in meters
     }
 
+    // ENHANCEMENTS_FLARE_PLACE_* in enhancements.h: on the tone map's output before the game's UI, or on the back buffer after
+    // ReShade's effects.
+    internal enum EnhancementsFlarePlace : uint { Scene, Display }
+
     // ENHANCEMENTS_FLARE_SOURCE_* in enhancements.h: the sun, dimmed where anything blocks it, or a light at Position.
     internal enum EnhancementsFlareSource : uint { Sun, Manual }
 
@@ -203,6 +207,7 @@ namespace CameraToolsEnhancements
         public float Chromatic;             // the red fringe, 0 to 4
         public float VisibilitySeconds;     // how long the flare takes to follow the sun's visibility, 99% of the way
         public float FilledArcs;            // the filled discs with a thick rim, some cut into a D, 0 to 4
+        public EnhancementsFlarePlace Place;
     }
 
     // EnhancementsSettings in enhancements.h, field for field.

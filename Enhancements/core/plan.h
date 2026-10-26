@@ -166,6 +166,7 @@ namespace enhancements
     DepthOfFieldSettings clamp_depth_of_field(const DepthOfFieldSettings &settings);
 
     enum class FlareSource : uint8_t { sun, manual, count };   // ENHANCEMENTS_FLARE_SOURCE_*
+    enum class FlarePlace : uint8_t { scene, display, count };  // ENHANCEMENTS_FLARE_PLACE_*
 
     // EnhancementsLensFlare's.
     struct FlareSettings
@@ -180,6 +181,7 @@ namespace enhancements
         float chromatic = 1;
         float visibility_seconds = 0.15f;       // how long the sun's visibility takes to follow a change, 99% of the way
         float filled_arcs = 0.5f;
+        FlarePlace place = FlarePlace::scene;
     };
 
     // Every value in range: non-finite floats take the default and the rest clamp.

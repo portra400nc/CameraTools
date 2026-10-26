@@ -1410,29 +1410,41 @@ namespace enhancements
 
     const char *Gpu::run_lens_flare(ID3D11Resource *back_buffer, const FlareDisplayFrame &frame, bool &ran)
     {
-        const char *moved = nullptr;
         ran = false;
         ComPtr<ID3D11Texture2D> texture;
-        if (!flare_drawn_ || FAILED(back_buffer->QueryInterface(IID_PPV_ARGS(texture.GetAddressOf()))))
-            return moved;
+        if (FAILED(back_buffer->QueryInterface(IID_PPV_ARGS(texture.GetAddressOf()))))
+            return nullptr;
         D3D11_TEXTURE2D_DESC desc;
         texture->GetDesc(&desc);
-        const std::optional<DofTransfer> transfer = dof_display_transfer(desc.Format);
-        const Size back = { desc.Width, desc.Height };
+        return draw_flare(back_buffer, desc.Format, frame, ran);
+    }
+
+    const char *Gpu::run_lens_flare_scene(const FrameMap &map, const FlareDisplayFrame &frame, bool &ran)
+    {
+        const Texture &out = *map[Entry::tonemap_out];
+        return draw_flare(native(out), static_cast<DXGI_FORMAT>(out.format), frame, ran);
+    }
+
+    const char *Gpu::draw_flare(ID3D11Resource *target, DXGI_FORMAT view_format, const FlareDisplayFrame &frame, bool &ran)
+    {
+        const char *moved = nullptr;
+        ran = false;
+        const std::optional<DofTransfer> transfer = dof_display_transfer(view_format);
         ID3D11Device *d = device_.Get();
-        if (!transfer || !back_buffer_.sync(d, back_buffer, desc.Format, true) || !flare_out_.sync(d, back_buffer, desc.Format, true))
+        if (!flare_drawn_ || !transfer || !flare_in_.sync(d, target, view_format, false) || !flare_out_.sync(d, target, view_format, true))
             return moved;
+        const Size size = flare_out_.size();
         {
             StateGuard guard(context_.Get(), moved);
-            if (!upload_flare(flare_constants(frame.settings, frame.sun, back, *transfer == DofTransfer::srgb)))
+            if (!upload_flare(flare_constants(frame.settings, frame.sun, size, *transfer == DofTransfer::srgb)))
                 return moved;
             ID3D11DeviceContext1 *c = context_.Get();
-            back_buffer_.copy_from(c, back_buffer);
-            ID3D11ShaderResourceView *const in[] = { back_buffer_.srv(), flare_visibility_[flare_kept_].srv() };
-            draw_fullscreen(flare_ps_.Get(), in, 2, flare_out_.rtv(), back);
+            flare_in_.copy_from(c, target);
+            ID3D11ShaderResourceView *const in[] = { flare_in_.srv(), flare_visibility_[flare_kept_].srv() };
+            draw_fullscreen(flare_ps_.Get(), in, 2, flare_out_.rtv(), size);
             c->OMSetRenderTargets(0, nullptr, nullptr);
         }
-        flare_out_.copy_to(context_.Get(), back_buffer);
+        flare_out_.copy_to(context_.Get(), target);
         ran = true;
         return moved;
     }

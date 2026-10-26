@@ -62,6 +62,7 @@ enum
     ENHANCEMENTS_STEP_TONEMAP = 1u << 6,
     ENHANCEMENTS_STEP_FORWARD = 1u << 7,   // the first forward draw into the HDR scene, after the deferred combine draws
     ENHANCEMENTS_STEP_GBUFFER_DONE = 1u << 8,  // the first draw that samples the G-buffer's smoothness, after its last write
+    ENHANCEMENTS_STEP_TONEMAP_READ = 1u << 9,  // the first draw that samples the tone map's output: before the game's UI
 };
 
 // Frame-map entries, as bits of EnhancementsStatus.entries_missing.
@@ -407,6 +408,16 @@ typedef struct EnhancementsDepthOfField
     float eye_size;             // the window's width in meters at eye_distance; default 0.015, clamped to 0.005..0.1
 } EnhancementsDepthOfField;
 
+// Where the lens flare is drawn, values of EnhancementsLensFlare.place.
+enum
+{
+    ENHANCEMENTS_FLARE_PLACE_SCENE = 0,    // on the tone map's output before the game's first draw that reads it, so the game's HUD and
+                                        // the mod's own UI, drawn later, stay clear of it; ReShade's effects then see it
+    ENHANCEMENTS_FLARE_PLACE_DISPLAY,      // on the back buffer after ReShade's effects and the depth of field's display place, so no
+                                        // effect blurs or relights it; it covers whatever the game drew over the scene too
+    ENHANCEMENTS_FLARE_PLACE_COUNT,
+};
+
 // Where the lens flare's source lies, values of EnhancementsLensFlare.source.
 enum
 {
@@ -417,8 +428,7 @@ enum
 
 // A vintage lens's flare over the finished picture: thin orange-red arcs near the source, soft ghost discs with a bright
 // spot on the line from the source through the picture's center, thin streaks along that line, and a warm glare toward
-// the source. It is drawn on the back buffer after ReShade's effects and the depth of field, so no effect blurs or relights
-// it, and a screenshot ReShade saves after its effects has it. The sun's flare dims as the sun is hidden: on the picture,
+// the source, drawn where place says; when the scene place's step does not come, on the back buffer as in the display place. The sun's flare dims as the sun is hidden: on the picture,
 // by the depth buffer around the sun; off it, by the game's sun shadow atlas at the camera. The last block of
 // EnhancementsSettings.
 typedef struct EnhancementsLensFlare
@@ -438,6 +448,7 @@ typedef struct EnhancementsLensFlare
     float visibility_seconds;   // how long the flare takes to follow the sun's visibility, 99% of the way; default 0.15,
                                 // clamped to 0..5
     float filled_arcs;          // the light of the filled discs with a thick rim, some cut into a D; default 0.5, clamped to 0..4
+    uint32_t place;             // ENHANCEMENTS_FLARE_PLACE_*; unknown values read as SCENE, the default
 } EnhancementsLensFlare;
 
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller

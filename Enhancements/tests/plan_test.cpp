@@ -88,7 +88,7 @@ namespace
     {
         EnhancementsSettings raw = raw_settings();
         raw.ambient.enabled = 0;
-        raw.lens_flare = { 1, ENHANCEMENTS_FLARE_SOURCE_SUN, { 0.8f, 0.12f }, 1, 1, 1, 1, 1, 1, 0.5f, 1, 0.15f, 1 };
+        raw.lens_flare = { 1, ENHANCEMENTS_FLARE_SOURCE_SUN, { 0.8f, 0.12f }, 1, 1, 1, 1, 1, 1, 0.5f, 1, 0.15f, 1, ENHANCEMENTS_FLARE_PLACE_SCENE };
         return parse_settings(raw);
     }
 
@@ -152,7 +152,7 @@ namespace
     const Inputs kCamera { true, SunCheck::ok };
     const Inputs kNoCamera { false, SunCheck::ok };
 
-    const char *kAllSteps = "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward gbuffer-done";
+    const char *kAllSteps = "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward gbuffer-done tonemap-read";
 }
 
 int main()
@@ -255,7 +255,7 @@ int main()
         fixture::drop(rows, 1088, 1088);  // the first bloom draw, the one that samples the HDR scene
         const FrameReport report = run_frame(rows, atmosphere_on(), kCamera);
         check("no bloom draw: atmosphere runs at the tonemap draw instead, and the line says so", describe(report)
-            == "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine tonemap forward gbuffer-done; ran atmosphere@tonemap");
+            == "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine tonemap forward gbuffer-done tonemap-read; ran atmosphere@tonemap");
     }
     {
         auto rows = walk;
@@ -358,7 +358,7 @@ int main()
         auto rows = walk;
         fixture::drop(rows, 1088, 1088);  // the first bloom draw, the one that samples the HDR scene
         check("no bloom draw: light shafts run at the tonemap draw instead", describe(run_frame(rows, light_shafts_on(false), kCamera))
-            == "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine tonemap forward gbuffer-done; ran light-shafts@tonemap");
+            == "1152x720 found gbuffer quarter-shadow shadow-mask ambient-pair combine tonemap forward gbuffer-done tonemap-read; ran light-shafts@tonemap");
     }
     {
         // Build 196's flicker: frames where the game's bloom does not match, but its tonemap draw does.
@@ -377,7 +377,7 @@ int main()
             runs == std::vector<Run> { { 951, Step::bloom, PassId::atmosphere }, { 951, Step::bloom, PassId::light_shafts },
                 { 951, Step::tonemap, PassId::tonemap } });
         check("and the line names the tonemap step as their moment, with bloom not found", describe(report)
-            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine tonemap forward gbuffer-done; ran atmosphere@tonemap "
+            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine tonemap forward gbuffer-done tonemap-read; ran atmosphere@tonemap "
                "light-shafts@tonemap tonemap@tonemap" && report.fell_back.bits == ENHANCEMENTS_STEP_BLOOM && report.skipped.empty());
         auto other = rows;
         fixture::find(other, 919).targets.color[0].size = { 960, 600 };  // a half-size first bloom target
@@ -397,7 +397,7 @@ int main()
         const FrameReport shown = run_frame(missing, view, kCamera, &snapshots);
         check("the light-shafts view snapshots at the bloom step's moment, at the tonemap draw, and is shown",
             snapshots == std::vector<Step> { Step::bloom } && shown.view_shown() == View::light_shafts && describe(shown)
-                == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine tonemap forward gbuffer-done; ran light-shafts@tonemap; view light-shafts");
+                == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine tonemap forward gbuffer-done tonemap-read; ran light-shafts@tonemap; view light-shafts");
     }
     {
         std::vector<fixture::Row> menu;
@@ -407,7 +407,7 @@ int main()
     {
         auto rows = fixture::load("fixtures/capture-20261010-111824.tsv");
         check("111824, the user's normal settings: atmosphere, then light shafts at bloom", describe(run_frame(rows, light_shafts_on(true), kCamera))
-            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward gbuffer-done; ran atmosphere@bloom light-shafts@bloom");
+            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward gbuffer-done tonemap-read; ran atmosphere@bloom light-shafts@bloom");
     }
     {
         const std::vector<uint8_t> lattice = noise_lattice();
@@ -460,7 +460,7 @@ int main()
         auto rows = fixture::load("fixtures/capture-20261010-111824.tsv");
         const FrameReport report = run_frame(rows, wetness_on(true), kCamera);
         check("111824, the user's normal settings: wetness at gbuffer-done, then ambient at combine", describe(report)
-            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward gbuffer-done; ran wetness@gbuffer-done ambient@combine");
+            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward gbuffer-done tonemap-read; ran wetness@gbuffer-done ambient@combine");
     }
     {
         auto rows = walk;
@@ -578,7 +578,7 @@ int main()
         auto rows = fixture::load("fixtures/capture-20261010-111824.tsv");
         const FrameReport report = run_frame(rows, contact_shadows_on(true), kCamera);
         check("111824, the user's normal settings: contact shadows and ambient both run", describe(report)
-            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward gbuffer-done; ran contact-shadows@combine ambient@combine");
+            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward gbuffer-done tonemap-read; ran contact-shadows@combine ambient@combine");
     }
     {
         auto rows = walk;
@@ -588,7 +588,7 @@ int main()
             report.skipped.bits == ENHANCEMENTS_PASS_CONTACT_SHADOWS && report.ran.bits == ENHANCEMENTS_PASS_AMBIENT);
         check("and the shadow mask is the missing entry", report.missing.bits == ENHANCEMENTS_ENTRY_SHADOW_MASK);
         check("describe says why", describe(report)
-            == "1152x720 found gbuffer quarter-shadow ambient-pair combine bloom tonemap forward gbuffer-done; ran ambient@combine; skipped contact-shadows: missing shadow-mask");
+            == "1152x720 found gbuffer quarter-shadow ambient-pair combine bloom tonemap forward gbuffer-done tonemap-read; ran ambient@combine; skipped contact-shadows: missing shadow-mask");
     }
     {
         auto rows = walk;
@@ -617,7 +617,7 @@ int main()
         check("without the ambient pair, ambient skips", report.skipped.bits == ENHANCEMENTS_PASS_AMBIENT && report.ran.empty());
         check("and reports the missing entry", report.missing.bits == ENHANCEMENTS_ENTRY_AMBIENT_DIFFUSE);
         check("describe says why",
-            describe(report) == "1152x720 found gbuffer quarter-shadow shadow-mask combine bloom tonemap forward gbuffer-done; skipped ambient: missing ambient-diffuse");
+            describe(report) == "1152x720 found gbuffer quarter-shadow shadow-mask combine bloom tonemap forward gbuffer-done tonemap-read; skipped ambient: missing ambient-diffuse");
     }
     {
         auto rows = walk;
@@ -663,7 +663,7 @@ int main()
         check("the bloom-final view snapshots at tonemap and is shown",
             snapshots == std::vector<Step> { Step::tonemap } && report.view_shown() == View::bloom_final);
         check("describe names the bloom-final view", describe(report)
-            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward gbuffer-done; view bloom-final");
+            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward gbuffer-done tonemap-read; view bloom-final");
     }
     {
         auto rows = fixture::load("fixtures/capture-20261010-111824.tsv");
@@ -674,7 +674,7 @@ int main()
         check("the sun-atlas view wants the gbuffer and shadow-mask steps",
             report.wanted.bits == (ENHANCEMENTS_STEP_GBUFFER | ENHANCEMENTS_STEP_SHADOW_MASK));
         check("describe names the sun-atlas view", describe(report)
-            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward gbuffer-done; view sun-atlas");
+            == "1920x1200 found gbuffer quarter-shadow shadow-mask ambient-pair combine bloom tonemap forward gbuffer-done tonemap-read; view sun-atlas");
     }
     {
         auto rows = walk;
@@ -724,7 +724,7 @@ int main()
         const FrameReport report = run_frame(rows, view_only(ENHANCEMENTS_VIEW_QUARTER_SHADOW), kCamera);
         check("a view of a missing entry shows nothing and says what is missing", report.view_shown() == View::off
             && report.missing.bits == ENHANCEMENTS_ENTRY_QUARTER_SHADOW
-            && describe(report) == "1152x720 found gbuffer shadow-mask ambient-pair combine bloom tonemap forward gbuffer-done; view quarter-shadow: missing quarter-shadow");
+            && describe(report) == "1152x720 found gbuffer shadow-mask ambient-pair combine bloom tonemap forward gbuffer-done tonemap-read; view quarter-shadow: missing quarter-shadow");
     }
     {
         auto rows = walk;
@@ -1167,9 +1167,9 @@ int main()
         EnhancementsSettings raw = raw_settings();
         raw.depth_of_field = { 1, 1.4f, 36, 3, { 0.25f, 0.75f }, 0.5f, 0.05f, 7, 0.2f, 15, 1, 0.6f, 0.3f, 1.33f, 1, 256, 3, 1.5f, 1, 0.75f, 1, 0.42f, 0.02f };
         const DepthOfFieldSettings whole = parse_settings(raw).depth_of_field;
-        check("a whole 388-byte struct reads the depth of field: on, f/1.4 on a 36 mm sensor focused at 3 m, its point, speed, blur, 7 blades, "
+        check("a whole 392-byte struct reads the depth of field: on, f/1.4 on a 36 mm sensor focused at 3 m, its point, speed, blur, 7 blades, "
               "highlights from 3 times the mean at gain 1.5, scatter, bokeh contrast 0.75, on the display, an eye 0.42 m away in a 0.02 m window, and the rest",
-            sizeof raw == 388 && whole.eye_distance == 0.42f && whole.eye_size == 0.02f && whole.place == DofPlace::display && whole.scatter && whole.bokeh_contrast == 0.75f && whole.enabled && whole.f_number == 1.4f && whole.sensor_height_mm == 36 && whole.focus_distance == 3
+            sizeof raw == 392 && whole.eye_distance == 0.42f && whole.eye_size == 0.02f && whole.place == DofPlace::display && whole.scatter && whole.bokeh_contrast == 0.75f && whole.enabled && whole.f_number == 1.4f && whole.sensor_height_mm == 36 && whole.focus_distance == 3
                 && whole.focus_point[0] == 0.25f && whole.focus_point[1] == 0.75f && whole.focus_seconds == 0.5f && whole.max_blur == 0.05f
                 && whole.blades == 7 && whole.blade_roundness == 0.2f && whole.blade_rotation == 15 && whole.spherical_aberration == 1
                 && whole.cat_eye == 0.6f && whole.swirl == 0.3f && whole.anamorphic == 1.33f && whole.chromatic == 1 && whole.samples == 256

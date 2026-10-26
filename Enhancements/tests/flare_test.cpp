@@ -129,5 +129,10 @@ int main(int, char **)
     raw.size = sizeof raw;
     raw.lens_flare.source = 7;
     check("an unknown source reads as the sun", parse_settings(raw).flare.source == FlareSource::sun);
+    check("the flare is drawn before the game's UI by default", parse_settings(raw).flare.place == FlarePlace::scene);
+    raw.lens_flare.place = ENHANCEMENTS_FLARE_PLACE_DISPLAY;
+    check("or after ReShade's effects when asked", parse_settings(raw).flare.place == FlarePlace::display);
+    raw.lens_flare.place = 9;
+    check("and an unknown place reads as before the game's UI", parse_settings(raw).flare.place == FlarePlace::scene);
     return failures == 0 ? 0 : 1;
 }

@@ -39,9 +39,9 @@ Check("the binding's status is enhancements.h's 160 bytes, with the restarts at 
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceLight)) == 128 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceRestarts)) == 132
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceRestartReason)) == 136 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.ShotActive)) == 140
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.FramesSaved)) == 144 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.DofFocusMeters)) == 148);
-Check("the binding's shot is 16 bytes, its settings 388 with the depth of field at 236 and its highlights at 68, scatter at 76, bokeh contrast at 80, place at 84 and the eye at 88 in it, the lens flare at 332 and 56 bytes long, and its scene request 20",
-    Marshal.SizeOf<EnhancementsShot>() == 16 && Offset<EnhancementsShot>(nameof(EnhancementsShot.BudgetMs)) == 12 && Marshal.SizeOf<EnhancementsSettings>() == 388
-    && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.LensFlare)) == 332 && Marshal.SizeOf<EnhancementsLensFlare>() == 56
+Check("the binding's shot is 16 bytes, its settings 392 with the depth of field at 236 and its highlights at 68, scatter at 76, bokeh contrast at 80, place at 84 and the eye at 88 in it, the lens flare at 332 and 60 bytes long, and its scene request 20",
+    Marshal.SizeOf<EnhancementsShot>() == 16 && Offset<EnhancementsShot>(nameof(EnhancementsShot.BudgetMs)) == 12 && Marshal.SizeOf<EnhancementsSettings>() == 392
+    && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.LensFlare)) == 332 && Marshal.SizeOf<EnhancementsLensFlare>() == 60
     && (uint)EnhancementsFlareSource.Manual == 1
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.DepthOfField)) == 236 && Marshal.SizeOf<EnhancementsDepthOfField>() == 96
     && Offset<EnhancementsDepthOfField>(nameof(EnhancementsDepthOfField.EyeDistance)) == 88 && Offset<EnhancementsDepthOfField>(nameof(EnhancementsDepthOfField.EyeSize)) == 92
@@ -307,7 +307,10 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
         && EnhancementsModel.Shown(Field(Enhancement.LensFlareX), manual, false) && EnhancementsModel.Shown(Field(Enhancement.LensFlareY), manual, false));
     var placed = Settings(manual.With(Enhancement.LensFlareX, -1f).With(Enhancement.LensFlareY, 2f).With(Enhancement.LensFlareRedFringe, 3f)).LensFlare;
     Check("a manual light at the left edge and a height below the bottom goes to the add-on as 0 and 1.5, with the red fringe as the chromatic spread",
-        placed is { Enabled: 1, Source: EnhancementsFlareSource.Manual, X: 0f, Y: 1.5f, Chromatic: 3f });
+        placed is { Enabled: 1, Source: EnhancementsFlareSource.Manual, X: 0f, Y: 1.5f, Chromatic: 3f, Place: EnhancementsFlarePlace.Scene });
+    Check("the flare is drawn before the HUD and the panel live and through the countdown, and after ReShade's effects while a screenshot captures",
+        EnhancementsModel.LensFlare(flaring, ShotStage.Countdown).Place == EnhancementsFlarePlace.Scene
+        && EnhancementsModel.LensFlare(flaring, ShotStage.Capture).Place == EnhancementsFlarePlace.Display);
     Check("the lens flare runs with the master switch, and not without it, also beside the depth of field",
         EnhancementsModel.FlareRuns(flaring) && !EnhancementsModel.FlareRuns(flaring.With(Enhancement.Enabled, 0))
         && EnhancementsModel.Settings(flaring.With(Enhancement.Enabled, 0).With(Enhancement.DepthOfField, 1), inside).LensFlare.Enabled == 0);

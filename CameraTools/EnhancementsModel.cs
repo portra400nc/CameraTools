@@ -301,7 +301,7 @@ namespace CameraTools
             settings.Tonemap.BloomStrength = values[Enhancement.ToneMapBloom];
             settings.Tonemap.Saturation = values[Enhancement.ToneMapSaturation];
             settings.Tonemap.Contrast = values[Enhancement.ToneMapContrast];
-            settings.LensFlare = LensFlare(values);
+            settings.LensFlare = LensFlare(values, lens.Shot);
             settings.Trace.Enabled = 0;
             settings.Gather.Enabled = 0;
             settings.DepthOfField = DepthOfField(values, lens);
@@ -322,7 +322,9 @@ namespace CameraTools
 
         // The lens flare's block. Position X and Y run from -1 at the left and top edges to 1 at the right and bottom, as the
         // focus point's do, and the add-on's from 0 at the top left; past the edges they place the light off the picture.
-        public static EnhancementsLensFlare LensFlare(EnhancementValues values)
+        // Live and through the countdown it is drawn before the game's HUD and the panel, which stay clear of it; while a
+        // screenshot captures, after ReShade's effects and the depth of field, which then neither blur nor relight it.
+        public static EnhancementsLensFlare LensFlare(EnhancementValues values, ShotStage shot)
         {
             var flare = EnhancementsSettings.Defaults.LensFlare;
             flare.Enabled = values.On(Enhancement.LensFlare) ? 1u : 0u;
@@ -338,6 +340,7 @@ namespace CameraTools
             flare.Size = values[Enhancement.LensFlareSize];
             flare.Warmth = values[Enhancement.LensFlareWarmth];
             flare.Chromatic = values[Enhancement.LensFlareRedFringe];
+            flare.Place = shot == ShotStage.Capture ? EnhancementsFlarePlace.Display : EnhancementsFlarePlace.Scene;
             return flare;
         }
 

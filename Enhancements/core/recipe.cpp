@@ -184,6 +184,18 @@ namespace enhancements
             return samples(*draw, [smoothness](const Texture &t) { return t.id == smoothness; });
         }
 
+        // In every capture the first draw after the tone map that samples its output is the game's copy to the back buffer
+        // (1123 in 214859) or, at higher settings, its anti-aliasing (957 in 111824); the HUD draws after either. So the
+        // picture is whole there, and nothing the game draws over the scene is in it yet.
+        bool match_tonemap_read(const Seen &, const FrameEvent &event, FrameMap &map)
+        {
+            const auto *draw = std::get_if<Draw>(&event);
+            if (!draw)
+                return false;
+            const ResourceId out = map[Entry::tonemap_out]->id;
+            return samples(*draw, [out](const Texture &t) { return t.id == out; });
+        }
+
         constexpr uint32_t bit(Step s) { return 1u << static_cast<uint32_t>(s); }
         constexpr uint32_t bit(Entry e) { return 1u << static_cast<uint32_t>(e); }
 
@@ -191,7 +203,8 @@ namespace enhancements
             && ENHANCEMENTS_STEP_SHADOW_MASK == bit(Step::shadow_mask) && ENHANCEMENTS_STEP_AMBIENT_PAIR == bit(Step::ambient_pair)
             && ENHANCEMENTS_STEP_COMBINE == bit(Step::combine) && ENHANCEMENTS_STEP_BLOOM == bit(Step::bloom)
             && ENHANCEMENTS_STEP_TONEMAP == bit(Step::tonemap) && ENHANCEMENTS_STEP_FORWARD == bit(Step::forward)
-            && ENHANCEMENTS_STEP_GBUFFER_DONE == bit(Step::gbuffer_done) && static_cast<int>(Step::count) == 9);
+            && ENHANCEMENTS_STEP_GBUFFER_DONE == bit(Step::gbuffer_done) && ENHANCEMENTS_STEP_TONEMAP_READ == bit(Step::tonemap_read)
+            && static_cast<int>(Step::count) == 10);
         static_assert(ENHANCEMENTS_ENTRY_NORMALS == bit(Entry::normals) && ENHANCEMENTS_ENTRY_ALBEDO == bit(Entry::albedo)
             && ENHANCEMENTS_ENTRY_SPECULAR == bit(Entry::specular) && ENHANCEMENTS_ENTRY_MATERIAL_ID == bit(Entry::material_id)
             && ENHANCEMENTS_ENTRY_SMOOTHNESS == bit(Entry::smoothness) && ENHANCEMENTS_ENTRY_CHARACTER == bit(Entry::character)
@@ -224,6 +237,7 @@ namespace enhancements
         { Step::tonemap, "tonemap", { Step::combine }, { Entry::tonemap_out, Entry::bloom_final }, match_tonemap, Step::count, Entry::tonemap_out },
         { Step::forward, "forward", { Step::combine }, {}, match_forward },
         { Step::gbuffer_done, "gbuffer-done", { Step::gbuffer }, {}, match_gbuffer_done },
+        { Step::tonemap_read, "tonemap-read", { Step::tonemap }, {}, match_tonemap_read },
     } };
 
     bool Seen::cleared(ResourceId id, const Color &color) const
