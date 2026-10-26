@@ -63,16 +63,34 @@ namespace CameraTools
             Changed();
         }
 
-        // Named Pose 1, Pose 2 and on, after the highest number in use.
         public static string Add(PoseSetup setup)
         {
-            int last = All.Select(pose => Numbered.Match(pose.Name)).Where(match => match.Success)
-                .Select(match => int.TryParse(match.Groups[1].Value, out int number) ? number : 0).DefaultIfEmpty(0).Max();
-            string name = $"Pose {last + 1}";
+            string name = NextName();
             All.Add(new SavedPose(name, setup));
             Active = All.Count - 1;
             Changed();
             return name;
+        }
+
+        // An empty name numbers the pose again, or keeps the number it has.
+        public static void Rename(string name)
+        {
+            if (Current is not { } saved)
+                return;
+            string named = !string.IsNullOrWhiteSpace(name) ? name.Trim() : Numbered.IsMatch(saved.Name) ? saved.Name : NextName(saved);
+            if (named == saved.Name)
+                return;
+            All[Active] = saved with { Name = named };
+            Changed();
+            CameraUi.Toast($"{saved.Name} is now \"{named}\"");
+        }
+
+        // Pose 1, Pose 2 and on, after the highest number in use by a pose other than skip.
+        private static string NextName(SavedPose skip = null)
+        {
+            int last = All.Where(pose => pose != skip).Select(pose => Numbered.Match(pose.Name)).Where(match => match.Success)
+                .Select(match => int.TryParse(match.Groups[1].Value, out int number) ? number : 0).DefaultIfEmpty(0).Max();
+            return $"Pose {last + 1}";
         }
 
         public static string Overwrite(PoseSetup setup)

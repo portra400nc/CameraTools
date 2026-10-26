@@ -12,7 +12,7 @@ Back to the game's pose clears every change and keeps the character frozen.
 
 ## Saved poses
 
-Save as new pose keeps the current pose as Pose 1, Pose 2, and on. Saved pose picks one, and its note says how many joints it poses and whether the current pose has changes that no saved pose holds. Load pose starts posing if it is off. Save over this pose replaces the picked pose with the current one. Delete pose asks you to press again to confirm.
+Save as new pose keeps the current pose as Pose 1, Pose 2, and on. Saved pose picks one, and its note says how many joints it poses and whether the current pose has changes that no saved pose holds. Load pose starts posing if it is off. Save over this pose replaces the picked pose with the current one. Name renames the picked pose: select the row and type the name (Steam+X opens the keyboard on the Deck), then press Enter. Save an empty name to number the pose again. Delete pose asks you to press again to confirm.
 
 Poses are saved in `UserData/CameraTools/Poses.json` a second after the last change. A pose keeps expressions and face shapes by their names, so a pose made on one character loads on another. Anything the other character lacks, such as an expression, a face shape or a hair strand, is left out, and the notice says how many parts were left out.
 

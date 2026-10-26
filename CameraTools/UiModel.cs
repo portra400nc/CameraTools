@@ -168,8 +168,8 @@ namespace CameraTools
             new ChoiceRow("Weather", Weather.Labels, () => Weather.Choice, Weather.SetChoice, null),
         });
 
-        // A path name: letters (capitals with Shift), digits, spaces and a little punctuation.
-        private const string PathNameCharacters = "abcdefghijklmnopqrstuvwxyz0123456789 -'";
+        // A path or pose name: letters (capitals with Shift), digits, spaces and a little punctuation.
+        private const string NameCharacters = "abcdefghijklmnopqrstuvwxyz0123456789 -'";
 
         private static readonly Tab Paths = new("Paths", new Row[]
         {
@@ -178,7 +178,7 @@ namespace CameraTools
             {
                 Display = () => CameraPaths.HasPath ? CameraPaths.CurrentLabel : null,
             },
-            new TextRow("Name", () => CameraPaths.CurrentLabel, CameraPaths.SetName, PathNameCharacters, 24, Enabled: () => CameraPaths.HasPath)
+            new TextRow("Name", () => CameraPaths.CurrentLabel, CameraPaths.SetName, NameCharacters, 24, Enabled: () => CameraPaths.HasPath)
             {
                 Detail = () => "Shown instead of the path number",
                 StartsWithValue = () => CameraPaths.Current?.Name ?? "",
@@ -508,6 +508,12 @@ namespace CameraTools
             },
             new Section("Saved poses"),
             new StepperRow("Saved pose", () => Poses.All.Count, () => Poses.Active, Poses.Select, SavedNote) { Display = () => Poses.Current?.Name },
+            new TextRow("Name", () => Poses.Current?.Name ?? "None", Poses.Rename, NameCharacters, 24, Enabled: () => Poses.Current != null)
+            {
+                Detail = () => "Renames the saved pose",
+                StartsWithValue = () => Poses.Current?.Name ?? "",
+                CommitsEmpty = true,
+            },
             new ActionRow("Load pose", Posing.LoadSaved, "Load", () => Poses.Current != null),
             new ActionRow("Save as new pose", Posing.SaveNew, "Save", Posed),
             new ActionRow("Save over this pose", Posing.SaveOver, "Save", () => Posing.On && Poses.Current != null),
