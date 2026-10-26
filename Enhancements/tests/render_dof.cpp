@@ -16,6 +16,7 @@
 // scatter (0 or 1), contrast (the bokeh contrast), eye (meters to where an eye's surface under the focus point is
 // reckoned, which the autofocus then finds the surface near) and eye_size (the eye's window's width in meters);
 // and frames (frames averaged, each with the frame's own turn of the spiral, as the accumulator averages a paused shot),
+// first (the first of them, 0 by default, so two renders compare consecutive live frames),
 // display (1: the display place, as a screenshot runs it after ReShade's effects: the frame through the tone curve into an
 // 8-bit sRGB back buffer, which render_dof_display decodes, blurs and encodes; 0, the default, the scene place in HDR),
 // exposure (0.985, the census's), and crop (x,y,w,h in the picture's pixels from the top left) with zoom (a whole number)
@@ -801,7 +802,7 @@ int main(int argc, char **argv)
     }
     DepthOfFieldSettings settings;
     settings.enabled = true;
-    uint32_t frames = 1;
+    uint32_t frames = 1, first = 0;
     bool display = false;
     float exposure = 0.985f;
     int crop[4] = { 0, 0, int(frame->size.width), int(frame->size.height) };
@@ -813,6 +814,8 @@ int main(int argc, char **argv)
         const std::string key = arg.substr(0, eq), value = eq == std::string::npos ? "" : arg.substr(eq + 1);
         if (key == "frames")
             frames = std::max(1, std::atoi(value.c_str()));
+        else if (key == "first")
+            first = static_cast<uint32_t>(std::max(0, std::atoi(value.c_str())));
         else if (key == "display")
             display = std::atoi(value.c_str()) != 0;
         else if (key == "exposure")
@@ -846,7 +849,7 @@ int main(int argc, char **argv)
     std::vector<float> sum(image.rgb.size(), 0.0f);
     float focus = 0, luminance = 0;
     uint32_t sprites[2] = {}, nonfinite = 0;
-    for (uint32_t f = 0; f < frames; f++)
+    for (uint32_t f = first; f < first + frames; f++)
     {
         const std::optional<DofConstants> constants = display
             ? dof_display_constants(settings, frame->camera, frame->size, frame->size, frame->flip, DofTransfer::srgb, f)

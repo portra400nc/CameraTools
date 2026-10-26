@@ -350,10 +350,10 @@ int main(int argc, char **argv)
                 sum_before += lawn.green(before, x, y);
                 sum_after += lawn.green(after, x, y);
             }
-        check("a lawn of tips 1.67 times its gray: at bokeh contrast 1 a tip's disc rises from 0.3026 to 0.3320 and the gaps darken from "
-              "0.3000 to 0.2627, while the lawn keeps its light within 0.1%",
-            near(lawn.green(before, 637, 393), 0.302551f) && near(lawn.green(after, 637, 393), 0.331985f) && near(lawn.green(before, 649, 405), 0.300049f)
-                && near(lawn.green(after, 649, 405), 0.262741f) && std::fabs(sum_after / sum_before - 1) < 0.001);
+        check("a lawn of tips 1.67 times its gray: at bokeh contrast 1 a tip's disc rises from 0.3027 to 0.3329 and the gaps darken from "
+              "0.3000 to 0.2631, while the lawn keeps its light within 0.1%",
+            near(lawn.green(before, 637, 393), 0.302689f) && near(lawn.green(after, 637, 393), 0.332886f) && near(lawn.green(before, 649, 405), 0.300049f)
+                && near(lawn.green(after, 649, 405), 0.263077f) && std::fabs(sum_after / sum_before - 1) < 0.001);
     }
     {
         // A white frame: a plane 2.16 m away, where with chromatic 1 at f/1 and 2 m green's disc is 0.79 half-size pixels,
@@ -489,8 +489,8 @@ int main(int argc, char **argv)
         check("a glint behind focus is one far sprite, and in front of focus one near sprite", sprite.sprites[0] == 1 && sprite.sprites[1] == 0
             && render(glint(1), lens_at(2, 2, 0)).sprites[1] == 1 && render(glint(1), lens_at(2, 2, 0)).sprites[0] == 0);
         check("a glint on the focus plane is none", render(glint(2), lens_at(2, 2, 0)).sprites[0] == 0 && render(glint(2), lens_at(2, 2, 0)).sprites[1] == 0);
-        check("at gain 0 the sprite and the gather keep the glint's light within 1.5%: 201.64 and 202.38 of 200",
-            near(float(sum_green(sprite)), 201.639f, 0.01f) && near(float(sum_green(gathered)), 202.383f, 0.01f));
+        check("at gain 0 the sprite and the gather keep the glint's light within 1.6%: 201.64 and 203.14 of 200",
+            near(float(sum_green(sprite)), 201.639f, 0.01f) && near(float(sum_green(gathered)), 203.135f, 0.01f));
         // Radius 4.9858 half-size pixels, 9.97 full-size: 50 / (pi 4.9858^2) a pixel inside as R16F stores it, its edge smoothed
         // over two pixels.
         check("its disc is 0.6406 a pixel inside, 0.3810 and 0.2208 at 9 and 10 pixels out, 0.0736 at 11 and 0 at 13",
@@ -573,9 +573,9 @@ int main(int argc, char **argv)
                 back[i * 3 + k] = (i % 1280) / 4 % 2 == 0 ? 0.0f : 1.0f;
         const DofOutput split = render_dof_display(back, depth, *c, 0);
         const auto green = [&split](uint32_t x, uint32_t y) { return split.rgb[(size_t(y) * 1280 + x) * 3 + 1]; };
-        check("the main depth comes upright: the far top's stripes blur to gray, 0.7260 and 0.7427 on a black and a white stripe "
+        check("the main depth comes upright: the far top's stripes blur to gray, 0.7300 and 0.7402 on a black and a white stripe "
               "where sRGB's middle gray is 0.7354, while the bottom's on the focus plane stay black and white",
-            near(green(641, 100), 0.7260f, 0.002f) && near(green(645, 100), 0.7427f, 0.002f) && green(641, 700) == 0 && near(green(645, 700), 1, 1e-6f));
+            near(green(641, 100), 0.7300f, 0.002f) && near(green(645, 100), 0.7402f, 0.002f) && green(641, 700) == 0 && near(green(645, 700), 1, 1e-6f));
     }
 
     FrameSave frame;

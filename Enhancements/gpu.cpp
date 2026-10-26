@@ -1196,9 +1196,9 @@ namespace enhancements
         c->OMSetRenderTargets(0, nullptr, nullptr);
         if (lift)
             c->GenerateMips(dof_far_.srv());
-        ID3D11ShaderResourceView *const post_in[] = { dof_far_.srv(), dof_near_.srv(), dof_dilated_.srv(), dof_cover_.srv() };
+        ID3D11ShaderResourceView *const post_in[] = { dof_far_.srv(), dof_near_.srv(), dof_dilated_.srv(), dof_cover_.srv(), dof_source_.srv() };
         ID3D11RenderTargetView *const filtered[] = { dof_far_post_.rtv(), dof_near_post_.rtv(), dof_cover_post_.rtv() };
-        draw_fullscreen(dof_post_ps_.Get(), post_in, 4, filtered, 3, half);
+        draw_fullscreen(dof_post_ps_.Get(), post_in, 5, filtered, 3, half);
         if (scatter)
         {
             // Each field's sprites added into it: draw_fullscreen's state with the sprites' shaders, a strip of 4 vertices an

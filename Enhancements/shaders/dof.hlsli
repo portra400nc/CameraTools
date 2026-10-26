@@ -21,7 +21,7 @@
 //   DOF_POST:       float4 dof_load_far(int2 pixel), float4 dof_load_near(int2 pixel), float2 dof_load_cover(int2 pixel), the
 //                   gather's, clamped;
 //                   float4 dof_sample_far(float2 at, float lod), bilinear between the gather's far field's levels (read
-//                   only with the bokeh contrast on); dof_load_dilated
+//                   only with the bokeh contrast on); dof_load_dilated; dof_load_source
 //   DOF_SPRITE:     dof_load_source
 //   DOF_NEAR_MASK:  dof_load_source
 //   DOF_NEAR:       dof_load_source, float4 dof_sample_near_mask(float2 at, float lod) (dof_near_mask's, bilinear between
@@ -55,6 +55,12 @@ static const float kDofLayer = 1.0f;
 static const float kDofLayerShare = 0.15f;
 // The share of a foreground pixel's own CoC under which a source in front of focus counts as hidden behind it.
 static const float kDofHiddenShare = 0.5f;
+// The full-size pixels of CoC past the first over which the composite turns from a foreground pixel's own color to the
+// estimate of what it hides, under the near plane.
+static const float kDofHiddenFade = 2.0f;
+// The CoC in half-size pixels behind focus from which the post-filter starts averaging a pixel's far field with its
+// neighbors', fully at twice it.
+static const float kDofSmoothFrom = 2.0f;
 // How much swirl at 1 compresses a disc's radial axis at the picture's corners.
 static const float kDofSwirl = 1.5f;
 static const float3 kDofLuma = float3(0.2126f, 0.7152f, 0.0722f);
@@ -539,8 +545,8 @@ float2 dof_dilate(int2 tile)
 // far field, normalized, with the bokeh contrast's lifted light and, in a, the plain luminance the post-filter weighs it
 // against; a source deeper than a pixel behind focus spreads no wider than that pixel's own disc, so the background does
 // not spill over a nearer blurred surface. Sources in front of focus but behind a pixel's own surface by more than its
-// layer go to the far field too, spread at least as wide as the pixel's own disc, so what lies around an out-of-focus
-// foreground fills in behind it. Sources on or in front of the pixel's surface are dof_near_layer's. The near field and
+// layer go to the far field too, and at such a pixel every source beneath spreads as wide as the pixel's own disc or the
+// spiral's spacing, nearest first, so what lies around an out-of-focus foreground fills in behind it. Sources on or in front of the pixel's surface are dof_near_layer's. The near field and
 // its cover stay empty, the near sprites' targets.
 DofFields dof_gather(int2 p)
 {
@@ -567,6 +573,11 @@ DofFields dof_gather(int2 p)
     float3 own_c = dof_capped_coc(own, lens);
     float3 own_far = own > 0.0f ? float3(max(own_c.x, 0.5f), max(own_c.y, 0.5f), max(own_c.z, 0.5f)) : float3(100000.0f, 100000.0f, 100000.0f);
     float own_near = own < -kDofInFocus ? -own_c.y : 0.0f;
+    // A pixel behind focus takes light only from discs no wider than its own, as the sources behind it spread no wider and
+    // those in front are dof_near_layer's, so its spiral spans its own disc: spread over the tile's widest disc, a slightly
+    // blurred pixel's disc would fall between the samples, and it would show its half-size texels, then jump to the blur.
+    if (own > kDofInFocus)
+        radius = min(radius, (max(max(own_far.x, own_far.y), own_far.z) + 0.5f) * dof_bokeh.w);
     int rings = int(dof_sampling.x);
     int count = 4 * rings * (rings + 1) + 1;
     float spacing = radius / float(rings);
@@ -608,8 +619,14 @@ DofFields dof_gather(int2 p)
         bool beneath = behind || (!occluder && !level);
         if (behind && c > own)
             r = float3(min(r.x, own_far.x), min(r.y, own_far.y), min(r.z, own_far.z));
-        if (beneath)
-            r = float3(max(r.x, own_near), max(r.y, own_near), max(r.z, own_near));
+        // What a pixel in front of focus hides is the nearest of the sources beneath it, whatever their own discs: a surface
+        // just behind it, sharp or nearly, has discs under the spiral's spacing, which the spiral would miss, and the far
+        // background's wide discs would stand in for it, showing through a strand of hair over a face.
+        if (beneath && own_near > 0.0f)
+        {
+            float hidden = max(own_near, spacing);
+            r = float3(hidden, hidden, hidden);
+        }
         // Sources in front of the pixel's own surface belong to dof_near_layer's foreground blur.
         if (!beneath)
             continue;
@@ -720,6 +737,28 @@ DofFields dof_post(int2 p)
     float4 near = dof_load_near(p);
     DofFields o;
     o.far = float4(clamp(own.x, f_lo.x, f_hi.x), clamp(own.y, f_lo.y, f_hi.y), clamp(own.z, f_lo.z, f_hi.z), clamp(own.w, f_lo.w, f_hi.w));
+    // A pixel far behind focus averages its far field with its neighbors' as far out of focus, by a tent over the 3x3
+    // around it: a texel's shift is lost in its disc, and a sparse gather finds a disc smaller than its own at a few of its
+    // samples, a different few for each pixel and frame, which speckles and shimmers where a sharper surface meets it.
+    float own_coc = min(dof_load_source(p).w, dof_optics.w);
+    float smooth_share = saturate((own_coc - kDofSmoothFrom) / kDofSmoothFrom);
+    if (smooth_share > 0.0f)
+    {
+        float4 sum = o.far * 4.0f;
+        float weight = 4.0f;
+        UNROLL for (int j = 0; j < 9; j++)
+        {
+            if (j == 4)
+                continue;
+            int2 q = int2(p.x + j % 3 - 1, p.y + j / 3 - 1);
+            float4 f = dof_load_far(q);
+            float c = min(dof_load_source(q).w, dof_optics.w);
+            float w = (j % 2 == 0 ? 1.0f : 2.0f) * (f.w > 0.0f && c >= 0.5f * own_coc && c <= 2.0f * own_coc ? 1.0f : 0.0f);
+            sum = sum + f * w;
+            weight = weight + w;
+        }
+        o.far = o.far * (1.0f - smooth_share) + sum * (smooth_share / weight);
+    }
     o.near = float4(clamp(near.x, n_lo.x, n_hi.x), clamp(near.y, n_lo.y, n_hi.y), clamp(near.z, n_lo.z, n_hi.z), clamp(near.w, n_lo.w, n_hi.w));
     float2 cover = dof_load_cover(p);
     o.cover = float2(clamp(cover.x, c_lo.x, c_hi.x), clamp(cover.y, c_lo.y, c_hi.y));
@@ -909,6 +948,7 @@ float3 dof_composite(int2 pixel)
         far_weight = far_weight + w;
     }
     float t = coc > 0.0f ? saturate(coc - 0.5f) : 0.0f;
+    float hidden = saturate((-coc - 1.0f) / kDofHiddenFade);
     float3 pooled = far_weight > 0.0f ? far / far_weight : sharp;
     float3 color = float3(0.0f, 0.0f, 0.0f);
     float4 layer = float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -921,8 +961,9 @@ float3 dof_composite(int2 pixel)
         float4 f = dof_load_far(q);
         float3 blurred_under = f.w > 0.0f ? float3(f.x, f.y, f.z) : pooled;
         // Under a pixel in front of focus lies what it hides, the far field's estimate, which the near plane covers but
-        // for its edge; elsewhere the pixel's own color, blurred behind focus.
-        color = color + (coc < -1.0f ? blurred_under : sharp + (blurred_under - sharp) * t) * b;
+        // for its edge, faded in over its first kDofHiddenFade pixels of CoC: a pixel barely out of focus keeps its own
+        // color there, which its blur hardly differs from; elsewhere the pixel's own color, blurred behind focus.
+        color = color + (coc < 0.0f ? sharp + (blurred_under - sharp) * hidden : sharp + (blurred_under - sharp) * t) * b;
         layer = layer + dof_load_near_layer(q) * b;
         near_cover = near_cover + dof_load_near_cover(q) * b;
         float4 n = dof_load_near(q);
