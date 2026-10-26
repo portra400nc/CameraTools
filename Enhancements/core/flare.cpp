@@ -69,7 +69,7 @@ namespace enhancements
 
     FlareSun flare_point(float u, float v, float aspect) { return { (u - 0.5f) * aspect, v - 0.5f, true }; }
 
-    FlareConstants flare_constants(const FlareSettings &settings, const FlareSun &sun, Size back, bool srgb)
+    FlareConstants flare_constants(const FlareSettings &settings, const FlareSun &sun, Size back, bool srgb, bool flip)
     {
         FlareConstants c {};
         const float aspect = back.height > 0 ? float(back.width) / float(back.height) : 1.6f;
@@ -93,6 +93,7 @@ namespace enhancements
         c.frame[2] = srgb ? 1.0f : 0.0f;
         c.frame[3] = settings.chromatic;
         c.more[0] = settings.filled_arcs;
+        c.more[1] = flip ? 1.0f : 0.0f;
         return c;
     }
 

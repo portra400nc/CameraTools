@@ -865,7 +865,7 @@ namespace enhancements
                         call = gpu.run_flare_visibility(map, settings.flare, camera, sun, d.uses_sun ? &sun_parse.constants : nullptr, settings.flip,
                             frame_seconds);
                         if (call && sun)
-                            flare_display = FlareDisplayFrame { settings.flare, *sun };
+                            flare_display = FlareDisplayFrame { settings.flare, *sun, settings.flip };
                         break;
                     }
                     case PassId::trace:

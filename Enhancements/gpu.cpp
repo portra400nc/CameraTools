@@ -1416,16 +1416,16 @@ namespace enhancements
             return nullptr;
         D3D11_TEXTURE2D_DESC desc;
         texture->GetDesc(&desc);
-        return draw_flare(back_buffer, desc.Format, frame, ran);
+        return draw_flare(back_buffer, desc.Format, frame, false, ran);
     }
 
     const char *Gpu::run_lens_flare_scene(const FrameMap &map, const FlareDisplayFrame &frame, bool &ran)
     {
         const Texture &out = *map[Entry::tonemap_out];
-        return draw_flare(native(out), static_cast<DXGI_FORMAT>(out.format), frame, ran);
+        return draw_flare(native(out), static_cast<DXGI_FORMAT>(out.format), frame, frame.flip, ran);
     }
 
-    const char *Gpu::draw_flare(ID3D11Resource *target, DXGI_FORMAT view_format, const FlareDisplayFrame &frame, bool &ran)
+    const char *Gpu::draw_flare(ID3D11Resource *target, DXGI_FORMAT view_format, const FlareDisplayFrame &frame, bool flip, bool &ran)
     {
         const char *moved = nullptr;
         ran = false;
@@ -1436,7 +1436,7 @@ namespace enhancements
         const Size size = flare_out_.size();
         {
             StateGuard guard(context_.Get(), moved);
-            if (!upload_flare(flare_constants(frame.settings, frame.sun, size, *transfer == DofTransfer::srgb)))
+            if (!upload_flare(flare_constants(frame.settings, frame.sun, size, *transfer == DofTransfer::srgb, flip)))
                 return moved;
             ID3D11DeviceContext1 *c = context_.Get();
             flare_in_.copy_from(c, target);

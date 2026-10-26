@@ -93,6 +93,16 @@ int main(int, char **)
     check("a sun in front gives it the setting's strength and the picture's aspect", shown.sun[2] == 2 && near(shown.sun[3], 1.6f));
     check("the flare lights the picture around a sun on it", brightest(shown, 1) > 0.05f);
     check("without visibility the flare draws nothing", brightest(shown, 0) == 0);
+    const FlareConstants flipped = flare_constants(settings, FlareSun { 0.3f, -0.3f, true }, { 1280, 800 }, true, true);
+    bool mirrored = true;
+    for (uint32_t y = 0; y < 800; y += 40)
+        for (uint32_t x = 0; x < 1280; x += 40)
+        {
+            const std::array<float, 3> stored = flare_light_at(x + 0.5f, y + 0.5f, flipped, 1), seen = flare_light_at(x + 0.5f, 799.5f - y, shown, 1);
+            mirrored = mirrored && near(stored[0], seen[0]) && near(stored[1], seen[1]) && near(stored[2], seen[2]);
+        }
+    check("on a target stored upside down, each stored row holds the light of the row it shows, so the sun stays where it is",
+        mirrored && brightest(flipped, 1) > 0.05f);
     const FlareConstants far_off = flare_constants(settings, FlareSun { 5, -3, true }, { 1280, 800 }, true);
     check("a sun several heights off the picture draws nothing", brightest(far_off, 1) == 0);
 

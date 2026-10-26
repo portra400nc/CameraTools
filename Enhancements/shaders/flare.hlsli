@@ -219,7 +219,9 @@ float3 flare_glare(float2 q, float2 sun)
 float3 flare_light(float2 pixel)
 {
     float aspect = flare_sun.w;
-    float2 q = float2((pixel.x / flare_frame.x - 0.5f) * aspect, pixel.y / flare_frame.y - 0.5f);
+    // A game target stored upside down holds the picture's bottom row first.
+    float row = flare_more.y > 0.5f ? flare_frame.y - pixel.y : pixel.y;
+    float2 q = float2((pixel.x / flare_frame.x - 0.5f) * aspect, row / flare_frame.y - 0.5f);
     float2 sun = float2(flare_sun.x, flare_sun.y);
     float visibility = flare_sun.z * flare_load_visibility();
     if (visibility <= 0.0f)

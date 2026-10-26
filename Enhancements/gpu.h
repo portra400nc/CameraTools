@@ -227,6 +227,7 @@ namespace enhancements
     {
         FlareSettings settings;
         FlareSun sun;
+        bool flip = true;       // the game's targets are stored upside down, as the tone map's output the scene place draws on is
     };
 
     class Gpu
@@ -447,8 +448,9 @@ namespace enhancements
         bool sync_dof_chain(const DofConstants &dof);
         bool upload_dof(const DofConstants &dof);
         bool upload_flare(const FlareConstants &flare);
-        // The flare screened over target through mirrors of it, view_format as the target is viewed.
-        const char *draw_flare(ID3D11Resource *target, DXGI_FORMAT view_format, const FlareDisplayFrame &frame, bool &ran);
+        // The flare screened over target through mirrors of it, view_format as the target is viewed; flip when its rows run up
+        // the screen.
+        const char *draw_flare(ID3D11Resource *target, DXGI_FORMAT view_format, const FlareDisplayFrame &frame, bool flip, bool &ran);
         // After the autofocus drew into dof_focus_at_'s: copies it for read_dof_focus when no copy waits, keeps it for the
         // display place, and turns to the other for the next frame.
         void keep_dof_focus();
