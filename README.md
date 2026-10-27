@@ -35,7 +35,28 @@ https://github.com/user-attachments/assets/e898ae54-dfb5-4270-bfce-81479329b2ad
 
 ### The mod
 
-(WIP)
+<table>
+<tr>
+<td width="50%" valign="top">
+  <img src="media/mod-1.jpg" alt="Free camera with the 5:7 frame guide, focal length and aperture readout, and controller hints" width="100%">
+  <p align="center"><sub>Free camera with a frame guide</sub></p>
+</td>
+<td width="50%" valign="top">
+  <img src="media/mod-2.jpg" alt="Pose tab turning a character's head joint" width="100%">
+  <p align="center"><sub>Posing a character's joints</sub></p>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+  <img src="media/mod-3.jpg" alt="Paths tab with node editing and playback settings" width="100%">
+  <p align="center"><sub>Building a camera path</sub></p>
+</td>
+<td width="50%" valign="top">
+  <img src="media/mod-4.jpg" alt="Camera path playing back with its progress bar" width="100%">
+  <p align="center"><sub>Playing the path back</sub></p>
+</td>
+</tr>
+</table>
 
 ### Shot with CameraTools
 
