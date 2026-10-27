@@ -623,11 +623,32 @@ namespace CameraTools
             {
                 Detail = () => Posing.Current.Gaze.HeadAtCamera ? "Turns toward the camera; the Head joint waits" : "Set with the Head joint",
             },
-            new Section("Hair"),
+            new Section("Hair and cloth"),
             new SliderRow("Hair follows head", 0f, 100f, 5f, "0'%'", () => Posing.Current.HairFollow, value => Posing.Edit(pose => pose.HairFollow = value),
                 Enabled: () => Posing.On && Posing.HasHairStrands)
             {
                 Detail = HairNote,
+            },
+            new ToggleRow("Hair avoids hands", () => Posing.Current.Avoid.Hands, on => Posing.Edit(pose => pose.Avoid = pose.Avoid with { Hands = on }),
+                () => Posing.On && Posing.HasHairChains)
+            {
+                Detail = () => !Posing.HasHairChains ? "This character has no hair to move"
+                    : Posing.Current.Avoid.Hands ? "Turns hair out of the arms, hands and fingers" : "Hair can pass through the hands",
+            },
+            new SliderRow("Gap around the hands", 0f, AvoidPose.MaxHandGap, 0.5f, "0.0' cm'", () => Posing.Current.Avoid.HandGap,
+                value => Posing.Edit(pose => pose.Avoid = pose.Avoid with { HandGap = value }),
+                Enabled: () => Posing.On && Posing.HasHairChains && Posing.Current.Avoid.Hands)
+            {
+                Detail = () => "Room between the hands and the hair",
+            },
+            new ToggleRow("Cloth stays above the ground", () => Posing.Current.Avoid.Ground, on => Posing.Edit(pose => pose.Avoid = pose.Avoid with { Ground = on }), Posed)
+            {
+                Detail = () => Posing.Current.Avoid.Ground ? "Lifts skirts and coat tails off the ground" : "Cloth can sink into the ground",
+            },
+            new SliderRow("Gap above the ground", 0f, AvoidPose.MaxGroundGap, 1f, "0' cm'", () => Posing.Current.Avoid.GroundGap,
+                value => Posing.Edit(pose => pose.Avoid = pose.Avoid with { GroundGap = value }), Enabled: () => Posing.On && Posing.Current.Avoid.Ground)
+            {
+                Detail = () => "Room for wide cloth such as long coat tails",
             },
         });
 

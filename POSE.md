@@ -61,7 +61,7 @@ A joint carries everything below it: bending the upper arm moves the forearm and
 
 The Joint row picks a joint, with Bend, Turn and Twist under it. Pose joints is the quicker way: it hides the panel and puts a marker on every joint, with the selected one larger and cream, its name beside it, and its angles at the bottom left. The sticks turn the joint about the axes Turn around picks.
 
-Hair and cloth strands are joints too, at the end of the Joint list, with smaller markers in Pose joints. CameraTools finds them on the character from the game's hair and cloth physics, so each character has their own, named from their bones: `+HairB L L01` is Back hair left, `+SkirtS R A21` is Side skirt right, and `+AmiceB L D01` is Back cloth left. A strand turns from its root, the bone the Joint row's note names, and carries the bones below it. It bends like a hanging limb, and a strand with a twin on the other side has Copy to the other side and the D-pad's jump to it.
+Hair and cloth strands are joints too, at the end of the Joint list, with smaller markers in Pose joints. CameraTools finds them on the character from the game's hair and cloth physics, adds the hair that no physics moves, such as Furina's locks by her face, and so each character has their own, named from their bones: `+HairB L L01` is Back hair left, `+SkirtS R A21` is Side skirt right, and `+AmiceB L D01` is Back cloth left. A strand turns from its root, the bone the Joint row's note names, and carries the bones below it. It bends like a hanging limb, and a strand with a twin on the other side has Copy to the other side and the D-pad's jump to it.
 
 | Controller | Keyboard | In Pose joints |
 |--|--|--|
@@ -100,6 +100,10 @@ Expression plays one of the character's own expressions. The list comes from the
 
 Eyes look decides where the eyes point. At the camera follows the camera as it moves. Ahead holds them straight ahead from the head. By hand sets them with the two rows below, up to the game's own eye range of 17° left and right and 6.5° up and down. Head set to At the camera turns the head toward the camera, up to 60° to the side and 30° up or down; the Head joint's rows wait while it does.
 
-## Hair
+## Hair and cloth
 
 The game's hair physics only holds the hair's shape on a frozen character, so it is off while posing, and a bowed or turned head would swing the hair into the body. Hair follows head sets how much the hair strands turn with the head and the body above them. At 100% the hair moves with the head, as the game holds it. At 0% each hair strand keeps the direction it had before posing. In between, lower values keep the hair off the body when the head bows or turns. A strand turned by hand keeps that turn on top. Cloth strands always move with the body. The row is dimmed for a character with no hair strands.
+
+The game's hair physics never collides with anything, so a posed hand passes through the hair, and a sitting character's skirt or coat tails sink into the ground. Hair avoids hands turns each hair strand out of the arms, hands and fingers just far enough to clear them, and Gap around the hands keeps that much room between them, from 0 to 5 cm. Cloth stays above the ground lifts hair and cloth that dip below the ground, which is where the feet were when the character froze, and lays them along the ground the way they were heading. Gap above the ground leaves room for wide cloth, from 0 to 20 cm: Furina's long coat tails need about 12 cm. Both switches start on, and all four rows are saved with the pose. A pose saved before these rows loads with both switches on.
+
+Both work on every chain of hair and cloth bones the character's meshes use, not only the ones the game's physics moves, so they work whatever the character's bones are named. Only the bones are tested, because the game does not let a mod read its meshes, so the edge of a wide lock or panel can still graze a hand or the ground; raise the gap. Cloth is not kept out of the legs: the part of a skirt between its strips of bones cannot be tested, so a raised thigh still passes through it.

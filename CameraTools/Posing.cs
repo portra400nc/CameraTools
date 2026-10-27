@@ -86,6 +86,8 @@ namespace CameraTools
 
         public static bool HasHairStrands => session?.Rig.HasHairStrands ?? true;
 
+        public static bool HasHairChains => session?.Rig.HasHairChains ?? true;
+
         public static bool HasHand(Side side) => session?.Rig.HasHand(side) ?? true;
 
         public static bool HasShape(string name) => session?.Rig.HasShape(name) ?? true;

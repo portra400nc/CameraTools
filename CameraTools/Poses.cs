@@ -175,6 +175,7 @@ namespace CameraTools
                 Face = setup.Face,
                 Gaze = setup.Gaze,
                 HairFollow = setup.HairFollow,
+                Avoid = setup.Avoid,
             };
         }
 
@@ -204,6 +205,7 @@ namespace CameraTools
                 setup.Gaze = gaze with { X = Math.Clamp(gaze.X, -GazePose.MaxX, GazePose.MaxX), Y = Math.Clamp(gaze.Y, -GazePose.MaxY, GazePose.MaxY) };
             if (file.HairFollow is { } follow && float.IsFinite(follow))
                 setup.HairFollow = Math.Clamp(follow, 0f, 100f);
+            setup.Avoid = (file.Avoid ?? AvoidPose.Default).Clamped();
             return new SavedPose(file.Name ?? "Pose", setup);
         }
 
@@ -234,7 +236,8 @@ namespace CameraTools
 
         // Joints as [bend, turn, twist] by PoseJoint name, and strands by their root bone's name. A file from before strands
         // has neither Strands nor HairFollow, and loads with no strands posed and the hair following the head. One from before
-        // Axes made its numbers in the character's axes. A pose with the character where they froze has no Place.
+        // Axes made its numbers in the character's axes. A pose with the character where they froze has no Place. One from
+        // before Avoid loads with hair kept out of the hands and cloth above the ground, at the default gaps.
         private sealed class PoseFile
         {
             public string Name { get; set; }
@@ -244,6 +247,7 @@ namespace CameraTools
             public Dictionary<string, float[]> Joints { get; set; }
             public Dictionary<string, float[]> Strands { get; set; }
             public float? HairFollow { get; set; }
+            public AvoidPose? Avoid { get; set; }
             public HandFile Left { get; set; }
             public HandFile Right { get; set; }
             public FacePose Face { get; set; }

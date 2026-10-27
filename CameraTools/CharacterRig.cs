@@ -58,6 +58,7 @@ namespace CameraTools
         private readonly List<ShapeSlot> browShapes = new();
         private readonly List<(DynamicBoneArray Physics, bool Enabled, DynamicBoneArray.UpdateMode Mode)> hair = new();
         private readonly Strand[] strands;
+        private readonly StrandCollision collision;
         // Targets' bones, null for a joint this character lacks, and their own axes.
         private readonly Bone[] targetBones;
         private readonly JointFrame[] frames;
@@ -97,7 +98,9 @@ namespace CameraTools
             for (int i = 0; i < physics.Length; i++)
                 if (physics[i].TryCast<DynamicBoneArray>() is { } each && each)
                     hair.Add((each, each.enabled, each.m_UpdateMode));
+            collision = new StrandCollision(avatar, bones, hair.Select(each => each.Physics));
             strands = FindStrands();
+            collision.Written(strands.Select(strand => strand.Bone.Transform));
             Targets = Joints.All.Concat(strands.Select(strand => strand.Info)).ToArray();
             targetBones = joints.Concat(strands.Select(strand => strand.Bone)).ToArray();
             var guessed = new List<string>();
@@ -124,7 +127,8 @@ namespace CameraTools
                 + $"{(root != null ? "" : $" (no {RootBone} to move)")}, hands {(hands[0] != null ? "left" : "no left")} and {(hands[1] != null ? "right" : "no right")}, {(HasEyes ? "eye bones" : "no eye bones")},"
                 + $" {shapes.Count} face shapes, {Emotions.Length} expressions, {hair.Count} hair physics, {animators.Count} animators.");
             Melon<CameraTools>.Logger.Msg($"Posing {avatar.name}: {strands.Length} strands, {strands.Count(strand => strand.Hair)} of them hair"
-                + (strands.Length > 0 ? $": {string.Join(", ", strands.Select(strand => $"{strand.Info.Name} ({strand.Info.Bone})"))}." : "."));
+                + (strands.Length > 0 ? $": {string.Join(", ", strands.Select(strand => $"{strand.Info.Name} ({strand.Info.Bone})"))}" : "")
+                + $"; {collision.Chains} hair and cloth chains, {collision.HairChains} of them hair, kept clear of the hands and ground.");
             Melon<CameraTools>.Logger.Msg($"Posing {avatar.name}: "
                 + (guessed.Count == 0 ? "every joint's own axes run to its child bone." : $"no child bone for the own axes of {string.Join(", ", guessed)}."));
         }
@@ -132,6 +136,8 @@ namespace CameraTools
         public bool Has(PoseTarget target) => target.Joint is { } joint ? joints[(int)joint] != null : strands.Any(strand => strand.Info.Target == target);
 
         public bool HasHairStrands => strands.Any(strand => strand.Hair);
+
+        public bool HasHairChains => collision.HairChains > 0;
 
         public bool HasHand(Side side) => hands[(int)side] != null;
 
@@ -171,6 +177,7 @@ namespace CameraTools
             foreach (var side in Sides.Both)
                 WriteHand(hands[(int)side], pose.Hand(side));
             WriteStrands(pose);
+            collision.Apply(pose.Avoid);
         }
 
         // Ahead holds the eyes as they froze, By hand turns them from there, and At the camera aims each one at the camera
@@ -289,6 +296,7 @@ namespace CameraTools
         // Each part separately, so one that fails does not keep the others from going back.
         public void Restore()
         {
+            Step("hair and cloth", collision.Restore);
             Step("bones", () =>
             {
                 foreach (var bone in AllBones())
@@ -377,6 +385,12 @@ namespace CameraTools
                     if (list[i] is { } root && root)
                         roots.TryAdd(root.name, root);
             }
+            // Hair chains no physics moves, such as Furina's +HairF and +HairS locks by her face, are strands too, so they
+            // can be posed by hand and follow Hair follows head. A chain is free when no physics root lies in it.
+            var moved = roots.Values.ToList();
+            foreach (var root in collision.HairRoots)
+                if (root.name.Contains("Hair", StringComparison.OrdinalIgnoreCase) && !moved.Any(each => Within(each, root)))
+                    roots.TryAdd(root.name, root);
             if (roots.Count > MaxStrands)
                 CameraTools.LogOnce($"Posing {Avatar.name}: {roots.Count} strands; the Joint row has the first {MaxStrands}.");
             var head = joints[(int)PoseJoint.Head]?.Transform;
@@ -390,6 +404,14 @@ namespace CameraTools
             return StrandJoints.Of(roots.Keys).Take(MaxStrands)
                 .Select(info => new Strand(info, new Bone(roots[info.Bone], toCharacter), UnderHead(roots[info.Bone])))
                 .ToArray();
+        }
+
+        private static bool Within(Transform bone, Transform root)
+        {
+            for (var node = bone; node; node = node.parent)
+                if (node.Pointer == root.Pointer)
+                    return true;
+            return false;
         }
 
         private Bone BoneOf(string name) => bones.TryGetValue(name, out var transform) ? new Bone(transform, toCharacter) : null;

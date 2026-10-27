@@ -477,6 +477,20 @@ namespace CameraTools
         private static float Angle(float degrees) => float.IsFinite(degrees) ? Math.Clamp(degrees, -MaxAngle, MaxAngle) : 0f;
     }
 
+    // Hair kept out of the arms and hands, and hair and cloth kept above the ground where the feet were when the character
+    // froze, each with a gap in centimeters.
+    public readonly record struct AvoidPose(bool Hands, float HandGap, bool Ground, float GroundGap)
+    {
+        public const float MaxHandGap = 5f;
+        public const float MaxGroundGap = 20f;
+
+        public static readonly AvoidPose Default = new(true, 1f, true, 4f);
+
+        public AvoidPose Clamped() => this with { HandGap = Gap(HandGap, MaxHandGap), GroundGap = Gap(GroundGap, MaxGroundGap) };
+
+        private static float Gap(float centimeters, float max) => float.IsFinite(centimeters) ? Math.Clamp(centimeters, 0f, max) : 0f;
+    }
+
     // One choice of a face row: the label it shows and the blend shape it sets, or null to keep the expression's.
     public sealed record FaceChoice(string Label, string Shape);
 
@@ -558,6 +572,7 @@ namespace CameraTools
         public FacePose Face { get; set; } = FacePose.Default;
         public GazePose Gaze { get; set; } = GazePose.Default;
         public float HairFollow { get; set; } = 100f;
+        public AvoidPose Avoid { get; set; } = AvoidPose.Default;
 
         public int PosedJoints => Joints.Count + Strands.Count;
 
@@ -611,6 +626,7 @@ namespace CameraTools
             Face = Face,
             Gaze = Gaze,
             HairFollow = HairFollow,
+            Avoid = Avoid,
         };
 
         private static void Set<TKey>(Dictionary<TKey, JointTurn> turns, TKey key, JointTurn turn)

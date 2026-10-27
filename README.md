@@ -43,7 +43,7 @@ https://github.com/user-attachments/assets/e898ae54-dfb5-4270-bfce-81479329b2ad
 <tr>
 <td width="50%" valign="top">
   <img src="media/shot-1.jpg" alt="Screenshot taken with CameraTools" width="100%">
-  <img src="media/shot-3.jpg" alt="Screenshot taken with CameraTools" width="100%">
+  <img src="media/shot-6.jpg" alt="Screenshot taken with CameraTools" width="100%">
   <img src="media/shot-4.jpg" alt="Screenshot taken with CameraTools" width="100%">
 </td>
 <td width="50%" valign="top">
