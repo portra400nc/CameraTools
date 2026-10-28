@@ -360,4 +360,6 @@ Enhancements/tests/run.sh
 
 ## Credits
 
-Free camera script by [FreyaHolmer](https://gist.github.com/FreyaHolmer/650ecd551562352120445513efa1d952).
+- FreyaHolmer: [Free camera script](https://gist.github.com/FreyaHolmer/650ecd551562352120445513efa1d952)
+- Otis_Inf: Depth of field and [camera paths](https://opm.fransbouma.com/camerapaths.htm) inspiration
+- FRAMED. Screenshot Community: [The Photomode Wishlist](https://framedsc.com/the_photomode_wishlist.htm)
