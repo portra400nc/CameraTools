@@ -338,6 +338,11 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
         && MathF.Abs(EnhancementsModel.DepthOfField(fresh, inside with { Aspect = 16f / 9f }).SensorHeightMm - 21.22831f) < 1e-3f);
     Check("so the add-on's focal length, half the sensor times the projection's P11, is the readout's: 42.82 mm at a 30 degree field of view",
         MathF.Abs(dof.SensorHeightMm * 0.5f / MathF.Tan(15f * MathF.PI / 180f) - 42.8233f) < 1e-2f && MathF.Abs(Lens.FocalLength(30f, 1.6f) - 42.8233f) < 1e-2f);
+    Check("the Focal length row's rail runs from 160 to 1 degree, grows the focal length by the same ratio over equal steps, and comes back to the field of view it was given",
+        MathF.Abs(Lens.ZoomRail(160f, 160f, 1f)) < 1e-5f && MathF.Abs(Lens.ZoomRail(1f, 160f, 1f) - 1f) < 1e-5f
+        && MathF.Abs(Lens.FocalLength(Lens.ZoomFieldOfView(0.6f, 160f, 1f), 1.6f) / Lens.FocalLength(Lens.ZoomFieldOfView(0.5f, 160f, 1f), 1.6f)
+            - Lens.FocalLength(Lens.ZoomFieldOfView(0.3f, 160f, 1f), 1.6f) / Lens.FocalLength(Lens.ZoomFieldOfView(0.2f, 160f, 1f), 1.6f)) < 1e-3f
+        && MathF.Abs(Lens.ZoomFieldOfView(Lens.ZoomRail(45f, 160f, 1f), 160f, 1f) - 45f) < 1e-3f);
     Check("a 1:N miniature makes the sensor N times taller: 229.49 mm at 1:10 and 11474.5 mm at 1:500",
         MathF.Abs(EnhancementsModel.DepthOfField(fresh, inside with { Miniature = 10 }).SensorHeightMm - 229.4895f) < 1e-2f
         && MathF.Abs(EnhancementsModel.DepthOfField(fresh, inside with { Miniature = 500 }).SensorHeightMm - 11474.48f) < 0.5f);
@@ -872,6 +877,14 @@ Check("a binding the user changed stays, and a file already at layout 2 is left 
     ControlsModel.Migrate(CamAction.Forward, UnityEngine.KeyCode.UpArrow, "RightStickUp", 1) == (UnityEngine.KeyCode.UpArrow, "RightStickUp")
     && ControlsModel.Migrate(CamAction.Forward, UnityEngine.KeyCode.I, "LeftStickUp", 2) == (UnityEngine.KeyCode.I, "LeftStickUp")
     && ControlsModel.Migrate(CamAction.ToggleSpeedTo5, UnityEngine.KeyCode.CapsLock, "Back+Y", 1) == (UnityEngine.KeyCode.CapsLock, "Back+Y"));
+Check("a file from before layout 4 zooms out on 1 and the D-pad's down and in on 2 and its up, from layout 1's 9 and 8 too",
+    ControlsModel.Migrate(CamAction.IncreaseFOV, UnityEngine.KeyCode.Alpha2, "DpadUp", 3) == (UnityEngine.KeyCode.Alpha1, "DpadDown")
+    && ControlsModel.Migrate(CamAction.DecreaseFOV, UnityEngine.KeyCode.Alpha1, "DpadDown", 3) == (UnityEngine.KeyCode.Alpha2, "DpadUp")
+    && ControlsModel.Migrate(CamAction.IncreaseFOV, UnityEngine.KeyCode.Alpha9, "DpadUp", 1) == (UnityEngine.KeyCode.Alpha1, "DpadDown")
+    && ControlsModel.Migrate(CamAction.DecreaseFOV, UnityEngine.KeyCode.Alpha8, "DpadDown", 1) == (UnityEngine.KeyCode.Alpha2, "DpadUp"));
+Check("a zoom binding the user changed stays, and a file at layout 4 is left alone",
+    ControlsModel.Migrate(CamAction.IncreaseFOV, UnityEngine.KeyCode.F, "Back+DpadUp", 3) == (UnityEngine.KeyCode.F, "Back+DpadUp")
+    && ControlsModel.Migrate(CamAction.IncreaseFOV, UnityEngine.KeyCode.Alpha2, "DpadUp", 4) == (UnityEngine.KeyCode.Alpha2, "DpadUp"));
 var defaultKeys = ControlsModel.Defaults.Where(row => row.Key != UnityEngine.KeyCode.None).Select(row => row.Key).ToList();
 var defaultPads = ControlsModel.Defaults.Where(row => row.Pad != "").Select(row => row.Pad).ToList();
 Check("no two actions share a default key or controller binding",

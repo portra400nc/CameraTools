@@ -14,7 +14,7 @@
 
 | | |
 |--|--|
-| **Camera** | Free camera, field of view, roll, smooth movement (damping), near clip |
+| **Camera** | Free camera, focal length, roll, smooth movement (damping), near clip |
 | **Time** | Pause, slow motion and speed up; time of day with time-lapse; weather override (sunny, cloudy, rain, thunderstorm, snow, mist) |
 | **Composition** | Hide UI for clean shots; frame guide for any crop ratio, such as 7:5 or 21:9 |
 | **Graphics** | Game settings and resolution from the free camera, with two presets you can make your own |
@@ -129,8 +129,8 @@ The bindings are saved in `UserData/MelonPreferences.cfg`, under the hotkeys' na
 | <kbd>Right Shift</kbd> | Reset roll |
 | <kbd>Shift</kbd> | Fast movement (hold) |
 | <kbd>Alt</kbd> | Slow movement (hold) |
-| <kbd>1</kbd> <kbd>2</kbd> | Field of view down / up |
-| <kbd>3</kbd> | Reset field of view |
+| <kbd>1</kbd> <kbd>2</kbd> | Zoom out / in |
+| <kbd>3</kbd> | Reset zoom |
 
 </td><td>
 
@@ -192,9 +192,9 @@ Hold <kbd>Back</kbd> for the right-hand column. While it is held, <kbd>LT</kbd> 
 | <kbd>LT</kbd> / <kbd>RT</kbd> | Down / up (analog) | Add a path node / play or stop the path |
 | <kbd>LB</kbd> / <kbd>RB</kbd> | Roll left / right | Slow / fast movement (hold) |
 | <kbd>R3</kbd> | Reset roll | Center the focus point |
-| D-pad ↑ / ↓ | Field of view up / down | Speed +0.5 / −0.5 |
+| D-pad ↑ / ↓ | Zoom in / out | Speed +0.5 / −0.5 |
 | D-pad ← / → | Speed −0.1 / +0.1 | Record a replay / play or stop the replay |
-| <kbd>A</kbd> | | Reset field of view |
+| <kbd>A</kbd> | | Reset zoom |
 | <kbd>B</kbd> | Hide UI | |
 | <kbd>X</kbd> | Toggle pause | |
 | <kbd>Y</kbd> | Reset game speed | Toggle speed 5.0 |

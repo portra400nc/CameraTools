@@ -38,6 +38,16 @@ namespace CameraTools
         public static float FocalLength(float fieldOfView, float aspect)
             => HalfDiagonal / (MathF.Tan(fieldOfView * MathF.PI / 360f) * MathF.Sqrt(1f + aspect * aspect));
 
+        // A rail from 0 at the widest field of view to 1 at the narrowest, even in the ratio of focal lengths, so each step
+        // zooms as much. Focal length goes as 1 / tan(fov / 2) at any aspect, so the rail needs none.
+        public static float ZoomRail(float fieldOfView, float widest, float narrowest)
+            => MathF.Log(HalfTan(widest) / HalfTan(fieldOfView)) / MathF.Log(HalfTan(widest) / HalfTan(narrowest));
+
+        public static float ZoomFieldOfView(float rail, float widest, float narrowest)
+            => MathF.Atan(HalfTan(widest) * MathF.Pow(HalfTan(narrowest) / HalfTan(widest), rail)) * 360f / MathF.PI;
+
+        private static float HalfTan(float fieldOfView) => MathF.Tan(fieldOfView * MathF.PI / 360f);
+
         // The height in mm of a full-frame diagonal's sensor in the picture's shape, as FocalLength reckons it.
         public static float SensorHeight(float aspect) => 2f * HalfDiagonal / MathF.Sqrt(1f + aspect * aspect);
 

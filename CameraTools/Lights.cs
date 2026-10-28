@@ -27,7 +27,7 @@ namespace CameraTools
         // Move light widens the view until a spot's whole cone fits in this share of the screen's height, up to MaxMoveFov.
         private const float ConeFit = 0.8f;
         private const float MaxMoveFov = 150f;
-        // Per second while Move light's FOV or roll buttons are held, on unscaled time so they work while the game is paused.
+        // Per second while Move light's zoom or roll buttons are held, on unscaled time so they work while the game is paused.
         private const float SpotAngleRate = 40f;
         private const float IntensityRate = 2f;
 
@@ -475,7 +475,7 @@ namespace CameraTools
                 float widen = (pad && PadWider.Held(now) || Input.GetKey(KeyWider) ? 1f : 0f)
                     - (pad && PadNarrower.Held(now) || Input.GetKey(KeyNarrower) ? 1f : 0f);
                 light.SpotAngle = Math.Clamp(light.SpotAngle + widen * SpotAngleRate * step, LightSetup.MinSpotAngle, LightSetup.MaxSpotAngle);
-                // A wider cone widens the view until it fits; the FOV buttons change the view as they do in the free camera.
+                // A wider cone widens the view until it fits; the zoom buttons change the view as they do in the free camera.
                 if (widen > 0f)
                     CameraTools.settings.Fov.Value = MoveFov(light, CameraTools.settings.Fov.Value);
             }

@@ -78,8 +78,8 @@ namespace CameraTools
             (CamAction.Right, KeyCode.D, "LeftStickRight"),
             (CamAction.Up, KeyCode.Space, "RT"),
             (CamAction.Down, KeyCode.LeftControl, "LT"),
-            (CamAction.IncreaseFOV, KeyCode.Alpha2, "DpadUp"),
-            (CamAction.DecreaseFOV, KeyCode.Alpha1, "DpadDown"),
+            (CamAction.IncreaseFOV, KeyCode.Alpha1, "DpadDown"),
+            (CamAction.DecreaseFOV, KeyCode.Alpha2, "DpadUp"),
             (CamAction.ResetFOV, KeyCode.Alpha3, "Back+A"),
             (CamAction.FastMovement, KeyCode.LeftShift, "Back+RB"),
             (CamAction.SlowMovement, KeyCode.LeftAlt, "Back+LB"),
@@ -100,9 +100,9 @@ namespace CameraTools
         };
 
         // Layout 2 moved the camera to WASD and made the free camera's toggle the controller's L3+R3. Layout 3 removed the
-        // damage numbers and enemy HP bar hotkeys, which the World tab and Hide UI cover. Files saved before layout 2 have
-        // no layout entry and read as 1.
-        public const int Layout = 3;
+        // damage numbers and enemy HP bar hotkeys, which the World tab and Hide UI cover. Layout 4 made 1 and the D-pad's
+        // down zoom out, and 2 and its up zoom in. Files saved before layout 2 have no layout entry and read as 1.
+        public const int Layout = 4;
 
         // The entries each layout removed, deleted from files saved before it.
         public static readonly (int Layout, string Name)[] Removed = { (2, "Inject"), (3, "RemoveHP"), (3, "ToggleDamage") };
@@ -131,6 +131,16 @@ namespace CameraTools
             (CamAction.SlowMovement, KeyCode.Semicolon, "Back+LB"),
         };
 
+        // The layout 3 defaults that layout 4 changed.
+        private static readonly (CamAction Action, KeyCode Key, string Pad)[] Layout3 =
+        {
+            (CamAction.IncreaseFOV, KeyCode.Alpha2, "DpadUp"),
+            (CamAction.DecreaseFOV, KeyCode.Alpha1, "DpadDown"),
+        };
+
+        // Each layout that changed defaults, with the defaults it changed as they were before it.
+        private static readonly (int Layout, (CamAction Action, KeyCode Key, string Pad)[] Before)[] Changes = { (2, Layout1), (4, Layout3) };
+
         // Binds an action's key or controller binding in bindings, indexed by action. A binding another action had swaps:
         // that action takes this one's old binding, and is returned. The free camera's toggle never loses its binding, so
         // the free camera can always be left; such a change is refused and changes nothing.
@@ -151,18 +161,33 @@ namespace CameraTools
             return new Rebind(true, other >= 0 ? (CamAction)other : null);
         }
 
-        // A binding still at its layout 1 default moves to its layout 2 one; a binding the user changed stays. Layout 3
-        // changed no default.
+        // A binding still at the default a later layout changed moves to that layout's default; a binding the user changed
+        // stays.
         public static (KeyCode Key, string Pad) Migrate(CamAction action, KeyCode key, string pad, int savedLayout)
         {
-            if (savedLayout >= 2)
-                return (key, pad);
-            int old = Array.FindIndex(Layout1, row => row.Action == action);
-            if (old < 0)
-                return (key, pad);
-            var (_, newKey, newPad) = Defaults[(int)action];
-            return (key == Layout1[old].Key ? newKey : key,
-                string.Equals(pad?.Trim(), Layout1[old].Pad, StringComparison.OrdinalIgnoreCase) ? newPad : pad);
+            for (int change = 0; change < Changes.Length; change++)
+            {
+                var (layout, before) = Changes[change];
+                int old = Array.FindIndex(before, row => row.Action == action);
+                if (savedLayout >= layout || old < 0)
+                    continue;
+                var (newKey, newPad) = After(action, change);
+                key = key == before[old].Key ? newKey : key;
+                pad = string.Equals(pad?.Trim(), before[old].Pad, StringComparison.OrdinalIgnoreCase) ? newPad : pad;
+            }
+            return (key, pad);
+        }
+
+        // An action's default once Changes[change] is applied: the one a later change found, or the current one.
+        private static (KeyCode Key, string Pad) After(CamAction action, int change)
+        {
+            for (int later = change + 1; later < Changes.Length; later++)
+            {
+                int row = Array.FindIndex(Changes[later].Before, each => each.Action == action);
+                if (row >= 0)
+                    return (Changes[later].Before[row].Key, Changes[later].Before[row].Pad);
+            }
+            return (Defaults[(int)action].Key, Defaults[(int)action].Pad);
         }
     }
 }

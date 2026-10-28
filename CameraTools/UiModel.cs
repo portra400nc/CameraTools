@@ -129,7 +129,11 @@ namespace CameraTools
             SliderRow.For("Look sensitivity", settings.LookSensitivity, 0.1f, "0.0"),
             SliderRow.For("Roll speed", settings.RollSpeed, 0.1f, "0.0"),
             SliderRow.For("Zoom speed", settings.FovSpeed, 0.05f, "0.00"),
-            SliderRow.For("Field of view", settings.Fov, 1f, "0.0"),
+            // Even in the focal length's ratio, as a zoom ring is, over the whole field of view setting.
+            new SliderRow("Focal length", 0f, 1f, 0.005f, "0.000", () => Lens.ZoomRail(settings.Fov.Value, settings.Fov.Max, settings.Fov.Min),
+                rail => settings.Fov.Value = Lens.ZoomFieldOfView(rail, settings.Fov.Max, settings.Fov.Min),
+                Display: rail => Lens.FocalLength(Lens.ZoomFieldOfView(rail, settings.Fov.Max, settings.Fov.Min), (float)Screen.width / Screen.height)
+                    .ToString("0' mm'")),
             new SliderRow("Near clip", 1f, 1f, 1f, "0' cm'", () => settings.NearClip * 100f, value => settings.NearClip = value / 100f)
             {
                 LiveMax = () => settings.GameNear * 100f,
@@ -735,9 +739,9 @@ namespace CameraTools
             new BindingRow("Reset roll", CamAction.ResetRoll),
             new BindingRow("Fast movement (hold)", CamAction.FastMovement),
             new BindingRow("Slow movement (hold)", CamAction.SlowMovement),
-            new BindingRow("Field of view down", CamAction.DecreaseFOV),
-            new BindingRow("Field of view up", CamAction.IncreaseFOV),
-            new BindingRow("Reset field of view", CamAction.ResetFOV),
+            new BindingRow("Zoom in", CamAction.DecreaseFOV),
+            new BindingRow("Zoom out", CamAction.IncreaseFOV),
+            new BindingRow("Reset zoom", CamAction.ResetFOV),
             new Section("Game speed") { Columns = true },
             new BindingRow("Toggle pause", CamAction.TogglePause),
             new BindingRow("Reset game speed", CamAction.ResetSpeed),
