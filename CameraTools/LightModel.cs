@@ -67,6 +67,8 @@ namespace CameraTools
         public bool Shadows { get; set; }
 
         public bool CastsShadows => Kind == LightKind.Spot && Shadows;
+        // Alternative shading: characters take their sun's shading from this light. Lights keeps it on one light at most.
+        public bool SunShading { get; set; }
         public ColorSource Source { get; set; }
         public float Kelvin { get; set; } = 6500f;
         public float Hue { get; set; }

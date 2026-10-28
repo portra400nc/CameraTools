@@ -323,6 +323,7 @@ namespace CameraTools
             if (rendering != maincam)
                 return;
             Replays.PreCull();
+            CharacterSun.PreCull();
             EnhancementsCamera.Push(rendering);
         }
 

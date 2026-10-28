@@ -298,6 +298,11 @@ namespace CameraTools
             },
             new ActionRow("Move in front of camera", Lights.MoveToCamera, "Move") { Shown = () => Lights.HasLight },
             new Section("Light") { Shown = () => Lights.HasLight },
+            new ToggleRow("Alternative shading", () => Lights.Current?.SunShading ?? false, Lights.SetSunShading)
+            {
+                Shown = () => Lights.HasLight,
+                Detail = () => Lights.SunShadingNote,
+            },
             LightChoice("Type", Lights.KindNames, light => (int)light.Kind, choice => Lights.Edit(light => light.Kind = (LightKind)choice),
                 _ => true, KindNotes),
             LightChoice("Lights up", Lights.ReachNames, light => (int)light.Reach, choice => Lights.Edit(light => light.Reach = (LightReach)choice),

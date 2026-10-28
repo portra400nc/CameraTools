@@ -20,6 +20,10 @@ namespace CameraTools
         // World lights hardly reach Genshin's toon-shaded characters, so a light that lights everything brings a characters-only
         // twin at this share of its intensity. On the Deck, half was a clear fill and the whole intensity blew the character out.
         private const float TwinShare = 0.5f;
+        // The toon falloff the game gives its own character lights (Odette's burst lights use 0.6 to 0.7 and 0.1 to 0.18). A new
+        // Light has 0 and 0, which lights the whole character evenly.
+        private const float CharacterThreshold = 0.6f;
+        private const float CharacterSoftness = 0.1f;
         // Move light widens the view until a spot's whole cone fits in this share of the screen's height, up to MaxMoveFov.
         private const float ConeFit = 0.8f;
         private const float MaxMoveFov = 150f;
@@ -56,6 +60,28 @@ namespace CameraTools
         public static LightSetup Current => Active >= 0 ? All[Active] : null;
 
         public static bool HasLight => Current != null;
+
+        // The Alternative shading row's note: on a light without it, the light that has it.
+        public static string SunShadingNote
+        {
+            get
+            {
+                int owner = All.FindIndex(light => light.SunShading);
+                return owner < 0 || owner == Active ? "Use the sun's shading" : $"Light {owner + 1} uses the sun's shading";
+            }
+        }
+
+        // One light at a time shades characters as the sun does.
+        public static void SetSunShading(bool on)
+        {
+            var light = Current;
+            if (light == null)
+                return;
+            foreach (var other in All)
+                other.SunShading = false;
+            light.SunShading = on;
+            Changed();
+        }
 
         public static bool Markers { get; private set; } = true;
 
@@ -132,6 +158,8 @@ namespace CameraTools
             {
                 var file = JsonSerializer.Deserialize<LightsFile>(File.ReadAllText(FilePath), Json);
                 All.AddRange(file.Lights.Select(FromFile));
+                foreach (var extra in All.Where(light => light.SunShading).Skip(1))
+                    extra.SunShading = false;
                 Active = All.Count == 0 ? -1 : Math.Clamp(file.Active, 0, All.Count - 1);
                 Markers = file.Markers;
                 Ambient = Math.Clamp(file.Ambient, 0f, 1f);
@@ -369,6 +397,9 @@ namespace CameraTools
                     placed.Add(Shown ? Place(light) : null);
                 ApplyGameLights();
                 ApplySpheres(camera);
+                int sun = All.FindIndex(light => light.SunShading);
+                var color = sun >= 0 ? All[sun].Color : default;
+                CharacterSun.Update(sun >= 0 ? placed[sun]?.Position.ToUnity() : null, new Color(color.X, color.Y, color.Z, 1f));
                 if (changedAt is float at && Time.unscaledTime - at >= SaveDelay)
                 {
                     changedAt = null;
@@ -496,6 +527,8 @@ namespace CameraTools
                     component.set_isCharacterLight(true);
                     component.characterLightCullingMask = uint.MaxValue;
                     component.characterIntensityMultiplier = 1f;
+                    component.halfLambertThreshold = CharacterThreshold;
+                    component.halfLambertSoftness = CharacterSoftness;
                 }
                 // On the Deck, soft shadows with nothing more showed once Unity's shadows were on.
                 component.shadows = light.CastsShadows ? LightShadows.Soft : LightShadows.None;
@@ -529,6 +562,8 @@ namespace CameraTools
                 game.Twin.set_isCharacterLight(true);
                 game.Twin.characterLightCullingMask = uint.MaxValue;
                 game.Twin.characterIntensityMultiplier = 1f;
+                game.Twin.halfLambertThreshold = CharacterThreshold;
+                game.Twin.halfLambertSoftness = CharacterSoftness;
                 game.Twin.shadows = LightShadows.None;
             }
             game.Shown = default;
@@ -623,6 +658,7 @@ namespace CameraTools
             InnerAngle = light.InnerAngle,
             Radius = light.Radius,
             Shadows = light.Shadows,
+            SunShading = light.SunShading,
             Source = light.Source,
             Kelvin = light.Kelvin,
             Hue = light.Hue,
@@ -642,6 +678,7 @@ namespace CameraTools
             InnerAngle = file.InnerAngle,
             Radius = file.Radius,
             Shadows = file.Shadows,
+            SunShading = file.SunShading,
             Source = file.Source,
             Kelvin = file.Kelvin,
             Hue = file.Hue,
@@ -670,6 +707,7 @@ namespace CameraTools
             public float InnerAngle { get; set; }
             public float Radius { get; set; }
             public bool Shadows { get; set; }
+            public bool SunShading { get; set; }
             public ColorSource Source { get; set; }
             public float Kelvin { get; set; }
             public float Hue { get; set; }
