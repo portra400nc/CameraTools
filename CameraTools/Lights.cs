@@ -17,6 +17,9 @@ namespace CameraTools
     {
         private const float PlaceAhead = 1.5f;
         private const float SaveDelay = 1f;
+        // World lights hardly reach Genshin's toon-shaded characters, so a light that lights everything brings a characters-only
+        // twin at this share of its intensity. On the Deck, half was a clear fill and the whole intensity blew the character out.
+        private const float TwinShare = 0.5f;
         // Move light widens the view until a spot's whole cone fits in this share of the screen's height, up to MaxMoveFov.
         private const float ConeFit = 0.8f;
         private const float MaxMoveFov = 150f;
@@ -89,6 +92,8 @@ namespace CameraTools
         {
             public GameObject Object;
             public Light Light;
+            // The characters-only twin of a light that lights everything, on a child object so it follows.
+            public Light Twin;
             public Applied Shown;
         }
 
@@ -474,7 +479,7 @@ namespace CameraTools
                     light.CastsShadows);
                 // A fresh component when the type or reach changes, so no character switch is left over from before.
                 if (!game.Object || !game.Light || game.Shown.Kind != wanted.Kind || game.Shown.Reach != wanted.Reach)
-                    Create(game);
+                    Create(game, !light.CharactersOnly);
                 game.Object.transform.position = pose.Position.ToUnity();
                 game.Object.transform.rotation = pose.Rotation.ToUnity();
                 if (game.Shown == wanted)
@@ -495,17 +500,37 @@ namespace CameraTools
                 // On the Deck, soft shadows with nothing more showed once Unity's shadows were on.
                 component.shadows = light.CastsShadows ? LightShadows.Soft : LightShadows.None;
                 component.shadowStrength = 1f;
+                if (game.Twin)
+                {
+                    var twin = game.Twin;
+                    twin.type = component.type;
+                    twin.color = component.color;
+                    twin.intensity = Math.Min(light.Intensity * TwinShare, LightSetup.MaxCharacterIntensity);
+                    twin.range = light.Range;
+                    twin.spotAngle = component.spotAngle;
+                    twin.spotInnerAngle = component.spotInnerAngle;
+                }
                 game.Shown = wanted;
             }
             gameLights.RemoveRange(All.Count, gameLights.Count - All.Count);
         }
 
-        private static void Create(GameLight game)
+        private static void Create(GameLight game, bool twin)
         {
             Destroy(game);
             game.Object = new GameObject("CameraTools Light");
             UnityEngine.Object.DontDestroyOnLoad(game.Object);
             game.Light = game.Object.AddComponent<Light>();
+            if (twin)
+            {
+                var child = new GameObject("CameraTools Light Twin");
+                child.transform.SetParent(game.Object.transform, false);
+                game.Twin = child.AddComponent<Light>();
+                game.Twin.set_isCharacterLight(true);
+                game.Twin.characterLightCullingMask = uint.MaxValue;
+                game.Twin.characterIntensityMultiplier = 1f;
+                game.Twin.shadows = LightShadows.None;
+            }
             game.Shown = default;
         }
 
@@ -515,6 +540,7 @@ namespace CameraTools
                 UnityEngine.Object.Destroy(game.Object);
             game.Object = null;
             game.Light = null;
+            game.Twin = null;
             game.Shown = default;
         }
 
