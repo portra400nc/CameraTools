@@ -9,14 +9,14 @@ namespace CameraTools
     public enum Enhancement
     {
         Enabled,
-        AmbientLight, AmbientLevel, AmbientOcclusion, AmbientOcclusionRadius, AmbientFoliageOcclusion,
+        AmbientLight, AmbientLevel, AmbientColor, AmbientOcclusion, AmbientOcclusionRadius, AmbientFoliageOcclusion,
         ContactShadows, ContactShadowLength, ContactShadowStrength, ContactShadowFoliage,
         SoftSunShadows, SunShadowSoftness, SunShadowStrength,
         Haze, HazeDensity, HazeHeightFalloff, HazeSunGlow, HazeGlowTowardSun,
         LightShafts, LightShaftStrength, MistDensity, MistHeight, LightShaftGlowTowardSun, LightShaftDistance, MistPatchiness, MistPatchSize,
         MistSkyLight, LightShaftQuality,
         WetSurfaces, Wetness, WetDarkening, Puddles,
-        ToneMap, ToneMapCurve, ToneMapExposure, ToneMapBloom, ToneMapSaturation, ToneMapContrast,
+        ToneMap, ToneMapCurve, ToneMapExposure, ToneMapBloom, ToneMapSaturation, ToneMapContrast, ToneMapShadows, ToneMapHighlights,
         LensFlare, LensFlareSource, LensFlareX, LensFlareY, LensFlareStrength, LensFlareArcs, LensFlareRainbow, LensFlareFilledArcs, LensFlareGhosts, LensFlareStreaks,
         LensFlareGlare, LensFlareSize, LensFlareWarmth, LensFlareRedFringe, LensFlareTexture,
         DepthOfField, DepthOfFieldFocusMode, DepthOfFieldFocusSpeed, DepthOfFieldFocusDistance, DepthOfFieldAperture, DepthOfFieldFocusX, DepthOfFieldFocusY, DepthOfFieldMaxBlur,
@@ -182,6 +182,7 @@ namespace CameraTools
             Switch(Enhancement.Enabled, "Enhancements"),
             Switch(Enhancement.AmbientLight, "Ambient light"),
             Slider(Enhancement.AmbientLevel, Enhancement.AmbientLight, "Level", 0f, 2f, 0.6f, 0.05f, 2),
+            Slider(Enhancement.AmbientColor, Enhancement.AmbientLight, "Color", 0f, 1f, 1f, 0.05f, 2),
             Slider(Enhancement.AmbientOcclusion, Enhancement.AmbientLight, "Occlusion", 0f, 1f, 0.5f, 0.05f, 2),
             Slider(Enhancement.AmbientOcclusionRadius, Enhancement.AmbientLight, "Occlusion radius", 0.1f, 5f, 1f, 0.1f, 1, " m"),
             Slider(Enhancement.AmbientFoliageOcclusion, Enhancement.AmbientLight, "Occlusion on grass and leaves", 0f, 1f, 0.5f, 0.05f, 2),
@@ -217,6 +218,8 @@ namespace CameraTools
             Slider(Enhancement.ToneMapBloom, Enhancement.ToneMap, "Bloom", 0f, 2f, 1f, 0.05f, 2),
             Slider(Enhancement.ToneMapSaturation, Enhancement.ToneMap, "Saturation", 0f, 2f, 1f, 0.05f, 2),
             Slider(Enhancement.ToneMapContrast, Enhancement.ToneMap, "Contrast", 0.5f, 2f, 1f, 0.05f, 2),
+            Slider(Enhancement.ToneMapShadows, Enhancement.ToneMap, "Shadows", -1f, 1f, 0f, 0.05f, 2),
+            Slider(Enhancement.ToneMapHighlights, Enhancement.ToneMap, "Highlights", -1f, 1f, 0f, 0.05f, 2),
             Switch(Enhancement.LensFlare, "Lens flare"),
             Choice(Enhancement.LensFlareSource, Enhancement.LensFlare, "Source", FlareSun, "Sun", "Manual"),
             Slider(Enhancement.LensFlareX, Enhancement.LensFlare, "Position X", -2f, 2f, 0.6f, 0.05f, 2),
@@ -268,6 +271,7 @@ namespace CameraTools
             settings.Enabled = Bit(Enhancement.Enabled);
             settings.Ambient.Enabled = Bit(Enhancement.AmbientLight);
             settings.Ambient.Level = values[Enhancement.AmbientLevel];
+            settings.AmbientColor.Neutral = 1f - values[Enhancement.AmbientColor];
             settings.Ambient.AoStrength = values[Enhancement.AmbientOcclusion];
             settings.Ambient.AoRadius = values[Enhancement.AmbientOcclusionRadius];
             settings.Ambient.FoliageAoStrength = values[Enhancement.AmbientFoliageOcclusion];
@@ -303,6 +307,8 @@ namespace CameraTools
             settings.Tonemap.BloomStrength = values[Enhancement.ToneMapBloom];
             settings.Tonemap.Saturation = values[Enhancement.ToneMapSaturation];
             settings.Tonemap.Contrast = values[Enhancement.ToneMapContrast];
+            settings.Tones.Shadows = values[Enhancement.ToneMapShadows];
+            settings.Tones.Highlights = values[Enhancement.ToneMapHighlights];
             settings.LensFlare = LensFlare(values, lens.Shot);
             settings.Trace.Enabled = 0;
             settings.Gather.Enabled = 0;

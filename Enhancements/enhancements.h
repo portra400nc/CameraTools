@@ -456,6 +456,22 @@ typedef struct EnhancementsLensFlare
                                 // to 0..2
 } EnhancementsLensFlare;
 
+// The ambient pass's color, a block of its own because EnhancementsAmbient keeps its size: a gray of the same luminance
+// in place of the game's irradiance color, which takes the sky's color cast out of the shade and keeps its light.
+typedef struct EnhancementsAmbientColor
+{
+    float neutral;              // 0 (the default) keeps the game's color, 1 is gray; clamped to 0..1
+} EnhancementsAmbientColor;
+
+// The tonemap pass's shadows and highlights, a block of its own because EnhancementsTonemap keeps its size: before the
+// curve, each pixel's stops move with its luminance, the shadows' fully at 4 stops below middle gray (0.18) and the
+// highlights' fully at 4 above, fading to nothing at middle gray, so the midtones keep their exposure.
+typedef struct EnhancementsTones
+{
+    float shadows;              // 1 brightens the shadows by 2 stops, -1 darkens them by 2; default 0, clamped to -1..1
+    float highlights;           // the same for the highlights; default 0, clamped to -1..1
+} EnhancementsTones;
+
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller
 // knows, and fields past it keep their defaults.
 typedef struct EnhancementsSettings
@@ -476,6 +492,8 @@ typedef struct EnhancementsSettings
     EnhancementsGather gather;
     EnhancementsDepthOfField depth_of_field;
     EnhancementsLensFlare lens_flare;
+    EnhancementsAmbientColor ambient_color;
+    EnhancementsTones tones;
 } EnhancementsSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and

@@ -19,7 +19,7 @@ cbuffer Constants : register(b0)
     float contact_thickness;    // meters
     uint label_length;          // glyphs in label
     float contact_foliage_strength;  // multiplies contact_strength on stencil 129, 136 and 137
-    float padding;
+    float ambient_neutral;      // 0 the game's irradiance color, 1 a gray of the same luminance
     uint4 label[2];             // the debug composite's view name, glyph indices from encode_label, four per uint, low byte first
     float3 sun_color;           // linear RGB times intensity
     float atmosphere_density;   // extinction per meter at the camera's height
@@ -59,6 +59,9 @@ cbuffer Constants : register(b0)
     float flare_disc;           // the radius of the disc around the sun the flare's visibility looks at, over the height
     uint flare_mode;            // 0 the sun in front of the camera, 1 the manual source, 2 a sun behind the camera
     uint flare_atlas;           // 1 when this frame's sun constants passed their checks, so the atlas can be read
+    float tone_shadows;         // EnhancementsTones.shadows
+    float tone_highlights;      // EnhancementsTones.highlights
+    float2 padding3;
 };
 
 SamplerState point_clamp : register(s0);

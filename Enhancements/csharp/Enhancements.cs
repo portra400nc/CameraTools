@@ -212,6 +212,21 @@ namespace CameraToolsEnhancements
         public float Texture;               // streaks, mottling, dust and rays, 0 smooth to 2
     }
 
+    // EnhancementsAmbientColor in enhancements.h, field for field.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct EnhancementsAmbientColor
+    {
+        public float Neutral;               // 0 the game's irradiance color, 1 a gray of the same luminance
+    }
+
+    // EnhancementsTones in enhancements.h, field for field.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct EnhancementsTones
+    {
+        public float Shadows;               // -1 darkens the shadows by 2 stops, 1 brightens them by 2
+        public float Highlights;            // the same for the highlights
+    }
+
     // EnhancementsSettings in enhancements.h, field for field.
     [StructLayout(LayoutKind.Sequential)]
     internal struct EnhancementsSettings
@@ -231,6 +246,8 @@ namespace CameraToolsEnhancements
         public EnhancementsGather Gather;
         public EnhancementsDepthOfField DepthOfField;
         public EnhancementsLensFlare LensFlare;
+        public EnhancementsAmbientColor AmbientColor;
+        public EnhancementsTones Tones;
 
         // The add-on's defaults: everything off, game targets upside down, and when switched on ambient level 0.6, AO
         // strength 0.5 at a 1 m radius, half that strength on grass, vegetation and foliage, full-strength contact
@@ -248,7 +265,8 @@ namespace CameraToolsEnhancements
         // most 0.03 of the height, has round discs with spherical aberration 0.6, gathers 49 samples a pixel, and draws highlights
         // above twice the frame's mean luminance as sprites, growing small lamps at gain 2, with the bokeh contrast off
         // and no eye, whose window would be 15 mm wide, and a lens flare from the sun at full strength with half its glare and
-        // filled arcs, at the lens's own size and orange, that follows the sun's visibility over 0.15 s.
+        // filled arcs, at the lens's own size and orange, that follows the sun's visibility over 0.15 s. The ambient light keeps
+        // the game's color, and the tone map leaves the shadows and highlights alone.
         public static EnhancementsSettings Defaults => new()
         {
             Size = (uint)Marshal.SizeOf<EnhancementsSettings>(),

@@ -87,6 +87,14 @@ float3 pbr_neutral(float3 color)
     return lerp(color, new_peak, g);
 }
 
+// Shadows and Highlights: each pixel's stops move with its luminance's distance from middle gray, fully at 4 stops away,
+// by at most 2. A ramp over 4 stops keeps the curve rising at -1 and 1, so no tone overtakes another.
+float tone_gain(float luminance)
+{
+    float stops = log2(max(luminance, 1e-6) / 0.18);
+    return exp2(2 * (tone_shadows * smoothstep(0, 4, -stops) + tone_highlights * smoothstep(0, 4, stops)));
+}
+
 float4 main(float4 position : SV_Position, float2 uv : TEXCOORD0) : SV_Target0
 {
     Grade g = game_grade();
@@ -94,6 +102,7 @@ float4 main(float4 position : SV_Position, float2 uv : TEXCOORD0) : SV_Target0
     float3 x = mul(hdr, g.color) * (g.exposure * exposure_scale);
     x = max(lerp(dot(x, kLuma), x, saturation), 0);
     x = 0.18 * pow(x / 0.18, contrast);
+    x *= tone_gain(dot(x, kLuma));
     float3 c = curve == 1 ? agx(x) : curve == 2 ? pbr_neutral(x) : game_filmic(x);
     float3 encoded = pow(max(pow(max(c, 0), 1 / 2.4) * 1.055 - 0.055, 0), g.gamma);
     float noise = frac(52.9829189 * frac(dot(position.xy, float2(0.06711056, 0.00583715))));

@@ -33,6 +33,7 @@ namespace enhancements
         float ao_strength = 0.5f;
         float ao_radius = 1.0f;
         float foliage_ao_strength = 0.5f;
+        float neutral = 0.0f;   // EnhancementsAmbientColor's
     };
 
     struct ContactShadowSettings
@@ -65,6 +66,8 @@ namespace enhancements
         float bloom_strength = 1.0f;
         float saturation = 1.0f;
         float contrast = 1.0f;
+        float shadows = 0.0f;       // EnhancementsTones'
+        float highlights = 0.0f;
     };
 
     struct SunShadowSettings

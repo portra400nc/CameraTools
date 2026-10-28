@@ -14,5 +14,6 @@ float3 main(float4 position : SV_Position) : SV_Target0
 
     float strength = ao_strength * (is_foliage(s) ? foliage_ao_strength : 1);
     float occlusion = blurred(pixel, view_position_at(pixel).z, view_normal_at(pixel));
-    return game * level * lerp(1, occlusion, strength);
+    float3 light = lerp(game, dot(game, float3(0.2126, 0.7152, 0.0722)), ambient_neutral);
+    return light * level * lerp(1, occlusion, strength);
 }

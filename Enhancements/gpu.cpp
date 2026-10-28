@@ -34,7 +34,7 @@ namespace enhancements
         float contact_thickness;
         uint32_t label_length;
         float contact_foliage_strength;
-        float padding;
+        float ambient_neutral;
         uint32_t label[8];
         float sun_color[3];
         float atmosphere_density;
@@ -72,8 +72,11 @@ namespace enhancements
         float flare_disc;
         uint32_t flare_mode;
         uint32_t flare_atlas;
+        float tone_shadows;
+        float tone_highlights;
+        float padding3[2];
     };
-    static_assert(sizeof(Constants) == 480 && offsetof(Constants, flare_sun_uv) == 456 && offsetof(Constants, wetness) == 408 && offsetof(Constants, shafts_anisotropy) == 432 && offsetof(Constants, label) == 272 && offsetof(Constants, sun_color) == 304
+    static_assert(sizeof(Constants) == 496 && offsetof(Constants, tone_shadows) == 480 && offsetof(Constants, flare_sun_uv) == 456 && offsetof(Constants, wetness) == 408 && offsetof(Constants, shafts_anisotropy) == 432 && offsetof(Constants, label) == 272 && offsetof(Constants, sun_color) == 304
         && offsetof(Constants, sky_color) == 320 && offsetof(Constants, bloom_strength) == 352 && offsetof(Constants, sun_cascades) == 368
         && offsetof(Constants, lens_sample) == 392, "Constants must match common.hlsli");
 
@@ -873,6 +876,7 @@ namespace enhancements
         constants.ao_strength = settings.ao_strength;
         constants.ao_radius = settings.ao_radius;
         constants.foliage_ao_strength = settings.foliage_ao_strength;
+        constants.ambient_neutral = settings.neutral;
         upload(constants);
 
         ID3D11DeviceContext1 *c = context_.Get();
@@ -1534,6 +1538,8 @@ namespace enhancements
         constants.bloom_strength = settings.bloom_strength;
         constants.saturation = settings.saturation;
         constants.contrast = settings.contrast;
+        constants.tone_shadows = settings.shadows;
+        constants.tone_highlights = settings.highlights;
         upload(constants);
 
         ID3D11DeviceContext1 *c = context_.Get();

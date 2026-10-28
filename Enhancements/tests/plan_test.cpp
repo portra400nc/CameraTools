@@ -746,7 +746,7 @@ int main()
         check("a label stops at 32 glyphs", encode_label(std::string(40, 'z')).length == 32);
     }
     {
-        FrameReport report = FrameReport::start(parse_settings(EnhancementsSettings { sizeof(EnhancementsSettings), 0, 0, 1, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {} }));
+        FrameReport report = FrameReport::start(parse_settings(EnhancementsSettings { sizeof(EnhancementsSettings), 0, 0, 1, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {} }));
         check("disabled: describe says off", describe(report) == "off");
         report.error = ENHANCEMENTS_ERROR_SHADER;
         check("disabled by an error: describe says which", describe(report) == "off; error shader");
@@ -914,6 +914,34 @@ int main()
         const Settings high = parse_settings(raw);
         check("tonemap clamps: 20 EV to 10, bloom 9 to 4, saturation 5 to 2, contrast 3 to 2", high.tonemap.exposure_ev == 10.0f
             && high.tonemap.bloom_strength == 4.0f && high.tonemap.saturation == 2.0f && high.tonemap.contrast == 2.0f);
+    }
+    {
+        EnhancementsSettings raw = raw_settings();
+        raw.ambient_color = { 0.75f };
+        raw.tones = { 0.4f, -0.3f };
+        const Settings whole = parse_settings(raw);
+        check("a whole struct reads the ambient color and tones: neutral 0.75, shadows 0.4, highlights -0.3",
+            whole.ambient.neutral == 0.75f && whole.tonemap.shadows == 0.4f && whole.tonemap.highlights == -0.3f);
+        raw.size = 400;  // a caller built before the ambient color existed
+        const Settings v16 = parse_settings(raw);
+        check("a 400-byte struct keeps the game's ambient color and no tones", v16.ambient.neutral == 0.0f && v16.tonemap.shadows == 0.0f
+            && v16.tonemap.highlights == 0.0f && v16.ambient.level == 0.4f);
+        raw.size = 411;
+        check("a struct one byte short of the tones block keeps its defaults and reads the ambient color",
+            parse_settings(raw).ambient.neutral == 0.75f && parse_settings(raw).tonemap.shadows == 0.0f);
+        raw.size = sizeof raw;
+        raw.ambient_color = { NAN };
+        raw.tones = { INFINITY, NAN };
+        const Settings bad = parse_settings(raw);
+        check("NaN and infinity fall back to the game's ambient color and no tones", bad.ambient.neutral == 0.0f
+            && bad.tonemap.shadows == 0.0f && bad.tonemap.highlights == 0.0f);
+        raw.ambient_color = { -1 };
+        raw.tones = { -3, 3 };
+        const Settings low = parse_settings(raw);
+        check("the ambient color clamps -1 to 0, shadows -3 to -1, highlights 3 to 1", low.ambient.neutral == 0.0f
+            && low.tonemap.shadows == -1.0f && low.tonemap.highlights == 1.0f);
+        raw.ambient_color = { 2 };
+        check("the ambient color clamps 2 to 1", parse_settings(raw).ambient.neutral == 1.0f);
     }
     {
         EnhancementsSettings raw = raw_settings();
@@ -1167,9 +1195,9 @@ int main()
         EnhancementsSettings raw = raw_settings();
         raw.depth_of_field = { 1, 1.4f, 36, 3, { 0.25f, 0.75f }, 0.5f, 0.05f, 7, 0.2f, 15, 1, 0.6f, 0.3f, 1.33f, 1, 256, 3, 1.5f, 1, 0.75f, 1, 0.42f, 0.02f };
         const DepthOfFieldSettings whole = parse_settings(raw).depth_of_field;
-        check("a whole 400-byte struct reads the depth of field: on, f/1.4 on a 36 mm sensor focused at 3 m, its point, speed, blur, 7 blades, "
+        check("a whole 412-byte struct reads the depth of field: on, f/1.4 on a 36 mm sensor focused at 3 m, its point, speed, blur, 7 blades, "
               "highlights from 3 times the mean at gain 1.5, scatter, bokeh contrast 0.75, on the display, an eye 0.42 m away in a 0.02 m window, and the rest",
-            sizeof raw == 400 && whole.eye_distance == 0.42f && whole.eye_size == 0.02f && whole.place == DofPlace::display && whole.scatter && whole.bokeh_contrast == 0.75f && whole.enabled && whole.f_number == 1.4f && whole.sensor_height_mm == 36 && whole.focus_distance == 3
+            sizeof raw == 412 && whole.eye_distance == 0.42f && whole.eye_size == 0.02f && whole.place == DofPlace::display && whole.scatter && whole.bokeh_contrast == 0.75f && whole.enabled && whole.f_number == 1.4f && whole.sensor_height_mm == 36 && whole.focus_distance == 3
                 && whole.focus_point[0] == 0.25f && whole.focus_point[1] == 0.75f && whole.focus_seconds == 0.5f && whole.max_blur == 0.05f
                 && whole.blades == 7 && whole.blade_roundness == 0.2f && whole.blade_rotation == 15 && whole.spherical_aberration == 1
                 && whole.cat_eye == 0.6f && whole.swirl == 0.3f && whole.anamorphic == 1.33f && whole.chromatic == 1 && whole.samples == 256
@@ -1277,7 +1305,7 @@ int main()
     }
     {
         check("disabled settings want no step", wanted_steps(view_only(ENHANCEMENTS_VIEW_HDR_SCENE)).bits != 0
-            && wanted_steps(parse_settings(EnhancementsSettings { sizeof(EnhancementsSettings), 0, ENHANCEMENTS_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 8 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 2 }, { 1, 1, 1, 1, 1, 1 }, { 1, 2, 24, 0, { 0.5f, 0.5f }, 0, 0.03f, 0, 0, 0, 0, 0, 0, 1, 0, 49, 2, 2, 1, 1, 0, 0, 0.015f }, {} })).empty());
+            && wanted_steps(parse_settings(EnhancementsSettings { sizeof(EnhancementsSettings), 0, ENHANCEMENTS_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 8 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 2 }, { 1, 1, 1, 1, 1, 1 }, { 1, 2, 24, 0, { 0.5f, 0.5f }, 0, 0.03f, 0, 0, 0, 0, 0, 0, 1, 0, 49, 2, 2, 1, 1, 0, 0, 0.015f }, {}, {}, {} })).empty());
     }
     {
         // A traced shot over the applied settings.

@@ -163,6 +163,8 @@ int main()
         raw[1].settings.gather = { 1, 256, ENHANCEMENTS_GATHER_SKY_WEIGHTED, 1, 2, 0.25f };
         raw[1].settings.depth_of_field = { 1, 1.4f, 36, 3, { 0.25f, 0.75f }, 0, 0.05f, 3, 1, 15, -1, 0.6f, 0.3f, 1.33f, 1, 100, 4, 0, 0, 1, 1, 0.42f, 0.02f };
         raw[1].settings.lens_flare = { 1, ENHANCEMENTS_FLARE_SOURCE_MANUAL, { 1.2f, -0.1f }, 2, 0.5f, 1.5f, 0, 3, 1.25f, 0.9f, 2, 0.4f, 0.6f, ENHANCEMENTS_FLARE_PLACE_DISPLAY, 2, 0.25f };
+        raw[1].settings.ambient_color = { 0.75f };
+        raw[1].settings.tones = { 0.4f, -0.3f };
         check("settings.tsv writes every parsed field, one row per variant", settings_tsv(*parse_variants(raw, 2))
             == "index\tname\tenabled\tview\tflip\tambient.enabled\tambient.level\tambient.ao_strength\tambient.ao_radius"
                "\tambient.foliage_ao_strength\tcontact_shadows.enabled\tcontact_shadows.length\tcontact_shadows.strength"
@@ -183,17 +185,18 @@ int main()
                "\tdepth_of_field.highlight_gain\tdepth_of_field.scatter\tdepth_of_field.bokeh_contrast\tdepth_of_field.place"
                "\tdepth_of_field.eye_distance\tdepth_of_field.eye_size\tlens_flare.enabled\tlens_flare.source\tlens_flare.x"
                "\tlens_flare.y\tlens_flare.strength\tlens_flare.arcs\tlens_flare.ghosts\tlens_flare.streaks\tlens_flare.glare"
-               "\tlens_flare.size\tlens_flare.warmth\tlens_flare.chromatic\tlens_flare.visibility_seconds\tlens_flare.filled_arcs\tlens_flare.place\tlens_flare.rainbow\tlens_flare.texture\n"
+               "\tlens_flare.size\tlens_flare.warmth\tlens_flare.chromatic\tlens_flare.visibility_seconds\tlens_flare.filled_arcs\tlens_flare.place\tlens_flare.rainbow\tlens_flare.texture"
+               "\tambient.neutral\ttonemap.shadows\ttonemap.highlights\n"
                "0\toff\t0\toff\t1\t1\t0.6\t0.5\t1\t0.5\t0\t0.6\t1\t0.25\t0\t0\t0.000325\t0.02\t1\t0.7\t0\t0\tgame\t1\t1\t1"
                "\t0\t0.03\t0.02\t1\t0\t0\t0.35\t0.3\t0\t1\t0.01\t10\t0.6\t150\t0.5\t6\t1\t48"
                "\t0\t1\t1\t1\t1\t0\t2\t1\t0.0093\t1\t64\t32\t20\t0\t128\tvisibility\t2\t1\t0.5"
                "\t0\t2.8\t24\t0\t0.5\t0.5\t0.9\t0.03\t0\t0.5\t0\t0.6\t0\t0\t1\t0\t49\t2\t2\t1\t1\tscene\t0\t0.015"
-               "\t0\tsun\t0.8\t0.12\t1\t1\t1\t1\t1\t1\t0.5\t1\t0.15\t1\tscene\t0.5\t1\n"
+               "\t0\tsun\t0.8\t0.12\t1\t1\t1\t1\t1\t1\t0.5\t1\t0.15\t1\tscene\t0.5\t1\t0\t0\t0\n"
                "1\tshadows\t1\tshadow-mask\t1\t1\t0.6\t0.5\t1\t0.5\t1\t1.2\t0.7\t0.3\t0.4\t1\t0.001\t0.05\t2\t0.5\t1\t0.5\tagx\t1.5\t0.9\t1.2"
                "\t1\t0.05\t0.1\t0.8\t1\t0.75\t0.5\t0.6\t1\t2\t0.02\t25\t0.8\t300\t0.25\t12\t0.5\t96"
                "\t1\t0\t1\t0\t1\t0\t5\t0.5\t0.03\t0.75\t16\t8\t30\t1\t256\tweighted\t1\t2\t0.25"
                "\t1\t1.4\t36\t3\t0.25\t0.75\t0\t0.05\t5\t1\t15\t-1\t0.6\t0.3\t1.33\t1\t100\t4\t0\t0\t1\tdisplay\t0.42\t0.02"
-               "\t1\tmanual\t1.2\t-0.1\t2\t0.5\t1.5\t0\t3\t1.25\t0.9\t2\t0.4\t0.6\tdisplay\t2\t0.25\n");
+               "\t1\tmanual\t1.2\t-0.1\t2\t0.5\t1.5\t0\t3\t1.25\t0.9\t2\t0.4\t0.6\tdisplay\t2\t0.25\t0.75\t0.4\t-0.3\n");
     }
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;
