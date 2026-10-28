@@ -159,6 +159,19 @@ namespace CameraTools
         public const float MarkerAimLength = 30f;
         public const float MarkerAimWidth = 3f;
         public const int MarkerNumberSize = 10;
+        // Move light's cone: a cream ring at the spot angle, a dashed light ring at the inner angle, the screen outside the
+        // cone darkened, and the spot angle beside the ring. The rings are drawn from short straight pieces.
+        public static readonly Color ConeShade = Hex(0x080a10, 0.5f);
+        public static readonly Color ConeInner = Hex(0xf4efe4, 0.9f);
+        public const float ConeRingWidth = 2.5f;
+        public const float ConeInnerWidth = 2f;
+        public const int ConePieces = 120;
+        public const int ConeDashes = 64;
+        public const float ConeDashShare = 0.55f;
+        public const float ConeLabelGap = 10f;
+        public const float ConeLabelWidth = 60f;
+        // The readout's second line, the light's distance and height, sits this far above the bottom margin's line.
+        public const float MoveDepthGap = 6f;
         // Pose joints: a light dot on each joint in a dark ring, the selected one larger and cream with its name in a pill
         // up and to the right of it, and the joint's angles at the bottom left.
         public const float JointDot = 12f;

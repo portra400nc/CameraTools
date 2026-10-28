@@ -148,9 +148,9 @@ namespace CameraTools
                 GameCamera.Update(maincam);
                 // Before playback poses the camera, which already accounts for the current shift.
                 freecam.FollowWorldShift();
-                // While the sticks move a light, turn a joint or move the character, or a screenshot averages samples, the camera
-                // stays put.
-                if (!PathPlayback.Drive(freecam) && !ReplayEditor.Drive(freecam) && !Lights.Moving && !Posing.Editing && !Posing.Moving && !Screenshot.HoldsCamera)
+                // While the sticks turn a joint or move the character, or a screenshot averages samples, the camera stays put. Move
+                // light flies the camera, and the light follows it in Lights.Update.
+                if (!PathPlayback.Drive(freecam) && !ReplayEditor.Drive(freecam) && !Posing.Editing && !Posing.Moving && !Screenshot.HoldsCamera)
                     freecam.Update();
                 freecam.LateUpdate();
             }
@@ -221,7 +221,11 @@ namespace CameraTools
             if (freecamActive)
                 freecam.OnEnable();
             else
+            {
+                // Before the free camera remembers its pose, so it remembers the shot rather than the light's place.
+                Lights.EndMove(false);
                 freecam.OnDisable();
+            }
             CameraUi.FreecamChanged(freecamActive);
             if (freecamActive)
             {

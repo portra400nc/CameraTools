@@ -291,7 +291,11 @@ namespace CameraTools
             new ToggleRow("Show light markers", () => Lights.Markers, Lights.SetMarkers),
             new Section("Placement") { Shown = () => Lights.HasLight },
             LightChoice("Follow", Lights.FollowNames, light => (int)light.Follow, Lights.SetFollow, _ => true, FollowNotes),
-            new ActionRow("Move light", Lights.StartMove, "Move") { Shown = () => Lights.HasLight },
+            new ActionRow("Move light", Lights.StartMove, "Move")
+            {
+                Shown = () => Lights.CanMove,
+                Detail = () => "Fly the camera as the light and see what it lights",
+            },
             new ActionRow("Move in front of camera", Lights.MoveToCamera, "Move") { Shown = () => Lights.HasLight },
             new Section("Light") { Shown = () => Lights.HasLight },
             LightChoice("Type", Lights.KindNames, light => (int)light.Kind, choice => Lights.Edit(light => light.Kind = (LightKind)choice),
@@ -319,7 +323,7 @@ namespace CameraTools
             {
                 Detail = () => "Bigger is softer, not brighter",
             },
-            LightSlider("Spot angle", 1f, 160f, 1f, "0'°'", light => light.SpotAngle, (light, value) => light.SpotAngle = value,
+            LightSlider("Spot angle", LightSetup.MinSpotAngle, LightSetup.MaxSpotAngle, 1f, "0'°'", light => light.SpotAngle, (light, value) => light.SpotAngle = value,
                 light => light.Kind == LightKind.Spot),
             LightSlider("Inner angle", 0f, 160f, 1f, "0'°'", light => light.InnerAngle, (light, value) => light.InnerAngle = value,
                 light => light.Kind == LightKind.Spot) with

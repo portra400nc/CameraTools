@@ -51,6 +51,8 @@ namespace CameraTools
         public const float MaxIntensity = 10f;
         // On the Deck, a characters-only light at 1 was a soft fill and at 3 already blew the character out.
         public const float MaxCharacterIntensity = 3f;
+        public const float MinSpotAngle = 1f;
+        public const float MaxSpotAngle = 160f;
 
         public LightKind Kind { get; set; }
         public LightReach Reach { get; set; }

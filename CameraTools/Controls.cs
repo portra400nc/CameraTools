@@ -37,9 +37,21 @@ namespace CameraTools
         // While the Keybinds tab waits for new buttons, the pad fires no actions, the free camera's toggle included.
         public static bool PadCapture { get; set; }
 
-        // While the settings panel is open, the sticks move a light, or they turn a joint or move the character, the pad is
-        // read there, so the camera ignores it.
-        private static bool PadActive => Owner == InputOwner.CameraTools && CameraUi.View is not (View.Panel or View.Moving or View.Joints or View.Placing);
+        // While the settings panel is open, or the sticks turn a joint or move the character, the pad is read there, so the
+        // camera ignores it.
+        private static bool PadActive => Owner == InputOwner.CameraTools && CameraUi.View is not (View.Panel or View.Joints or View.Placing);
+
+        // Move light flies the camera as the light, so only the actions that fly it and change its view stay live, with the roll
+        // buttons, which it reads as the intensity. A and B finish it, so B does not also hide the UI, and X and Y set the spot
+        // angle.
+        private static readonly HashSet<CamAction> MoveLightActions = new()
+        {
+            CamAction.Forward, CamAction.Back, CamAction.Left, CamAction.Right, CamAction.Up, CamAction.Down,
+            CamAction.FastMovement, CamAction.SlowMovement, CamAction.IncreaseFOV, CamAction.DecreaseFOV, CamAction.ResetFOV,
+            CamAction.RollLeft, CamAction.RollRight,
+        };
+
+        private static bool LiveInView(CamAction action) => CameraUi.View != View.Moving || MoveLightActions.Contains(action);
 
         // Pose joints reads the arrow keys, which also change the game speed, and the camera's movement keys, and Move
         // character reads those and the roll keys, so there the keyboard fires no actions.
@@ -160,9 +172,9 @@ namespace CameraTools
         // Edit replay reads its keys and buttons itself, and the actions bound to the same ones wait until it closes. The
         // free camera's toggle is read everywhere, so input can always be taken from or given back to the game.
         private static bool KeyOn(CamAction action)
-            => !TextCapture && (action == CamAction.ToggleFreecam || KeysActive) && !ReplayEditor.Reads(keys[(int)action]);
+            => !TextCapture && (action == CamAction.ToggleFreecam || KeysActive && LiveInView(action)) && !ReplayEditor.Reads(keys[(int)action]);
 
         private static bool PadOn(CamAction action)
-            => !PadCapture && (action == CamAction.ToggleFreecam || PadActive) && !ReplayEditor.Reads(pads[(int)action]);
+            => !PadCapture && (action == CamAction.ToggleFreecam || PadActive && LiveInView(action)) && !ReplayEditor.Reads(pads[(int)action]);
     }
 }

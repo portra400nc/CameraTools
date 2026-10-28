@@ -17,13 +17,20 @@ namespace CameraTools
     {
         private const float PlaceAhead = 1.5f;
         private const float SaveDelay = 1f;
-        // At full stick deflection, on unscaled time so a paused game still moves the light.
-        private const float MoveSpeed = 1.5f;
-        private const float TurnSpeed = 90f;
-        private const float MaxPitch = 89f;
+        // Move light widens the view until a spot's whole cone fits in this share of the screen's height, up to MaxMoveFov.
+        private const float ConeFit = 0.8f;
+        private const float MaxMoveFov = 150f;
+        // Per second while Move light's FOV or roll buttons are held, on unscaled time so they work while the game is paused.
+        private const float SpotAngleRate = 40f;
+        private const float IntensityRate = 2f;
 
         private static readonly PadBinding PadA = new(PadButtons.A, PadAxis.None);
         private static readonly PadBinding PadB = new(PadButtons.B, PadAxis.None);
+        // Move light's spot angle has buttons of its own, which nothing else reads while a light moves.
+        public static readonly PadBinding PadNarrower = new(PadButtons.X, PadAxis.None);
+        public static readonly PadBinding PadWider = new(PadButtons.Y, PadAxis.None);
+        public const KeyCode KeyNarrower = KeyCode.Alpha4;
+        public const KeyCode KeyWider = KeyCode.Alpha5;
         private static readonly string Folder = Path.Combine(MelonEnvironment.UserDataDirectory, "CameraTools");
         private static readonly string FilePath = Path.Combine(Folder, "Lights.json");
         private static readonly JsonSerializerOptions Json = new()
@@ -62,16 +69,17 @@ namespace CameraTools
 
         private static bool Shown => CameraTools.freecamActive;
 
-        public static bool Moving => moveStart.HasValue;
+        public static bool Moving => move.HasValue;
+
+        // Follow Camera keeps a light on the camera, so flying the camera as the light would change nothing.
+        public static bool CanMove => Current is { Follow: not LightFollow.Camera };
 
         // Each light's pose in the scene this frame, by index, or null while what it follows is missing.
         private static readonly List<Pose?> placed = new();
         private static readonly List<GameLight> gameLights = new();
         private static readonly List<ReLight.Sphere> spheres = new();
         private static float? changedAt;
-        private static Pose? moveStart;
-        // The frame Move light was chosen on, whose A press must not also finish the move.
-        private static int moveFrame;
+        private static MoveStart? move;
         // What the bridge was last told: whether spheres run, solo or beside the user's effects, and on which connection.
         private static (bool Spheres, bool Solo, int Connection)? overrideSent;
         // ReShade's effects switch from before the first sphere, put back when the last one goes.
@@ -83,6 +91,11 @@ namespace CameraTools
             public Light Light;
             public Applied Shown;
         }
+
+        // Move light flies the free camera as the light. B puts the light back, and either way the camera returns to the shot.
+        // Frame is the frame Move light was chosen on, whose A press must not also finish the move.
+        private readonly record struct MoveStart(Pose Light, float Intensity, float SpotAngle, Vector3 ShotPosition, Quaternion ShotRotation,
+            float ShotFov, int Frame);
 
         // A light's settings as last written to its component.
         private readonly record struct Applied(LightKind Kind, LightReach Reach, float Intensity, float Range, float SpotAngle,
@@ -214,14 +227,85 @@ namespace CameraTools
             CameraUi.Toast($"Light {Active + 1} moved in front of the camera");
         }
 
+        // The camera jumps to the light, or for a sphere to PlaceAhead behind it, because ReLight cannot draw a sphere at the lens.
         public static void StartMove()
         {
-            if (Current == null)
+            var light = Current;
+            var freecam = CameraTools.freecam;
+            if (!CanMove || !CameraTools.freecamActive || freecam == null || Place(light) is not { } world)
                 return;
-            moveStart = Current.Local;
-            moveFrame = Time.frameCount;
+            var (position, rotation, fov) = freecam.Pose;
+            move = new MoveStart(light.Local, light.Intensity, light.SpotAngle, position, rotation, fov, Time.frameCount);
+            var at = world.Position;
+            if (light.Kind == LightKind.Sphere)
+                at -= NumericsVector3.Transform(NumericsVector3.UnitZ, world.Rotation) * PlaceAhead;
+            freecam.Snap(at.ToUnity(), world.Rotation.ToUnity(), MoveFov(light, fov));
             CameraUi.ClosePanel();
             CameraUi.Toast($"Moving light {Active + 1}");
+        }
+
+        // Puts the shot back, and the light too unless it is kept. Turning the free camera off cancels the move first.
+        public static void EndMove(bool keep)
+        {
+            if (move is not { } start)
+                return;
+            move = null;
+            if (Current is { } light && !keep)
+            {
+                light.Local = start.Light;
+                light.Intensity = start.Intensity;
+                light.SpotAngle = start.SpotAngle;
+            }
+            CameraTools.freecam?.Snap(start.ShotPosition, start.ShotRotation, start.ShotFov);
+            Changed();
+            CameraUi.Toast(keep ? $"Light {Active + 1} placed" : "Move cancelled");
+            if (CameraTools.freecamActive)
+                CameraUi.OpenPanel();
+        }
+
+        // The vertical field of view for moving a spot: the one given, or wider so the whole cone fits.
+        private static float MoveFov(LightSetup light, float fov)
+        {
+            if (light.Kind != LightKind.Spot)
+                return fov;
+            float fit = 2f * MathF.Atan(MathF.Tan(light.SpotAngle * MathF.PI / 360f) / ConeFit) * 180f / MathF.PI;
+            return Math.Clamp(fit, fov, Math.Max(fov, MaxMoveFov));
+        }
+
+        // A spot's cone while moving it, as radii from the screen's middle in halves of the screen's height, and its angle.
+        public static (float Outer, float Inner, float Angle)? Cone(Camera camera)
+        {
+            if (!Moving || Current is not { Kind: LightKind.Spot } light || !camera)
+                return null;
+            float half = MathF.Tan(camera.fieldOfView * MathF.PI / 360f);
+            float Radius(float angle) => MathF.Tan(Math.Min(angle, 179f) * MathF.PI / 360f) / half;
+            return (Radius(light.SpotAngle), Radius(Math.Min(light.InnerAngle, light.SpotAngle)), light.SpotAngle);
+        }
+
+        // Move light's line at the bottom left: the light's settings, then how far it is from the character and how high.
+        public static (string Name, string Values, string Depth) MoveReadout
+        {
+            get
+            {
+                var light = Current;
+                if (light == null)
+                    return ("", "", "");
+                string values = light.Kind switch
+                {
+                    LightKind.Spot => $"Spot {light.SpotAngle:0}° · Inner {Math.Min(light.InnerAngle, light.SpotAngle):0}° · Intensity {light.Intensity:0.00} · View {CameraTools.settings.Fov.Value:0}°",
+                    LightKind.Sphere => $"Sphere {light.Radius:0.00} m · Intensity {light.Intensity:0.00}",
+                    _ => $"Point · Intensity {light.Intensity:0.00}",
+                };
+                string depth = "";
+                if (Active < placed.Count && placed[Active] is { } pose && Character.Active() is { } avatar && avatar)
+                {
+                    var feet = avatar.position.ToNumerics();
+                    var offset = pose.Position - feet;
+                    float across = MathF.Sqrt(offset.X * offset.X + offset.Z * offset.Z);
+                    depth = $"{across:0.0} m from the character · {offset.Y:0.0} m above their feet";
+                }
+                return ($"Light {Active + 1}", values, depth);
+            }
         }
 
         // Every setting change goes through here, so the light is saved and its intensity stays in range.
@@ -251,9 +335,12 @@ namespace CameraTools
             });
         }
 
-        // Where a light is on screen this frame, for its marker, and for a spot the point a metre along its aim.
+        // Where a light is on screen this frame, for its marker, and for a spot the point a metre along its aim. The light being
+        // moved has none, since the camera looks out of it.
         public static (ScreenPoint Point, ScreenPoint? Aim)? Marker(int index, Camera camera)
         {
+            if (Moving && index == Active)
+                return null;
             if (index >= placed.Count || placed[index] is not { } pose || ScreenPoint.Of(camera, pose.Position.ToUnity()) is not { OnScreen: true } point)
                 return null;
             if (All[index].Kind != LightKind.Spot)
@@ -271,7 +358,7 @@ namespace CameraTools
             {
                 var camera = Camera();
                 if (Moving)
-                    Move(camera);
+                    Move();
                 placed.Clear();
                 foreach (var light in All)
                     placed.Add(Shown ? Place(light) : null);
@@ -319,65 +406,55 @@ namespace CameraTools
             return new Pose(position.ToNumerics(), transform.rotation.ToNumerics());
         }
 
-        // The left stick moves the light across the ground as the camera faces, the triggers lower and raise it, and the
-        // right stick turns it. The keyboard moves it with the free camera's keys and turns it with the mouse.
-        private static void Move(Camera camera)
+        // After the free camera has moved: the light takes its pose. X and Y, or 4 and 5, narrow and widen a spot, and the roll
+        // buttons dim and brighten the light.
+        private static void Move()
         {
             var light = Current;
-            if (light == null || !CameraTools.freecamActive)
+            var freecam = CameraTools.freecam;
+            if (light == null || freecam == null || !CameraTools.freecamActive || move is not { } start)
             {
-                moveStart = null;
+                EndMove(false);
                 return;
             }
             var now = Gamepad.Current;
             var before = Gamepad.Previous;
             bool pad = Controls.Owner == InputOwner.CameraTools;
-            if (Time.frameCount == moveFrame)
-                return;
-            if (pad && PadA.Pressed(now, before) || Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
+            if (Time.frameCount != start.Frame)
             {
-                moveStart = null;
-                Changed();
-                CameraUi.Toast($"Light {Active + 1} placed");
-                CameraUi.OpenPanel();
-                return;
+                if (pad && PadA.Pressed(now, before) || Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
+                {
+                    EndMove(true);
+                    return;
+                }
+                if (pad && PadB.Pressed(now, before) || Input.GetKeyDown(KeyCode.Escape))
+                {
+                    EndMove(false);
+                    return;
+                }
             }
-            if (pad && PadB.Pressed(now, before) || Input.GetKeyDown(KeyCode.Escape))
+            float step = Time.unscaledDeltaTime;
+            if (light.Kind == LightKind.Spot)
             {
-                light.Local = moveStart.Value;
-                moveStart = null;
-                CameraUi.Toast("Move cancelled");
-                CameraUi.OpenPanel();
-                return;
+                float widen = (pad && PadWider.Held(now) || Input.GetKey(KeyWider) ? 1f : 0f)
+                    - (pad && PadNarrower.Held(now) || Input.GetKey(KeyNarrower) ? 1f : 0f);
+                light.SpotAngle = Math.Clamp(light.SpotAngle + widen * SpotAngleRate * step, LightSetup.MinSpotAngle, LightSetup.MaxSpotAngle);
+                // A wider cone widens the view until it fits; the FOV buttons change the view as they do in the free camera.
+                if (widen > 0f)
+                    CameraTools.settings.Fov.Value = MoveFov(light, CameraTools.settings.Fov.Value);
             }
-            if (!camera || Place(light) is not { } world || FrameOf(light.Follow) is not { } frame)
-                return;
-            float step = MoveSpeed * Time.unscaledDeltaTime;
-            float turn = TurnSpeed * Time.unscaledDeltaTime;
-            float forward = (pad ? now.LeftY : 0f) + Controls.Value(CamAction.Forward) - Controls.Value(CamAction.Back);
-            float sideways = (pad ? now.LeftX : 0f) + Controls.Value(CamAction.Right) - Controls.Value(CamAction.Left);
-            float rise = (pad ? now.Axis(PadAxis.RT) - now.Axis(PadAxis.LT) : 0f) + Controls.Value(CamAction.Up) - Controls.Value(CamAction.Down);
-            float yaw = pad ? now.RightX : 0f, pitch = pad ? -now.RightY : 0f;
-            if (Freecam.Focused)
-            {
-                yaw += Input.GetAxis("Mouse X");
-                pitch -= Input.GetAxis("Mouse Y");
-            }
-            var view = camera.transform;
-            var ahead = Flat(view.forward);
-            var right = Flat(view.right);
-            var position = world.Position + (ahead * forward + right * sideways) * step + NumericsVector3.UnitY * rise * step;
-            var angles = world.Rotation.ToUnity().eulerAngles;
-            float pitchNow = angles.x > 180f ? angles.x - 360f : angles.x;
-            var rotation = Quaternion.Euler(Math.Clamp(pitchNow + pitch * turn, -MaxPitch, MaxPitch), angles.y + yaw * turn, 0f);
-            light.Local = frame.ToLocal(new Pose(position, rotation.ToNumerics()));
+            float brighten = Held(CamAction.RollRight) - Held(CamAction.RollLeft);
+            light.Intensity = Math.Clamp(light.Intensity + brighten * IntensityRate * step, 0f, light.IntensityLimit);
+            var (position, rotation, _) = freecam.Pose;
+            var at = position.ToNumerics();
+            var turn = rotation.ToNumerics();
+            if (light.Kind == LightKind.Sphere)
+                at += NumericsVector3.Transform(NumericsVector3.UnitZ, turn) * PlaceAhead;
+            if (FrameOf(light.Follow) is { } frame)
+                light.Local = frame.ToLocal(new Pose(at, turn));
         }
 
-        private static NumericsVector3 Flat(Vector3 direction)
-        {
-            var flat = new NumericsVector3(direction.x, 0f, direction.z);
-            return flat.LengthSquared() > 0f ? NumericsVector3.Normalize(flat) : NumericsVector3.Zero;
-        }
+        private static float Held(CamAction action) => Controls.Held(action) ? 1f : 0f;
 
         private static void ApplyGameLights()
         {

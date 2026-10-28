@@ -309,29 +309,77 @@ namespace CameraTools
             }
         }
 
-        // The legends while the sticks move a light, in place of the free camera's.
+        // Move light: a spot's cone over the scene, the camera's middle, the light's settings and place at the bottom left, and
+        // legends for the free camera's controls that fly it, in place of the free camera's.
         private static void BuildMove(Builder ui, Live target, Transform root)
         {
             var move = Node("Move", root);
             Fill(move);
             target.Move = new Fader(move, V(0f, 0f), Style.HudFade);
-            var pad = HintRow(move, "Pad", TextAnchor.MiddleRight);
-            Pin(pad, 1f, 0f, -Style.Margin, Style.Margin, LegendWidth, Style.HintHeight);
-            ui.GlyphHint(pad, PadButtons.L3, "Move");
-            ui.GlyphHint(pad, PadButtons.R3, "Aim");
-            ui.GlyphHint(pad, PadButtons.LT, "Lower");
-            ui.GlyphHint(pad, PadButtons.RT, "Raise");
-            ui.PadHint(pad, PadA, "Done");
-            ui.PadHint(pad, PadB, "Cancel");
-            var keys = HintRow(move, "Keys", TextAnchor.MiddleRight);
-            Pin(keys, 1f, 0f, -Style.Margin, Style.Margin, LegendWidth, Style.HintHeight);
-            ui.KeysHint(keys, BoundKeys(CamAction.Forward, CamAction.Left, CamAction.Back, CamAction.Right), "Move");
-            ui.KeyHint(keys, Controls.Binding(CamAction.Down).Key, "Lower");
-            ui.KeyHint(keys, Controls.Binding(CamAction.Up).Key, "Raise");
-            ui.KeyHint(keys, KeyCode.Return, "Done");
-            ui.KeyHint(keys, KeyCode.Escape, "Cancel");
+
+            var cone = Node("Cone", move);
+            Fill(cone);
+            target.ConeHole = Centered(Picture(cone, "Hole", Shapes.Hole, Style.ConeShade).rectTransform, 0f);
+            target.ConeShade = new[] { "Top", "Bottom", "Left", "Right" }
+                .Select(name => Centered(Picture(cone, name, null, Style.ConeShade).rectTransform, 0f))
+                .ToArray();
+            target.ConeOuter = Enumerable.Range(0, Style.ConePieces)
+                .Select(_ => Centered(Picture(cone, "Outer", null, Style.Cream).rectTransform, Style.ConeRingWidth))
+                .ToArray();
+            target.ConeInner = Enumerable.Range(0, Style.ConeDashes)
+                .Select(_ => Centered(Picture(cone, "Inner", null, Style.ConeInner).rectTransform, Style.ConeInnerWidth))
+                .ToArray();
+            target.ConeAngle = ui.Label(cone, "Angle", "", Style.ValueSize, Style.Text, TextAnchor.MiddleLeft);
+            Place(target.ConeAngle.rectTransform, V(0.5f, 0.5f), V(0.5f, 0.5f), V(0f, 0f), V(0f, 0f), V(Style.ConeLabelWidth, Style.HintHeight));
+            DropShadow(target.ConeAngle, Style.TextShadow);
+            target.Cone = cone.gameObject;
+            var middle = Picture(move, "Middle", Shapes.FocusCross, Style.White).rectTransform;
+            Pin(middle, 0.5f, 0.5f, 0f, 0f, Shapes.FocusCross.Width, Shapes.FocusCross.Height);
+
+            var readout = Node("Readout", move);
+            Pin(readout, 0f, 0f, Style.Margin, Style.Margin + Style.HintHeight + Style.MoveDepthGap, LegendWidth, Style.HintHeight);
+            Flow(readout.gameObject, Style.ReadoutGap, TextAnchor.MiddleLeft);
+            target.MoveName = ui.Label(readout, "Light", "", Style.HintSize, Style.Text, TextAnchor.MiddleLeft);
+            target.MoveValues = ui.Label(readout, "Values", "", Style.ValueSize, Style.Dim, TextAnchor.MiddleLeft);
+            target.MoveDepth = ui.Label(move, "Depth", "", Style.ValueSize, Style.Text, TextAnchor.MiddleLeft);
+            Pin(target.MoveDepth.rectTransform, 0f, 0f, Style.Margin, Style.Margin, LegendWidth, Style.HintHeight);
+            foreach (var label in new[] { target.MoveName, target.MoveValues })
+                label.rectTransform.sizeDelta = V(0f, Style.HintHeight);
+            foreach (var label in new[] { target.MoveName, target.MoveValues, target.MoveDepth })
+                DropShadow(label, Style.TextShadow);
+
+            var pad = Node("Pad", move);
+            Fill(pad);
+            var (padTop, padBottom) = LegendRows(pad);
+            ui.GlyphHint(padTop, PadButtons.L3, "Move");
+            ui.GlyphHint(padTop, PadButtons.R3, "Aim");
+            ui.PadHint(padTop, Controls.Binding(CamAction.Down).Pad, "Lower");
+            ui.PadHint(padTop, Controls.Binding(CamAction.Up).Pad, "Raise");
+            var padSpot = ui.PadPairHint(padTop, Lights.PadNarrower, Lights.PadWider, "Spot angle");
+            ui.PadPairHint(padTop, Controls.Binding(CamAction.RollLeft).Pad, Controls.Binding(CamAction.RollRight).Pad, "Intensity");
+            ui.PadHint(padBottom, PadA, "Place");
+            ui.PadHint(padBottom, PadB, "Cancel");
+            var keys = Node("Keys", move);
+            Fill(keys);
+            var (keysTop, keysBottom) = LegendRows(keys);
+            ui.KeysHint(keysTop, BoundKeys(CamAction.Forward, CamAction.Left, CamAction.Back, CamAction.Right), "Move");
+            ui.KeysHint(keysTop, new[] { "Mouse" }, "Aim");
+            ui.KeyHint(keysTop, Controls.Binding(CamAction.Down).Key, "Lower");
+            ui.KeyHint(keysTop, Controls.Binding(CamAction.Up).Key, "Raise");
+            var keysSpot = ui.KeysHint(keysTop, new[] { KeyName(Lights.KeyNarrower), KeyName(Lights.KeyWider) }, "Spot angle");
+            ui.KeysHint(keysTop, BoundKeys(CamAction.RollLeft, CamAction.RollRight), "Intensity");
+            ui.KeyHint(keysBottom, KeyCode.Return, "Place");
+            ui.KeyHint(keysBottom, KeyCode.Escape, "Cancel");
             target.MovePad = pad.gameObject;
             target.MoveKeys = keys.gameObject;
+            target.MoveSpot = new[] { padSpot.Root, keysSpot.Root };
+        }
+
+        // Anchored and pivoted at the canvas's middle, the height given and the width set later.
+        private static RectTransform Centered(RectTransform rect, float height)
+        {
+            Place(rect, V(0.5f, 0.5f), V(0.5f, 0.5f), V(0.5f, 0.5f), V(0f, 0f), V(0f, height));
+            return rect;
         }
 
         // Pose joints: a marker on each of the character's joints, the selected joint's name in a pill beside its marker, its
@@ -1388,6 +1436,8 @@ namespace CameraTools
             }
             RenderTimeline(view, deltaTime);
             live.Move.Update(view == View.Moving, deltaTime);
+            if (live.Move.Visible)
+                RenderMove();
             live.PlayBar.Update(view == View.Playing, deltaTime);
             live.Panel.Update(view == View.Panel, deltaTime);
             var layout = Controls.Layout;
@@ -1506,6 +1556,86 @@ namespace CameraTools
             }
             for (int index = used; index < live.MarkerViews.Count; index++)
                 live.MarkerViews[index].Root.gameObject.SetActive(false);
+        }
+
+        private static void RenderMove()
+        {
+            var camera = Lights.Camera();
+            var cone = camera ? Lights.Cone(camera) : null;
+            bool spot = cone.HasValue;
+            if (live.Cone.activeSelf != spot)
+                live.Cone.SetActive(spot);
+            foreach (var hint in live.MoveSpot)
+            {
+                if (hint.activeSelf != spot)
+                    hint.SetActive(spot);
+            }
+            var area = live.Canvas.rect;
+            if (cone is { } radii)
+            {
+                float half = area.height / 2f;
+                var shown = (radii.Outer * half, radii.Inner * half, area.width, area.height);
+                if (shown != live.ShownCone)
+                {
+                    live.ShownCone = shown;
+                    LayoutCone(shown.Item1, shown.Item2, area.width, area.height);
+                }
+                string angle = $"{radii.Angle:0}°";
+                if (live.ConeAngle.text != angle)
+                    live.ConeAngle.text = angle;
+            }
+            var readout = Lights.MoveReadout;
+            if (readout != live.ShownMove)
+            {
+                live.ShownMove = readout;
+                live.MoveName.text = readout.Name;
+                live.MoveValues.text = readout.Values;
+                live.MoveDepth.text = readout.Depth;
+            }
+        }
+
+        // The shade covers the screen outside the outer ring: the hole's square around the ring, and four bands around that.
+        private static void LayoutCone(float outer, float inner, float width, float height)
+        {
+            live.ConeHole.sizeDelta = V(2f * outer, 2f * outer);
+            float band = height / 2f - outer, side = width / 2f - outer, sideHeight = Math.Min(2f * outer, height);
+            Band(live.ConeShade[0], 0f, outer + band / 2f, width, band);
+            Band(live.ConeShade[1], 0f, -outer - band / 2f, width, band);
+            Band(live.ConeShade[2], -outer - side / 2f, 0f, side, sideHeight);
+            Band(live.ConeShade[3], outer + side / 2f, 0f, side, sideHeight);
+            Ring(live.ConeOuter, outer, 1.04f);
+            bool showInner = inner >= Style.ConeInnerWidth * 2f && inner < outer - Style.ConeRingWidth;
+            foreach (var dash in live.ConeInner)
+                dash.gameObject.SetActive(showInner);
+            if (showInner)
+                Ring(live.ConeInner, inner, Style.ConeDashShare);
+            float corner = outer * MathF.Sqrt(0.5f) + Style.ConeLabelGap;
+            live.ConeAngle.rectTransform.anchoredPosition = V(Math.Min(corner, width / 2f - Style.ConeLabelWidth),
+                Math.Min(corner, height / 2f - Style.TopLegendY - 2f * Style.HintHeight));
+        }
+
+        private static void Band(RectTransform rect, float x, float y, float width, float height)
+        {
+            bool shown = width > 0f && height > 0f;
+            rect.gameObject.SetActive(shown);
+            if (!shown)
+                return;
+            rect.anchoredPosition = V(x, y);
+            rect.sizeDelta = V(width, height);
+        }
+
+        // Each piece is a chord of the circle, Share of its length drawn, turned along the circle.
+        private static void Ring(RectTransform[] pieces, float radius, float share)
+        {
+            float chord = 2f * radius * MathF.Sin(MathF.PI / pieces.Length);
+            for (int i = 0; i < pieces.Length; i++)
+            {
+                float angle = 2f * MathF.PI * (i + 0.5f) / pieces.Length;
+                var piece = pieces[i];
+                piece.anchoredPosition = V(radius * MathF.Cos(angle), radius * MathF.Sin(angle));
+                piece.sizeDelta = V(chord * share, piece.sizeDelta.y);
+                piece.localRotation = Quaternion.Euler(0f, 0f, angle * 180f / MathF.PI + 90f);
+            }
         }
 
         // Each joint's marker where it is on screen; a joint off screen or behind the camera has none.
@@ -1996,6 +2126,18 @@ namespace CameraTools
             public Fader Move;
             public GameObject MovePad;
             public GameObject MoveKeys;
+            public GameObject[] MoveSpot;
+            public GameObject Cone;
+            public RectTransform ConeHole;
+            public RectTransform[] ConeShade;
+            public RectTransform[] ConeOuter;
+            public RectTransform[] ConeInner;
+            public Text ConeAngle;
+            public (float Outer, float Inner, float Width, float Height) ShownCone;
+            public Text MoveName;
+            public Text MoveValues;
+            public Text MoveDepth;
+            public (string Name, string Values, string Depth) ShownMove;
             public Fader JointLayer;
             public readonly List<JointMarker> JointMarkers = new();
             public RectTransform JointName;

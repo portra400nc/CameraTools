@@ -195,9 +195,11 @@ namespace CameraTools
             var right = rotation * Vector3.right;
             var up = rotation * Vector3.up;
 
-            if (Controls.Held(CamAction.RollLeft, keyboard))
+            // Move light reads the roll buttons as the light's intensity.
+            bool movingLight = Lights.Moving;
+            if (!movingLight && Controls.Held(CamAction.RollLeft, keyboard))
                 targetRotation.roll += GetSpeed(settings.RollSpeed.Value);
-            if (Controls.Held(CamAction.RollRight, keyboard))
+            if (!movingLight && Controls.Held(CamAction.RollRight, keyboard))
                 targetRotation.roll -= GetSpeed(settings.RollSpeed.Value);
             if (Controls.Held(CamAction.ResetRoll, keyboard))
                 targetRotation.roll = 0;

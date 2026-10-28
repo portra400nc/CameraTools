@@ -709,6 +709,16 @@ namespace CameraTools
 
         public HintView GlyphHint(Transform parent, PadButtons button, string label) => Hint(parent, rect => Glyph(rect, button), label);
 
+        // Two bindings for one label, such as the buttons that narrow and widen a spot. Two arms of the D-pad share one glyph,
+        // since two D-pad glyphs side by side are hard to tell apart.
+        public HintView PadPairHint(Transform parent, PadBinding first, PadBinding second, string label)
+            => GlyphButton(first) is var one && GlyphButton(second) is var two && one != PadButtons.None && two != PadButtons.None
+                && one != two && HasGlyph(one | two)
+                ? GlyphHint(parent, one | two, label)
+                : PadMark(first) is { } a && PadMark(second) is { } b
+                ? Hint(parent, rect => { a(rect); b(rect); }, label)
+                : Hint(parent, null, $"{first} {second}  {label}");
+
         public HintView KeyHint(Transform parent, KeyCode key, string label) => Hint(parent, rect => Keycap(rect, KeyName(key)), label);
 
         // Several keys for one label, such as the four that bend and turn a joint, or a cap that names the mouse. A "+"

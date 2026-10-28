@@ -55,6 +55,8 @@ namespace CameraTools
         public static readonly Shape Knob = Solid("Knob", 20f, 20f, 0f, Circle(10f, 10f, 10f), Style.Light);
         // A marker's ring or dot, which takes its colour from its tint.
         public static readonly Shape Disc = Solid("Disc", 20f, 20f, 0f, Circle(10f, 10f, 10f), Style.White);
+        // A square with a round hole: the shade around Move light's cone.
+        public static readonly Shape Hole = Solid("Hole", 64f, 64f, 0f, Subtract(Box(0f, 0f, 64f, 64f, 0f), Circle(32f, 32f, 32f)), Style.White);
         public static readonly Shape Check = Solid("Check", 10f, 10f, 0f, Union(Line(1.6f, 5.3f, 4.1f, 7.7f, 0.9f), Line(4.1f, 7.7f, 8.5f, 2.5f, 0.9f)), Style.White);
         public static readonly Shape Cross = Solid("Cross", 10f, 10f, 0f, Union(Line(2.3f, 2.3f, 7.7f, 7.7f, 0.85f), Line(7.7f, 2.3f, 2.3f, 7.7f, 0.85f)), Style.White);
         public static readonly Shape Plus = Solid("Plus", 10f, 10f, 0f, Union(Box(1f, 4f, 8f, 2f, 0.3f), Box(4f, 1f, 2f, 8f, 0.3f)), Style.White);
@@ -108,7 +110,7 @@ namespace CameraTools
         public static readonly Shape[] All =
         {
             Face, Bumper, Trigger, Menu, View, DpadUp, DpadDown, DpadLeft, DpadRight, DpadSides, DpadUpDown, Key, Toast, Pill, Bar,
-            FovTrack, SwitchOff, SwitchOn, Knob, Disc, Check, Cross, Plus, Minus, Handle, TimelineNode, TimelineGlow, Arrow, Back, Chevron, FoldOpen, FoldClosed, StepLeft, StepRight, Button,
+            FovTrack, SwitchOff, SwitchOn, Knob, Disc, Hole, Check, Cross, Plus, Minus, Handle, TimelineNode, TimelineGlow, Arrow, Back, Chevron, FoldOpen, FoldClosed, StepLeft, StepRight, Button,
             PanelFill, PanelShadow, FocusWindow, FocusCross, HueRail, TemperatureRail, GitHub,
         };
 
