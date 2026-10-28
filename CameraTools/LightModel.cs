@@ -57,6 +57,8 @@ namespace CameraTools
         public LightKind Kind { get; set; }
         public LightReach Reach { get; set; }
         public LightFollow Follow { get; set; }
+        // An off light keeps its place and settings but lights nothing.
+        public bool On { get; set; } = true;
         public Pose Local { get; set; } = new(Vector3.Zero, Quaternion.Identity);
         public float Intensity { get; set; } = 2f;
         public float Range { get; set; } = 8f;

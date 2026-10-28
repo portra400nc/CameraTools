@@ -290,6 +290,7 @@ namespace CameraTools
         {
             new Section("Lights"),
             new StepperRow("Light", () => Lights.All.Count, () => Lights.Active, Lights.Select, () => Lights.LightNote),
+            new ToggleRow("Light on", () => Lights.Current?.On ?? false, on => Lights.Edit(light => light.On = on)) { Shown = () => Lights.HasLight },
             new ActionRow("New light", Lights.Add, "Create"),
             new ActionRow("Delete light", Lights.Delete, "Delete", () => Lights.HasLight, Confirm: () => $"delete light {Lights.Active + 1}"),
             new ToggleRow("Show light markers", () => Lights.Markers, Lights.SetMarkers),

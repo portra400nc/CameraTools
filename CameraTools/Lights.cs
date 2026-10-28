@@ -88,10 +88,10 @@ namespace CameraTools
         // ReLight's ambient level: below 1 dims the game's own light, so the spheres take over.
         public static float Ambient { get; private set; } = 1f;
 
-        public static bool HasSpheres => All.Exists(light => light.Kind == LightKind.Sphere);
+        public static bool HasSpheres => All.Exists(light => light.On && light.Kind == LightKind.Sphere);
 
         // A spot that casts shadows is showing.
-        public static bool NeedsShadows => Shown && All.Exists(light => light.CastsShadows);
+        public static bool NeedsShadows => Shown && All.Exists(light => light.On && light.CastsShadows);
 
         // While spheres show, ReShade's effects stay on, after a screenshot too.
         public static bool KeepsEffectsOn => Shown && HasSpheres;
@@ -146,7 +146,7 @@ namespace CameraTools
                     LightFollow.Character => "follows the character",
                     _ => "fixed",
                 };
-                return $"{KindNames[(int)light.Kind]} · {reach} · {follow}";
+                return $"{(light.On ? "" : "Off · ")}{KindNames[(int)light.Kind]} · {reach} · {follow}";
             }
         }
 
@@ -397,7 +397,7 @@ namespace CameraTools
                     placed.Add(Shown ? Place(light) : null);
                 ApplyGameLights();
                 ApplySpheres(camera);
-                int sun = All.FindIndex(light => light.SunShading);
+                int sun = All.FindIndex(light => light.SunShading && light.On);
                 var color = sun >= 0 ? All[sun].Color : default;
                 CharacterSun.Update(sun >= 0 ? placed[sun]?.Position.ToUnity() : null, new Color(color.X, color.Y, color.Z, 1f));
                 if (changedAt is float at && Time.unscaledTime - at >= SaveDelay)
@@ -500,7 +500,7 @@ namespace CameraTools
             {
                 var game = gameLights[i];
                 var light = i < All.Count ? All[i] : null;
-                if (light == null || light.Kind == LightKind.Sphere || placed[i] is not { } pose)
+                if (light is not { On: true } || light.Kind == LightKind.Sphere || placed[i] is not { } pose)
                 {
                     Destroy(game);
                     continue;
@@ -617,7 +617,7 @@ namespace CameraTools
             for (int i = 0; i < All.Count; i++)
             {
                 var light = All[i];
-                if (light.Kind != LightKind.Sphere || placed[i] is not { } pose)
+                if (!light.On || light.Kind != LightKind.Sphere || placed[i] is not { } pose)
                     continue;
                 if (i == Active)
                     selected = spheres.Count;
@@ -650,6 +650,7 @@ namespace CameraTools
             Kind = light.Kind,
             Reach = light.Reach,
             Follow = light.Follow,
+            On = light.On,
             Position = new[] { light.Local.Position.X, light.Local.Position.Y, light.Local.Position.Z },
             Rotation = new[] { light.Local.Rotation.X, light.Local.Rotation.Y, light.Local.Rotation.Z, light.Local.Rotation.W },
             Intensity = light.Intensity,
@@ -670,6 +671,7 @@ namespace CameraTools
             Kind = file.Kind,
             Reach = file.Reach,
             Follow = file.Follow,
+            On = file.On,
             Local = new Pose(new NumericsVector3(file.Position[0], file.Position[1], file.Position[2]),
                 NumericsQuaternion.Normalize(new NumericsQuaternion(file.Rotation[0], file.Rotation[1], file.Rotation[2], file.Rotation[3]))),
             Intensity = file.Intensity,
@@ -699,6 +701,8 @@ namespace CameraTools
             public LightKind Kind { get; set; }
             public LightReach Reach { get; set; }
             public LightFollow Follow { get; set; }
+            // Files from before the switch have no On, and their lights were all on.
+            public bool On { get; set; } = true;
             public float[] Position { get; set; }
             public float[] Rotation { get; set; }
             public float Intensity { get; set; }

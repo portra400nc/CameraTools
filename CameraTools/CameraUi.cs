@@ -1543,8 +1543,9 @@ namespace CameraTools
                 marker.Root.anchorMin = anchor;
                 marker.Root.anchorMax = anchor;
                 marker.Root.anchoredPosition = V(0f, 0f);
-                var color = Lights.All[index].Color;
-                marker.Dot.color = new Color(color.X, color.Y, color.Z, 1f);
+                var light = Lights.All[index];
+                var color = light.Color;
+                marker.Dot.color = light.On ? new Color(color.X, color.Y, color.Z, 1f) : Style.Dim;
                 marker.Ring.color = index == Lights.Active ? Style.Cream : Style.MarkerRing;
                 marker.SetNumber(index + 1);
                 marker.Aim.gameObject.SetActive(aim.HasValue);
