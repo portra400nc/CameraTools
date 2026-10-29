@@ -27,6 +27,7 @@
 //   DOF_NEAR:       dof_load_source, float4 dof_sample_near_mask(float2 at, float lod) (dof_near_mask's, bilinear between
 //                   its levels), dof_load_dilated (the post-filter's, with the far
 //                   sprites)
+//   DOF_SOFTEN:     dof_load_scene
 //   DOF_COMPOSITE:  dof_load_scene, dof_load_depth, dof_load_far, dof_load_near (the post-filter's, with the sprites),
 //                   float4 dof_load_near_layer(int2 pixel), float2 dof_load_near_cover(int2 pixel) (dof_near_layer's)
 //   and every pass but DOF_FOCUS: float2 dof_load_focus()   the focus distance in meters and the frame's mean luminance,
@@ -954,6 +955,31 @@ float3 dof_sprite_light(DofSprite s, int2 p)
     float scale = dof_swirl_density(ndc, shape) * saturate(reach - d + 0.5f);
     float3 w = dof_weights(r, d, scale, behind ? dof_bokeh.x : -dof_bokeh.x, behind ? dof_bokeh.y : dof_bokeh.z) * dof_cat_eye_cuts(u, r, ndc, shape);
     return float3(min(s.light.x * w.x, kDofSpriteMostAdded), min(s.light.y * w.y, kDofSpriteMostAdded), min(s.light.z * w.z, kDofSpriteMostAdded));
+}
+#endif
+
+#ifdef DOF_SOFTEN
+// The farthest a lens softness's Gaussian reaches, in pixels: three of its sigmas, at most this many.
+static const int kDofSoftReach = 6;
+
+// A full-size pixel through the lens softness: the scene under a Gaussian of dof_eye.z pixels.
+float3 dof_soften(int2 pixel)
+{
+    float sigma = dof_eye.z;
+    int reach = min(int(ceil(3.0f * sigma)), kDofSoftReach);
+    float k = -0.5f / (sigma * sigma);
+    float3 sum = float3(0.0f, 0.0f, 0.0f);
+    float weight = 0.0f;
+    LOOP for (int y = -reach; y <= reach; y++)
+    {
+        LOOP for (int x = -reach; x <= reach; x++)
+        {
+            float w = exp(float(x * x + y * y) * k);
+            sum = sum + dof_load_scene(int2(pixel.x + x, pixel.y + y)) * w;
+            weight = weight + w;
+        }
+    }
+    return sum / weight;
 }
 #endif
 

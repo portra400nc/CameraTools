@@ -403,6 +403,35 @@ int main(int argc, char **argv)
             least > 0.999f && most < 1.001f);
     }
     {
+        // The lens softness on a point of light in focus: a sigma of 1.35 pixels of a 2160-row picture is one of 0.5 pixel in
+        // this 800-row one, out to 2 pixels, so the point keeps 1 / 1.6163 of its light and each side neighbor
+        // e^-2 of that. The depth of field on or off draws it alike, and the light stays as much.
+        Scene point(10);
+        point.put(640, 400, 1, 10);
+        DepthOfFieldSettings soft = lens_at(2.8f, 10, 0);
+        soft.softness = 1.35f;
+        const DofOutput blurred = render(point, soft);
+        const float center = 1 / 1.616309f, side = center * std::exp(-2.0f);
+        check("the lens softness spreads a point in focus as a Gaussian of sigma 0.5 pixel at 800 rows: 0.6187 at the point, 0.0837 beside it",
+            near(point.green(blurred, 640, 400), center, 0.002f) && near(point.green(blurred, 641, 400), side, 0.001f)
+                && near(point.green(blurred, 640, 399), side, 0.001f) && point.green(blurred, 643, 400) == 0);
+        soft.enabled = false;
+        const DofOutput alone = render(point, soft);
+        check("with the depth of field off it draws the same, and keeps the light within 0.1%",
+            near(point.green(alone, 640, 400), center, 0.002f) && near(point.green(alone, 641, 400), side, 0.001f)
+                && std::fabs(sum_green(alone) - 1) < 0.001);
+        const Camera camera = point.camera;
+        DepthOfFieldSettings lens = lens_at(16, 10, 0);
+        const float at16 = dof_constants(lens, camera, { 1280, 2160 }, true, 0, 0)->eye[2];
+        lens.f_number = 8;
+        const float at8 = dof_constants(lens, camera, { 1280, 2160 }, true, 0, 0)->eye[2];
+        lens.f_number = 16;
+        lens.enabled = false;
+        const float off16 = dof_constants(lens, camera, { 1280, 2160 }, true, 0, 0)->eye[2];
+        check("diffraction adds a sigma of 0.3 pixel at f/16 in a 2160-row picture while the depth of field is on, none at f/8 or while it is off",
+            near(at16, 0.3f, 1e-6f) && at8 == 0 && off16 == 0);
+    }
+    {
         Scene edge(30);
         for (uint32_t y = 200; y < 600; y++)
             for (uint32_t x = 400; x < 800; x++)

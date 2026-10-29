@@ -163,6 +163,8 @@ namespace enhancements
         DofPlace place = DofPlace::scene;
         float eye_distance = 0;                 // meters to an eye's surface under focus_point as the caller reckons it; 0: no eye
         float eye_size = 0.015f;                // the eye's window's width in meters
+        float softness = 0;                     // the lens softness's sigma in pixels of a 2160-row picture; 0: off. Runs also
+                                                // while enabled is false, which then means no blur
     };
 
     // Every value in range: non-finite floats take the default, the rest clamp, and 1 to 4 blades read as 5.

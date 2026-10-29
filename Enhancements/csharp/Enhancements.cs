@@ -228,6 +228,13 @@ namespace CameraToolsEnhancements
         public float Highlights;            // the same for the highlights
     }
 
+    // EnhancementsLensSoftness in enhancements.h, field for field.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct EnhancementsLensSoftness
+    {
+        public float Radius;                // a Gaussian's sigma in pixels of a picture 2160 pixels tall; 0 is off
+    }
+
     // EnhancementsSettings in enhancements.h, field for field.
     [StructLayout(LayoutKind.Sequential)]
     internal struct EnhancementsSettings
@@ -249,6 +256,7 @@ namespace CameraToolsEnhancements
         public EnhancementsLensFlare LensFlare;
         public EnhancementsAmbientColor AmbientColor;
         public EnhancementsTones Tones;
+        public EnhancementsLensSoftness LensSoftness;
 
         // The add-on's defaults: everything off, game targets upside down, and when switched on ambient level 0.6, AO
         // strength 0.5 at a 1 m radius, half that strength on grass, vegetation and foliage, full-strength contact
@@ -267,7 +275,7 @@ namespace CameraToolsEnhancements
         // above twice the frame's mean luminance as sprites, growing small lamps at gain 2, with the bokeh contrast off
         // and no eye, whose window would be 15 mm wide, and a lens flare from the sun at full strength with half its glare and
         // filled arcs, at the lens's own size and orange, that follows the sun's visibility over 0.15 s. The ambient light keeps
-        // the game's color, and the tone map leaves the shadows and highlights alone.
+        // the game's color, the tone map leaves the shadows and highlights alone, and the lens softness is off.
         public static EnhancementsSettings Defaults => new()
         {
             Size = (uint)Marshal.SizeOf<EnhancementsSettings>(),
@@ -452,7 +460,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 19;
+        private const uint Version = 20;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

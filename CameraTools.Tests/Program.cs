@@ -42,9 +42,10 @@ Check("the binding's status is enhancements.h's 168 bytes, with the restarts at 
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceLight)) == 128 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceRestarts)) == 132
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceRestartReason)) == 136 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.ShotActive)) == 140
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.FramesSaved)) == 144 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.DofFocusMeters)) == 148);
-Check("the binding's shot is 16 bytes, its settings 412 with the depth of field at 236 and its highlights at 68, scatter at 76, bokeh contrast at 80, place at 84 and the eye at 88 in it, the lens flare at 332 and 68 bytes long, the ambient color at 400 and the tones at 404, and its scene request 20",
-    Marshal.SizeOf<EnhancementsShot>() == 16 && Offset<EnhancementsShot>(nameof(EnhancementsShot.BudgetMs)) == 12 && Marshal.SizeOf<EnhancementsSettings>() == 412
+Check("the binding's shot is 16 bytes, its settings 416 with the depth of field at 236 and its highlights at 68, scatter at 76, bokeh contrast at 80, place at 84 and the eye at 88 in it, the lens flare at 332 and 68 bytes long, the ambient color at 400, the tones at 404 and the lens softness at 412, and its scene request 20",
+    Marshal.SizeOf<EnhancementsShot>() == 16 && Offset<EnhancementsShot>(nameof(EnhancementsShot.BudgetMs)) == 12 && Marshal.SizeOf<EnhancementsSettings>() == 416
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.AmbientColor)) == 400 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Tones)) == 404
+    && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.LensSoftness)) == 412
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.LensFlare)) == 332 && Marshal.SizeOf<EnhancementsLensFlare>() == 68
     && (uint)EnhancementsFlareSource.Manual == 1
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.DepthOfField)) == 236 && Marshal.SizeOf<EnhancementsDepthOfField>() == 96
@@ -196,9 +197,9 @@ var fresh = EnhancementValues.Defaults;
 var outside = new LensView(false, 1.6f, 1, ShotStage.None);
 var inside = new LensView(true, 1.6f, 1, ShotStage.None);
 EnhancementsSettings Settings(EnhancementValues values) => EnhancementsModel.Settings(values, outside);
-Check("the table holds 76 fields, each at its own id's place, with the master switch and eight effects' switches, and 20 of the depth of field",
-    EnhancementsModel.Fields.Length == 76 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
-    && EnhancementsModel.Fields.Count(field => field.Lens) == 20
+Check("the table holds 77 fields, each at its own id's place, with the master switch and eight effects' switches, and 21 of the depth of field",
+    EnhancementsModel.Fields.Length == 77 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
+    && EnhancementsModel.Fields.Count(field => field.Lens) == 21
     && string.Join(",", EnhancementsModel.Effects.Select(field => field.Label)) == "Ambient light,Contact shadows,Soft sun shadows,Haze,Light shafts,Wet surfaces,Tone map,Lens flare");
 {
     var off = Settings(fresh);
@@ -291,7 +292,7 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
         text.StartsWith("Enabled=0;AmbientLight=0;AmbientLevel=0.6;AmbientColor=1;AmbientOcclusion=0.5;AmbientOcclusionRadius=1;") && text.Contains(";Haze=1;HazeDensity=2.5;")
         && text.Contains(";ToneMap=0;ToneMapCurve=1;ToneMapExposure=0;ToneMapBloom=1;ToneMapSaturation=1;ToneMapContrast=1;ToneMapShadows=0;ToneMapHighlights=0;LensFlare=0;LensFlareSource=0;")
         && text.Contains(";LensFlareWarmth=0.5;LensFlareRedFringe=1;LensFlareTexture=1;DepthOfField=0;")
-        && text.EndsWith(";HighlightDiscs=0;HighlightBoost=2;HighlightThreshold=2;BokehContrast=0")
+        && text.EndsWith(";HighlightDiscs=0;HighlightBoost=2;HighlightThreshold=2;BokehContrast=0;LensSoftness=0")
         && EnhancementsModel.Parse(text, skipped).Equals(fresh.With(Enhancement.Haze, 1f).With(Enhancement.HazeDensity, 2.5f)) && skipped.Count == 0);
     var partial = EnhancementsModel.Parse("Haze=1; nonsense; Fog=3; HazeDensity=x; ToneMapBloom=0", skipped);
     Check("a text that leaves fields out takes their defaults, and names what is no field's",
@@ -363,6 +364,11 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
         && EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfField, 1f), inside with { Shot = ShotStage.Capture }).Place == EnhancementsDofPlace.Display
         && EnhancementsModel.Settings(fresh.With(Enhancement.DepthOfField, 1f), inside with { Shot = ShotStage.Capture }).DepthOfField is { Enabled: 1, Place: EnhancementsDofPlace.Display });
     Check("outside the free camera the depth of field does not run", EnhancementsModel.DepthOfField(fresh.With(Enhancement.DepthOfField, 1f), outside).Enabled == 0);
+    var softened = fresh.With(Enhancement.LensSoftness, 0.8f);
+    Check("the lens softness sends its radius in the free camera, with the depth of field and the master switch off, which the add-on's switch then holds on with every effect off",
+        EnhancementsModel.Settings(softened, inside) is { Enabled: 1, LensSoftness.Radius: 0.8f, DepthOfField.Enabled: 0, Ambient.Enabled: 0, Tonemap.Enabled: 0, LensFlare.Enabled: 0 });
+    Check("outside the free camera the lens softness is off too, and the add-on's switch with it",
+        EnhancementsModel.Settings(softened, outside) is { Enabled: 0, LensSoftness.Radius: 0f });
 
     var manual = fresh.With(Enhancement.DepthOfFieldFocusMode, EnhancementsModel.ManualFocus).With(Enhancement.DepthOfFieldFocusDistance, 3.5f);
     Check("Manual distance focuses at the Focus distance in meters, and Focus point at 0, the add-on's autofocus",

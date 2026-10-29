@@ -291,6 +291,7 @@ namespace CameraTools
                 Shown = () => Current.Offers(Id.FarBlur),
             }),
             Mine(OwnSlider(Enhancement.DepthOfFieldMaxBlur)),
+            Mine(OwnSlider(Enhancement.LensSoftness, OffAt(Enhancement.LensSoftness, 0f))),
             Theirs(new SliderRow("Tilt", -15f, 15f, 0.5f, "0.0'°'", () => Value(Id.TiltAngle), tilt => Repaint(Id.TiltAngle, tilt),
                 Display: tilt => tilt == 0f ? "Off" : tilt.ToString("0.0'°'"), Enabled: Has(Id.TiltAngle))
             {

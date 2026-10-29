@@ -19,7 +19,7 @@ namespace enhancements
         bool wetness_wanted(const Settings &s) { return s.wetness.enabled; }
         bool light_shafts_wanted(const Settings &s) { return s.light_shafts.enabled; }
         bool trace_wanted(const Settings &s) { return s.trace.enabled; }
-        bool depth_of_field_wanted(const Settings &s) { return s.depth_of_field.enabled; }
+        bool depth_of_field_wanted(const Settings &s) { return s.depth_of_field.enabled || s.depth_of_field.softness > 0; }
         bool lens_flare_wanted(const Settings &s) { return s.flare.enabled; }
 
         float finite_or(float value, float fallback, float low, float high)
@@ -47,8 +47,8 @@ namespace enhancements
         static_assert(ENHANCEMENTS_ERROR_STATE == 4);
         // Callers built before foliage_ao_strength send 32 bytes, those before contact shadows 36, those before their
         // foliage_strength 52, those before atmosphere 56, those before tonemap 76, those before sun shadows 100, those
-        // before light shafts 132, those before the trace 172, those before the gather 212, those before the depth of field 236, those before its highlights 304, those before its scatter 312, those before its bokeh contrast 316, those before its place 320, those before its eye 324, those before the lens flare 332, those before the ambient color 400, those before the tones 404. Version 6 dropped the leaves blocks, which moved wetness from 128 to 116, so a binding of
-        // version 5 must not call EnhancementsApply; csharp/Enhancements.cs checks the version and marshals 412.
+        // before light shafts 132, those before the trace 172, those before the gather 212, those before the depth of field 236, those before its highlights 304, those before its scatter 312, those before its bokeh contrast 316, those before its place 320, those before its eye 324, those before the lens flare 332, those before the ambient color 400, those before the tones 404, those before the lens softness 412. Version 6 dropped the leaves blocks, which moved wetness from 128 to 116, so a binding of
+        // version 5 must not call EnhancementsApply; csharp/Enhancements.cs checks the version and marshals 416.
         static_assert(offsetof(EnhancementsSettings, ambient) + offsetof(EnhancementsAmbient, foliage_ao_strength) == 32
             && offsetof(EnhancementsSettings, contact_shadows) == 36
             && offsetof(EnhancementsSettings, contact_shadows) + offsetof(EnhancementsContactShadows, foliage_strength) == 52
@@ -59,7 +59,8 @@ namespace enhancements
             && offsetof(EnhancementsDepthOfField, scatter) == 76 && offsetof(EnhancementsDepthOfField, bokeh_contrast) == 80
             && offsetof(EnhancementsDepthOfField, place) == 84 && offsetof(EnhancementsDepthOfField, eye_distance) == 88
             && offsetof(EnhancementsSettings, lens_flare) == 332
-            && offsetof(EnhancementsSettings, ambient_color) == 400 && offsetof(EnhancementsSettings, tones) == 404 && sizeof(EnhancementsSettings) == 412);
+            && offsetof(EnhancementsSettings, ambient_color) == 400 && offsetof(EnhancementsSettings, tones) == 404
+            && offsetof(EnhancementsSettings, lens_softness) == 412 && sizeof(EnhancementsSettings) == 416);
         static_assert(ENHANCEMENTS_FLARE_SOURCE_MANUAL == static_cast<int>(FlareSource::manual)
             && ENHANCEMENTS_FLARE_SOURCE_COUNT == static_cast<int>(FlareSource::count));
         static_assert(ENHANCEMENTS_FLARE_PLACE_DISPLAY == static_cast<int>(FlarePlace::display)
@@ -434,6 +435,11 @@ namespace enhancements
             s.tonemap.shadows = finite_or(raw.tones.shadows, tonemap_defaults.shadows, -1.0f, 1.0f);
             s.tonemap.highlights = finite_or(raw.tones.highlights, tonemap_defaults.highlights, -1.0f, 1.0f);
         }
+        if (knows(offsetof(EnhancementsSettings, lens_softness), sizeof raw.lens_softness))
+        {
+            s.depth_of_field.softness = raw.lens_softness.radius;
+            s.depth_of_field = clamp_depth_of_field(s.depth_of_field);
+        }
         return s;
     }
 
@@ -465,6 +471,7 @@ namespace enhancements
         s.place = d.place;
         s.eye_distance = finite_or(d.eye_distance, defaults.eye_distance, 0.0f, 10000.0f);
         s.eye_size = finite_or(d.eye_size, defaults.eye_size, 0.005f, 0.1f);
+        s.softness = finite_or(d.softness, defaults.softness, 0.0f, 4.0f);
         return s;
     }
 

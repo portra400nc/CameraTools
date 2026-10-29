@@ -135,6 +135,7 @@ namespace enhancements::shader
 #define DOF_NEAR
 #define DOF_NEAR_MASK
 #define DOF_COMPOSITE
+#define DOF_SOFTEN
 #define LOOP
 #define UNROLL
 #include "../shaders/dof.hlsli"
@@ -425,6 +426,11 @@ namespace enhancements
             c.eye[0] = s.eye_distance;
             c.eye[1] = window / (kDofEyeGrid - 1);
         }
+        // The lens softness as a Gaussian of its sigma in this render's pixels, with the aperture's diffraction past f/8 while
+        // the depth of field is on: its Airy disc grows with the f-number, as wide as kDofDiffraction at f/16.
+        const float diffraction = s.enabled ? kDofDiffraction * std::max(0.0f, (s.f_number - 8) / 8) : 0;
+        c.eye[2] = (s.softness + diffraction) * render.height / kDofSoftnessRows;
+        c.eye[3] = s.enabled ? 1.0f : 0.0f;
         return c;
     }
 
@@ -539,13 +545,43 @@ namespace enhancements
         }
     }
 
-    DofOutput render_dof(const DofImage &image, const DofConstants &c, float previous_focus)
+    DofOutput render_dof(const DofImage &original, const DofConstants &c, float previous_focus)
     {
         using namespace shader;
         DofTextures t;
-        t.scene = &image;
+        t.scene = &original;
         set_constants(c);
         textures = &t;
+        // dof_soften_ps.hlsl into an R16F target, which the rest of the chain reads; alone while the depth of field is off.
+        DofImage softened;
+        if (c.eye[2] > 0)
+        {
+            softened.size = original.size;
+            softened.depth = original.depth;
+            softened.rgb.resize(original.rgb.size());
+            const uint32_t width = original.size.width;
+            draw(width, original.size.height, c, t, [&softened, width](uint32_t x, uint32_t y) {
+                const float3 v = dof_soften(int2(int(x), int(y)));
+                float *o = &softened.rgb[(size_t(y) * width + x) * 3];
+                o[0] = half_stored(v.x);
+                o[1] = half_stored(v.y);
+                o[2] = half_stored(v.z);
+            });
+            set_constants(c);
+            textures = &t;
+            if (!(c.eye[3] > 0))
+            {
+                DofOutput out;
+                out.focus = dof_focus_pass(previous_focus).x;
+                out.rgb = softened.rgb;
+                for (const float v : out.rgb)
+                    out.nonfinite += std::isfinite(v) ? 0 : 1;
+                textures = nullptr;
+                return out;
+            }
+            t.scene = &softened;
+        }
+        const DofImage &image = *t.scene;
         t.focus = dof_focus_pass(previous_focus);
         const uint2 half = { c.sizes[0], c.sizes[1] }, tiles = { c.sizes[2], c.sizes[3] };
         t.source.emplace_back(size_t(half.x) * half.y);

@@ -118,7 +118,8 @@ namespace enhancements
         float display[4];   // on the display: the main depth's size, 1 when its rows run up the screen, 1 when the back buffer holds
                             // sRGB-encoded values (0: linear); all 0 in the scene
         float eye[4];       // the eye's surface as the caller reckons it, in meters along the view axis (0: no eye), and the pixels
-                            // between its window's samples
+                            // between its window's samples; the lens softness's sigma in render pixels (0: off), and 1 when the
+                            // depth of field blurs (0: the lens softness alone)
     };
     static_assert(sizeof(DofConstants) == 208);
 
@@ -127,6 +128,10 @@ namespace enhancements
     constexpr uint32_t kDofEyeGrid = 9;
     constexpr float kDofEyeLeastWindow = 4;
     constexpr float kDofEyeWindowShare = 0.125f;
+
+    // The picture height the lens softness's sigma is given for, and the sigma diffraction adds at f/16 there.
+    constexpr float kDofSoftnessRows = 2160;
+    constexpr float kDofDiffraction = 0.3f;
 
     // Pixels a tile holds along each side of the half-size picture; shaders/dof.hlsli's tiles say the same.
     constexpr uint32_t kDofTile = 8;

@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 19
+#define ENHANCEMENTS_VERSION 20
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -472,6 +472,16 @@ typedef struct EnhancementsTones
     float highlights;           // the same for the highlights; default 0, clamped to -1..1
 } EnhancementsTones;
 
+// Lens softness: every pixel spread a little, the in-focus ones too, as a real lens and sensor never draw an edge on one
+// pixel. It runs at the depth of field's place, first in its chain, so the depth of field blurs the softened scene, and
+// alone while the depth of field is off. With the depth of field on, apertures past f/8 add their diffraction to it.
+// Version 20 added it.
+typedef struct EnhancementsLensSoftness
+{
+    float radius;               // the spread, a Gaussian's sigma in pixels of a picture 2160 pixels tall, scaled to the render
+                                // height; 0 (the default) is off; clamped to 0..4
+} EnhancementsLensSoftness;
+
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller
 // knows, and fields past it keep their defaults.
 typedef struct EnhancementsSettings
@@ -494,6 +504,7 @@ typedef struct EnhancementsSettings
     EnhancementsLensFlare lens_flare;
     EnhancementsAmbientColor ambient_color;
     EnhancementsTones tones;
+    EnhancementsLensSoftness lens_softness;
 } EnhancementsSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and

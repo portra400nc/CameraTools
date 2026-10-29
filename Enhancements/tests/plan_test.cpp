@@ -746,7 +746,7 @@ int main()
         check("a label stops at 32 glyphs", encode_label(std::string(40, 'z')).length == 32);
     }
     {
-        FrameReport report = FrameReport::start(parse_settings(EnhancementsSettings { sizeof(EnhancementsSettings), 0, 0, 1, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {} }));
+        FrameReport report = FrameReport::start(parse_settings(EnhancementsSettings { sizeof(EnhancementsSettings), 0, 0, 1, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {} }));
         check("disabled: describe says off", describe(report) == "off");
         report.error = ENHANCEMENTS_ERROR_SHADER;
         check("disabled by an error: describe says which", describe(report) == "off; error shader");
@@ -1195,13 +1195,27 @@ int main()
         EnhancementsSettings raw = raw_settings();
         raw.depth_of_field = { 1, 1.4f, 36, 3, { 0.25f, 0.75f }, 0.5f, 0.05f, 7, 0.2f, 15, 1, 0.6f, 0.3f, 1.33f, 1, 256, 3, 1.5f, 1, 0.75f, 1, 0.42f, 0.02f };
         const DepthOfFieldSettings whole = parse_settings(raw).depth_of_field;
-        check("a whole 412-byte struct reads the depth of field: on, f/1.4 on a 36 mm sensor focused at 3 m, its point, speed, blur, 7 blades, "
+        check("a whole 416-byte struct reads the depth of field: on, f/1.4 on a 36 mm sensor focused at 3 m, its point, speed, blur, 7 blades, "
               "highlights from 3 times the mean at gain 1.5, scatter, bokeh contrast 0.75, on the display, an eye 0.42 m away in a 0.02 m window, and the rest",
-            sizeof raw == 412 && whole.eye_distance == 0.42f && whole.eye_size == 0.02f && whole.place == DofPlace::display && whole.scatter && whole.bokeh_contrast == 0.75f && whole.enabled && whole.f_number == 1.4f && whole.sensor_height_mm == 36 && whole.focus_distance == 3
+            sizeof raw == 416 && whole.eye_distance == 0.42f && whole.eye_size == 0.02f && whole.place == DofPlace::display && whole.scatter && whole.bokeh_contrast == 0.75f && whole.enabled && whole.f_number == 1.4f && whole.sensor_height_mm == 36 && whole.focus_distance == 3
                 && whole.focus_point[0] == 0.25f && whole.focus_point[1] == 0.75f && whole.focus_seconds == 0.5f && whole.max_blur == 0.05f
                 && whole.blades == 7 && whole.blade_roundness == 0.2f && whole.blade_rotation == 15 && whole.spherical_aberration == 1
                 && whole.cat_eye == 0.6f && whole.swirl == 0.3f && whole.anamorphic == 1.33f && whole.chromatic == 1 && whole.samples == 256
                 && whole.highlight_threshold == 3 && whole.highlight_gain == 1.5f);
+        raw.lens_softness = { 0.8f };
+        check("the lens softness reads its radius, and a 412-byte struct of version 19 keeps it off",
+            parse_settings(raw).depth_of_field.softness == 0.8f && (raw.size = 412, parse_settings(raw).depth_of_field.softness == 0));
+        raw.size = sizeof raw;
+        raw.lens_softness = { 9 };
+        check("the lens softness clamps 9 to 4, and a NaN to off", parse_settings(raw).depth_of_field.softness == 4
+            && (raw.lens_softness = { NAN }, parse_settings(raw).depth_of_field.softness == 0));
+        raw.lens_softness = { 0.5f };
+        raw.depth_of_field.enabled = 0;
+        check("the lens softness alone wants the depth of field's pass, which then does not blur",
+            !parse_settings(raw).depth_of_field.enabled && kPasses[7].wanted(parse_settings(raw))
+            && (raw.lens_softness = { 0 }, !kPasses[7].wanted(parse_settings(raw))));
+        raw.depth_of_field.enabled = 1;
+        raw.lens_softness = { 0 };
         raw.size = 324;     // a caller of version 15
         const DepthOfFieldSettings fifteen = parse_settings(raw).depth_of_field;
         check("a 324-byte struct reads the place but has no eye, and a window of 0.015 m", fifteen.place == DofPlace::display && fifteen.eye_distance == 0
@@ -1305,7 +1319,7 @@ int main()
     }
     {
         check("disabled settings want no step", wanted_steps(view_only(ENHANCEMENTS_VIEW_HDR_SCENE)).bits != 0
-            && wanted_steps(parse_settings(EnhancementsSettings { sizeof(EnhancementsSettings), 0, ENHANCEMENTS_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 8 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 2 }, { 1, 1, 1, 1, 1, 1 }, { 1, 2, 24, 0, { 0.5f, 0.5f }, 0, 0.03f, 0, 0, 0, 0, 0, 0, 1, 0, 49, 2, 2, 1, 1, 0, 0, 0.015f }, {}, {}, {} })).empty());
+            && wanted_steps(parse_settings(EnhancementsSettings { sizeof(EnhancementsSettings), 0, ENHANCEMENTS_VIEW_HDR_SCENE, 1, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1 }, { 1, 1, 0, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 8 }, { 1, 1, 1, 1, 1, 1, 1, 1, 1, 2 }, { 1, 1, 1, 1, 1, 1 }, { 1, 2, 24, 0, { 0.5f, 0.5f }, 0, 0.03f, 0, 0, 0, 0, 0, 0, 1, 0, 49, 2, 2, 1, 1, 0, 0, 0.015f }, {}, {}, {}, {} })).empty());
     }
     {
         // A traced shot over the applied settings.
@@ -1343,12 +1357,12 @@ int main()
             && (shot = { sizeof shot, 0, 64, 100 }, !with_shot(on, parse_shot(&shot)).trace.enabled));
         // The status as a caller of each version reads it: it gets the bytes of its own size.
         check("the status is 168 bytes: the restarts at 132, in a version 9 caller's padding, their reason at 136, the shot at 140, the saved frames "
-              "at 144, the focus at 148, the flare's visibility at 152 and the DNG's id, in a version 17 caller's padding, its state and failure at 156, 160 and 164, and the shot is 16, and the DNG's camera is 36 with its date at 16, in version 19",
+              "at 144, the focus at 148, the flare's visibility at 152 and the DNG's id, in a version 17 caller's padding, its state and failure at 156, 160 and 164, and the shot is 16, and the DNG's camera is 36 with its date at 16, in version 20",
             sizeof(EnhancementsStatus) == 168 && offsetof(EnhancementsStatus, dng_id) == 156 && offsetof(EnhancementsStatus, dng_state) == 160
             && offsetof(EnhancementsStatus, dng_failure) == 164 && offsetof(EnhancementsStatus, flare_visibility) == 152 && offsetof(EnhancementsStatus, trace_light) == 128 && offsetof(EnhancementsStatus, trace_restarts) == 132
             && offsetof(EnhancementsStatus, trace_restart_reason) == 136 && offsetof(EnhancementsStatus, shot_active) == 140
             && offsetof(EnhancementsStatus, frames_saved) == 144 && offsetof(EnhancementsStatus, dof_focus_meters) == 148 && sizeof(EnhancementsShot) == 16
-            && sizeof(EnhancementsDngInfo) == 36 && offsetof(EnhancementsDngInfo, date_time) == 16 && ENHANCEMENTS_VERSION == 19);
+            && sizeof(EnhancementsDngInfo) == 36 && offsetof(EnhancementsDngInfo, date_time) == 16 && ENHANCEMENTS_VERSION == 20);
     }
     {
         // Unity's GL.GetGPUProjectionMatrix for a 60 degree, 16:10 camera with near 0.1 and far 1000, reversed Z.

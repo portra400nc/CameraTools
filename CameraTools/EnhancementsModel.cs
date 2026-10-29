@@ -22,6 +22,7 @@ namespace CameraTools
         DepthOfField, DepthOfFieldFocusMode, DepthOfFieldFocusSpeed, DepthOfFieldFocusDistance, DepthOfFieldAperture, DepthOfFieldFocusX, DepthOfFieldFocusY, DepthOfFieldMaxBlur,
         BokehShape, BladeRoundness, BladeRotation, SoapBubble, BokehChromaticAberration, CatsEye, Swirl, AnamorphicRatio,
         HighlightDiscs, HighlightBoost, HighlightThreshold, BokehContrast,
+        LensSoftness,
     }
 
     public enum EnhancementKind { Switch, Slider, Choice }
@@ -255,6 +256,7 @@ namespace CameraTools
             Slider(Enhancement.HighlightBoost, Enhancement.DepthOfField, "Highlight boost", 0f, 4f, 2f, 0.1f, 1),
             Slider(Enhancement.HighlightThreshold, Enhancement.DepthOfField, "Highlight threshold", 1.5f, 4f, 2f, 0.1f, 1, "x average"),
             Slider(Enhancement.BokehContrast, Enhancement.DepthOfField, "Bokeh contrast", 0f, 1f, 0f, 0.05f, 2),
+            Slider(Enhancement.LensSoftness, Enhancement.DepthOfField, "Lens softness", 0f, 1.5f, 0f, 0.1f, 1, " px"),
         };
 
         public static readonly EnhancementField[] Effects = Fields.Where(field => field.IsEffect).ToArray();
@@ -313,7 +315,9 @@ namespace CameraTools
             settings.Trace.Enabled = 0;
             settings.Gather.Enabled = 0;
             settings.DepthOfField = DepthOfField(values, lens);
-            if (settings.Enabled == 0 && settings.DepthOfField.Enabled != 0)
+            // The lens softness is the lens's, so it holds with the depth of field switched off, while the free camera is on.
+            settings.LensSoftness.Radius = lens.FreeCamera ? values[Enhancement.LensSoftness] : 0f;
+            if (settings.Enabled == 0 && (settings.DepthOfField.Enabled != 0 || settings.LensSoftness.Radius > 0f))
             {
                 settings.Enabled = 1;
                 settings.Ambient.Enabled = 0;
