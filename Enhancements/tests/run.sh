@@ -100,6 +100,19 @@ if [ -n "$frames" ] && [ -f "$railing/frame.tsv" ]; then
 else
     echo "SKIP the railing's post: no .work/dof/frames/frame-20261029-143455"
 fi
+# The meadow, frame-20261029-172626: a flower close to a 77 mm lens at f/1.2 focused on Furina's eye, over a background far
+# behind focus, through the display place at 4K with the user's lens. Inside the flower's blur, neighbors may differ by at
+# most 6 levels: what it hides was filled from the background's sharp texels, so its translucent edge showed the
+# background's detail in a ragged rim, 13.7 levels a step, up against its own blur just outside.
+meadow=$frames/frame-20261029-172626
+if [ -n "$frames" ] && [ -f "$meadow/frame.tsv" ]; then
+    RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$meadow" "$out/meadow.png" f=1.2 mm=77 focus=0 x=0.73 y=0.27 max_blur=0.02 sa=0.5 chromatic=1 \
+        cat_eye=0.7 scatter=1 gain=4 threshold=1.5 samples=289 roundness=0.1 display=1 upscale=3 crop=1950,1350,450,450 near_steps=2 most_steps=6 \
+        > "$out/meadow.txt" || { cat "$out/meadow.txt"; echo "FAIL the meadow's flower shows a ragged rim inside its blur"; exit 1; }
+    echo "PASS the meadow's flower blurs into the background behind it with no ragged rim"
+else
+    echo "SKIP the meadow's flower: no .work/dof/frames/frame-20261029-172626"
+fi
 # The harbor, frame-20261024-134128, written as a DNG with frame_dng's test EXIF: byte for byte the prototype's compressed
 # file (.work/dng/lightroom-test/harbor-exif.dng, the layout the user opened in Lightroom on 2026-10-29), which sips must
 # decode at the frame's size.

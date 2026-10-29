@@ -33,8 +33,8 @@ namespace enhancements::shader
         std::vector<float2> near_cover;
         std::vector<float2> cover;
         // The lifted source's levels (dof_lift), and the gather's far field's, which the post-filter reads.
-        std::vector<std::vector<float4>> lifted, far_levels, near_mask;
-        std::vector<uint2> lifted_sizes, far_sizes, near_mask_sizes;
+        std::vector<std::vector<float4>> lifted, far_levels, near_mask, behind;
+        std::vector<uint2> lifted_sizes, far_sizes, near_mask_sizes, behind_sizes;
         // The display place's ends: the back buffer's values, rgb a pixel and alpha 1, and the main depth as stored, at
         // dof_display's size; then dof_display_in's color and the composite's, at the back buffer's.
         const std::vector<float> *back = nullptr, *main_depth = nullptr;
@@ -101,6 +101,7 @@ namespace enhancements::shader
     float4 dof_sample_source(float2 position, float lod) { return sample_levels(textures->source, textures->source_sizes, position, lod); }
     float4 dof_sample_near_mask(float2 position, float lod) { return sample_levels(textures->near_mask, textures->near_mask_sizes, position, lod); }
     float4 dof_sample_lifted(float2 position, float lod) { return sample_levels(textures->lifted, textures->lifted_sizes, position, lod); }
+    float4 dof_sample_behind(float2 position, float lod) { return sample_levels(textures->behind, textures->behind_sizes, position, lod); }
     float2 dof_load_tile(int2 t) { return textures->tiles[at(t, tile_size())]; }
     float2 dof_load_dilated(int2 t) { return textures->dilated[at(t, tile_size())]; }
     float4 dof_load_far(int2 p) { return textures->far[at(p, half_size())]; }
@@ -127,6 +128,7 @@ namespace enhancements::shader
 #define DOF_PREFILTER
 #define DOF_SCATTER
 #define DOF_LIFT
+#define DOF_BEHIND
 #define DOF_TILES
 #define DOF_DILATE
 #define DOF_GATHER
@@ -608,6 +610,11 @@ namespace enhancements
             nonfinite += store_half(t.source[0]);
         }
         nonfinite += generate_mips(t.source, t.source_sizes);
+        // dof_behind_ps.hlsl and its mips.
+        t.behind = { std::vector<float4>(t.source[0].size()) };
+        t.behind_sizes = { half };
+        draw(half.x, half.y, c, t, [&t, half](uint32_t x, uint32_t y) { t.behind[0][size_t(y) * half.x + x] = dof_behind(int2(int(x), int(y))); });
+        nonfinite += store_half(t.behind[0]) + generate_mips(t.behind, t.behind_sizes);
         // dof_lift_ps.hlsl and its mips, with the bokeh contrast on.
         if (c.contrast[0] > 0)
         {

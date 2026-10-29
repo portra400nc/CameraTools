@@ -487,7 +487,7 @@ namespace enhancements
         ComPtr<ID3D11ComputeShader> dof_scatter_cs_;
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_,
             tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
-            apply_gather_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_, dof_soften_ps_,
+            apply_gather_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_, dof_soften_ps_, dof_behind_ps_,
             dof_sprite_ps_, dof_lift_ps_, dof_display_in_ps_, dof_display_out_ps_, dof_near_ps_, dof_near_mask_ps_, flare_visibility_ps_, flare_ps_,
             dng_ps_, dng_flare_ps_;
         ComPtr<ID3D11SamplerState> point_, linear_, lit_compare_, wrap_;
@@ -548,6 +548,7 @@ namespace enhancements
         Scratch dof_prefilter_;     // half size, R16G16B16A16_FLOAT: the scene and the green CoC before the scatter
         Scratch dof_source_;        // the same with mips and a UAV of level 0: what the gather reads
         Scratch dof_lifted_;        // half size with mips, R16G16B16A16_FLOAT: the bokeh contrast's lifted source and its luminance
+        Scratch dof_behind_;        // half size with mips, R16G16B16A16_FLOAT: the sources behind focus with weight 1, the rest none
         // core/dof.h's kDofSpriteCap DofSprites of the far field, then as many of the near field, with an SRV of each half;
         // and their two DrawInstancedIndirect argument sets, R32_UINT, which the scatter counts the sprites into.
         ComPtr<ID3D11Buffer> dof_sprites_, dof_args_;

@@ -48,7 +48,7 @@ SHADERS = [
     ("kDofTilesPs", "dof_tiles_ps.hlsl", "ps_5_0"), ("kDofDilatePs", "dof_dilate_ps.hlsl", "ps_5_0"),
     ("kDofGatherPs", "dof_gather_ps.hlsl", "ps_5_0"), ("kDofPostPs", "dof_post_ps.hlsl", "ps_5_0"),
     ("kDofCompositePs", "dof_composite_ps.hlsl", "ps_5_0"), ("kDofSoftenPs", "dof_soften_ps.hlsl", "ps_5_0"), ("kDofNearPs", "dof_near_ps.hlsl", "ps_5_0"), ("kDofNearMaskPs", "dof_near_mask_ps.hlsl", "ps_5_0"), ("kDofScatterCs", "dof_scatter_cs.hlsl", "cs_5_0"),
-    ("kDofLiftPs", "dof_lift_ps.hlsl", "ps_5_0"), ("kDofDisplayInPs", "dof_display_in_ps.hlsl", "ps_5_0"),
+    ("kDofLiftPs", "dof_lift_ps.hlsl", "ps_5_0"), ("kDofBehindPs", "dof_behind_ps.hlsl", "ps_5_0"), ("kDofDisplayInPs", "dof_display_in_ps.hlsl", "ps_5_0"),
     ("kDofDisplayOutPs", "dof_display_out_ps.hlsl", "ps_5_0"),
     ("kFlareVisibilityPs", "flare_visibility_ps.hlsl", "ps_5_0"), ("kFlarePs", "flare_ps.hlsl", "ps_5_0"),
     ("kDofSpriteVs", "dof_sprite_vs.hlsl", "vs_5_0"), ("kDofSpritePs", "dof_sprite_ps.hlsl", "ps_5_0"),

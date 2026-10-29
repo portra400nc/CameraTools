@@ -5,7 +5,7 @@
                                 // kSunShadowsPs, kAtmospherePs, kTonemapPs, kViewPs, kAccumulatePs, kPresentPs, kWetnessPs,
                                 // kShaftsPs, kLightShaftsPs, kApplyTracePs, kGatherAveragePs, kGatherFilterPs, kApplyGatherPs,
                                 // kDofFocusPs, kDofPrefilterPs, kDofTilesPs, kDofDilatePs, kDofGatherPs, kDofPostPs, kDofCompositePs, kDofSoftenPs, kDofNearPs, kDofNearMaskPs,
-                                // kDofScatterCs, kDofSpriteVs, kDofSpritePs, kDofLiftPs, kDngPs, kDngFlarePs (DXBC)
+                                // kDofScatterCs, kDofSpriteVs, kDofSpritePs, kDofLiftPs, kDofBehindPs, kDngPs, kDngFlarePs (DXBC)
 
 #include <algorithm>
 #include <cmath>
@@ -637,6 +637,7 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kDofPostPs, sizeof kDofPostPs, nullptr, &made.dof_post_ps_))
             && SUCCEEDED(device->CreatePixelShader(kDofCompositePs, sizeof kDofCompositePs, nullptr, &made.dof_composite_ps_))
             && SUCCEEDED(device->CreatePixelShader(kDofSoftenPs, sizeof kDofSoftenPs, nullptr, &made.dof_soften_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kDofBehindPs, sizeof kDofBehindPs, nullptr, &made.dof_behind_ps_))
             && SUCCEEDED(device->CreatePixelShader(kDofNearPs, sizeof kDofNearPs, nullptr, &made.dof_near_ps_))
             && SUCCEEDED(device->CreatePixelShader(kDofNearMaskPs, sizeof kDofNearMaskPs, nullptr, &made.dof_near_mask_ps_))
             && SUCCEEDED(device->CreateComputeShader(kDofScatterCs, sizeof kDofScatterCs, nullptr, &made.dof_scatter_cs_))
@@ -1152,6 +1153,7 @@ namespace enhancements
             && dof_source_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT, true, true) && (!scatter || dof_prefilter_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT))
             && dof_tiles_.sync(d, tiles, DXGI_FORMAT_R16G16_FLOAT) && dof_dilated_.sync(d, tiles, DXGI_FORMAT_R16G16_FLOAT)
             && (!lift || dof_lifted_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT, true))
+            && dof_behind_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT, true)
             && dof_far_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT, lift) && dof_near_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT)
             && dof_far_post_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT) && dof_near_post_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT)
             && dof_cover_.sync(d, half, DXGI_FORMAT_R16G16_FLOAT) && dof_cover_post_.sync(d, half, DXGI_FORMAT_R16G16_FLOAT)
@@ -1213,6 +1215,10 @@ namespace enhancements
             c->CSSetShaderResources(0, 3, no_srvs);
         }
         c->GenerateMips(dof_source_.srv());
+        ID3D11ShaderResourceView *const behind_in[] = { dof_source_.srv() };
+        draw_fullscreen(dof_behind_ps_.Get(), behind_in, 1, dof_behind_.rtv(), half);
+        c->OMSetRenderTargets(0, nullptr, nullptr);
+        c->GenerateMips(dof_behind_.srv());
         if (lift)
         {
             ID3D11ShaderResourceView *const lift_in[] = { dof_source_.srv() };
@@ -1224,9 +1230,10 @@ namespace enhancements
         draw_fullscreen(dof_tiles_ps_.Get(), tiles_in, 2, dof_tiles_.rtv(), tiles);
         ID3D11ShaderResourceView *const dilate_in[] = { dof_tiles_.srv() };
         draw_fullscreen(dof_dilate_ps_.Get(), dilate_in, 1, dof_dilated_.rtv(), tiles);
-        ID3D11ShaderResourceView *const gather_in[] = { dof_source_.srv(), dof_dilated_.srv(), focus.srv(), lift ? dof_lifted_.srv() : nullptr };
+        ID3D11ShaderResourceView *const gather_in[] = { dof_source_.srv(), dof_dilated_.srv(), focus.srv(), lift ? dof_lifted_.srv() : nullptr,
+            dof_behind_.srv() };
         ID3D11RenderTargetView *const fields[] = { dof_far_.rtv(), dof_near_.rtv(), dof_cover_.rtv() };
-        draw_fullscreen(dof_gather_ps_.Get(), gather_in, 4, fields, 3, half);
+        draw_fullscreen(dof_gather_ps_.Get(), gather_in, 5, fields, 3, half);
         c->OMSetRenderTargets(0, nullptr, nullptr);
         if (lift)
             c->GenerateMips(dof_far_.srv());

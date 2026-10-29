@@ -15,9 +15,11 @@
 //                   dof_load_focus
 //   DOF_DILATE:     float2 dof_load_tile(int2 tile)         the tiles' far and near maxima, clamped to the tile count
 //   DOF_LIFT:       dof_load_source, dof_sample_source
+//   DOF_BEHIND:     dof_load_source
 //   DOF_GATHER:     dof_load_source, float4 dof_sample_source(float2 at, float lod), at in half-size pixels (centers at
 //                   .5), bilinear between the prefilter's levels; float4 dof_sample_lifted(float2 at, float lod), the same
-//                   over dof_lift's levels (read only with the bokeh contrast on); float2 dof_load_dilated(int2 tile)
+//                   over dof_lift's levels (read only with the bokeh contrast on); float4 dof_sample_behind(float2 at, float lod),
+//                   the same over dof_behind's levels; float2 dof_load_dilated(int2 tile)
 //   DOF_POST:       float4 dof_load_far(int2 pixel), float4 dof_load_near(int2 pixel), float2 dof_load_cover(int2 pixel), the
 //                   gather's, clamped;
 //                   float4 dof_sample_far(float2 at, float lod), bilinear between the gather's far field's levels (read
@@ -523,6 +525,19 @@ float4 dof_lift(int2 h)
 }
 #endif
 
+#ifdef DOF_BEHIND
+// A half-size source weighted by how far behind focus it lies, its CoC over the largest to the fourth power, premultiplied:
+// a filtered read of the mips averages what lies deepest around a point, the background a nearer surface hides, in which
+// that surface itself, with a disc a few times smaller, all but vanishes. Nothing in front of focus counts.
+float4 dof_behind(int2 h)
+{
+    float4 s = dof_load_source(h);
+    float depth_share = s.w > kDofInFocus ? saturate(s.w / dof_optics.w) : 0.0f;
+    float w = depth_share * depth_share * depth_share * depth_share;
+    return float4(s.x * w, s.y * w, s.z * w, w);
+}
+#endif
+
 #ifdef DOF_TILES
 // A tile's widest disc behind and in front of focus over its 8x8 half-size pixels, capped at the largest radius: of each
 // out-of-focus source, its widest channel's. With chromatic aberration that is not green's in front of focus, nor near it,
@@ -631,6 +646,7 @@ DofFields dof_gather(int2 p)
         float4 at_q = dof_load_source(int2(int(floor(q.x)), int(floor(q.y))));
         float c = at_q.w;
         float3 r = dof_radii(dof_capped_coc(c, lens));
+        float source_radius = r.y;
         // In a disc the spiral finds, the pixel's own texel would be a sample at the center on top of the spiral's,
         // and the pixel's own detail would show through the blur: it is kept aside.
         bool aside = i == count && min(min(r.x, r.y), r.z) >= spacing;
@@ -679,7 +695,15 @@ DofFields dof_gather(int2 p)
         // What shows through a blurred foreground at a pixel in front of focus is taken texel by texel: a filtered
         // sample beside the foreground's silhouette would average its light in, and the background seen through the
         // foreground would brighten inside its outline, a step at the silhouette.
-        float3 color = lift ? float3(lit.x, lit.y, lit.z) : own_near > 0.0f || mixed ? float3(at_q.x, at_q.y, at_q.z) : float3(filtered.x, filtered.y, filtered.z);
+        // A source out of focus behind a pixel in front of focus, or well behind the pixel's own surface out of focus, shows as
+        // blurred as it is: the deepest light averaged over its own disc. Taken texel by texel, a background far behind showed
+        // its sharp detail through a foreground's translucent edge, and darkened a nearer blurred surface's rim with it, which
+        // drew that surface's outline crisp against the background's blur just outside it.
+        bool deeper = c > kDofInFocus && (own_near > 0.0f || (own > kDofInFocus && c > own + max(kDofLayer, kDofLayerShare * own)));
+        float4 deep = deeper ? dof_sample_behind(q, log2(clamp(source_radius, 1.0f, 256.0f))) : float4(0.0f, 0.0f, 0.0f, 0.0f);
+        float3 color = lift ? float3(lit.x, lit.y, lit.z)
+                     : deep.w > 0.0f ? float3(deep.x, deep.y, deep.z) / deep.w
+                     : own_near > 0.0f || mixed ? float3(at_q.x, at_q.y, at_q.z) : float3(filtered.x, filtered.y, filtered.z);
         // What a blurred foreground hides is seen around its edge as a lens sees it, sharp: the nearest visible background
         // stands for it, so it meets the background beside the outline without a seam of blur.
         if (own_near > 0.0f)
