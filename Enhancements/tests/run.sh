@@ -39,9 +39,19 @@ echo "PASS render_flare draws the flare into a 1280x800 PNG"
 # behind with a disc's edge spread, within 5% of its 10-90% width, at 800 and 2160 rows in both places. Over a background
 # 8 m away, at 2160 rows, f/1 and max blur 0.08, it spread 4.0 px of 139.8 while a pixel's own surface in front of focus
 # went into one near field with the edges in front of it. Its profile must also fall all the way: filtered samples of the
-# background beside the silhouette brought the foreground's light in twice, a line 1.8% of the step brighter.
+# background beside the silhouette brought the foreground's light in twice, a line 1.8% of the step brighter. With the
+# edge anti-aliased into a pixel of the background in focus, that pixel kept the foreground's share sharp under the blur,
+# a line 13% of the step brighter tracing the outline; and the background the plane hides took that pixel's blend for
+# the nearest visible background, so the profile fell 4.2 times a disc's steepest in one step along the depth's outline.
 "$out/render_dof" --near-edge-check 0.05 > "$out/near-edge.txt" || { cat "$out/near-edge.txt"; echo "FAIL a blurred foreground's edge does not spread over the background like a disc's"; exit 1; }
-echo "PASS a blurred foreground's edge spreads over a background in focus or in front of it like a disc's, with no line along it"
+echo "PASS a blurred foreground's edge spreads over a background in focus or in front of it like a disc's, with no line or step along it"
+# A subject in focus over a background far out of focus, its outline anti-aliased as the game's SMAA or a supersampled shot
+# leave it: every pixel must come back as it went in, within 1% of the step between the two. The composite took a pixel
+# by its depth alone, so an outline pixel half the subject with the background's depth went into the blur, 48% off, and the
+# outline followed the depth's stair-steps; and the gather's filtered reads and the prefilter averaged the subject's light
+# into the background's blur, a halo up to 6.8% of the step around it.
+"$out/render_dof" --far-edge-check 0.01 0.01 > "$out/far-edge.txt" || { cat "$out/far-edge.txt"; echo "FAIL a subject in focus loses its anti-aliased outline or spreads a halo over the blurred background"; exit 1; }
+echo "PASS a subject in focus keeps its anti-aliased outline over a blurred background, with no halo"
 # The workspace's saved frames (.work/dof/frames in a folder above this one). The night plaza, frame-20261024-145312:
 # rendered at chromatic 1 and f/1.4 focused on the subject and just behind it, with a long lens, every half-float target
 # must stay finite as R16F stores it (render_dof exits 3 otherwise). The portrait through a 202 mm lens,
@@ -76,6 +86,19 @@ if [ -n "$frames" ] && [ -f "$portrait/frame.tsv" ]; then
     echo "PASS the bokeh contrast leaves no step on the gather tiles' edges in the portrait through a 300 mm lens"
 else
     echo "SKIP the portrait's chromatic and seam checks: no .work/dof/frames/frame-20261024-195721"
+fi
+# The railing, frame-20261029-143455: posts close to a 51 mm lens at f/1.2 focused on the castle far behind, through the
+# display place at 4K (the frame upscaled, its color smooth and its depth stair-stepped) with the user's soap bubble 0.5,
+# cat's eye 0.7 and chromatic 1. Inside the second post, neighbors may differ by at most 20 levels: the fill of what the post
+# hides was cut by the cat's eye, and the post's own color showed through its blur in a step of 57 along its outline.
+railing=$frames/frame-20261029-143455
+if [ -n "$frames" ] && [ -f "$railing/frame.tsv" ]; then
+    RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$railing" "$out/railing.png" f=1.2 mm=51 focus=1170 max_blur=0.02 sa=0.5 chromatic=1 cat_eye=0.7 \
+        scatter=1 gain=4 threshold=1.5 samples=289 roundness=0.1 display=1 upscale=3 crop=2550,1360,400,340 near_steps=10 most_steps=20 > "$out/railing.txt" \
+        || { cat "$out/railing.txt"; echo "FAIL the railing's post steps inside its blur"; exit 1; }
+    echo "PASS the railing's post blurs with no step inside its outline"
+else
+    echo "SKIP the railing's post: no .work/dof/frames/frame-20261029-143455"
 fi
 # The harbor, frame-20261024-134128, written as a DNG with frame_dng's test EXIF: byte for byte the prototype's compressed
 # file (.work/dng/lightroom-test/harbor-exif.dng, the layout the user opened in Lightroom on 2026-10-29), which sips must

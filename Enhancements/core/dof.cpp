@@ -98,11 +98,7 @@ namespace enhancements::shader
         }
     }
 
-    float3 dof_sample_source(float2 position, float lod)
-    {
-        const float4 c = sample_levels(textures->source, textures->source_sizes, position, lod);
-        return { c.x, c.y, c.z };
-    }
+    float4 dof_sample_source(float2 position, float lod) { return sample_levels(textures->source, textures->source_sizes, position, lod); }
     float4 dof_sample_near_mask(float2 position, float lod) { return sample_levels(textures->near_mask, textures->near_mask_sizes, position, lod); }
     float4 dof_sample_lifted(float2 position, float lod) { return sample_levels(textures->lifted, textures->lifted_sizes, position, lod); }
     float2 dof_load_tile(int2 t) { return textures->tiles[at(t, tile_size())]; }

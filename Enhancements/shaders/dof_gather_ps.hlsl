@@ -9,7 +9,7 @@ Texture2D<float2> focus : register(t2);     // the autofocus's 1x1: the focus an
 Texture2D<float4> lifted : register(t3);    // dof_lift's, with mips; bound only with the bokeh contrast on
 
 float4 dof_load_source(int2 p) { return source.Load(int3(clamp(p, int2(0, 0), int2(dof_sizes.xy) - 1), 0)); }
-float3 dof_sample_source(float2 at, float lod) { return source.SampleLevel(linear_clamp, at / float2(dof_sizes.xy), lod).rgb; }
+float4 dof_sample_source(float2 at, float lod) { return source.SampleLevel(linear_clamp, at / float2(dof_sizes.xy), lod); }
 float4 dof_sample_lifted(float2 at, float lod) { return lifted.SampleLevel(linear_clamp, at / float2(dof_sizes.xy), lod); }
 float2 dof_load_dilated(int2 t) { return dilated.Load(int3(clamp(t, int2(0, 0), int2(dof_sizes.zw) - 1), 0)); }
 float2 dof_load_focus() { return focus.Load(int3(0, 0, 0)); }

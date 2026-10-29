@@ -15,7 +15,7 @@
 //                   dof_load_focus
 //   DOF_DILATE:     float2 dof_load_tile(int2 tile)         the tiles' far and near maxima, clamped to the tile count
 //   DOF_LIFT:       dof_load_source, dof_sample_source
-//   DOF_GATHER:     dof_load_source, float3 dof_sample_source(float2 at, float lod), at in half-size pixels (centers at
+//   DOF_GATHER:     dof_load_source, float4 dof_sample_source(float2 at, float lod), at in half-size pixels (centers at
 //                   .5), bilinear between the prefilter's levels; float4 dof_sample_lifted(float2 at, float lod), the same
 //                   over dof_lift's levels (read only with the bokeh contrast on); float2 dof_load_dilated(int2 tile)
 //   DOF_POST:       float4 dof_load_far(int2 pixel), float4 dof_load_near(int2 pixel), float2 dof_load_cover(int2 pixel), the
@@ -61,6 +61,10 @@ static const float kDofHiddenFade = 2.0f;
 // The CoC in half-size pixels behind focus from which the post-filter starts averaging a pixel's far field with its
 // neighbors', fully at twice it.
 static const float kDofSmoothFrom = 2.0f;
+// The share by which the mean CoC of a filtered read of the sources may differ from its source's own before the gather
+// takes the source's texel instead: the read averaged in a surface at another depth, whose light would spread with the
+// source's disc, as a subject in focus beside the background would spread over its blur as a halo around it.
+static const float kDofMixed = 0.05f;
 // How much swirl at 1 compresses a disc's radial axis at the picture's corners.
 static const float kDofSwirl = 1.5f;
 static const float3 kDofLuma = float3(0.2126f, 0.7152f, 0.0722f);
@@ -404,15 +408,35 @@ float2 dof_focus_pass(float previous) { return float2(dof_focus_next(previous), 
 
 #ifdef DOF_PREFILTER
 // A half-size pixel: the mean of its 2x2 full-size pixels, and the green CoC of the nearest of them, so a thin foreground does not vanish into the background's
-// CoC.
+// CoC. The mean leaves out a pixel beside one nearer by more than a pixel of CoC while any other remains: an anti-aliased
+// outline blends the nearer surface into it, whose light would spread over the background's blur as a halo around a
+// subject in focus, or, as the background a blurred foreground hides, darken or lighten the inside of its outline in steps.
 float4 dof_prefilter(int2 h)
 {
     int2 p = int2(h.x * 2, h.y * 2);
     float2 lens_key = dof_load_focus();
-    float3 color = (dof_load_scene(p) + dof_load_scene(int2(p.x + 1, p.y)) + dof_load_scene(int2(p.x, p.y + 1)) + dof_load_scene(int2(p.x + 1, p.y + 1))) * 0.25f;
-    float d = max(max(dof_load_depth(p), dof_load_depth(int2(p.x + 1, p.y))), max(dof_load_depth(int2(p.x, p.y + 1)), dof_load_depth(int2(p.x + 1, p.y + 1))));
     float focus = lens_key.x;
-    float coc = dof_coc(dof_inverse_depth(d, dof_depth), focus, dof_frame_lens(focus));
+    DofLens lens = dof_frame_lens(focus);
+    // The full-size CoCs of the 4x4 pixels around the 2x2.
+    float cocs[16];
+    UNROLL for (int i = 0; i < 16; i++)
+        cocs[i] = 2.0f * dof_coc(dof_inverse_depth(dof_load_depth(int2(p.x + i % 4 - 1, p.y + i / 4 - 1)), dof_depth), focus, lens);
+    float3 all = float3(0.0f, 0.0f, 0.0f), kept = float3(0.0f, 0.0f, 0.0f);
+    float count = 0.0f;
+    UNROLL for (int j = 0; j < 4; j++)
+    {
+        int at = (j / 2 + 1) * 4 + j % 2 + 1;
+        bool outline = false;
+        UNROLL for (int k = 0; k < 9; k++)
+            outline = outline || (k != 4 && cocs[at + (k / 3 - 1) * 4 + k % 3 - 1] < cocs[at] - 1.0f);
+        float3 c = dof_load_scene(int2(p.x + j % 2, p.y + j / 2));
+        all = all + c;
+        kept = kept + (outline ? float3(0.0f, 0.0f, 0.0f) : c);
+        count = count + (outline ? 0.0f : 1.0f);
+    }
+    float3 color = count > 0.0f ? kept / count : all * 0.25f;
+    float d = max(max(dof_load_depth(p), dof_load_depth(int2(p.x + 1, p.y))), max(dof_load_depth(int2(p.x, p.y + 1)), dof_load_depth(int2(p.x + 1, p.y + 1))));
+    float coc = dof_coc(dof_inverse_depth(d, dof_depth), focus, lens);
     return float4(color.x, color.y, color.z, clamp(coc, -10000.0f, 10000.0f));
 }
 #endif
@@ -489,7 +513,8 @@ float4 dof_lift(int2 h)
     float4 source = dof_load_source(h);
     float3 c = float3(source.x, source.y, source.z);
     float light = dot(c, kDofLuma);
-    float around = max(dot(dof_sample_source(float2(float(h.x) + 0.5f, float(h.y) + 0.5f), kDofContrastLevel), kDofLuma), 1e-4f);
+    float4 mean = dof_sample_source(float2(float(h.x) + 0.5f, float(h.y) + 0.5f), kDofContrastLevel);
+    float around = max(dot(float3(mean.x, mean.y, mean.z), kDofLuma), 1e-4f);
     float r = min(abs(source.w), dof_optics.w);
     float lift = 1.0f + (pow(clamp(light / (kDofContrastFrom * around), 1.0f, kDofContrastCap), dof_contrast.x) - 1.0f)
         * saturate((r - kDofContrastFade.x) / (kDofContrastFade.y - kDofContrastFade.x));
@@ -624,7 +649,8 @@ DofFields dof_gather(int2 p)
         // background's wide discs would stand in for it, showing through a strand of hair over a face.
         if (beneath && own_near > 0.0f)
         {
-            float hidden = max(own_near, spacing);
+            // As far as the widest channel's disc and a spacing past it, where the foreground's blur starts to let it through.
+            float hidden = max(max(abs(own_c.x), own_near), abs(own_c.z)) + spacing;
             r = float3(hidden, hidden, hidden);
         }
         // Sources in front of the pixel's own surface belong to dof_near_layer's foreground blur.
@@ -633,18 +659,26 @@ DofFields dof_gather(int2 p)
         // Where the pixel lies in the source's disc, y up; a source in front of focus shows the aperture mirrored.
         float2 u = behind ? float2(-o_px.x, -o_px.y * up) : float2(o_px.x, o_px.y * up);
         float2 ndc = float2(q.x / half_size.x * 2.0f - 1.0f, up * (q.y / half_size.y * 2.0f - 1.0f));
-        float d = dof_shape_distance(u, ndc, shape);
+        // What a pixel in front of focus hides is filled in from all around it, whatever the aperture's shape: cut by the
+        // cat's eye or squeezed, the fill stopped short of where the foreground's own blur turns translucent, and there the
+        // pixel showed its own color through it, in a step that followed the half-size texels.
+        bool fill = beneath && own_near > 0.0f;
+        float d = fill ? length(o_px) : dof_shape_distance(u, ndc, shape);
         if (d > max(max(r.x, r.y), r.z) + 0.5f)
             continue;
-        float3 w = dof_weights(r, d, dof_swirl_density(ndc, shape) * area, behind ? dof_bokeh.x : -dof_bokeh.x, behind ? dof_bokeh.y : dof_bokeh.z)
-            * dof_cat_eye_cuts(u, r, ndc, shape);
+        float3 w = fill ? float3(area, area, area)
+                        : dof_weights(r, d, dof_swirl_density(ndc, shape) * area, behind ? dof_bokeh.x : -dof_bokeh.x, behind ? dof_bokeh.y : dof_bokeh.z)
+                            * dof_cat_eye_cuts(u, r, ndc, shape);
         float lod = log2(clamp(min(spacing, r.y), 1.0f, 256.0f));
+        float4 filtered = dof_sample_source(q, lod);
+        bool mixed = abs(filtered.w - c) > kDofMixed * abs(c);
         bool lift = lifted && behind;
-        float4 lit = lift ? dof_sample_lifted(q, lod) : float4(0.0f, 0.0f, 0.0f, 0.0f);
+        float2 lit_at = mixed ? float2(floor(q.x) + 0.5f, floor(q.y) + 0.5f) : q;
+        float4 lit = lift ? dof_sample_lifted(lit_at, mixed ? 0.0f : lod) : float4(0.0f, 0.0f, 0.0f, 0.0f);
         // What shows through a blurred foreground at a pixel in front of focus is taken texel by texel: a filtered
         // sample beside the foreground's silhouette would average its light in, and the background seen through the
         // foreground would brighten inside its outline, a step at the silhouette.
-        float3 color = lift ? float3(lit.x, lit.y, lit.z) : own_near > 0.0f ? float3(at_q.x, at_q.y, at_q.z) : dof_sample_source(q, lod);
+        float3 color = lift ? float3(lit.x, lit.y, lit.z) : own_near > 0.0f || mixed ? float3(at_q.x, at_q.y, at_q.z) : float3(filtered.x, filtered.y, filtered.z);
         // What a blurred foreground hides is seen around its edge as a lens sees it, sharp: the nearest visible background
         // stands for it, so it meets the background beside the outline without a seam of blur.
         if (own_near > 0.0f)
@@ -924,6 +958,74 @@ float3 dof_sprite_light(DofSprite s, int2 p)
 #endif
 
 #ifdef DOF_COMPOSITE
+// What a pixel behind focus shows of a surface in focus beside it. The game's SMAA and a supersampled shot blend an
+// outline's pixels by the share each surface covers, while the depth holds only the surface under the pixel's center: a
+// pixel whose depth lies behind can still be half the subject. Its color then lies between the subject's and the sharp
+// background's, which the blurred background under it stands for, so the share comes back as how far along that line it
+// lies, and the pixel keeps that much of the subject over the blurred background. The subject's color is that of the
+// neighbor in focus farthest from the background, the least blended.
+float3 dof_outline(int2 pixel, float3 sharp, float3 under, float focus, DofLens lens)
+{
+    float3 subject = under;
+    float spread = 0.0f;
+    UNROLL for (int i = 0; i < 9; i++)
+    {
+        int2 q = int2(pixel.x + i % 3 - 1, pixel.y + i / 3 - 1);
+        float coc = 2.0f * dof_coc(dof_inverse_depth(dof_load_depth(q), dof_depth), focus, lens);
+        float3 c = dof_load_scene(q);
+        float3 d = c - under;
+        if (i != 4 && abs(coc) <= 1.0f && dot(d, d) > spread)
+        {
+            subject = c;
+            spread = dot(d, d);
+        }
+    }
+    if (spread <= 0.0f)
+        return under;
+    return under + (subject - under) * saturate(dot(sharp - under, subject - under) / spread);
+}
+
+// What a pixel in focus beside a blurred foreground shows of its own surface. Anti-aliasing blends the foreground into
+// the outline's pixels on the sharp side too, and kept sharp under the foreground's translucent blur, they would trace the
+// outline through it as a line. The pixel's color lies between the foreground's, its neighbor in front of focus farthest
+// from it, and its surface's, its neighbor in focus farthest from the foreground; what it holds of the foreground comes
+// back as how far along that line it lies, and is taken out.
+float3 dof_without_near(int2 pixel, float3 sharp, float focus, DofLens lens)
+{
+    float cocs[9];
+    float3 colors[9];
+    float3 front = sharp;
+    float spread = 0.0f;
+    UNROLL for (int i = 0; i < 9; i++)
+    {
+        int2 q = int2(pixel.x + i % 3 - 1, pixel.y + i / 3 - 1);
+        cocs[i] = 2.0f * dof_coc(dof_inverse_depth(dof_load_depth(q), dof_depth), focus, lens);
+        colors[i] = dof_load_scene(q);
+        float3 d = colors[i] - sharp;
+        if (cocs[i] < -1.0f && dot(d, d) > spread)
+        {
+            front = colors[i];
+            spread = dot(d, d);
+        }
+    }
+    if (spread <= 0.0f)
+        return sharp;
+    float3 surface = sharp;
+    spread = 0.0f;
+    UNROLL for (int j = 0; j < 9; j++)
+    {
+        float3 d = colors[j] - front;
+        if (j != 4 && abs(cocs[j]) <= 1.0f && dot(d, d) > spread)
+        {
+            surface = colors[j];
+            spread = dot(d, d);
+        }
+    }
+    if (spread <= 0.0f)
+        return sharp;
+    return sharp + (surface - front) * saturate(dot(sharp - surface, front - surface) / spread);
+}
+
 // A full-size pixel: its sharp color while its own green CoC is under half a pixel, the far field blended in behind focus
 // above that, the near layer over it by its alpha, as Cinematic DOF's combiner lays it, and the near sprites' light on top.
 // Each of the four half-size texels around the pixel gives its far field or, without one, the mean of those that have it,
@@ -932,7 +1034,8 @@ float3 dof_composite(int2 pixel)
 {
     float3 sharp = dof_load_scene(pixel);
     float focus = dof_load_focus().x;
-    float coc = 2.0f * dof_coc(dof_inverse_depth(dof_load_depth(pixel), dof_depth), focus, dof_frame_lens(focus));
+    DofLens lens = dof_frame_lens(focus);
+    float coc = 2.0f * dof_coc(dof_inverse_depth(dof_load_depth(pixel), dof_depth), focus, lens);
     float2 at = float2((float(pixel.x) + 0.5f) * 0.5f - 0.5f, (float(pixel.y) + 0.5f) * 0.5f - 0.5f);
     int2 base = int2(int(floor(at.x)), int(floor(at.y)));
     float fx = at.x - floor(at.x), fy = at.y - floor(at.y);
@@ -950,7 +1053,7 @@ float3 dof_composite(int2 pixel)
     float t = coc > 0.0f ? saturate(coc - 0.5f) : 0.0f;
     float hidden = saturate((-coc - 1.0f) / kDofHiddenFade);
     float3 pooled = far_weight > 0.0f ? far / far_weight : sharp;
-    float3 color = float3(0.0f, 0.0f, 0.0f);
+    float3 under = float3(0.0f, 0.0f, 0.0f);
     float4 layer = float4(0.0f, 0.0f, 0.0f, 0.0f);
     float2 near_cover = float2(0.0f, 0.0f);
     float3 sprites = float3(0.0f, 0.0f, 0.0f);
@@ -959,16 +1062,20 @@ float3 dof_composite(int2 pixel)
         int2 q = int2(base.x + j % 2, base.y + j / 2);
         float b = (j % 2 == 0 ? 1.0f - fx : fx) * (j / 2 == 0 ? 1.0f - fy : fy);
         float4 f = dof_load_far(q);
-        float3 blurred_under = f.w > 0.0f ? float3(f.x, f.y, f.z) : pooled;
-        // Under a pixel in front of focus lies what it hides, the far field's estimate, which the near plane covers but
-        // for its edge, faded in over its first kDofHiddenFade pixels of CoC: a pixel barely out of focus keeps its own
-        // color there, which its blur hardly differs from; elsewhere the pixel's own color, blurred behind focus.
-        color = color + (coc < 0.0f ? sharp + (blurred_under - sharp) * hidden : sharp + (blurred_under - sharp) * t) * b;
+        under = under + (f.w > 0.0f ? float3(f.x, f.y, f.z) : pooled) * b;
         layer = layer + dof_load_near_layer(q) * b;
         near_cover = near_cover + dof_load_near_cover(q) * b;
         float4 n = dof_load_near(q);
         sprites = sprites + float3(n.x, n.y, n.z) * b;
     }
+    // Under a pixel in front of focus lies what it hides, the far field's estimate, which the near plane covers but for its
+    // edge, faded in over its first kDofHiddenFade pixels of CoC: a pixel barely out of focus keeps its own color there,
+    // which its blur hardly differs from; elsewhere the pixel's own color, blurred behind focus.
+    float3 color = sharp + (under - sharp) * hidden;
+    if (t > 0.0f)
+        color = sharp + (dof_outline(pixel, sharp, under, focus, lens) - sharp) * t;
+    else if (hidden <= 0.0f)
+        color = dof_without_near(pixel, sharp, focus, lens);
     return color * float3(1.0f - near_cover.x, 1.0f - layer.w, 1.0f - near_cover.y) + float3(layer.x, layer.y, layer.z) + sprites;
 }
 #endif

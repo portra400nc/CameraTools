@@ -9,6 +9,7 @@
 //     render_dof --seam-sweep <frames folder> [key=value ...]
 //     render_dof --seam-check <frame folder> <most levels> [key=value ...]
 //     render_dof --near-edge-check <most share off> [key=value ...]
+//     render_dof --far-edge-check <most share off> <most halo> [key=value ...]
 //
 // Keys, the depth of field's settings (enabled; the rest at their defaults): f (f-number), sensor (mm), focus (meters, 0
 // autofocus), x and y (the focus point, 0 to 1 from the top left), focus_seconds, max_blur, blades, roundness, rotation (degrees),
@@ -20,7 +21,10 @@
 // display (1: the display place, as a screenshot runs it after ReShade's effects: the frame through the tone curve into an
 // 8-bit sRGB back buffer, which render_dof_display decodes, blurs and encodes; 0, the default, the scene place in HDR),
 // exposure (0.985, the census's), and crop (x,y,w,h in the picture's pixels from the top left) with zoom (a whole number)
-// to write a magnified part; mm sets the sensor that gives that focal length on the frame's projection where a full-frame
+// to write a magnified part, upscale (a whole number: the frame that many times its size, its color bilinear as anti-aliasing
+// leaves an outline and its depth nearest, as a 4K shot's depth holds its stair-steps), and near_steps (meters) with
+// most_steps (levels): the most two neighbors within the crop, both nearer than near_steps, differ by, which inside a blurred
+// foreground should be small, exiting with 1 past most_steps; mm sets the sensor that gives that focal length on the frame's projection where a full-frame
 // diagonal's readout (sensor 22.95) gives sensor_height / 2 P11. Exits with 3 when a half-float target held infinity or NaN
 // once stored as R16F.
 //
@@ -42,6 +46,9 @@
 //
 // --near-edge-check renders a blurred plane's edge over a background in focus and in front of it (near_edge_at) and exits
 // with 1 when its 10-90% width is off a disc's edge spread by more than the share most.
+//
+// --far-edge-check renders a subject in focus with an anti-aliased outline over a background far out of focus
+// (far_edge_at) and exits with 1 when a pixel along the outline, or the background past it, is off what went in.
 #include "../core/dof.h"
 #include "../core/light.h"
 #include "../core/png.h"
@@ -646,7 +653,9 @@ namespace
     // aberration. A lens spreads the near plane's light over what lies behind by the share of each pixel's disc the plane
     // covers, so across the edge the picture falls from the near gray to the other with a disc's edge spread: from 90% to
     // 10% over 2 kDiscEdge10 times the near plane's CoC radius, whether the background is in focus or a little in front of
-    // it. Measured, linear in both places, along the mean of the middle rows.
+    // it. Measured, linear in both places, along the mean of the middle rows. The edge lies offset pixels right of the
+    // frame's middle: past a whole pixel, the pixel it crosses blends the two grays by the share the plane covers, as the
+    // game's SMAA or a supersampled shot leave an outline, while the depth holds the surface under its center.
     constexpr uint32_t kNearEdgeWidth = 512;
     constexpr float kNearEdgeMeters = 1, kNearEdgeFocus = 10;
     // The distance from a disc's center, over its radius, of the chord that cuts off a tenth of its area.
@@ -654,6 +663,9 @@ namespace
     // The most the edge's profile may rise from one pixel to the next, as a share of the step from the background's gray to
     // the near plane's: R16F's rounding and the gather's noise, which the 32 rows average.
     constexpr float kNearEdgeRise = 0.005f;
+    // How much steeper than a disc's edge spread the profile may fall from one pixel to the next: a disc of radius r falls
+    // by at most 2 / (pi r) a pixel, at its middle.
+    constexpr float kNearEdgeSteep = 1.5f;
 
     struct NearEdge
     {
@@ -661,10 +673,11 @@ namespace
         float expected = 0;     // 10% to 90% width, full-size pixels
         float measured = 0;
         float rise = 0;         // the most the profile rises from one pixel to the next, where it must only fall
+        float steep = 0;        // the most it falls from one pixel to the next, over a disc's steepest fall
         uint32_t nonfinite = 0;
     };
 
-    NearEdge near_edge_at(DepthOfFieldSettings s, uint32_t height, float background, bool display)
+    NearEdge near_edge_at(DepthOfFieldSettings s, uint32_t height, float background, bool display, float offset)
     {
         const uint32_t w = kNearEdgeWidth, h = height;
         const Camera camera = synthetic_camera();
@@ -677,11 +690,12 @@ namespace
         for (uint32_t y = 0; y < h; y++)
             for (uint32_t x = 0; x < w; x++)
             {
-                const bool near = x < w / 2;
-                const float inverse = 1 / (near ? kNearEdgeMeters : background);
+                const float edge = float(w / 2) + offset;
+                const float inverse = 1 / (float(x) + 0.5f < edge ? kNearEdgeMeters : background);
+                const float cover = std::clamp(edge - float(x), 0.0f, 1.0f);
                 image.depth[size_t(y) * w + x] = -((*k)[1] + inverse * (*k)[3]) / ((*k)[0] + inverse * (*k)[2]);
                 for (int c = 0; c < 3; c++)
-                    image.rgb[(size_t(y) * w + x) * 3 + c] = near ? near_gray : far_gray;
+                    image.rgb[(size_t(y) * w + x) * 3 + c] = far_gray + (near_gray - far_gray) * cover;
             }
         s.focus_distance = kNearEdgeFocus;
         s.focus_seconds = 0;
@@ -722,12 +736,16 @@ namespace
         };
         e.measured = crossing(0.1f) - crossing(0.9f);
         for (size_t x = 1; x < profile.size(); x++)
+        {
             e.rise = std::max(e.rise, profile[x] - profile[x - 1]);
+            e.steep = std::max(e.steep, (profile[x - 1] - profile[x]) / (2 / (3.14159265f * e.radius)));
+        }
         return e;
     }
 
     // Exits with 1 when an edge's width is off the disc's by more than the share most, or its profile rises anywhere by more
-    // than kNearEdgeRise of the step (a bright line along the silhouette), over a background in focus or in front of it, at
+    // than kNearEdgeRise of the step (a bright line along the silhouette), or falls steeper than kNearEdgeSteep times a
+    // disc's (a step along it), over a background in focus or in front of it, at
     // the live and the 4K screenshot's sizes, max blur 0.03 and 0.08, capped and not, in both places.
     int near_edge_check(int argc, char **argv)
     {
@@ -746,31 +764,139 @@ namespace
             uint32_t height;
             float max_blur, f_number, background;
             bool display;
+            float offset = 0;
         };
         const Case cases[] = {
             { 800, 0.03f, 2.8f, kNearEdgeFocus, false }, { 800, 0.03f, 2.8f, 8, false }, { 800, 0.08f, 1, 5, true },
             { 2160, 0.03f, 1, 8, false }, { 2160, 0.03f, 2.8f, 5, false }, { 2160, 0.08f, 1, kNearEdgeFocus, true }, { 2160, 0.08f, 1, 8, true },
+            { 2160, 0.03f, 2.8f, kNearEdgeFocus, true, 0.4f }, { 2160, 0.03f, 2.8f, kNearEdgeFocus, true, 0.7f }, { 800, 0.08f, 1, kNearEdgeFocus, true, 0.3f },
         };
         const float most = std::strtof(argv[2], nullptr);
-        float worst = 0, worst_rise = 0;
+        float worst = 0, worst_rise = 0, worst_steep = 0;
         uint32_t nonfinite = 0;
         for (const Case &k : cases)
         {
             DepthOfFieldSettings s = base;
             s.f_number = k.f_number;
             s.max_blur = k.max_blur;
-            const NearEdge e = near_edge_at(s, k.height, k.background, k.display);
+            const NearEdge e = near_edge_at(s, k.height, k.background, k.display, k.offset);
             const float off = std::fabs(e.measured / e.expected - 1);
-            const bool fails = off > most || e.rise > kNearEdgeRise;
+            const bool fails = off > most || e.rise > kNearEdgeRise || e.steep > kNearEdgeSteep;
             worst = std::max(worst, off);
             worst_rise = std::max(worst_rise, e.rise);
+            worst_steep = std::max(worst_steep, e.steep);
             nonfinite += e.nonfinite;
-            std::printf("height %u, max blur %.2f, f/%.1f, background %g m, %s: CoC radius %.1f px, 10-90%% width %.1f px, the disc's %.1f, rising %.4f%s\n", k.height,
-                k.max_blur, k.f_number, k.background, k.display ? "display" : "scene", e.radius, e.measured, e.expected, e.rise, fails ? " FAIL" : "");
+            std::printf("height %u, max blur %.2f, f/%.1f, background %g m, %s, edge +%.1f px: CoC radius %.1f px, 10-90%% width %.1f px, the disc's %.1f, rising %.4f, steepest %.2f of a disc's%s\n", k.height,
+                k.max_blur, k.f_number, k.background, k.display ? "display" : "scene", k.offset, e.radius, e.measured, e.expected, e.rise, e.steep, fails ? " FAIL" : "");
         }
-        std::printf("near edges: worst %.1f%% off the disc's width (at most %.1f%%), rising %.4f (at most %.4f), %u non-finite\n", worst * 100,
-            most * 100, worst_rise, kNearEdgeRise, nonfinite);
-        return worst <= most && worst_rise <= kNearEdgeRise && nonfinite == 0 ? 0 : 1;
+        std::printf("near edges: worst %.1f%% off the disc's width (at most %.1f%%), rising %.4f (at most %.4f), steepest %.2f of a disc's (at most %.2f), %u non-finite\n",
+            worst * 100, most * 100, worst_rise, kNearEdgeRise, worst_steep, kNearEdgeSteep, nonfinite);
+        return worst <= most && worst_rise <= kNearEdgeRise && worst_steep <= kNearEdgeSteep && nonfinite == 0 ? 0 : 1;
+    }
+
+    // The far field's edge: a subject in focus at kFarEdgeFocus meters over the left of a kFarEdgeWidth x height back
+    // buffer, its outline slanted by slope pixels a row, over a flat plane at kFarEdgeBackground meters far out of focus,
+    // both flat gray, through the display place. The back buffer holds the outline anti-aliased, each pixel blending the
+    // two grays by the share of it the subject covers, as the game's SMAA or a supersampled shot leave it, while the depth
+    // holds whichever surface lies under the pixel's center. A lens leaves the subject and its anti-aliased outline as they
+    // are and blurs only the plane behind, which is one gray: so every pixel should come back as it went in. Measured,
+    // linear, as a share of the step between the grays: the most any pixel near the outline is off, and the most any
+    // pixel more than kFarEdgeHalo pixels out from it is off, the subject's light spread over the background.
+    constexpr uint32_t kFarEdgeWidth = 512;
+    constexpr float kFarEdgeFocus = 2, kFarEdgeBackground = 50, kFarEdgeHalo = 1.5f;
+
+    struct FarEdge
+    {
+        float edge = 0;     // the most a pixel within kFarEdgeHalo of the outline is off
+        float halo = 0;     // the most a pixel past it on the background's side is off
+        uint32_t nonfinite = 0;
+    };
+
+    FarEdge far_edge_at(DepthOfFieldSettings s, uint32_t height, float slope)
+    {
+        const uint32_t w = kFarEdgeWidth, h = height;
+        const Camera camera = synthetic_camera();
+        const std::optional<std::array<float, 4>> k = dof_depth_coefficients(camera);
+        const float subject_gray = 1, plane_gray = 0.1f;
+        const auto reversed = [&k](float meters) { return -((*k)[1] + (*k)[3] / meters) / ((*k)[0] + (*k)[2] / meters); };
+        // The outline's x at a height y, in pixels, so the subject covers x < outline(y).
+        const auto outline = [=](float y) { return float(w) / 2 + (y - float(h) / 2) * slope; };
+        std::vector<float> back(size_t(w) * h * 3), depth(size_t(w) * h), cover(size_t(w) * h);
+        for (uint32_t y = 0; y < h; y++)
+            for (uint32_t x = 0; x < w; x++)
+            {
+                const int n = 16;
+                int inside = 0;
+                for (int j = 0; j < n; j++)
+                    for (int i = 0; i < n; i++)
+                        inside += float(x) + (i + 0.5f) / n < outline(float(y) + (j + 0.5f) / n);
+                const size_t p = size_t(y) * w + x;
+                cover[p] = float(inside) / (n * n);
+                depth[p] = reversed(float(x) + 0.5f < outline(float(y) + 0.5f) ? kFarEdgeFocus : kFarEdgeBackground);
+                const float linear = plane_gray + (subject_gray - plane_gray) * cover[p];
+                for (int c = 0; c < 3; c++)
+                    back[p * 3 + c] = std::round(dof_srgb_encode(linear) * 255) / 255;
+            }
+        s.focus_distance = kFarEdgeFocus;
+        s.focus_seconds = 0;
+        s = clamp_depth_of_field(s);
+        const DofConstants c = *dof_display_constants(s, camera, { w, h }, { w, h }, false, DofTransfer::srgb, 0);
+        DofOutput out = render_dof_display(back, depth, c, 0);
+        FarEdge e;
+        e.nonfinite = out.nonfinite;
+        // The rows away from the frame's top and bottom, where the gather clamps.
+        for (uint32_t y = h / 4; y < h - h / 4; y++)
+            for (uint32_t x = 0; x < w; x++)
+            {
+                const size_t p = size_t(y) * w + x;
+                const float stored = dof_srgb_decode(back[p * 3 + 1]);
+                const float off = std::fabs(dof_srgb_decode(out.rgb[p * 3 + 1]) - stored) / (subject_gray - plane_gray);
+                const float past = float(x) + 0.5f - outline(float(y) + 0.5f);
+                if (std::fabs(past) <= kFarEdgeHalo)
+                    e.edge = std::max(e.edge, off);
+                else if (past > 0)
+                    e.halo = std::max(e.halo, off);
+            }
+        return e;
+    }
+
+    // Exits with 1 when a pixel near the outline is off by more than the share most, or one past it by more than the share
+    // halo, at the live and the 4K screenshot's sizes, through a lens wide open and stopped down.
+    int far_edge_check(int argc, char **argv)
+    {
+        DepthOfFieldSettings base;
+        base.enabled = true;
+        base.spherical_aberration = 0;
+        base.samples = 289;
+        const std::string unknown = apply(base, synthetic_camera().view_to_clip[5], 4, argc, argv);
+        if (!unknown.empty())
+        {
+            std::fprintf(stderr, "unknown argument %s\n", unknown.c_str());
+            return 2;
+        }
+        struct Case
+        {
+            uint32_t height;
+            float f_number, slope;
+        };
+        const Case cases[] = { { 800, 1.4f, 0.27f }, { 800, 4, 1.9f }, { 2160, 1.4f, 0.27f }, { 2160, 2.8f, 0.61f } };
+        const float most = std::strtof(argv[2], nullptr), most_halo = std::strtof(argv[3], nullptr);
+        float worst = 0, worst_halo = 0;
+        uint32_t nonfinite = 0;
+        for (const Case &k : cases)
+        {
+            DepthOfFieldSettings s = base;
+            s.f_number = k.f_number;
+            const FarEdge e = far_edge_at(s, k.height, k.slope);
+            worst = std::max(worst, e.edge);
+            worst_halo = std::max(worst_halo, e.halo);
+            nonfinite += e.nonfinite;
+            std::printf("height %u, f/%.1f, slope %.2f: outline off by %.4f, background past it by %.4f%s\n", k.height, k.f_number, k.slope, e.edge,
+                e.halo, e.edge > most || e.halo > most_halo ? " FAIL" : "");
+        }
+        std::printf("far edges: outline off by at most %.4f (at most %.4f), background by %.4f (at most %.4f), %u non-finite\n", worst, most,
+            worst_halo, most_halo, nonfinite);
+        return worst <= most && worst_halo <= most_halo && nonfinite == 0 ? 0 : 1;
     }
 }
 
@@ -788,6 +914,8 @@ int main(int argc, char **argv)
         return seam_check(argc, argv);
     if (argc >= 3 && std::string(argv[1]) == "--near-edge-check")
         return near_edge_check(argc, argv);
+    if (argc >= 4 && std::string(argv[1]) == "--far-edge-check")
+        return far_edge_check(argc, argv);
     if (argc < 3)
     {
         std::fprintf(stderr, "usage: render_dof <frame folder> <out.png> [key=value ...]\n       render_dof --synthetic <frame folder>\n");
@@ -806,7 +934,9 @@ int main(int argc, char **argv)
     bool display = false;
     float exposure = 0.985f;
     int crop[4] = { 0, 0, int(frame->size.width), int(frame->size.height) };
-    int zoom = 1;
+    int zoom = 1, upscale = 1;
+    float near_steps = 0, most_steps = 0;
+    bool steps_failed = false;
     for (int i = 3; i < argc; i++)
     {
         const std::string arg = argv[i];
@@ -822,6 +952,12 @@ int main(int argc, char **argv)
             exposure = std::strtof(value.c_str(), nullptr);
         else if (key == "zoom")
             zoom = std::max(1, std::atoi(value.c_str()));
+        else if (key == "upscale")
+            upscale = std::max(1, std::atoi(value.c_str()));
+        else if (key == "near_steps")
+            near_steps = std::strtof(value.c_str(), nullptr);
+        else if (key == "most_steps")
+            most_steps = std::strtof(value.c_str(), nullptr);
         else if (key == "crop" && std::sscanf(value.c_str(), "%d,%d,%d,%d", &crop[0], &crop[1], &crop[2], &crop[3]) == 4)
             continue;
         else if (!apply(settings, frame->camera.view_to_clip[5], i, i + 1, argv).empty())
@@ -831,8 +967,35 @@ int main(int argc, char **argv)
         }
     }
     settings = clamp_depth_of_field(settings);
-    const DofImage image = image_of(*frame);
-    const uint32_t w = frame->size.width, h = frame->size.height;
+    FrameSave fs = *frame;
+    DofImage image = image_of(*frame);
+    if (upscale > 1)
+    {
+        const uint32_t sw = frame->size.width, sh = frame->size.height, k = uint32_t(upscale);
+        fs.size = { sw * k, sh * k };
+        fs.depth.assign(size_t(sw) * sh * k * k, 0.0f);
+        DofImage big;
+        big.size = fs.size;
+        big.depth.assign(fs.depth.size(), 0.0f);
+        big.rgb.assign(fs.depth.size() * 3, 0.0f);
+        for (uint32_t y = 0; y < sh * k; y++)
+            for (uint32_t x = 0; x < sw * k; x++)
+            {
+                const size_t to = size_t(y) * sw * k + x;
+                fs.depth[to] = big.depth[to] = frame->depth[size_t(y / k) * sw + x / k];
+                const float u = (float(x) + 0.5f) / k - 0.5f, v = (float(y) + 0.5f) / k - 0.5f;
+                const int x0 = std::clamp(int(std::floor(u)), 0, int(sw) - 1), y0 = std::clamp(int(std::floor(v)), 0, int(sh) - 1);
+                const int x1 = std::min(x0 + 1, int(sw) - 1), y1 = std::min(y0 + 1, int(sh) - 1);
+                const float fx = std::clamp(u - std::floor(u), 0.0f, 1.0f), fy = std::clamp(v - std::floor(v), 0.0f, 1.0f);
+                for (int c = 0; c < 3; c++)
+                {
+                    const auto at = [&](int xx, int yy) { return image.rgb[(size_t(yy) * sw + xx) * 3 + c]; };
+                    big.rgb[to * 3 + c] = (at(x0, y0) * (1 - fx) + at(x1, y0) * fx) * (1 - fy) + (at(x0, y1) * (1 - fx) + at(x1, y1) * fx) * fy;
+                }
+            }
+        image = std::move(big);
+    }
+    const uint32_t w = fs.size.width, h = fs.size.height;
     // The display place's back buffer: the frame through the tone curve, quantized to 8 bits, upright.
     std::vector<float> back;
     if (display)
@@ -841,7 +1004,7 @@ int main(int argc, char **argv)
         for (uint32_t y = 0; y < h; y++)
             for (uint32_t x = 0; x < w; x++)
                 for (int c = 0; c < 3; c++)
-                    back[(size_t(y) * w + x) * 3 + c] = std::round(tone(image.rgb[(size_t(frame->flip ? h - 1 - y : y) * w + x) * 3 + c], exposure) * 255) / 255;
+                    back[(size_t(y) * w + x) * 3 + c] = std::round(tone(image.rgb[(size_t(fs.flip ? h - 1 - y : y) * w + x) * 3 + c], exposure) * 255) / 255;
     }
     const auto start = std::chrono::steady_clock::now();
     // What the picture shows, 0 to 1 a channel, upright: the scene place's average through the tone curve, or the display
@@ -852,14 +1015,14 @@ int main(int argc, char **argv)
     for (uint32_t f = first; f < first + frames; f++)
     {
         const std::optional<DofConstants> constants = display
-            ? dof_display_constants(settings, frame->camera, frame->size, frame->size, frame->flip, DofTransfer::srgb, f)
-            : dof_constants(settings, frame->camera, frame->size, frame->flip, 0, f);
+            ? dof_display_constants(settings, fs.camera, fs.size, fs.size, fs.flip, DofTransfer::srgb, f)
+            : dof_constants(settings, fs.camera, fs.size, fs.flip, 0, f);
         if (!constants)
         {
             std::fprintf(stderr, "the frame's projection does not invert\n");
             return 1;
         }
-        const DofOutput out = display ? render_dof_display(back, frame->depth, *constants, focus) : render_dof(image, *constants, focus);
+        const DofOutput out = display ? render_dof_display(back, fs.depth, *constants, focus) : render_dof(image, *constants, focus);
         focus = out.focus;
         luminance = out.luminance;
         sprites[0] = out.sprites[0];
@@ -875,8 +1038,35 @@ int main(int argc, char **argv)
             for (int c = 0; c < 3; c++)
             {
                 const size_t to = (size_t(y) * w + x) * 3 + c;
-                shown[to] = display ? sum[to] : tone(sum[(size_t(frame->flip ? h - 1 - y : y) * w + x) * 3 + c], exposure);
+                shown[to] = display ? sum[to] : tone(sum[(size_t(fs.flip ? h - 1 - y : y) * w + x) * 3 + c], exposure);
             }
+    if (near_steps > 0)
+    {
+        // The most two neighbors within the crop, both nearer than near_steps meters, differ by, in 8-bit levels of green:
+        // inside a blurred foreground nothing jumps.
+        const std::array<float, 4> k = *dof_depth_coefficients(fs.camera);
+        const auto near = [&](uint32_t x, uint32_t y) {
+            return dof_view_depth(k, fs.depth[size_t(fs.flip ? h - 1 - y : y) * w + x]) < near_steps;
+        };
+        float most = 0;
+        uint32_t at[2] = { 0, 0 };
+        for (uint32_t y = uint32_t(crop[1]); y + 1 < std::min(h, uint32_t(crop[1] + crop[3])); y++)
+            for (uint32_t x = uint32_t(crop[0]); x + 1 < std::min(w, uint32_t(crop[0] + crop[2])); x++)
+                if (near(x, y))
+                    for (const auto [nx, ny] : { std::pair(x + 1, y), std::pair(x, y + 1) })
+                        if (near(nx, ny))
+                        {
+                            const float step = std::fabs(shown[(size_t(ny) * w + nx) * 3 + 1] - shown[(size_t(y) * w + x) * 3 + 1]) * 255;
+                            if (step > most)
+                            {
+                                most = step;
+                                at[0] = x;
+                                at[1] = y;
+                            }
+                        }
+        std::printf("inside what lies nearer than %g m, neighbors differ by at most %.1f levels, at %u,%u\n", near_steps, most, at[0], at[1]);
+        steps_failed = most_steps > 0 && most > most_steps;
+    }
     crop[0] = std::clamp(crop[0], 0, int(w) - 1);
     crop[1] = std::clamp(crop[1], 0, int(h) - 1);
     crop[2] = std::clamp(crop[2], 1, int(w) - crop[0]);
@@ -896,5 +1086,5 @@ int main(int argc, char **argv)
         energy += v;
     std::printf("%s: focus %.4f m, mean luminance %.3f, %u far and %u near sprites, energy %.6f a channel, %u non-finite, %u frame%s in %.2f s\n",
         argv[2], focus, luminance, sprites[0], sprites[1], energy / double(sum.size()), nonfinite, frames, frames == 1 ? "" : "s", seconds);
-    return nonfinite == 0 ? 0 : 3;
+    return nonfinite != 0 ? 3 : steps_failed ? 1 : 0;
 }

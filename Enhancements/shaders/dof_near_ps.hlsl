@@ -9,7 +9,7 @@ Texture2D<float2> focus : register(t3);     // the autofocus's 1x1: the focus an
 Texture2D<float4> near_mask : register(t4); // dof_near_mask_ps's, with mips
 
 float4 dof_load_source(int2 p) { return source.Load(int3(clamp(p, int2(0, 0), int2(dof_sizes.xy) - 1), 0)); }
-float3 dof_sample_source(float2 at, float lod) { return source.SampleLevel(linear_clamp, at / float2(dof_sizes.xy), lod).rgb; }
+float4 dof_sample_source(float2 at, float lod) { return source.SampleLevel(linear_clamp, at / float2(dof_sizes.xy), lod); }
 float4 dof_load_far(int2 p) { return far_in.Load(int3(clamp(p, int2(0, 0), int2(dof_sizes.xy) - 1), 0)); }
 float2 dof_load_dilated(int2 t) { return dilated.Load(int3(clamp(t, int2(0, 0), int2(dof_sizes.zw) - 1), 0)); }
 float2 dof_load_focus() { return focus.Load(int3(0, 0, 0)); }
