@@ -499,6 +499,10 @@ namespace CameraTools
         public static float? Aperture => Ours ? OwnOn && Enhancements.Connected ? EnhancementsModel.Stops[(int)Values[Enhancement.DepthOfFieldAperture]] : null
             : ReShade.Connected && Current.On && Known(Id.Aperture) ? Value(Id.Aperture) : null;
 
+        // The f-number CameraTools' own depth of field blurs with, the one a DNG's blur has, or null while another shader
+        // or none blurs.
+        public static float? OwnAperture => Ours && OwnOn && Enhancements.Connected ? EnhancementsModel.Stops[(int)Values[Enhancement.DepthOfFieldAperture]] : null;
+
         // While linked, the row shows the field of view setting, and the shader follows the camera's smoothed one to it.
         private static float FocalLength => Linked ? SettingFocalLength : Value(Id.FocalLength);
 

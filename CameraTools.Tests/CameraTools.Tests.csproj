@@ -30,6 +30,7 @@
     <Compile Include="../CameraTools/Exposure.cs" Link="Exposure.cs" />
     <Compile Include="../CameraTools/ReplayModel.cs" Link="ReplayModel.cs" />
     <Compile Include="../CameraTools/SupersamplingModel.cs" Link="SupersamplingModel.cs" />
+    <Compile Include="../CameraTools/ScreenshotModel.cs" Link="ScreenshotModel.cs" />
     <Compile Include="../CameraTools/ControlsModel.cs" Link="ControlsModel.cs" />
     <Compile Include="../CameraTools/PadBinding.cs" Link="PadBinding.cs" />
     <Compile Include="../CameraTools/WindowFocusModel.cs" Link="WindowFocusModel.cs" />

@@ -30,7 +30,7 @@ SOURCES = [
     "addon.cpp", "gpu.cpp", "scene_gpu.cpp", "trace_gpu.cpp", "core/recipe.cpp", "core/plan.cpp", "core/sun.cpp", "core/png.cpp", "core/compare.cpp",
     "core/accumulate.cpp", "core/dxbc.cpp", "core/shaders.cpp", "core/scene.cpp", "core/scene_files.cpp", "core/trace_scene.cpp",
     "core/bvh.cpp", "core/kernel.cpp", "core/trace.cpp", "core/trace_files.cpp", "core/shex.cpp", "core/grade.cpp", "core/alpha.cpp",
-    "core/alpha_bake.cpp", "core/light.cpp", "core/dof.cpp", "core/flare.cpp",
+    "core/alpha_bake.cpp", "core/light.cpp", "core/dof.cpp", "core/flare.cpp", "core/dng.cpp",
 ]
 # (symbol in enhancements_shaders.h, source in shaders/, profile)
 SHADERS = [
@@ -52,6 +52,7 @@ SHADERS = [
     ("kDofDisplayOutPs", "dof_display_out_ps.hlsl", "ps_5_0"),
     ("kFlareVisibilityPs", "flare_visibility_ps.hlsl", "ps_5_0"), ("kFlarePs", "flare_ps.hlsl", "ps_5_0"),
     ("kDofSpriteVs", "dof_sprite_vs.hlsl", "vs_5_0"), ("kDofSpritePs", "dof_sprite_ps.hlsl", "ps_5_0"),
+    ("kDngPs", "dng_ps.hlsl", "ps_5_0"), ("kDngFlarePs", "dng_flare_ps.hlsl", "ps_5_0"),
 ]
 WORKSPACE_VKD3D = Path(".work/build/reshade/vkd3d/vkd3d-compiler")
 DEPS = HERE / ".deps"

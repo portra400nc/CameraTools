@@ -7,6 +7,7 @@
 
 #include "core/accumulate.h"
 #include "core/compare.h"
+#include "core/dng.h"
 #include "core/dof.h"
 #include "core/flare.h"
 #include "core/grade.h"
@@ -182,8 +183,10 @@ namespace enhancements
 
         // false when the format's texel size is unknown or the staging texture could not be made.
         bool copy_from(ID3D11Device *device, ID3D11DeviceContext *context, ID3D11Texture2D *source);
-        // not_ready while the GPU has not finished the copy; failed when nothing was copied or the map failed.
-        Read read(ID3D11DeviceContext *context, std::vector<uint8_t> &out) const;
+        // not_ready while the GPU has not finished the copy; failed when nothing was copied or the map failed. T is uint8_t,
+        // or float for a float format, whose rows then come back as floats.
+        template <class T>
+        Read read(ID3D11DeviceContext *context, std::vector<T> &out) const;
         Size size() const { return { desc_.Width, desc_.Height }; }
         bool copied() const { return texture_ != nullptr; }
         void reset() { *this = Readback {}; }
@@ -228,6 +231,17 @@ namespace enhancements
         FlareSettings settings;
         FlareSun sun;
         bool flip = true;       // the game's targets are stored upside down, as the tone map's output the scene place draws on is
+    };
+
+    // What a DNG develops from at the tone map draw (core/dng.h). The frames point into what the frame's bloom step left.
+    struct DngDevelop
+    {
+        bool sum = false;                       // the accumulator presented this frame: the source is its sum's own average
+        const DofDisplayFrame *dof = nullptr;   // the depth of field the frame defers to the back buffer, to run on it in HDR
+        DngGrade grade;
+        bool game_grade = false;                // copy_game_grade copied this draw's grade
+        bool bloom = true;                      // the draw's shader adds the bloom
+        const FlareDisplayFrame *flare = nullptr;   // the lens flare the frame draws, to add
     };
 
     class Gpu
@@ -347,6 +361,16 @@ namespace enhancements
         // and the mod's UI the game draws later stay clear of the flare.
         const char *run_lens_flare_scene(const FrameMap &map, const FlareDisplayFrame &frame, bool &ran);
 
+        // A DNG's image at the game's tone map draw, into targets of ours that nothing else reads: dng_[0] the source,
+        // present_ps.hlsl's average of the sum where it has weight, else the HDR scene; with develop.dof, the autofocus at
+        // step 0 from the bloom step's focus into dng_focus_ and the depth of field's chain from the bloom step's depth into
+        // dng_[1]; dng_ps.hlsl's bloom, matrix and exposure into the other; the flare added; and a copy for read_dng. false
+        // when a copy still waits to be read, the map lacks the HDR scene, the depth of field has no depth of the frame's size
+        // or a texture of ours failed. The game's resources, the back buffer and the depth of field's focus are only read.
+        bool develop_dng(const FrameMap &map, const DngDevelop &develop);
+        // That copy once the GPU has it, read without waiting: RGBA floats, rows as stored. not_ready until then.
+        Readback::Read read_dng(std::vector<float> &rgba);
+
         // The pixel shader bound now, as the handle ReShade's pipeline events name it by, or 0.
         uint64_t bound_pixel_shader() const;
         // Copies the grade a tone map shader's layout names from the game's bound pixel shader constants at b0 into
@@ -464,7 +488,8 @@ namespace enhancements
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_,
             tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
             apply_gather_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_,
-            dof_sprite_ps_, dof_lift_ps_, dof_display_in_ps_, dof_display_out_ps_, dof_near_ps_, dof_near_mask_ps_, flare_visibility_ps_, flare_ps_;
+            dof_sprite_ps_, dof_lift_ps_, dof_display_in_ps_, dof_display_out_ps_, dof_near_ps_, dof_near_mask_ps_, flare_visibility_ps_, flare_ps_,
+            dng_ps_, dng_flare_ps_;
         ComPtr<ID3D11SamplerState> point_, linear_, lit_compare_, wrap_;
         ComPtr<ID3D11Texture3D> lattice_;                   // noise_lattice(), R8_UNORM
         ComPtr<ID3D11ShaderResourceView> lattice_srv_;
@@ -548,6 +573,11 @@ namespace enhancements
         bool flare_drawn_ = false;  // a bloom step has written one
         Readback flare_read_;
         bool flare_pending_ = false;
+        // A DNG's two R32G32B32A32_FLOAT targets at the render size and its autofocus (R32G32_FLOAT, 1x1), freed once its copy
+        // is queued, and the copy.
+        Scratch dng_[2], dng_focus_;
+        Readback dng_read_;
+        bool dng_pending_ = false;
         Readback frame_hdr_, frame_depth_;  // EnhancementsSaveFrame's copies
         bool frame_pending_ = false;        // copied and not yet read
         Staging copies_[3];         // the comparison capture's two frames, and its variant's view

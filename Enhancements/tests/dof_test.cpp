@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <string>
 
@@ -546,6 +547,21 @@ int main(int argc, char **argv)
         && !dof_depth_format(39) && !dof_depth_format(53) && !dof_depth_format(41) && !dof_depth_format(28));
     check("the sRGB curve takes 0.5 to 0.214041 and back, and 0.02 to 0.001548", near(dof_srgb_decode(0.5f), 0.214041f, 1e-6f)
         && near(dof_srgb_encode(0.214041f), 0.5f, 1e-6f) && near(dof_srgb_decode(0.02f), 0.00154799f, 1e-7f));
+    {
+        // A DNG's depth of field runs in the HDR scene after the bloom step settled the focus: at 7.5 m here, though the
+        // whole frame lies 2 m away and the autofocus eases at once.
+        const Scene close(2);
+        DepthOfFieldSettings autofocus = lens_at(2, 0, 0);
+        autofocus.focus_seconds = 0;
+        const std::optional<DofConstants> scene = dof_constants(autofocus, close.camera, close.image.size, true, 0, 5);
+        const std::optional<DofConstants> dng = dof_dng_constants(autofocus, close.camera, close.image.size, true, 5);
+        DofConstants stepped = *dng;
+        stepped.focus[3] = scene->focus[3];
+        check("a DNG's depth of field takes the scene's constants with the autofocus's step 0", scene && dng && scene->focus[3] == 1 && dng->focus[3] == 0
+            && std::memcmp(&stepped, &*scene, sizeof stepped) == 0);
+        check("so it keeps the focus it is given, where the scene's own constants focus on the frame", render_dof(close.image, *dng, 7.5f).focus == 7.5f
+            && near(render_dof(close.image, *scene, 7.5f).focus, 2.0f, 0.01f));
+    }
     {
         const Scene focused(2);
         const DepthOfFieldSettings shallow = lens_at(2, 2, 0);

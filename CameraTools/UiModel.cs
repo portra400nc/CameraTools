@@ -681,6 +681,10 @@ namespace CameraTools
             },
             new ToggleRow("3-second countdown", () => Screenshot.Countdown, on => Screenshot.Countdown = on),
             new ToggleRow("Supersampling", () => Supersampling.Enabled, Supersampling.SetEnabled, () => CameraToolsEnhancements.Enhancements.Connected),
+            new ToggleRow("Also save DNG", () => Screenshot.Dng, on => Screenshot.Dng = on, () => CameraToolsEnhancements.Enhancements.Connected)
+            {
+                Detail = () => LongExposure.Active && Screenshot.Dng ? "Not with Long exposure" : "",
+            },
         }).ToArray());
 
         private static ToggleRow PathToggle(string label, Func<PathOptions, bool> get, Action<PathOptions, bool> set)

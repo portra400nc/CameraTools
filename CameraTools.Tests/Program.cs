@@ -3,7 +3,8 @@
 // Enhancements binding's layout against Enhancements/enhancements.h's literal sizes, and the camera path's motion
 // (CameraTools/PathSampler.cs), the long exposure's settings (CameraTools/Exposure.cs), and a replay's timeline and
 // words (CameraTools/ReplayModel.cs), and where a supersampled screenshot's samples fall (CameraTools/SupersamplingModel.cs), and the default bindings and
-// their migration (CameraTools/ControlsModel.cs). No game, no ReShade, no add-on: run with dotnet run.
+// their migration (CameraTools/ControlsModel.cs), and which shots get a DNG and how it is saved (CameraTools/ScreenshotModel.cs). No game, no
+// ReShade, no add-on: run with dotnet run.
 using System.Runtime.InteropServices;
 using CameraTools;
 using CameraToolsEnhancements;
@@ -33,9 +34,11 @@ bool Fails(Action read)
     }
 }
 
-// The binding: what enhancements.h's static_asserts say of version 17.
-Check("the binding's status is enhancements.h's 160 bytes, with the restarts at 132, their reason at 136, the shot at 140, the saved frames at 144, the focus at 148 and the flare's visibility at 152",
-    Marshal.SizeOf<EnhancementsStatus>() == 160 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.FlareVisibility)) == 152 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceTarget)) == 116
+// The binding: what enhancements.h's static_asserts say of version 19.
+Check("the binding's status is enhancements.h's 168 bytes, with the restarts at 132, their reason at 136, the shot at 140, the saved frames at 144, the focus at 148, the flare's visibility at 152 and the DNG's id, state and failure at 156, 160 and 164",
+    Marshal.SizeOf<EnhancementsStatus>() == 168 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.DngId)) == 156
+    && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.DngState)) == 160 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.DngFailure)) == 164
+    && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.FlareVisibility)) == 152 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceTarget)) == 116
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceLight)) == 128 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceRestarts)) == 132
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceRestartReason)) == 136 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.ShotActive)) == 140
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.FramesSaved)) == 144 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.DofFocusMeters)) == 148);
@@ -51,6 +54,8 @@ Check("the binding's shot is 16 bytes, its settings 412 with the depth of field 
     && Offset<EnhancementsDepthOfField>(nameof(EnhancementsDepthOfField.BokehContrast)) == 80
     && Offset<EnhancementsDepthOfField>(nameof(EnhancementsDepthOfField.Place)) == 84 && (uint)EnhancementsDofPlace.Display == 1
     && Marshal.SizeOf<EnhancementsSceneRequest>() == 20);
+Check("the binding's DNG camera is enhancements.h's 36 bytes, with its date at 16",
+    Marshal.SizeOf<EnhancementsDngInfo>() == 36 && Offset<EnhancementsDngInfo>(nameof(EnhancementsDngInfo.DateTime)) == 16);
 Check("the restart reasons and the scene states count as enhancements.h's", (uint)EnhancementsTraceRestart.Scene == 1 && (uint)EnhancementsTraceRestart.Camera == 4
     && (uint)EnhancementsTraceRestart.Light == 6 && (uint)EnhancementsTraceState.Ready == 3 && (uint)EnhancementsTraceState.Failed == 5
     && (uint)EnhancementsSceneFlags.Release == 32 && (uint)EnhancementsSceneFlags.Light == 64);
@@ -929,6 +934,29 @@ Check("a controller binding swaps the same way: B on Reset speed gives Hide UI Y
     Check("another program in the foreground ends it at once and is left there", RefocusRules.Step(start, other, 10f) == RefocusStep.Leave
         && RefocusRules.Step(tried, other, 15.9f) == RefocusStep.Leave);
 }
+
+// The screenshot's DNG (CameraTools/ScreenshotModel.cs).
+Check("the DNG's states and failures count as enhancements.h's", (uint)EnhancementsDngState.Ready == 2 && (uint)EnhancementsDngState.Failed == 5
+    && (uint)EnhancementsDngFailure.Write == 4 && (uint)EnhancementsDngFailure.Dropped == 5);
+Check("a plain shot with the switch on and the add-on connected gets a DNG, supersampled or not",
+    ShotKinds.Of(false, false, false, true, true) == new ShotKinds(false, false, true) && ShotKinds.Of(false, false, true, true, true) == new ShotKinds(false, true, true));
+Check("a long exposure and a traced shot get none, nor does a shot without the add-on or with the switch off",
+    !ShotKinds.Of(true, false, true, true, true).Dng && ShotKinds.Of(true, true, true, true, true) == new ShotKinds(false, false, false)
+    && ShotKinds.Of(false, true, true, true, true) == new ShotKinds(true, false, false) && !ShotKinds.Of(false, false, true, true, false).Dng
+    && !ShotKinds.Of(false, false, false, false, true).Dng);
+Check("the DNG goes beside the PNG with its name", ScreenshotDng.PathFor(@"C:\ReShade\Screenshots\GenshinImpact 2026-10-28 21-14-05.png")
+    == @"C:\ReShade\Screenshots\GenshinImpact 2026-10-28 21-14-05.dng");
+Check("the toast names the PNG and the DNG, then the shot's kind",
+    ScreenshotDng.Saved("GenshinImpact 2026-10-28 21-14-05.png", true, " · supersampled") == "Saved GenshinImpact 2026-10-28 21-14-05.png and .dng · supersampled"
+    && ScreenshotDng.Saved("a.png", false, "") == "Saved a.png"
+    && ScreenshotDng.SavedWithout("a.png", ScreenshotDng.Why(EnhancementsDngFailure.Write), "") == "Saved a.png, but no DNG: its file could not be written");
+Check("a ready DNG is written once: a status still reading Ready after the write was asked for is a present behind",
+    ScreenshotDng.Next(4, false, 4, EnhancementsDngState.Ready) == DngStep.Write && ScreenshotDng.Next(4, true, 4, EnhancementsDngState.Ready) == DngStep.Wait);
+Check("it waits while developing or writing, and on a status of another id, ready or written",
+    ScreenshotDng.Next(4, false, 4, EnhancementsDngState.Developing) == DngStep.Wait && ScreenshotDng.Next(4, true, 4, EnhancementsDngState.Writing) == DngStep.Wait
+    && ScreenshotDng.Next(4, false, 3, EnhancementsDngState.Ready) == DngStep.Wait && ScreenshotDng.Next(4, true, 3, EnhancementsDngState.Written) == DngStep.Wait);
+Check("its own id written ends the shot, and failed ends it without the DNG",
+    ScreenshotDng.Next(4, true, 4, EnhancementsDngState.Written) == DngStep.Written && ScreenshotDng.Next(4, false, 4, EnhancementsDngState.Failed) == DngStep.Failed);
 
 Console.WriteLine($"CameraTools tests: {failures} failed");
 return failures == 0 ? 0 : 1;

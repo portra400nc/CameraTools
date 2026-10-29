@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 17
+#define ENHANCEMENTS_VERSION 19
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -602,6 +602,28 @@ typedef struct EnhancementsCamera
                                 // of an earlier version must not call EnhancementsSetCamera.
 } EnhancementsCamera;
 
+// Where the DNG EnhancementsDevelopDng last accepted is, as EnhancementsStatus.dng_state. Version 18 added it.
+enum
+{
+    ENHANCEMENTS_DNG_NONE = 0,          // none asked for since the add-on loaded
+    ENHANCEMENTS_DNG_DEVELOPING,        // waiting for the next tone map draw, which develops it, and for its read back
+    ENHANCEMENTS_DNG_READY,             // its image is held for EnhancementsWriteDng
+    ENHANCEMENTS_DNG_WRITING,           // the add-on's worker thread writes the file
+    ENHANCEMENTS_DNG_WRITTEN,
+    ENHANCEMENTS_DNG_FAILED,            // dng_failure says why
+};
+
+// Why that DNG failed, as EnhancementsStatus.dng_failure. Version 18 added it.
+enum
+{
+    ENHANCEMENTS_DNG_FAILED_NONE = 0,
+    ENHANCEMENTS_DNG_FAILED_NO_TONEMAP,     // no tone map draw developed it within 300 presents
+    ENHANCEMENTS_DNG_FAILED_DEVELOP,        // the tone map draw had no HDR scene, or a texture of ours failed
+    ENHANCEMENTS_DNG_FAILED_READBACK,       // its image could not be read back from the GPU
+    ENHANCEMENTS_DNG_FAILED_WRITE,          // the file could not be written; ReShade.log names it
+    ENHANCEMENTS_DNG_FAILED_DROPPED,        // no write asked for it within 1800 presents of it being ready, so its image was freed
+};
+
 typedef struct EnhancementsStatus
 {
     uint32_t size;              // set by the caller; the add-on writes at most this many bytes
@@ -646,6 +668,10 @@ typedef struct EnhancementsStatus
     uint32_t frames_saved;      // frames EnhancementsSaveFrame has saved since the add-on loaded; the status line names the last folder
     float dof_focus_meters;     // the depth of field's focus distance, read back a few frames late; 0 before the pass ran
     float flare_visibility;     // the lens flare's source's visibility, 0 to 1, read back a few frames late; 0 before the pass ran
+    uint32_t dng_id;            // the id of the DNG EnhancementsDevelopDng last accepted, 0 before the first. Version 18 added
+                                // the three dng fields, the first in the status's 4 bytes of padding, which makes it 168 bytes
+    uint32_t dng_state;         // ENHANCEMENTS_DNG_* of that DNG
+    uint32_t dng_failure;       // ENHANCEMENTS_DNG_FAILED_* while dng_state is FAILED, else 0
 } EnhancementsStatus;
 
 ENHANCEMENTS_EXPORT uint32_t EnhancementsVersion(void);
@@ -692,6 +718,34 @@ ENHANCEMENTS_EXPORT uint32_t EnhancementsSaveTrace(void);
 // Mac's depth of field harness. It works whether settings.enabled is on or not. Returns 1 when accepted, 0 while a save
 // waits; a save that sees no bloom step within 300 presents is given up, which ReShade.log says.
 ENHANCEMENTS_EXPORT uint32_t EnhancementsSaveFrame(void);
+
+// Develops a DNG of the next frame, beside a screenshot of it: at the game's tone map draw, the linear light before the tone
+// curve, as the tonemap pass draws it. The source is the HDR scene, or while the accumulator presents, its sum's own average
+// at full precision; the depth of field that frame defers to the back buffer runs on it in HDR with the frame's settings and
+// focus; then the game's final bloom times its bloom intensity times tonemap.bloom_strength, the game's color matrix, and
+// the game's exposure times 2^tonemap.exposure_ev, both 1 while the tonemap pass does not run that frame; and the lens flare
+// that frame draws, added. Nothing the game, ReShade or the depth of field's focus see changes. The image is read back
+// without stalling and held for EnhancementsWriteDng; EnhancementsStatus.dng_id and dng_state follow from the next present.
+// Returns 1 when accepted, which drops a held image of an earlier id, and 0 for id 0 or while another is developing or
+// being written. It works whether settings.enabled is on or not. Version 18 added it.
+ENHANCEMENTS_EXPORT uint32_t EnhancementsDevelopDng(uint32_t id);
+
+// The camera a DNG says it was taken with, in its EXIF. A value of 0, or a date_time that is empty, leaves its tag out.
+// Version 19 added it.
+typedef struct EnhancementsDngInfo
+{
+    uint32_t size;              // set by the caller to sizeof(EnhancementsDngInfo)
+    float focal_length_mm;      // full-frame focal length; FocalLength and FocalLengthIn35mmFilm
+    float f_number;             // the depth of field's, for a DNG it blurs; FNumber
+    float subject_distance_m;   // the focus distance; SubjectDistance
+    char date_time[20];         // DateTimeOriginal, "YYYY:MM:DD HH:MM:SS" with its NUL
+} EnhancementsDngInfo;
+
+// Writes the DNG of id (core/dng.h says what the file holds) to path, UTF-8, on the add-on's worker thread, replacing a file
+// there, with info's camera in its EXIF; info may be null or too short, for no camera. dng_state goes to WRITING, then
+// WRITTEN or FAILED. Returns 1 when accepted, and 0 unless dng_state is READY for id, or when path is null or empty.
+// Version 18 added it, and version 19 info.
+ENHANCEMENTS_EXPORT uint32_t EnhancementsWriteDng(uint32_t id, const char *path, const EnhancementsDngInfo *info);
 
 // Copies the accumulation's state; it takes effect at the next frame boundary, like EnhancementsApply. A null pointer, or a
 // size too small to hold mode, changes nothing. It works whether settings.enabled is on or not.

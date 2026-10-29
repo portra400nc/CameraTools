@@ -213,6 +213,10 @@ namespace enhancements
     std::optional<DofConstants> dof_display_constants(const DepthOfFieldSettings &settings, const Camera &camera, Size back, Size main, bool main_flip,
         DofTransfer transfer, uint64_t frame);
 
+    // The constants of a DNG's depth of field (core/dng.h): dof_constants in the HDR scene of the frame, with the autofocus's
+    // step 0, so its pass keeps the focus the bloom step settled and takes the DNG's own mean luminance.
+    std::optional<DofConstants> dof_dng_constants(const DepthOfFieldSettings &settings, const Camera &camera, Size render, bool flip, uint64_t frame);
+
     // The display place as the GPU runs it: back holds the back buffer's values, rgb a pixel, upright, at the constants'
     // size, and main_depth the main depth as stored at the display row's size. dof_display_in, render_dof over its color
     // stored as R16F and its depth, and dof_display_out over the composite stored as R16F. rgb holds the encoded result.

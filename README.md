@@ -24,7 +24,7 @@
 | **Lights** | Point, spot and soft sphere lights, for the world or only characters |
 | **Posing** | Freeze the active character, move and turn them, turn their joints, shape hands and face, save poses |
 | **Depth of field** | A real lens's blur inside the game, from the focal length, aperture and focus distance: autofocus on a point or on the character's eyes, bokeh with blades, soap-bubble rims, chromatic fringes, cat's eye and swirl, through CameraTools' Enhancements add-on. Cinematic DOF and iMMERSE work too. |
-| **ReShade** | One-button screenshots at your highest settings, also as long exposures |
+| **ReShade** | One-button screenshots at your highest settings, also as long exposures and as DNG raw files for Lightroom |
 | **Input** | Hotkeys you change in the panel; XInput controllers, including the Steam Deck |
 
 ## Showcase
@@ -103,7 +103,7 @@ While the free camera is on, the game ignores the keyboard, mouse and controller
 | [Camera paths](CAMERA-PATHS.md) | Record camera positions as nodes and fly the free camera through them |
 | [Lights](LIGHTS.md) | Add point, spot and sphere lights, place them by looking through them, attach them to the camera or the character, and shade characters from a light as from the sun |
 | [Pose](POSE.md) | Move the character, turn joints, shape hands, set expression and gaze, save poses |
-| [ReShade](RESHADE.md) | Depth of field, one-button screenshots, long exposure shots |
+| [ReShade](RESHADE.md) | Depth of field, one-button screenshots, long exposure shots, DNG raw files |
 
 ## Hotkeys
 

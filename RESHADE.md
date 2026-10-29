@@ -1,4 +1,4 @@
-# ReShade: depth of field, long exposure and screenshots
+# ReShade: depth of field, long exposure, screenshots and DNG
 
 The ReShade tab drives ReShade from the free camera. It needs ReShade and CameraTools' own add-on, `CameraToolsReShadeBridge.addon64`, whose source is in `ReShadeBridge/`. Without them, its rows are dimmed and the tab reads "ReShade bridge not found". If the add-on is older or newer than CameraTools, the tab says which version is loaded and which is needed: copy the add-on from the same release as CameraTools into the folder ReShade loads add-ons from. That is `C:\ReShade`, or the folder that `AddonPath` in `ReShade.ini` names, such as `C:\ReShade\reshade-shaders\Addons`.
 
@@ -127,6 +127,25 @@ Take screenshot does this:
 
 Hide UI (H, or B), opening the settings panel, or leaving the free camera cancels the screenshot and puts everything back. If a wait takes too long, CameraTools gives up, names what it waited for, and puts everything back.
 
+### DNG
+
+Also save DNG makes Take screenshot save a DNG raw file beside the PNG, with the same name, for editing in Lightroom or another raw editor. It needs `CameraToolsEnhancements.addon64`, the add-on that draws the Enhancements.
+
+The DNG holds the picture's light before the game's tone curve, so you have more room to recover highlights and lift shadows, and white balance works as it does on a camera's raw file. It holds:
+
+- The game's picture with the Enhancements, such as ambient light and light shafts.
+- CameraTools' depth of field, blurred before the tone curve, so out-of-focus lights keep their brightness.
+- The game's bloom and exposure, with the Bloom and Exposure rows of the Enhancements' tone map.
+- The lens flare.
+
+It does not hold ReShade's effects, such as RTGI or the blur of Cinematic DOF and iMMERSE, or the tone map's Curve, Saturation, Contrast, Shadows and Highlights rows. You make those choices in the raw editor instead. The PNG is the same with Also save DNG on or off.
+
+The DNG opens with the profile "CameraTools Game", which applies the game's tone curve, so the picture first looks as it does in the game. Lightroom's other profiles, such as Adobe Color, are in its Profile list. White balance As Shot is the game's own color.
+
+The DNG stores 16 bits for each color of each pixel, compressed without loss: about 22 MB at 3840x2160. Its EXIF names the focal length and the date. While CameraTools' depth of field is on, it also names the aperture and the focus distance.
+
+With Supersampling on, the DNG gets the full-precision average of all the samples. A long exposure saves no DNG.
+
 The `[CameraToolsReShade]` section of `MelonPreferences.cfg` holds:
 
 | Entry | Default | Description |
@@ -141,3 +160,4 @@ The `[CameraToolsReShade]` section of `MelonPreferences.cfg` holds:
 | `LongExposureShutter` | `8` | The shutter time in seconds, rounded to the nearest full stop from 1/8 s to 120 s |
 | `LongExposureIso` | `100` | 100, 200, 400, 800 or 1600 |
 | `LongExposureHighlightBoost` | `1` | From 0.4 to 4.4 |
+| `ScreenshotDng` | `false` | Also save a DNG beside each screenshot. The ReShade tab's switch changes it. |

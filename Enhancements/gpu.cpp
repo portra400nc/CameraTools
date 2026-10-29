@@ -5,7 +5,7 @@
                                 // kSunShadowsPs, kAtmospherePs, kTonemapPs, kViewPs, kAccumulatePs, kPresentPs, kWetnessPs,
                                 // kShaftsPs, kLightShaftsPs, kApplyTracePs, kGatherAveragePs, kGatherFilterPs, kApplyGatherPs,
                                 // kDofFocusPs, kDofPrefilterPs, kDofTilesPs, kDofDilatePs, kDofGatherPs, kDofPostPs, kDofCompositePs, kDofNearPs, kDofNearMaskPs,
-                                // kDofScatterCs, kDofSpriteVs, kDofSpritePs, kDofLiftPs (DXBC)
+                                // kDofScatterCs, kDofSpriteVs, kDofSpritePs, kDofLiftPs, kDngPs, kDngFlarePs (DXBC)
 
 #include <algorithm>
 #include <cmath>
@@ -480,7 +480,8 @@ namespace enhancements
         return true;
     }
 
-    Readback::Read Readback::read(ID3D11DeviceContext *context, std::vector<uint8_t> &out) const
+    template <class T>
+    Readback::Read Readback::read(ID3D11DeviceContext *context, std::vector<T> &out) const
     {
         if (!texture_)
             return Read::failed;
@@ -491,12 +492,15 @@ namespace enhancements
         if (FAILED(hr))
             return Read::failed;
         const size_t row = size_t(desc_.Width) * texel_bytes_;
-        out.resize(row * desc_.Height);
+        out.resize(row * desc_.Height / sizeof(T));
         for (UINT y = 0; y < desc_.Height; y++)
-            std::memcpy(&out[y * row], static_cast<const uint8_t *>(mapped.pData) + size_t(y) * mapped.RowPitch, row);
+            std::memcpy(reinterpret_cast<uint8_t *>(out.data()) + y * row, static_cast<const uint8_t *>(mapped.pData) + size_t(y) * mapped.RowPitch, row);
         context->Unmap(texture_.Get(), 0);
         return Read::ok;
     }
+
+    template Readback::Read Readback::read(ID3D11DeviceContext *, std::vector<uint8_t> &) const;
+    template Readback::Read Readback::read(ID3D11DeviceContext *, std::vector<float> &) const;
 
     bool Gpu::init(ID3D11Device *device, ID3D11DeviceContext *context)
     {
@@ -642,6 +646,8 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kDofDisplayOutPs, sizeof kDofDisplayOutPs, nullptr, &made.dof_display_out_ps_))
             && SUCCEEDED(device->CreatePixelShader(kFlareVisibilityPs, sizeof kFlareVisibilityPs, nullptr, &made.flare_visibility_ps_))
             && SUCCEEDED(device->CreatePixelShader(kFlarePs, sizeof kFlarePs, nullptr, &made.flare_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kDngPs, sizeof kDngPs, nullptr, &made.dng_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kDngFlarePs, sizeof kDngFlarePs, nullptr, &made.dng_flare_ps_))
             && SUCCEEDED(device->CreateBuffer(&sprites, nullptr, &made.dof_sprites_))
             && SUCCEEDED(device->CreateUnorderedAccessView(made.dof_sprites_.Get(), &sprites_uav, &made.dof_sprites_uav_))
             && SUCCEEDED(device->CreateShaderResourceView(made.dof_sprites_.Get(), &sprites_srv[0], &made.dof_sprites_srv_[0]))
@@ -1451,6 +1457,79 @@ namespace enhancements
         flare_out_.copy_to(context_.Get(), target);
         ran = true;
         return moved;
+    }
+
+    bool Gpu::develop_dng(const FrameMap &map, const DngDevelop &develop)
+    {
+        const std::optional<Texture> &scene = map[Entry::hdr_scene];
+        // The slot the frame map reads the bloom from may hold another draw's texture when this draw's shader adds none.
+        const std::optional<Texture> bloom = develop.bloom ? map[Entry::bloom_final] : std::nullopt;
+        const std::optional<DofConstants> dof = develop.dof
+            ? dof_dng_constants(develop.dof->settings, develop.dof->camera, map.render, develop.dof->flip, develop.dof->frame) : std::nullopt;
+        ID3D11Device *d = device_.Get();
+        if (dng_pending_ || !scene || (develop.dof && (!dof || !dof_depth_.texture() || !(dof_depth_.size() == map.render)))
+            || !scene_in_.sync(d, native(*scene), static_cast<DXGI_FORMAT>(scene->format), false)
+            || (bloom && !bloom_in_.sync(d, native(*bloom), static_cast<DXGI_FORMAT>(bloom->format), false))
+            || !dng_[0].sync(d, map.render, DXGI_FORMAT_R32G32B32A32_FLOAT) || !dng_[1].sync(d, map.render, DXGI_FORMAT_R32G32B32A32_FLOAT)
+            || (dof && (!dng_focus_.sync(d, { 1, 1 }, DXGI_FORMAT_R32G32_FLOAT) || !sync_dof_chain(*dof) || !upload_dof(*dof))))
+            return false;
+        ID3D11DeviceContext1 *c = context_.Get();
+        scene_in_.copy_from(c, native(*scene));
+        if (bloom)
+            bloom_in_.copy_from(c, native(*bloom));
+        // An unbound sum reads as no weight, so present_ps.hlsl takes the scene.
+        ID3D11ShaderResourceView *const source_in[] = { develop.sum ? sum_.srv() : nullptr, scene_in_.srv() };
+        draw_fullscreen(present_ps_.Get(), source_in, 2, dng_[0].rtv(), map.render);
+        uint32_t image = 0;
+        if (dof)
+        {
+            // The focus the bloom step eased stays as it is; this 1x1 keeps it and takes the DNG's own mean luminance for the
+            // highlights, as the display place's does from the back buffer.
+            ID3D11ShaderResourceView *const focus_in[] = { dof_depth_.srv(), dof_focus_[dof_focus_kept_].srv(), dng_[0].srv() };
+            draw_fullscreen(dof_focus_ps_.Get(), focus_in, 3, dng_focus_.rtv(), { 1, 1 });
+            draw_dof_chain(*dof, dng_[0].srv(), dof_depth_.srv(), dng_focus_, dng_[1].rtv(), map.render);
+            image = 1;
+        }
+        c->OMSetRenderTargets(0, nullptr, nullptr);
+        Constants constants = {};
+        constants.render_size[0] = static_cast<float>(map.render.width);
+        constants.render_size[1] = static_cast<float>(map.render.height);
+        constants.render_size[2] = 1.0f / map.render.width;
+        constants.render_size[3] = 1.0f / map.render.height;
+        constants.exposure_scale = develop.grade.exposure_scale;
+        constants.bloom_strength = develop.grade.bloom_strength;
+        upload(constants);
+        ID3D11Buffer *const game_grade = develop.game_grade ? game_grade_.Get() : nullptr;
+        c->PSSetConstantBuffers(1, 1, &game_grade);
+        Scratch &out = dng_[image ^ 1];
+        ID3D11ShaderResourceView *const grade_in[] = { dng_[image].srv(), bloom ? bloom_in_.srv() : nullptr };
+        draw_fullscreen(dng_ps_.Get(), grade_in, 2, out.rtv(), map.render);
+        if (develop.flare && flare_drawn_ && upload_flare(flare_constants(develop.flare->settings, develop.flare->sun, map.render, false, develop.flare->flip)))
+        {
+            ID3D11ShaderResourceView *const flare_in[] = { nullptr, flare_visibility_[flare_kept_].srv() };
+            draw_fullscreen(dng_flare_ps_.Get(), flare_in, 2, out.rtv(), map.render, additive_.Get());
+        }
+        c->OMSetRenderTargets(0, nullptr, nullptr);
+        dng_pending_ = dng_read_.copy_from(d, c, out.texture());
+        // D3D11 keeps a released texture alive until the commands queued on it ran, so the 32-bit targets, 133 MB each at
+        // 3840x2160, go now rather than staying for a next shot.
+        dng_[0] = Scratch {};
+        dng_[1] = Scratch {};
+        dng_focus_ = Scratch {};
+        return dng_pending_;
+    }
+
+    Readback::Read Gpu::read_dng(std::vector<float> &rgba)
+    {
+        if (!dng_pending_)
+            return Readback::Read::failed;
+        const Readback::Read read = dng_read_.read(context_.Get(), rgba);
+        if (read != Readback::Read::not_ready)
+        {
+            dng_pending_ = false;
+            dng_read_.reset();
+        }
+        return read;
     }
 
     std::optional<float> Gpu::read_dof_focus()

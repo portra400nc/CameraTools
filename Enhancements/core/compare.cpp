@@ -18,12 +18,13 @@ namespace enhancements
         // caller of version 6 sends 88 and gets scene_face in its padding. The trace's five follow them, and the gather's four
         // follow those, the first in the 4 bytes of padding a caller of version 8 has. The restarts, their reason and the
         // shot follow, the first in the 4 bytes of padding a caller of version 9 has after its 132. The saved frames and the
-        // depth of field's focus follow, then the lens flare's visibility.
+        // depth of field's focus follow, then the lens flare's visibility, and the DNG's three, the first in the 4 bytes of
+        // padding a caller of version 17 has after its 156.
         static_assert(offsetof(EnhancementsStatus, compare_remaining) == 68 && offsetof(EnhancementsStatus, accum_generation) == 80
             && offsetof(EnhancementsStatus, scene_face) == 84 && offsetof(EnhancementsStatus, trace_state) == 96 && offsetof(EnhancementsStatus, trace_target) == 116
             && offsetof(EnhancementsStatus, trace_restarts) == 132 && offsetof(EnhancementsStatus, shot_active) == 140
             && offsetof(EnhancementsStatus, frames_saved) == 144 && offsetof(EnhancementsStatus, dof_focus_meters) == 148
-            && offsetof(EnhancementsStatus, flare_visibility) == 152 && sizeof(EnhancementsStatus) == 160);
+            && offsetof(EnhancementsStatus, flare_visibility) == 152 && offsetof(EnhancementsStatus, dng_id) == 156 && sizeof(EnhancementsStatus) == 168);
 
         constexpr uint32_t kPeriod = kSettlePresents + 2;
 

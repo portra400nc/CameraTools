@@ -3,6 +3,7 @@
 #include "enhancements.h"
 #include "core/alpha_bake.h"
 #include "core/compare.h"
+#include "core/dng.h"
 #include "core/dof.h"
 #include "core/light.h"
 #include "core/plan.h"
@@ -237,6 +238,28 @@ namespace enhancements
         std::optional<FrameSave> frame_copy;
         uint32_t frames_saved = 0;
         std::string frame_saved;                    // the last saved folder's name, for the status line
+
+        // The DNG asked for last, shared by the exports, the render thread and the worker, and its image once read back, held for
+        // EnhancementsWriteDng.
+        struct DngHeld
+        {
+            std::vector<float> rgba;    // rows as stored
+            Size size;
+            bool flip = true;
+        };
+        std::mutex dng_mutex;
+        DngJob dng;
+        DngHeld dng_held;
+        // Render thread only: the id this frame develops at its tone map draw, taken at present, and the copy on its way back.
+        std::optional<uint32_t> dng_develop_id;
+        struct DngCopy
+        {
+            uint32_t id = 0;
+            Size size;
+            bool flip = true;
+        };
+        std::optional<DngCopy> dng_copy;
+        bool accum_presented = false;       // the accumulator wrote its sum's average over this frame's HDR scene
 
         // Real seconds between the last two presents, which the autofocus eases over, and the newest focus read back.
         std::chrono::steady_clock::time_point last_present;
@@ -611,7 +634,10 @@ namespace enhancements
                 accumulator = {};
             }
             else
+            {
                 accumulator = tick.next;
+                accum_presented = tick.present;
+            }
         }
 
         // At the bloom step: copies the asked point's depth while no copy is in flight. Needs a camera to turn it into
@@ -767,6 +793,53 @@ namespace enhancements
             return s;
         }
 
+        // At the tone map draw of the frame after EnhancementsDevelopDng: the DNG's image from what this frame's bloom step left,
+        // copied for tick_dng to read back.
+        void develop_dng(const FrameMap &map, uint32_t id, const GameGrade &grade, bool tonemapped)
+        {
+            dng_develop_id.reset();
+            const DngDevelop develop { accum_presented, dof_display ? &*dof_display : nullptr, dng_grade(settings.tonemap, tonemapped), grade.copied, grade.bloom,
+                flare_display ? &*flare_display : nullptr };
+            if (gpu.develop_dng(map, develop))
+            {
+                dng_copy = DngCopy { id, map.render, settings.flip };
+                return;
+            }
+            log(reshade::log::level::warning, "DNG " + std::to_string(id) + " could not be developed at frame " + std::to_string(frames)
+                + "'s tone map draw: it had no HDR scene, or a texture of ours failed.");
+            std::lock_guard lock(dng_mutex);
+            dng_developed(dng, id, DngFailure::develop, frames);
+        }
+
+        // At present: the DNG's read back once the GPU has it, its give-ups, and the id the next frame develops.
+        void tick_dng()
+        {
+            if (dng_copy && gpu.ready())
+            {
+                std::vector<float> rgba;
+                if (const Readback::Read read = gpu.read_dng(rgba); read != Readback::Read::not_ready)
+                {
+                    const DngCopy copy = *dng_copy;
+                    dng_copy.reset();
+                    const bool ok = read == Readback::Read::ok && rgba.size() == size_t(copy.size.width) * copy.size.height * 4;
+                    if (!ok)
+                        log(reshade::log::level::warning, "DNG " + std::to_string(copy.id) + "'s image could not be read back.");
+                    std::lock_guard lock(dng_mutex);
+                    if (dng_developed(dng, copy.id, ok ? DngFailure::none : DngFailure::readback, frames))
+                        dng_held = { std::move(rgba), copy.size, copy.flip };
+                }
+            }
+            std::lock_guard lock(dng_mutex);
+            if (dng_expire(dng, frames))
+            {
+                dng_held = {};
+                log(reshade::log::level::warning, "DNG " + std::to_string(dng.id) + " was given up: " + (dng.failure == DngFailure::dropped
+                    ? "no write asked for it within " + std::to_string(kDngHold) + " presents of it being ready."
+                    : "no tone map draw developed it within " + std::to_string(kDngDevelopWait) + " presents."));
+            }
+            dng_develop_id = dng.state == DngState::developing && !dng_copy ? std::optional(dng.id) : std::nullopt;
+        }
+
         // The work at one moment. Returns the event's return value: true skips the game's call.
         bool on_step(Step step)
         {
@@ -800,10 +873,13 @@ namespace enhancements
             report.note(p);
             bool skip = false;
             const char *moved = nullptr;
-            GameGrade grade;
+            bool tonemapped = false;
             for (uint8_t i = 0; i < p.count; i++)
-                if (p.items[i].kind == Decision::Kind::run && p.items[i].pass == PassId::tonemap)
-                    grade = take_game_grade();
+                tonemapped |= p.items[i].kind == Decision::Kind::run && p.items[i].pass == PassId::tonemap;
+            const std::optional<uint32_t> develop = step == Step::tonemap ? dng_develop_id : std::nullopt;
+            GameGrade grade;
+            if (tonemapped || develop)
+                grade = take_game_grade();
             {
                 // Captured once, before the first pass that draws, restored at the end of this block. Copies (the debug
                 // snapshot) change no pipeline state, so a step with no running pass never pays for it.
@@ -909,6 +985,12 @@ namespace enhancements
                         frame_error = ENHANCEMENTS_ERROR_TEXTURE;
                     }
                     skip |= call == GameCall::skip;
+                }
+                if (develop)
+                {
+                    if (!guard)
+                        guard.emplace(gpu.context(), moved);
+                    develop_dng(map, *develop, grade, tonemapped);
                 }
             }
             if (moved)
@@ -1863,6 +1945,12 @@ namespace enhancements
             s.frames_saved = frames_saved;
             s.dof_focus_meters = dof_focus;
             s.flare_visibility = flare_visibility;
+            {
+                std::lock_guard lock(dng_mutex);
+                s.dng_id = dng.id;
+                s.dng_state = static_cast<uint32_t>(dng.state);
+                s.dng_failure = static_cast<uint32_t>(dng.failure);
+            }
             report.accumulated = accumulator.samples;
             published.line = describe(report);
             status_box.put(published);
@@ -2049,6 +2137,7 @@ namespace enhancements
                 if (const std::optional<float> visibility = gpu.read_flare_visibility())
                     flare_visibility = *visibility;
             }
+            tick_dng();
             if (report.armed)
                 report.finish(tracker, settings, inputs());
             if (report.armed && report.fell_back.has(Step::bloom))
@@ -2120,7 +2209,7 @@ namespace enhancements
                 reading_depth = depth_ask.active;
             }
 
-            const bool arm = (settings.enabled || accumulate.mode != AccumulateMode::off || reading_depth || scene || frame_save_wanted.load())
+            const bool arm = (settings.enabled || accumulate.mode != AccumulateMode::off || reading_depth || scene || frame_save_wanted.load() || dng_develop_id)
                 && sticky_error == ENHANCEMENTS_ERROR_NONE && gpu.ready();
             scene_frame &= arm;
             scene_gbuffer &= scene_frame;
@@ -2137,6 +2226,7 @@ namespace enhancements
             report.accumulate = arm ? accumulate.mode : AccumulateMode::off;
             trace_frame.reset();
             trace_traced = false;
+            accum_presented = false;
             if (!report.armed || !settings.trace.enabled)
                 trace_wrote = false;
             combine_copied = false;
@@ -2200,6 +2290,8 @@ namespace enhancements
                 end_scene_capture(std::string("the D3D11 device went away"));
             scene_gpu = SceneGpu {};
             trace_gpu = TraceGpu {};
+            dng_copy.reset();
+            dng_develop_id.reset();
             trace_frame.reset();
             trace_traced = false;
             restart_burst = {};
@@ -2210,7 +2302,7 @@ namespace enhancements
 using namespace enhancements;
 
 extern "C" __declspec(dllexport) const char *NAME = "CameraTools Enhancements";
-extern "C" __declspec(dllexport) const char *DESCRIPTION = "Finds Genshin's G-buffer and lighting buffers each frame, shows them as debug views, relights the world's ambient light, softens the sun's shadows and adds contact shadows to them, adds aerial perspective and sun shafts through a ground mist to the scene, replaces the game's tone map, averages lens samples into depth of field, saves comparison captures of settings variants, captures the scene's geometry and light around the camera, traces ambient occlusion and sun shadows against it, and gathers one bounce of diffuse light from it. Driven by CameraTools.";
+extern "C" __declspec(dllexport) const char *DESCRIPTION = "Finds Genshin's G-buffer and lighting buffers each frame, shows them as debug views, relights the world's ambient light, softens the sun's shadows and adds contact shadows to them, adds aerial perspective and sun shafts through a ground mist to the scene, replaces the game's tone map, averages lens samples into depth of field, saves comparison captures of settings variants, captures the scene's geometry and light around the camera, traces ambient occlusion and sun shadows against it, gathers one bounce of diffuse light from it, and develops a raw DNG of a screenshot's frame. Driven by CameraTools.";
 
 extern "C" uint32_t EnhancementsVersion(void)
 {
@@ -2316,6 +2408,51 @@ extern "C" uint32_t EnhancementsSaveFrame(void)
     frame_save_asked = presents.load(std::memory_order_relaxed);
     bool idle = false;
     return frame_save_wanted.compare_exchange_strong(idle, true) ? 1 : 0;
+}
+
+extern "C" uint32_t EnhancementsDevelopDng(uint32_t id)
+{
+    std::lock_guard lock(dng_mutex);
+    if (!dng_develop(dng, id, presents.load(std::memory_order_relaxed)))
+        return 0;
+    dng_held = {};
+    return 1;
+}
+
+extern "C" uint32_t EnhancementsWriteDng(uint32_t id, const char *path, const EnhancementsDngInfo *info)
+{
+    if (path == nullptr || *path == '\0')
+        return 0;
+    DngExif exif;
+    if (info != nullptr && info->size >= sizeof *info)
+    {
+        exif.focal_length_mm = std::isfinite(info->focal_length_mm) ? info->focal_length_mm : 0;
+        exif.f_number = std::isfinite(info->f_number) ? info->f_number : 0;
+        exif.subject_distance_m = std::isfinite(info->subject_distance_m) ? info->subject_distance_m : 0;
+        exif.date_time.assign(info->date_time, strnlen(info->date_time, sizeof info->date_time - 1));
+    }
+    fs::path file;
+    try
+    {
+        file = fs::u8path(path);
+    }
+    catch (const std::exception &)
+    {
+        return 0;
+    }
+    std::lock_guard lock(dng_mutex);
+    if (!dng_write(dng, id))
+        return 0;
+    worker.push([id, file, exif, held = std::move(dng_held)]
+    {
+        const bool ok = write_dng(file, { held.rgba.data(), held.size.width, held.size.height, 4, held.flip }, exif);
+        log(ok ? reshade::log::level::info : reshade::log::level::warning, (ok ? "wrote DNG " : "could not write DNG ") + std::to_string(id) + " to "
+            + file.u8string() + ".");
+        std::lock_guard lock(dng_mutex);
+        dng_written(dng, id, ok);
+    });
+    dng_held = {};
+    return 1;
 }
 
 extern "C" void EnhancementsGetStatus(EnhancementsStatus *status)

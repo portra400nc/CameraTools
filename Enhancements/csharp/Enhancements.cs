@@ -2,6 +2,7 @@
 // ReShade loads the add-on, some time after the mod starts or never, so the binding looks for the loaded module and never
 // loads a copy of its own, as CameraTools/ReShade.cs does for the bridge. Every call returns at once and takes effect at
 // the add-on's next frame boundary, so callers watch Status or Describe().
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 using MelonLoader;
@@ -340,6 +341,18 @@ namespace CameraToolsEnhancements
         public float BudgetMs;      // 0: the applied trace's
     }
 
+    // EnhancementsDngInfo in enhancements.h, field for field: the camera a DNG's EXIF names, 0 or an empty date for none.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct EnhancementsDngInfo
+    {
+        public uint Size;
+        public float FocalLengthMm;
+        public float FNumber;
+        public float SubjectDistanceM;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 20)]
+        public byte[] DateTime;         // "YYYY:MM:DD HH:MM:SS" and a NUL
+    }
+
     // ENHANCEMENTS_SCENE_* in enhancements.h. Trace with no faces traces the self-test scene; Release stops a capture that runs
     // and frees the traced scene.
     [Flags]
@@ -380,6 +393,14 @@ namespace CameraToolsEnhancements
             _ => null,
         };
     }
+
+    // ENHANCEMENTS_DNG_* in enhancements.h: where the DNG DevelopDng last accepted is.
+    internal enum EnhancementsDngState : uint { None, Developing, Ready, Writing, Written, Failed }
+
+    // ENHANCEMENTS_DNG_FAILED_* in enhancements.h: why that DNG failed. NoTonemap: no tone map draw developed it within 300
+    // presents; Develop: the draw had no HDR scene, or a texture of the add-on's failed; Readback: its image did not come
+    // back from the GPU; Write: the file could not be written; Dropped: no write asked for it within 1800 presents.
+    internal enum EnhancementsDngFailure : uint { None, NoTonemap, Develop, Readback, Write, Dropped }
 
     // EnhancementsStatus in enhancements.h, field for field. Bit fields use ENHANCEMENTS_STEP_*, ENHANCEMENTS_PASS_* and ENHANCEMENTS_ENTRY_*.
     [StructLayout(LayoutKind.Sequential)]
@@ -422,13 +443,16 @@ namespace CameraToolsEnhancements
         public uint FramesSaved;    // frames SaveFrame has saved since the add-on loaded
         public float DofFocusMeters;    // the depth of field's focus distance, read back a few frames late; 0 before it ran
         public float FlareVisibility;   // the lens flare's source's visibility, 0 to 1, read back a few frames late; 0 before it ran
+        public uint DngId;          // the DNG DevelopDng last accepted, 0 before the first
+        public EnhancementsDngState DngState;
+        public EnhancementsDngFailure DngFailure;   // while DngState is Failed
     }
 
     // The only class that knows CameraToolsEnhancements.addon64.
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 17;
+        private const uint Version = 19;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -468,8 +492,16 @@ namespace CameraToolsEnhancements
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate uint SaveFrameCall();
 
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate uint DevelopDngCall(uint id);
+
+        // The path is UTF-8 with a terminating NUL.
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate uint WriteDngCall(uint id, [In] byte[] path, ref EnhancementsDngInfo info);
+
         private sealed record AddOn(IntPtr Module, ApplyCall Apply, SetCameraCall SetCamera, GetStatusCall GetStatus, DescribeCall Describe, CompareCall Compare,
-            SetAccumulateCall SetAccumulate, DepthAtCall DepthAt, CaptureSceneCall CaptureScene, SaveTraceCall SaveTrace, SetShotCall SetShot, SaveFrameCall SaveFrame);
+            SetAccumulateCall SetAccumulate, DepthAtCall DepthAt, CaptureSceneCall CaptureScene, SaveTraceCall SaveTrace, SetShotCall SetShot, SaveFrameCall SaveFrame,
+            DevelopDngCall DevelopDng, WriteDngCall WriteDng);
 
         private static readonly float[] camera = new float[52];
         private static readonly byte[] line = new byte[512];
@@ -616,6 +648,34 @@ namespace CameraToolsEnhancements
         // while the add-on is not loaded or a save waits.
         public static bool SaveFrame() => addOn != null && addOn.SaveFrame() != 0;
 
+        // Develops a DNG of the next frame, beside the screenshot ReShade saves of it: the add-on's linear light before the tone
+        // curve, with the depth of field, bloom, grade and lens flare the frame has. Status.DngId and DngState follow from
+        // the next present; once DngState is Ready for id, WriteDng writes it. id must not be 0, and should be one the add-on
+        // has not had, such as Status.DngId + 1. False while the add-on is not loaded, or another DNG is developing or being
+        // written.
+        public static bool DevelopDng(uint id) => addOn != null && addOn.DevelopDng(id) != 0;
+
+        // Writes the developed DNG of id to path on the add-on's worker thread, its EXIF naming the camera: the full-frame
+        // focal length, and the f-number and focus distance when the DNG is blurred; DngState goes to Writing, then Written
+        // or Failed. False while the add-on is not loaded, or no DNG of id is Ready.
+        public static bool WriteDng(uint id, string path, float focalLength, float? fNumber, float? focusMeters, DateTime taken)
+        {
+            if (addOn == null || string.IsNullOrEmpty(path))
+                return false;
+            byte[] utf8 = Encoding.UTF8.GetBytes(path + "\0");
+            var date = new byte[20];
+            Encoding.ASCII.GetBytes(taken.ToString("yyyy:MM:dd HH:mm:ss", CultureInfo.InvariantCulture)).CopyTo(date, 0);
+            var info = new EnhancementsDngInfo
+            {
+                Size = (uint)Marshal.SizeOf<EnhancementsDngInfo>(),
+                FocalLengthMm = focalLength,
+                FNumber = fNumber ?? 0f,
+                SubjectDistanceM = focusMeters ?? 0f,
+                DateTime = date,
+            };
+            return addOn.WriteDng(id, utf8, ref info) != 0;
+        }
+
         // SceneFace reads None while the add-on is not loaded, so no caller turns the camera for a capture that is not there.
         public static EnhancementsStatus Status
         {
@@ -692,13 +752,16 @@ namespace CameraToolsEnhancements
                 || !TryExport<CaptureSceneCall>(module, "EnhancementsCaptureScene", out var captureScene)
                 || !TryExport<SaveTraceCall>(module, "EnhancementsSaveTrace", out var saveTrace)
                 || !TryExport<SetShotCall>(module, "EnhancementsSetShot", out var setShot)
-                || !TryExport<SaveFrameCall>(module, "EnhancementsSaveFrame", out var saveFrame))
+                || !TryExport<SaveFrameCall>(module, "EnhancementsSaveFrame", out var saveFrame)
+                || !TryExport<DevelopDngCall>(module, "EnhancementsDevelopDng", out var developDng)
+                || !TryExport<WriteDngCall>(module, "EnhancementsWriteDng", out var writeDng))
             {
                 MelonLogger.Warning($"Enhancements: {ModuleName} version {found} is missing an export.");
                 return;
             }
             rejected = IntPtr.Zero;
-            addOn = new AddOn(module, apply, setCamera, getStatus, describe, compare, setAccumulate, depthAt, captureScene, saveTrace, setShot, saveFrame);
+            addOn = new AddOn(module, apply, setCamera, getStatus, describe, compare, setAccumulate, depthAt, captureScene, saveTrace, setShot, saveFrame,
+                developDng, writeDng);
             Connections++;
             MelonLogger.Msg($"Enhancements: connected to {ModuleName} version {found}.");
         }
