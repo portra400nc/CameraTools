@@ -1,8 +1,7 @@
 name: Release notes
 
+# Fills in the notes of every published release, including ones made on github.com.
 on:
-  push:
-    tags: ["v*"]
   release:
     types: [published]
 
@@ -30,10 +29,4 @@ jobs:
       - name: Write the notes to the release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-        run: |
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --notes-file NOTES.md
-          else
-            gh release create "$TAG" --title "Camera Tools $TAG" --notes-file NOTES.md
-          fi
+        run: gh release edit "${{ github.ref_name }}" --notes-file NOTES.md
