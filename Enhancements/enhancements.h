@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 20
+#define ENHANCEMENTS_VERSION 21
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -523,6 +523,9 @@ typedef struct EnhancementsAccumulate
                                 // to cat_eye at the picture's corners count, so bokeh turns to cat's eyes toward the edges
                                 // and swirls; 0 (the default) is round everywhere, 0.3 to 0.6 is Helios-like; clamped to 0..1
     float cat_eye_falloff;      // the width of the cut's soft edge in aperture radii; default 0.1, clamped to 0.01..1
+    float gain;                 // multiplies the sum's average where present mode writes it and where a DNG develops it,
+                                // as a long exposure's ISO brightens it; 0, negative or not finite reads as the default 1,
+                                // the rest clamp to 1/64..64. Version 21 added it.
 } EnhancementsAccumulate;
 
 // A traced shot: while active, every frame runs the trace pass with the gather on over whatever settings are applied,
@@ -750,12 +753,14 @@ typedef struct EnhancementsDngInfo
     float f_number;             // the depth of field's, for a DNG it blurs; FNumber
     float subject_distance_m;   // the focus distance; SubjectDistance
     char date_time[20];         // DateTimeOriginal, "YYYY:MM:DD HH:MM:SS" with its NUL
+    float exposure_time_s;      // a long exposure's shutter time; ExposureTime. Version 21 added it.
+    uint32_t iso;               // a long exposure's ISO; ISOSpeedRatings. Version 21 added it.
 } EnhancementsDngInfo;
 
 // Writes the DNG of id (core/dng.h says what the file holds) to path, UTF-8, on the add-on's worker thread, replacing a file
-// there, with info's camera in its EXIF; info may be null or too short, for no camera. dng_state goes to WRITING, then
-// WRITTEN or FAILED. Returns 1 when accepted, and 0 unless dng_state is READY for id, or when path is null or empty.
-// Version 18 added it, and version 19 info.
+// there, with info's camera in its EXIF; info may be null, for no camera, and a size that ends before a field leaves that
+// field's tag out. dng_state goes to WRITING, then WRITTEN or FAILED. Returns 1 when accepted, and 0 unless dng_state is
+// READY for id, or when path is null or empty. Version 18 added it, version 19 info, and version 21 its exposure.
 ENHANCEMENTS_EXPORT uint32_t EnhancementsWriteDng(uint32_t id, const char *path, const EnhancementsDngInfo *info);
 
 // Copies the accumulation's state; it takes effect at the next frame boundary, like EnhancementsApply. A null pointer, or a

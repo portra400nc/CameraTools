@@ -262,6 +262,25 @@ int main(int argc, char **argv)
         const Tiff lens_only = parse(lens, value(parse(lens), 34665));
         check("a shot without depth of field or a date gives its focal length alone, 24.4 mm as 244/10 and 24",
             lens_only.order == std::vector<uint16_t> { 36864, 37386, 41989 } && numerator(lens_only, 37386) == 244 && value(lens_only, 41989) == 24);
+        check("a shot with no shutter time and no ISO has neither ExposureTime nor ISOSpeedRatings",
+            !exif.tags.count(33434) && !exif.tags.count(34855) && !lens_only.tags.count(33434) && !lens_only.tags.count(34855));
+        DngExif eighth { 35, 0, 0, "" };
+        eighth.exposure_time_s = 0.125f;
+        eighth.iso = 400;
+        const std::vector<uint8_t> short_file = encode_dng({ one, 1, 1 }, eighth);
+        const Tiff short_exif = parse(short_file, value(parse(short_file), 34665));
+        check("a 1/8 s exposure at ISO 400 writes ExposureTime 1/8 first and ISOSpeedRatings 400 as a SHORT, in tag order",
+            short_exif.order == std::vector<uint16_t> { 33434, 34855, 36864, 37386, 41989 } && short_exif.tags.at(33434).type == 5
+            && numerator(short_exif, 33434) == 1 && denominator(short_exif, 33434) == 8 && short_exif.tags.at(34855).type == 3
+            && value(short_exif, 34855) == 400);
+        DngExif four { 85.0f, 1.4f, 2.35f, "2026:10:29 11:30:00" };
+        four.exposure_time_s = 4;
+        four.iso = 100;
+        const std::vector<uint8_t> long_file = encode_dng({ one, 1, 1 }, four);
+        const Tiff long_exif = parse(long_file, value(parse(long_file), 34665));
+        check("a 4 s exposure writes ExposureTime 4/1, before FNumber, with ISO 100 after it",
+            long_exif.order == std::vector<uint16_t> { 33434, 33437, 34855, 36864, 36867, 37382, 37386, 41989 }
+            && numerator(long_exif, 33434) == 4 && denominator(long_exif, 33434) == 1 && value(long_exif, 34855) == 100);
     }
     {
         // Every category, the largest jumps both ways included: 0 after the start's 32768 is a difference of -32768, the one

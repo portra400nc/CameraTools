@@ -798,7 +798,7 @@ namespace enhancements
         void develop_dng(const FrameMap &map, uint32_t id, const GameGrade &grade, bool tonemapped)
         {
             dng_develop_id.reset();
-            const DngDevelop develop { accum_presented, dof_display ? &*dof_display : nullptr, dng_grade(settings.tonemap, tonemapped), grade.copied, grade.bloom,
+            const DngDevelop develop { accum_presented, accumulate.gain, dof_display ? &*dof_display : nullptr, dng_grade(settings.tonemap, tonemapped), grade.copied, grade.bloom,
                 flare_display ? &*flare_display : nullptr };
             if (gpu.develop_dng(map, develop))
             {
@@ -2424,12 +2424,18 @@ extern "C" uint32_t EnhancementsWriteDng(uint32_t id, const char *path, const En
     if (path == nullptr || *path == '\0')
         return 0;
     DngExif exif;
-    if (info != nullptr && info->size >= sizeof *info)
+    const auto knows = [info](size_t end) { return info != nullptr && info->size >= end; };
+    if (knows(offsetof(EnhancementsDngInfo, exposure_time_s)))
     {
         exif.focal_length_mm = std::isfinite(info->focal_length_mm) ? info->focal_length_mm : 0;
         exif.f_number = std::isfinite(info->f_number) ? info->f_number : 0;
         exif.subject_distance_m = std::isfinite(info->subject_distance_m) ? info->subject_distance_m : 0;
         exif.date_time.assign(info->date_time, strnlen(info->date_time, sizeof info->date_time - 1));
+    }
+    if (knows(sizeof *info))
+    {
+        exif.exposure_time_s = std::isfinite(info->exposure_time_s) ? info->exposure_time_s : 0;
+        exif.iso = info->iso;
     }
     fs::path file;
     try

@@ -113,6 +113,7 @@ namespace CameraTools
         public Func<PresetNote> Preset;
         private bool dimmed;
         private string detail;
+        private bool warns;
         private PresetNote? preset;
 
         // A saved preset changes what the line says.
@@ -131,6 +132,12 @@ namespace CameraTools
         {
             if (DetailText == null)
                 return;
+            bool warning = Row.DetailWarns?.Invoke() ?? false;
+            if (warning != warns)
+            {
+                DetailText.color = warning ? Style.Warning : Style.Dim;
+                warns = warning;
+            }
             string text = Row.Detail() ?? "";
             if (text == detail)
                 return;

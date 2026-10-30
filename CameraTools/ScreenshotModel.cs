@@ -7,23 +7,24 @@ namespace CameraTools
     internal readonly record struct ShotKinds(bool Traced, bool Supersampled, bool Dng)
     {
         // The traced lighting pauses the game, which leaves a long exposure nothing to record, so a long exposure goes
-        // without. A long exposure averages over time and a traced shot over its own samples, so neither is supersampled.
-        // Neither has a DNG: a long exposure's average is ReShade's, made after the add-on draws, and the traced lighting
-        // is shelved.
+        // without. A long exposure averages over time and a traced shot over its own samples, so neither is supersampled
+        // here; the long exposure moves the camera within each pixel by itself. The traced lighting is shelved, so it has
+        // no DNG.
         public static ShotKinds Of(bool longExposure, bool tracedWanted, bool supersampling, bool dng, bool enhancements)
         {
             bool traced = tracedWanted && !longExposure;
-            bool plain = !traced && !longExposure;
-            return new ShotKinds(traced, supersampling && enhancements && plain, dng && enhancements && plain);
+            return new ShotKinds(traced, supersampling && enhancements && !traced && !longExposure, dng && enhancements && !traced);
         }
     }
 
-    // The camera a DNG's EXIF names, as the panel shows it when the capture is asked for: the full-frame focal length, and
-    // while CameraTools' own depth of field blurs the DNG, its f-number and focus distance.
-    internal sealed record DngCamera(float FocalLength, float? FNumber, float? FocusMeters, DateTime Taken)
+    // The camera a DNG's EXIF names, as the panel shows it when the capture is asked for: the full-frame focal length,
+    // while CameraTools' own depth of field blurs the DNG its f-number and focus distance, and for a long exposure its
+    // shutter time and ISO.
+    internal sealed record DngCamera(float FocalLength, float? FNumber, float? FocusMeters, DateTime Taken, float? ExposureSeconds, int? Iso)
     {
         public override string ToString() => $"{FocalLength:0} mm" + (FNumber is float f ? $", f/{f:0.##}" : "")
-            + (FocusMeters is float m ? $", focus {m:0.##} m" : "");
+            + (FocusMeters is float m ? $", focus {m:0.##} m" : "") + (ExposureSeconds is float s ? $", {s:0.###} s" : "")
+            + (Iso is int iso ? $", ISO {iso}" : "");
     }
 
     // The DNG of a shot: the id the add-on develops it under, and its camera.

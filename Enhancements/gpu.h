@@ -244,6 +244,7 @@ namespace enhancements
     struct DngDevelop
     {
         bool sum = false;                       // the accumulator presented this frame: the source is its sum's own average
+        float gain = 1;                         // multiplies that average, as it did the present's
         const DofDisplayFrame *dof = nullptr;   // the depth of field the frame defers to the back buffer, to run on it in HDR
         DngGrade grade;
         bool game_grade = false;                // copy_game_grade copied this draw's grade

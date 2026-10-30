@@ -254,10 +254,11 @@ namespace enhancements
         uint32_t generation = 0;
         float cat_eye = 0.0f;
         float cat_eye_falloff = 0.1f;
+        float gain = 1.0f;
     };
 
     // Honors size like parse_settings, maps an unknown mode to off, replaces non-finite floats with the default and
-    // clamps the rest.
+    // clamps the rest. A gain of 0 or below is the default too, so a caller that zeroes the struct gets plain averaging.
     AccumulateSettings parse_accumulate(const EnhancementsAccumulate &raw);
 
     // The domain form of EnhancementsShot. Built only by parse_shot, so every value in it is in range.

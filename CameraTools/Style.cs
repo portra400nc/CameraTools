@@ -13,6 +13,7 @@ namespace CameraTools
         public static readonly Color Cream = Hex(0xd3bc8e);
         // A recording's time and fill on the play bar.
         public static readonly Color Recording = Hex(0xff6b6b);
+        public static readonly Color Warning = Hex(0xe7b46a);
         public static readonly Color Track = Hex(0x343e50);
         public static readonly Color Band = Hex(0xece5d8, 0.10f);
         public static readonly Color PanelTop = Hex(0x222835, 0.90f);

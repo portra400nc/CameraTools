@@ -61,7 +61,8 @@ cbuffer Constants : register(b0)
     uint flare_atlas;           // 1 when this frame's sun constants passed their checks, so the atlas can be read
     float tone_shadows;         // EnhancementsTones.shadows
     float tone_highlights;      // EnhancementsTones.highlights
-    float2 padding3;
+    float accum_gain;           // EnhancementsAccumulate.gain, for present_ps.hlsl
+    float padding3;
 };
 
 SamplerState point_clamp : register(s0);

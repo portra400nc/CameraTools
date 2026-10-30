@@ -69,7 +69,7 @@ namespace enhancements
         static_assert(sizeof(EnhancementsCamera) == 52 * sizeof(float));
         static_assert(ENHANCEMENTS_ACCUMULATE_PRESENT == static_cast<int>(AccumulateMode::present)
             && ENHANCEMENTS_ACCUMULATE_COUNT == static_cast<int>(AccumulateMode::count));
-        static_assert(offsetof(EnhancementsAccumulate, mode) == 4 && sizeof(EnhancementsAccumulate) == 20);
+        static_assert(offsetof(EnhancementsAccumulate, mode) == 4 && offsetof(EnhancementsAccumulate, gain) == 20 && sizeof(EnhancementsAccumulate) == 24);
         static_assert(offsetof(EnhancementsShot, active) == 4 && offsetof(EnhancementsShot, budget_ms) == 12 && sizeof(EnhancementsShot) == 16);
 
     namespace hlsl
@@ -540,6 +540,8 @@ namespace enhancements
             a.cat_eye = finite_or(raw.cat_eye, defaults.cat_eye, 0.0f, 1.0f);
         if (knows(offsetof(EnhancementsAccumulate, cat_eye_falloff), sizeof raw.cat_eye_falloff))
             a.cat_eye_falloff = finite_or(raw.cat_eye_falloff, defaults.cat_eye_falloff, 0.01f, 1.0f);
+        if (knows(offsetof(EnhancementsAccumulate, gain), sizeof raw.gain) && raw.gain > 0)
+            a.gain = finite_or(raw.gain, defaults.gain, 1.0f / 64, 64.0f);
         return a;
     }
 

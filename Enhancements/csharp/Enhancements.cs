@@ -321,6 +321,7 @@ namespace CameraToolsEnhancements
         public uint Generation;
         public float CatEye;
         public float CatEyeFalloff;
+        public float Gain;              // 0 reads as 1
     }
 
     // EnhancementsCamera.lens_sample in enhancements.h: the aperture point the camera was moved to, x right and y up in the unit
@@ -359,6 +360,8 @@ namespace CameraToolsEnhancements
         public float SubjectDistanceM;
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = 20)]
         public byte[] DateTime;         // "YYYY:MM:DD HH:MM:SS" and a NUL
+        public float ExposureTimeS;
+        public uint Iso;
     }
 
     // ENHANCEMENTS_SCENE_* in enhancements.h. Trace with no faces traces the self-test scene; Release stops a capture that runs
@@ -460,7 +463,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 20;
+        private const uint Version = 21;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -581,8 +584,8 @@ namespace CameraToolsEnhancements
 
         // Starts, presents or stops lens-sampled depth of field; it takes effect at the add-on's next frame boundary. While
         // Mode is Add, each frame whose camera came with a marked lens sample is added into the sum, which a new Generation
-        // empties first; Status.AccumGeneration and AccumSamples follow. While Mode is Present, the sum's average replaces
-        // the HDR scene before the game's bloom and tone map.
+        // empties first; Status.AccumGeneration and AccumSamples follow. While Mode is Present, the sum's average times Gain
+        // replaces the HDR scene before the game's bloom and tone map.
         public static void SetAccumulate(EnhancementsAccumulate accumulate)
         {
             if (addOn == null)
@@ -664,9 +667,10 @@ namespace CameraToolsEnhancements
         public static bool DevelopDng(uint id) => addOn != null && addOn.DevelopDng(id) != 0;
 
         // Writes the developed DNG of id to path on the add-on's worker thread, its EXIF naming the camera: the full-frame
-        // focal length, and the f-number and focus distance when the DNG is blurred; DngState goes to Writing, then Written
-        // or Failed. False while the add-on is not loaded, or no DNG of id is Ready.
-        public static bool WriteDng(uint id, string path, float focalLength, float? fNumber, float? focusMeters, DateTime taken)
+        // focal length, the f-number and focus distance when the DNG is blurred, and a long exposure's shutter time and ISO;
+        // DngState goes to Writing, then Written or Failed. False while the add-on is not loaded, or no DNG of id is Ready.
+        public static bool WriteDng(uint id, string path, float focalLength, float? fNumber, float? focusMeters, DateTime taken,
+            float? exposureSeconds, int? iso)
         {
             if (addOn == null || string.IsNullOrEmpty(path))
                 return false;
@@ -680,6 +684,8 @@ namespace CameraToolsEnhancements
                 FNumber = fNumber ?? 0f,
                 SubjectDistanceM = focusMeters ?? 0f,
                 DateTime = date,
+                ExposureTimeS = exposureSeconds ?? 0f,
+                Iso = (uint)Math.Max(iso ?? 0, 0),
             };
             return addOn.WriteDng(id, utf8, ref info) != 0;
         }

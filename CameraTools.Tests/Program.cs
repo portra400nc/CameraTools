@@ -1,7 +1,7 @@
 // The traced screenshot's decisions (CameraTools/TracedShot.cs), the Enhancements category's rules and its settings for
 // the add-on (CameraTools/EnhancementsModel.cs), the presets' decisions (CameraTools/GraphicsModel.cs), and the
 // Enhancements binding's layout against Enhancements/enhancements.h's literal sizes, and the camera path's motion
-// (CameraTools/PathSampler.cs), the long exposure's settings (CameraTools/Exposure.cs), and a replay's timeline and
+// (CameraTools/PathSampler.cs), the long exposure's settings and method (CameraTools/Exposure.cs, LongExposureModel.cs), and a replay's timeline and
 // words (CameraTools/ReplayModel.cs), and where a supersampled screenshot's samples fall (CameraTools/SupersamplingModel.cs), and the default bindings and
 // their migration (CameraTools/ControlsModel.cs), and which shots get a DNG and how it is saved (CameraTools/ScreenshotModel.cs). No game, no
 // ReShade, no add-on: run with dotnet run.
@@ -55,8 +55,11 @@ Check("the binding's shot is 16 bytes, its settings 416 with the depth of field 
     && Offset<EnhancementsDepthOfField>(nameof(EnhancementsDepthOfField.BokehContrast)) == 80
     && Offset<EnhancementsDepthOfField>(nameof(EnhancementsDepthOfField.Place)) == 84 && (uint)EnhancementsDofPlace.Display == 1
     && Marshal.SizeOf<EnhancementsSceneRequest>() == 20);
-Check("the binding's DNG camera is enhancements.h's 36 bytes, with its date at 16",
-    Marshal.SizeOf<EnhancementsDngInfo>() == 36 && Offset<EnhancementsDngInfo>(nameof(EnhancementsDngInfo.DateTime)) == 16);
+Check("the binding's DNG camera is enhancements.h's 44 bytes, with its date at 16, its shutter time at 36 and its ISO at 40",
+    Marshal.SizeOf<EnhancementsDngInfo>() == 44 && Offset<EnhancementsDngInfo>(nameof(EnhancementsDngInfo.DateTime)) == 16
+    && Offset<EnhancementsDngInfo>(nameof(EnhancementsDngInfo.ExposureTimeS)) == 36 && Offset<EnhancementsDngInfo>(nameof(EnhancementsDngInfo.Iso)) == 40);
+Check("the binding's accumulation is enhancements.h's 24 bytes, with its gain at 20",
+    Marshal.SizeOf<EnhancementsAccumulate>() == 24 && Offset<EnhancementsAccumulate>(nameof(EnhancementsAccumulate.Gain)) == 20);
 Check("the restart reasons and the scene states count as enhancements.h's", (uint)EnhancementsTraceRestart.Scene == 1 && (uint)EnhancementsTraceRestart.Camera == 4
     && (uint)EnhancementsTraceRestart.Light == 6 && (uint)EnhancementsTraceState.Ready == 3 && (uint)EnhancementsTraceState.Failed == 5
     && (uint)EnhancementsSceneFlags.Release == 32 && (uint)EnhancementsSceneFlags.Light == 64);
@@ -784,18 +787,9 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
 }
 
 // The long exposure.
-Check("the shutters run 1/8 s to 120 s, inside RealLongExposure.fx's 0.1 s to 120 s",
-    Exposure.ShutterLabels.First() == "1/8 s" && Exposure.ShutterLabels.Last() == "120 s" && Exposure.Shutters.All(seconds => seconds >= 0.1f && seconds <= 120f));
+Check("the shutters run 1/8 s to 120 s", Exposure.ShutterLabels.First() == "1/8 s" && Exposure.ShutterLabels.Last() == "120 s");
 Check("a saved shutter time rounds to the nearest full stop: 7 s to 8 s, 0.1 s to 1/8 s, 500 s to 120 s",
     Exposure.Shutters[Exposure.NearestShutter(7f)] == 8f && Exposure.NearestShutter(0.1f) == 0 && Exposure.Shutters[Exposure.NearestShutter(500f)] == 120f);
-{
-    var open = new Exposure(8f, 400, 2f).Uniforms(open: true).ToDictionary(uniform => uniform.Name, uniform => uniform.Value);
-    Check("an open shutter sets the duration, ISO and boost, starts the exposure, and keeps the shader's marks off the picture",
-        open["UI_ExposureDuration"] == 8f && open["UI_ISO"] == 400f && open["UI_Gamma"] == 2f && open["UI_StartExposure"] == 1f
-        && open["UI_ShowProgress"] == 0f && open["UI_ShowGreenOnFinish"] == 0f && open["UI_Delay"] == 0f);
-    Check("a closed shutter does not start the exposure", new Exposure(8f, 400, 2f).Uniforms(open: false).Single(uniform => uniform.Name == "UI_StartExposure").Value == 0f);
-}
-
 // A replay's timeline, which character is on the field, and the Replays tab's words.
 {
     var timeline = new Timeline<string>();
@@ -968,10 +962,13 @@ Check("the DNG's states and failures count as enhancements.h's", (uint)Enhanceme
     && (uint)EnhancementsDngFailure.Write == 4 && (uint)EnhancementsDngFailure.Dropped == 5);
 Check("a plain shot with the switch on and the add-on connected gets a DNG, supersampled or not",
     ShotKinds.Of(false, false, false, true, true) == new ShotKinds(false, false, true) && ShotKinds.Of(false, false, true, true, true) == new ShotKinds(false, true, true));
-Check("a long exposure and a traced shot get none, nor does a shot without the add-on or with the switch off",
-    !ShotKinds.Of(true, false, true, true, true).Dng && ShotKinds.Of(true, true, true, true, true) == new ShotKinds(false, false, false)
-    && ShotKinds.Of(false, true, true, true, true) == new ShotKinds(true, false, false) && !ShotKinds.Of(false, false, true, true, false).Dng
+Check("a traced shot gets none, nor does a shot without the add-on or with the switch off",
+    ShotKinds.Of(false, true, true, true, true) == new ShotKinds(true, false, false) && !ShotKinds.Of(false, false, true, true, false).Dng
     && !ShotKinds.Of(false, false, false, false, true).Dng);
+Check("a long exposure is neither traced nor supersampled, and gets a DNG with the switch on and the add-on connected",
+    ShotKinds.Of(true, true, true, true, true) == new ShotKinds(false, false, true)
+    && ShotKinds.Of(true, false, false, false, true) == new ShotKinds(false, false, false)
+    && ShotKinds.Of(true, false, true, true, false) == new ShotKinds(false, false, false));
 Check("the DNG goes beside the PNG with its name", ScreenshotDng.PathFor(@"C:\ReShade\Screenshots\GenshinImpact 2026-10-28 21-14-05.png")
     == @"C:\ReShade\Screenshots\GenshinImpact 2026-10-28 21-14-05.dng");
 Check("the toast names the PNG and the DNG, then the shot's kind",
@@ -985,6 +982,21 @@ Check("it waits while developing or writing, and on a status of another id, read
     && ScreenshotDng.Next(4, false, 3, EnhancementsDngState.Ready) == DngStep.Wait && ScreenshotDng.Next(4, true, 3, EnhancementsDngState.Written) == DngStep.Wait);
 Check("its own id written ends the shot, and failed ends it without the DNG",
     ScreenshotDng.Next(4, true, 4, EnhancementsDngState.Written) == DngStep.Written && ScreenshotDng.Next(4, false, 4, EnhancementsDngState.Failed) == DngStep.Failed);
+
+// The long exposure's frames and estimate (CameraTools/LongExposureModel.cs).
+Check("the frames are the shutter time times the smoothness, rounded half up, at least 1",
+    LongExposurePlan.Frames(4f, 240) == 960 && LongExposurePlan.Frames(0.125f, 60) == 8 && LongExposurePlan.Frames(120f, 480) == 57600
+    && LongExposurePlan.Frames(0f, 240) == 1);
+Check("the smoothness labels read per second, and a saved value picks the nearest choice",
+    LongExposurePlan.SmoothnessLabels.SequenceEqual(new[] { "60 / s", "120 / s", "240 / s", "480 / s" })
+    && LongExposurePlan.NearestSmoothness(240) == 2 && LongExposurePlan.NearestSmoothness(1000) == 3 && LongExposurePlan.NearestSmoothness(0) == 0);
+Check("the estimate names the frames and the time from the last speed, in seconds under 90 s and in minutes from then",
+    LongExposurePlan.Estimate(960, 6.4) == ("960 frames · about 3 min", false) && LongExposurePlan.Estimate(240, 6.4) == ("240 frames · about 38 s", false)
+    && LongExposurePlan.Estimate(570, 6.4) == ("570 frames · about 89 s", false) && LongExposurePlan.Estimate(576, 6.4) == ("576 frames · about 2 min", false));
+Check("before the first long exposure it shows the frames alone, with thousands separators",
+    LongExposurePlan.Estimate(1920, 0) == ("1,920 frames", false) && LongExposurePlan.Estimate(57600, double.NaN) == ("57,600 frames", false));
+Check("past ten minutes the estimate warns", LongExposurePlan.Estimate(3841, 6.4) == ("3,841 frames · about 10 min", true)
+    && LongExposurePlan.Estimate(3840, 6.4) == ("3,840 frames · about 10 min", false));
 
 Console.WriteLine($"CameraTools tests: {failures} failed");
 return failures == 0 ? 0 : 1;

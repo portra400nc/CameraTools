@@ -124,14 +124,22 @@ namespace enhancements
                 }
         }
 
-        // FNumber in hundredths, ExifVersion 0231, DateTimeOriginal, SubjectDistance in centimeters, FocalLength in tenths and
-        // FocalLengthIn35mmFilm; those of 0, or no date, left out.
+        // ExposureTime as a camera writes it, FNumber in hundredths, ISOSpeedRatings, ExifVersion 0231, DateTimeOriginal,
+        // SubjectDistance in centimeters, FocalLength in tenths and FocalLengthIn35mmFilm; those of 0, or no date, left out.
         std::vector<IfdEntry> exif_ifd(const DngExif &exif)
         {
             std::vector<IfdEntry> e;
             const auto in = [](float value, uint32_t parts) { return std::pair<int32_t, uint32_t>(static_cast<int32_t>(std::lround(double(value) * parts)), parts); };
+            if (exif.exposure_time_s > 0 && std::isfinite(exif.exposure_time_s))
+            {
+                const auto whole = [](double x) { return static_cast<int32_t>(std::min(std::llround(x), 0x7FFFFFFFLL)); };
+                const double t = exif.exposure_time_s;
+                e.push_back(rationals(33434, kRational, { t < 1 ? std::pair<int32_t, uint32_t>(1, whole(1 / t)) : std::pair<int32_t, uint32_t>(whole(t), 1) }));
+            }
             if (exif.f_number > 0)
                 e.push_back(rationals(33437, kRational, { in(exif.f_number, 100) }));
+            if (exif.iso > 0)
+                e.push_back(shorts(34855, { std::min<uint32_t>(exif.iso, 65535) }));
             e.push_back(IfdEntry { 36864, kUndefined, { '0', '2', '3', '1' } });
             if (!exif.date_time.empty())
                 e.push_back(ascii(36867, exif.date_time.c_str()));

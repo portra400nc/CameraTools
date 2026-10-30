@@ -28,6 +28,7 @@
     <Compile Include="../CameraTools/PathSampler.cs" Link="PathSampler.cs" />
     <Compile Include="../CameraTools/CameraPath.cs" Link="CameraPath.cs" />
     <Compile Include="../CameraTools/Exposure.cs" Link="Exposure.cs" />
+    <Compile Include="../CameraTools/LongExposureModel.cs" Link="LongExposureModel.cs" />
     <Compile Include="../CameraTools/ReplayModel.cs" Link="ReplayModel.cs" />
     <Compile Include="../CameraTools/SupersamplingModel.cs" Link="SupersamplingModel.cs" />
     <Compile Include="../CameraTools/ScreenshotModel.cs" Link="ScreenshotModel.cs" />

@@ -11,8 +11,8 @@ namespace CameraTools
     internal sealed record ShotBefore(bool PanelOpen, bool UiHidden, GraphicsState Graphics, ScreenSize Window, bool Traced, LongShot Long,
         bool Supersampled, bool Dng);
 
-    // A long exposure's settings, and whether the shader's technique was on before the shot switched it on.
-    internal sealed record LongShot(Exposure Exposure, bool TechniqueWasOn);
+    // A long exposure's settings, with the game frames it adds for each second of shutter time.
+    internal sealed record LongShot(Exposure Exposure, int FramesPerSecond);
 
     internal abstract record ShotState
     {
@@ -32,14 +32,16 @@ namespace CameraTools
             public float Loading { get; init; }
         }
 
-        // A long exposure: Requested is when the shot asked the shader to open its shutter, and Opened when the bridge read
-        // it back as open, or null before.
-        public sealed record Exposing(ShotBefore Before, bool Resized, float Started, float Requested, float? Opened) : Busy(Before, Resized, Started);
-
         // Supersampling, after Settling: Index is the sample on screen, and Frame how many frames it has been there. Index
         // -1 waits for the add-on to empty its sum for Generation. Since is when the samples began.
         public sealed record Sampling(ShotBefore Before, bool Resized, float Started, float Since, uint Generation, int Count, int Index, int Frame)
             : Busy(Before, Resized, Started);
+
+        // A long exposure, after Settling: Index frames were shown, each one step of game time, until the add-on's sum for
+        // Generation holds Target of them. Since is when it began and Advanced when the sum last grew to Samples, both in
+        // real time, since the game's clocks step by the frame meanwhile.
+        public sealed record Recording(ShotBefore Before, bool Resized, float Started, float Since, uint Generation, int Target, int Index,
+            uint Samples, float Advanced) : Busy(Before, Resized, Started);
 
         // The camera is back at the pixels' centres, and the add-on was asked to show the average from the bridge's present
         // count Presents on.
@@ -70,9 +72,6 @@ namespace CameraTools
         private const float SaveTimeout = 15f;
         // Each of the DNG's two waits, for its develop and for its write; 50 MB at 3840x2160.
         private const float DngTimeout = 30f;
-        private const float OpenTimeout = 5f;
-        // Past the shutter time, for the shader's last frame and the present that shows its average.
-        private const float CloseMargin = 0.25f;
         private const float MaxSettle = 30f;
         // Presents after the last CameraTools element left the screen, so the countdown is not in the capture.
         private const ulong CleanFrames = 3;
@@ -103,7 +102,6 @@ namespace CameraTools
             new("ReShade to reach the window's size", (_, bridge) => bridge.Width == Screen.width && bridge.Height == Screen.height),
             new("the render resolution to follow the window", (_, _) => !Graphics.SizePending),
             new("the depth of field to focus", (_, _) => focusing is float since && DepthOfField.Focused(Time.unscaledTime - since)),
-            new($"{LongExposure.File} to take its settings", (settling, _) => settling.Before.Long == null || exposureReady),
             new("the graphics settings to settle",
                 (settling, _) => Time.unscaledTime - Math.Max(settling.Started, Graphics.Changed) >= SettleSeconds),
             new($"{CleanFrames} frames without the CameraTools UI", (settling, bridge) => bridge.Presents >= settling.Dirty + CleanFrames),
@@ -131,8 +129,8 @@ namespace CameraTools
             }),
             ("the long exposure", busy =>
             {
-                if (busy.Before.Long is { } shot)
-                    LongExposure.End(shot.TechniqueWasOn);
+                if (busy.Before.Long != null)
+                    NativeExposure.End();
             }),
             ("the graphics settings", busy => Graphics.PutBack(busy.Before.Graphics)),
             ("the resolution", busy =>
@@ -159,13 +157,11 @@ namespace CameraTools
         // Since when ReShade has drawn its effects at the screenshot's size without a break. The depth of field's
         // autofocus only moves while it is drawn, and starts again when ReShade loads its effects again.
         private static float? focusing;
-        // A long exposure's shader has its technique on and every setting as the shot wants it.
-        private static bool exposureReady;
 
         public static ShotState State { get; private set; } = new ShotState.Idle();
 
         // The samples move the camera within each pixel, so the user's input must not move it.
-        public static bool HoldsCamera => State is ShotState.Sampling or ShotState.Presenting;
+        public static bool HoldsCamera => State is ShotState.Sampling or ShotState.Recording or ShotState.Presenting;
 
         public static bool Countdown
         {
@@ -199,7 +195,7 @@ namespace CameraTools
             settle = category.CreateEntry("ScreenshotSettleSeconds", 2f,
                 description: $"The least time, in seconds, between changing the graphics settings and taking the screenshot, from 0 to {MaxSettle:0}.");
             dng = category.CreateEntry("ScreenshotDng", false,
-                description: "Also save a DNG beside each screenshot: 16-bit linear light before the tone curve, for a raw editor such as Lightroom. Needs CameraToolsEnhancements.addon64, and not with a long exposure.");
+                description: "Also save a DNG beside each screenshot: 16-bit linear light before the tone curve, for a raw editor such as Lightroom. Needs CameraToolsEnhancements.addon64.");
             MelonPreferences.Save();
             EnhancementsShot.Load();
             Supersampling.Load();
@@ -216,14 +212,13 @@ namespace CameraTools
             if (State is not ShotState.Idle || !freecamActive || !ReShade.Connected)
                 return;
             float now = Time.unscaledTime;
-            var shot = LongExposure.Active ? new LongShot(LongExposure.Current, LongExposure.TechniqueOn) : null;
+            var shot = LongExposure.Active ? new LongShot(LongExposure.Current, LongExposure.FramesPerSecond) : null;
             var kinds = ShotKinds.Of(shot != null, EnhancementsShot.Wanted, Supersampling.Enabled, Dng, CameraToolsEnhancements.Enhancements.Connected);
             var before = new ShotBefore(CameraUi.PanelOpen, uiHidden, Graphics.Capture(), Window, kinds.Traced, shot, kinds.Supersampled, kinds.Dng);
             bool supersampled = kinds.Supersampled;
             var slot = Graphics.Slot(1);
             bool resized = slot != before.Window;
             focusing = null;
-            exposureReady = false;
             var bridge = ReShade.Status;
             ShotState.Busy busy = Countdown
                 ? new ShotState.Countdown(before, resized, now, now + CountdownSeconds, 0)
@@ -238,6 +233,8 @@ namespace CameraTools
                 string preset = Graphics.ApplyForShot();
                 if (supersampled)
                     preset += $"; supersampling {Supersampling.Samples} samples, {Graphics.AntiAliasingOff()}";
+                else if (shot != null)
+                    preset += $"; {Graphics.AntiAliasingOff()}";
                 if (resized)
                     resize = (slot, bridge.Presents + SaveFrames);
                 ReShade.SetEffects(true);
@@ -247,7 +244,7 @@ namespace CameraTools
                     EnhancementsShot.Hold();
                 Melon<CameraTools>.Logger.Msg($"Screenshot: started. Window {before.Window}, slot 1 {slot}{(resized ? "" : " (no resize)")}; {preset}; "
                     + $"countdown {(Countdown ? "on" : "off")}, settle {SettleSeconds:0.##} s{(before.Traced ? ", traced lighting" : "")}{(before.Dng ? ", with a DNG" : "")}"
-                    + $"{(shot != null ? $", long exposure {shot.Exposure}" : "")}; {bridge}.");
+                    + $"{(shot != null ? $", long exposure {shot.Exposure} at {shot.FramesPerSecond} frames a second" : "")}; {bridge}.");
             }
             catch (Exception e)
             {
@@ -266,7 +263,8 @@ namespace CameraTools
                 string stopped = !freecamActive ? "Screenshot cancelled: the free camera is off"
                     : !uiHidden ? "Screenshot cancelled"
                     : !ReShade.Connected ? "Screenshot failed: ReShade was unloaded"
-                    : (busy.Before.Supersampled || busy.Before.Dng) && !CameraToolsEnhancements.Enhancements.Connected ? "Screenshot failed: the Enhancements add-on was unloaded"
+                    : (busy.Before.Supersampled || busy.Before.Dng || busy.Before.Long != null) && !CameraToolsEnhancements.Enhancements.Connected
+                        ? "Screenshot failed: the Enhancements add-on was unloaded"
                     : !busy.Before.Traced ? null
                     : !CameraToolsEnhancements.Enhancements.Connected ? "Screenshot failed: the Enhancements add-on was unloaded"
                     : EnhancementsShot.Unpaused ? "Screenshot cancelled: the game was unpaused"
@@ -287,8 +285,6 @@ namespace CameraTools
                     focusing = null;
                 else
                     focusing ??= Time.unscaledTime;
-                if (busy.Before.Long is { } shot)
-                    exposureReady = LongExposure.Converge(shot.Exposure, open: busy is ShotState.Exposing or ShotState.Saving);
                 switch (busy)
                 {
                     case ShotState.Countdown counting:
@@ -297,11 +293,11 @@ namespace CameraTools
                     case ShotState.Settling settling:
                         Settle(settling);
                         break;
-                    case ShotState.Exposing exposing:
-                        Expose(exposing);
-                        break;
                     case ShotState.Sampling sampling:
                         Sample(sampling);
+                        break;
+                    case ShotState.Recording recording:
+                        Record(recording);
                         break;
                     case ShotState.Presenting presenting:
                         Present(presenting);
@@ -364,10 +360,15 @@ namespace CameraTools
                 return;
             }
             var unmet = Array.Find(Conditions, condition => !condition.Met(settling, bridge));
-            if (unmet == null && settling.Before.Long != null)
+            if (unmet == null && settling.Before.Long is { } shot)
             {
-                Melon<CameraTools>.Logger.Msg($"Screenshot: opening the shutter {now - settling.Started:0.0} s after the button; window {Window}; {bridge}.");
-                State = new ShotState.Exposing(settling.Before, settling.Resized, settling.Started, now, null);
+                uint generation = CameraToolsEnhancements.Enhancements.Status.AccumGeneration + 1;
+                int target = LongExposurePlan.Frames(shot.Exposure.Seconds, shot.FramesPerSecond);
+                string world = NativeExposure.Start(shot.FramesPerSecond, generation);
+                Melon<CameraTools>.Logger.Msg($"Screenshot: recording {target} frames for generation {generation} {now - settling.Started:0.0} s after the button; "
+                    + $"{world}; window {Window}; {bridge}.");
+                float real = Time.realtimeSinceStartup;
+                State = new ShotState.Recording(settling.Before, settling.Resized, settling.Started, real, generation, target, 0, 0, real);
                 return;
             }
             if (unmet == null && settling.Before.Supersampled)
@@ -401,32 +402,6 @@ namespace CameraTools
                 $"timed out after {timeout:0} s waiting for {waited}; window {Window}; {bridge}");
         }
 
-        // A reload of ReShade's effects clears the shader's frames, so the exposure cannot go on after one.
-        private static void Expose(ShotState.Exposing exposing)
-        {
-            float now = Time.unscaledTime;
-            var bridge = ReShade.Status;
-            if (bridge.Runtime != 1 || bridge.EffectsReady != 1 || bridge.Width != Screen.width || bridge.Height != Screen.height)
-            {
-                Finish(exposing, "Screenshot failed: ReShade reloaded its effects during the exposure",
-                    $"ReShade reloaded its effects {now - exposing.Requested:0.0} s into the exposure; window {Window}; {bridge}");
-                return;
-            }
-            if (exposing.Opened is not float opened)
-            {
-                if (LongExposure.Open)
-                    State = exposing with { Opened = now };
-                else if (now - exposing.Requested >= OpenTimeout)
-                    Finish(exposing, $"Screenshot failed: the long exposure did not start within {OpenTimeout:0} s",
-                        $"{LongExposure.File} did not read back as open within {OpenTimeout:0} s; {bridge}");
-                return;
-            }
-            if (now - opened < exposing.Before.Long.Exposure.Seconds + CloseMargin)
-                return;
-            State = Capture(exposing, now, bridge);
-            Melon<CameraTools>.Logger.Msg($"Screenshot: capture requested after a {now - opened:0.0} s exposure; {bridge}.");
-        }
-
         // One frame of one sample. Runs before the free camera applies its pose and pushes the camera this frame.
         private static void Sample(ShotState.Sampling sampling)
         {
@@ -455,6 +430,46 @@ namespace CameraTools
             }
             Supersampling.Show(sampling.Index, mark: sampling.Frame == 0);
             State = sampling.Frame + 1 < HoldFrames ? sampling with { Frame = sampling.Frame + 1 } : sampling with { Index = sampling.Index + 1, Frame = 0 };
+        }
+
+        // One frame of a long exposure. Runs before the free camera pushes the camera this frame. Every frame looks through
+        // another point of each pixel, and the add-on adds a frame when its index is new, so each frame is added once. A
+        // frame whose camera push came late is not added, which leaves a step of game time out; the log's count of frames
+        // shown against frames added says whether that happened.
+        private static void Record(ShotState.Recording recording)
+        {
+            float real = Time.realtimeSinceStartup;
+            if (Time.timeScale != 1f)
+            {
+                Finish(recording, "Screenshot cancelled: the game speed changed", $"the game speed changed to {Time.timeScale:0.##} "
+                    + $"{real - recording.Since:0.0} s into the recording, with {recording.Samples} of {recording.Target} frames added");
+                return;
+            }
+            var status = CameraToolsEnhancements.Enhancements.Status;
+            bool started = status.AccumMode == CameraToolsEnhancements.EnhancementsAccumulateMode.Add && status.AccumGeneration == recording.Generation;
+            uint samples = started ? status.AccumSamples : 0;
+            if (samples > recording.Samples)
+                State = recording = recording with { Samples = samples, Advanced = real };
+            if (samples >= recording.Target)
+            {
+                float seconds = real - recording.Since;
+                var shot = recording.Before.Long;
+                NativeExposure.Freeze(recording.Generation, shot.Exposure.Iso / 100f);
+                LongExposure.Recorded(samples, seconds);
+                Melon<CameraTools>.Logger.Msg($"Screenshot: {samples} frames added of {recording.Target}, {recording.Index} shown, in {seconds:0.0} s, "
+                    + $"{samples / Math.Max(seconds, 1e-3f):0.0} a second; ISO {shot.Exposure.Iso}.");
+                State = new ShotState.Presenting(recording.Before, recording.Resized, recording.Started, Time.unscaledTime, recording.Generation, ReShade.Status.Presents);
+                return;
+            }
+            if (real - recording.Advanced >= SampleTimeout)
+            {
+                string what = started ? "the Enhancements add-on stopped adding frames" : "the Enhancements add-on did not start averaging";
+                Finish(recording, $"Screenshot failed: {what}", $"{what}: {samples} of {recording.Target} frames added, {recording.Index} shown, "
+                    + $"none added in {SampleTimeout:0} s; {CameraToolsEnhancements.Enhancements.Describe()}");
+                return;
+            }
+            Supersampling.Show(recording.Index, mark: true);
+            State = recording with { Index = recording.Index + 1 };
         }
 
         private static void Present(ShotState.Presenting presenting)
@@ -498,22 +513,23 @@ namespace CameraTools
                 // An id the add-on has not had, as a supersampled shot's generation is.
                 uint id = Math.Max(1u, CameraToolsEnhancements.Enhancements.Status.DngId + 1);
                 if (CameraToolsEnhancements.Enhancements.DevelopDng(id))
-                    dng = new DngTake(id, CameraNow());
+                    dng = new DngTake(id, CameraNow(busy.Before.Long));
             }
             return new ShotState.Saving(busy.Before, busy.Resized, busy.Started, now, bridge.Screenshots, dng);
         }
 
-        // The camera of the frame being captured, for its DNG's EXIF.
-        private static DngCamera CameraNow()
+        // The camera of the frame being captured, with the long exposure it was recorded with, for its DNG's EXIF.
+        private static DngCamera CameraNow(LongShot exposure)
         {
             float? stop = DepthOfField.OwnAperture;
             float focus = CameraToolsEnhancements.Enhancements.Status.DofFocusMeters;
-            return new DngCamera(MathF.Round(DepthOfField.ViewFocalLength), stop, stop != null && focus > 0f ? focus : null, DateTime.Now);
+            return new DngCamera(MathF.Round(DepthOfField.ViewFocalLength), stop, stop != null && focus > 0f ? focus : null, DateTime.Now,
+                exposure?.Exposure.Seconds, exposure?.Exposure.Iso);
         }
 
         // The toast's suffix that says what kind of shot it was.
         private static string Kind(ShotBefore before) => before.Traced ? EnhancementsShot.Saved()
-            : before.Long is { } shot ? $" · {shot.Exposure.ShutterLabel} exposure"
+            : before.Long is { } shot ? $" · {shot.Exposure.ShutterLabel} long exposure"
             : before.Supersampled ? " · supersampled" : "";
 
         private static void Save(ShotState.Saving saving)
@@ -554,7 +570,8 @@ namespace CameraTools
             switch (ScreenshotDng.Next(id, saving.Writing != null, status.DngId, status.DngState))
             {
                 case DngStep.Write:
-                    if (CameraToolsEnhancements.Enhancements.WriteDng(id, path, camera.FocalLength, camera.FNumber, camera.FocusMeters, camera.Taken))
+                    if (CameraToolsEnhancements.Enhancements.WriteDng(id, path, camera.FocalLength, camera.FNumber, camera.FocusMeters, camera.Taken,
+                        camera.ExposureSeconds, camera.Iso))
                         State = saving with { Writing = now };
                     else
                         Finish(saving, ScreenshotDng.SavedWithout(saving.Png, "the Enhancements add-on would not write it", kind),
@@ -583,7 +600,6 @@ namespace CameraTools
             State = new ShotState.Idle();
             resize = null;
             focusing = null;
-            exposureReady = false;
             var log = Melon<CameraTools>.Logger;
             foreach (var (what, run) in Restores)
             {

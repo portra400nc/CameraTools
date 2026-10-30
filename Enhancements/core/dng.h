@@ -37,6 +37,8 @@ namespace enhancements
         float f_number = 0;
         float subject_distance_m = 0;   // the focus distance
         std::string date_time;          // DateTimeOriginal, "YYYY:MM:DD HH:MM:SS"
+        float exposure_time_s = 0;      // ExposureTime: 1/round(1/t) below 1 s, round(t)/1 from 1 s on
+        uint32_t iso = 0;               // ISOSpeedRatings, at most 65535
     };
 
     // The side of the square tiles the pixels are compressed in.

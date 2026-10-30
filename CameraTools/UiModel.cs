@@ -5,8 +5,8 @@ namespace CameraTools
 {
     // A toggle, slider, choice or action row may have Enabled. While it returns false the row is dimmed and ignores input.
     // Any row may have Shown; while it returns false the row is left out and the rows below move up. Detail, when set, is
-    // read every frame for a line under the label of a slider, a choice, a toggle or an action. A Sub row belongs to the
-    // switch above it and starts further in.
+    // read every frame for a line under the label of a slider, a choice, a toggle or an action, and DetailWarns, when set,
+    // for whether that line shows in the warning colour. A Sub row belongs to the switch above it and starts further in.
     public abstract record Row(string Label)
     {
         public Func<bool> Shown { get; init; }
@@ -14,6 +14,8 @@ namespace CameraTools
         public bool Sub { get; init; }
 
         public Func<string> Detail { get; init; }
+
+        public Func<bool> DetailWarns { get; init; }
 
         public bool Visible => Shown?.Invoke() ?? true;
 
@@ -681,11 +683,13 @@ namespace CameraTools
                     : LongExposure.Active ? $"Records {LongExposure.Current.ShutterLabel}, then saves" : "",
             },
             new ToggleRow("3-second countdown", () => Screenshot.Countdown, on => Screenshot.Countdown = on),
-            new ToggleRow("Supersampling", () => Supersampling.Enabled, Supersampling.SetEnabled, () => CameraToolsEnhancements.Enhancements.Connected),
-            new ToggleRow("Also save DNG", () => Screenshot.Dng, on => Screenshot.Dng = on, () => CameraToolsEnhancements.Enhancements.Connected)
+            // A long exposure decides the supersampling itself, so the switch shows that and leaves the preference alone.
+            new ToggleRow("Supersampling", () => Supersampling.Enabled || LongExposure.Active, Supersampling.SetEnabled,
+                () => CameraToolsEnhancements.Enhancements.Connected && !LongExposure.Active)
             {
-                Detail = () => LongExposure.Active && Screenshot.Dng ? "Not with Long exposure" : "",
+                Detail = () => LongExposure.Active ? "Long exposure is always supersampled" : "",
             },
+            new ToggleRow("Also save DNG", () => Screenshot.Dng, on => Screenshot.Dng = on, () => CameraToolsEnhancements.Enhancements.Connected),
         }).ToArray());
 
         private static ToggleRow PathToggle(string label, Func<PathOptions, bool> get, Action<PathOptions, bool> set)

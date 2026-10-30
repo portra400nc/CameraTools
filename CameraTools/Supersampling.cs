@@ -60,8 +60,8 @@ namespace CameraTools
             sample = new LensSample(0f, 0f, (uint)index, mark);
         }
 
-        public static void Accumulate(EnhancementsAccumulateMode mode, uint generation)
-            => Enhancements.SetAccumulate(new EnhancementsAccumulate { Mode = mode, Generation = generation });
+        public static void Accumulate(EnhancementsAccumulateMode mode, uint generation, float gain = 1f)
+            => Enhancements.SetAccumulate(new EnhancementsAccumulate { Mode = mode, Generation = generation, Gain = gain });
 
         public static void Centre()
         {

@@ -74,9 +74,10 @@ namespace enhancements
         uint32_t flare_atlas;
         float tone_shadows;
         float tone_highlights;
-        float padding3[2];
+        float accum_gain;
+        float padding3;
     };
-    static_assert(sizeof(Constants) == 496 && offsetof(Constants, tone_shadows) == 480 && offsetof(Constants, flare_sun_uv) == 456 && offsetof(Constants, wetness) == 408 && offsetof(Constants, shafts_anisotropy) == 432 && offsetof(Constants, label) == 272 && offsetof(Constants, sun_color) == 304
+    static_assert(sizeof(Constants) == 496 && offsetof(Constants, tone_shadows) == 480 && offsetof(Constants, accum_gain) == 488 && offsetof(Constants, flare_sun_uv) == 456 && offsetof(Constants, wetness) == 408 && offsetof(Constants, shafts_anisotropy) == 432 && offsetof(Constants, label) == 272 && offsetof(Constants, sun_color) == 304
         && offsetof(Constants, sky_color) == 320 && offsetof(Constants, bloom_strength) == 352 && offsetof(Constants, sun_cascades) == 368
         && offsetof(Constants, lens_sample) == 392, "Constants must match common.hlsli");
 
@@ -1523,6 +1524,15 @@ namespace enhancements
         scene_in_.copy_from(c, native(*scene));
         if (bloom)
             bloom_in_.copy_from(c, native(*bloom));
+        Constants constants = {};
+        constants.render_size[0] = static_cast<float>(map.render.width);
+        constants.render_size[1] = static_cast<float>(map.render.height);
+        constants.render_size[2] = 1.0f / map.render.width;
+        constants.render_size[3] = 1.0f / map.render.height;
+        constants.exposure_scale = develop.grade.exposure_scale;
+        constants.bloom_strength = develop.grade.bloom_strength;
+        constants.accum_gain = develop.gain;
+        upload(constants);
         // An unbound sum reads as no weight, so present_ps.hlsl takes the scene.
         ID3D11ShaderResourceView *const source_in[] = { develop.sum ? sum_.srv() : nullptr, scene_in_.srv() };
         draw_fullscreen(present_ps_.Get(), source_in, 2, dng_[0].rtv(), map.render);
@@ -1537,14 +1547,6 @@ namespace enhancements
             image = 1;
         }
         c->OMSetRenderTargets(0, nullptr, nullptr);
-        Constants constants = {};
-        constants.render_size[0] = static_cast<float>(map.render.width);
-        constants.render_size[1] = static_cast<float>(map.render.height);
-        constants.render_size[2] = 1.0f / map.render.width;
-        constants.render_size[3] = 1.0f / map.render.height;
-        constants.exposure_scale = develop.grade.exposure_scale;
-        constants.bloom_strength = develop.grade.bloom_strength;
-        upload(constants);
         ID3D11Buffer *const game_grade = develop.game_grade ? game_grade_.Get() : nullptr;
         c->PSSetConstantBuffers(1, 1, &game_grade);
         Scratch &out = dng_[image ^ 1];
@@ -1698,6 +1700,7 @@ namespace enhancements
         constants.lens_sample[1] = lens.y;
         constants.cat_eye = settings.cat_eye;
         constants.cat_eye_falloff = settings.cat_eye_falloff;
+        constants.accum_gain = settings.gain;
         upload(constants);
 
         ID3D11DeviceContext1 *c = context_.Get();

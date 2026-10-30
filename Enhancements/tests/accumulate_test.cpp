@@ -4,6 +4,7 @@
 #include "../enhancements.h"
 
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -131,7 +132,7 @@ int main()
         check("a projection that does not invert gives no depth", !view_depth(singular, 0.5f, 0.5f, 0.5f));
     }
     {
-        EnhancementsAccumulate raw { sizeof raw, ENHANCEMENTS_ACCUMULATE_ADD, 7, 0.4f, 0.2f };
+        EnhancementsAccumulate raw { sizeof raw, ENHANCEMENTS_ACCUMULATE_ADD, 7, 0.4f, 0.2f, 0 };
         const AccumulateSettings whole = parse_accumulate(raw);
         check("a whole struct reads add, generation 7, cat's eye 0.4, falloff 0.2", whole.mode == AccumulateMode::add
             && whole.generation == 7 && whole.cat_eye == 0.4f && whole.cat_eye_falloff == 0.2f);
@@ -154,6 +155,26 @@ int main()
                 && short_struct.cat_eye_falloff == 0.1f);
         raw.size = 4;
         check("a struct too short for mode reads as off", parse_accumulate(raw).mode == AccumulateMode::off);
+    }
+    {
+        EnhancementsAccumulate raw { sizeof raw, ENHANCEMENTS_ACCUMULATE_PRESENT, 3, 0, 0.1f, 4 };
+        check("a gain of 4 reads as 4", parse_accumulate(raw).gain == 4.0f);
+        raw.gain = 0;
+        check("a zeroed gain reads as plain averaging, 1", parse_accumulate(raw).gain == 1.0f);
+        raw.gain = -2;
+        const float negative = parse_accumulate(raw).gain;
+        raw.gain = NAN;
+        const float nan = parse_accumulate(raw).gain;
+        raw.gain = INFINITY;
+        check("a negative, NaN or infinite gain reads as 1", negative == 1.0f && nan == 1.0f && parse_accumulate(raw).gain == 1.0f);
+        raw.gain = 1000;
+        const float high = parse_accumulate(raw).gain;
+        raw.gain = 0.001f;
+        check("gain 1000 clamps to 64 and 0.001 to 1/64", high == 64.0f && parse_accumulate(raw).gain == 1.0f / 64);
+        raw.gain = 16;
+        raw.size = offsetof(EnhancementsAccumulate, gain);
+        check("version 20's 20-byte struct, which ends before gain, reads gain 1", sizeof raw == 24 && parse_accumulate(raw).gain == 1.0f
+            && parse_accumulate(raw).mode == AccumulateMode::present);
     }
     {
         EnhancementsCamera raw {};
