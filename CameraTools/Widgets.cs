@@ -690,7 +690,7 @@ namespace CameraTools
             return cell;
         }
 
-        // The panel's last line: "Camera Tools 1.2.0 - ", GitHub's mark, and the repository.
+        // The panel's last line: "Camera Tools 1.2.1 - ", GitHub's mark, and the repository.
         public void Credit(Transform panel, string version)
         {
             var row = Node("Credit", panel);
