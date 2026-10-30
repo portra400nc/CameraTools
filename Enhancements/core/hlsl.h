@@ -73,6 +73,8 @@ namespace enhancements::shader
     inline float3 operator/(float3 a, float3 b) { return { a.x / b.x, a.y / b.y, a.z / b.z }; }
     inline float4 operator*(float4 a, float s) { return { a.x * s, a.y * s, a.z * s, a.w * s }; }
     inline float4 operator+(float4 a, float4 b) { return { a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w }; }
+    inline float4 operator-(float4 a, float4 b) { return { a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w }; }
+    inline float4 operator*(float4 a, float4 b) { return { a.x * b.x, a.y * b.y, a.z * b.z, a.w * b.w }; }
 
     inline float dot(float2 a, float2 b) { return a.x * b.x + a.y * b.y; }
     inline float length(float2 a) { return std::sqrt(dot(a, a)); }
@@ -113,6 +115,7 @@ namespace enhancements::shader
     inline float exp2(float x) { return std::exp2(x); }
     inline float log2(float x) { return std::log2(x); }
     inline float log(float x) { return std::log(x); }
+    inline float acos(float x) { return std::acos(x); }
     inline float asfloat(uint u)
     {
         float f;

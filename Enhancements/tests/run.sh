@@ -43,8 +43,10 @@ echo "PASS render_flare draws the flare into a 1280x800 PNG"
 # edge anti-aliased into a pixel of the background in focus, that pixel kept the foreground's share sharp under the blur,
 # a line 13% of the step brighter tracing the outline; and the background the plane hides took that pixel's blend for
 # the nearest visible background, so the profile fell 4.2 times a disc's steepest in one step along the depth's outline.
+# A farther plane in front of focus beside the nearer one must blur its own edge with its own disc: blurred with the
+# nearer plane's, as every surface in front of focus was by the largest disc around, it spread 3.9 times as wide.
 "$out/render_dof" --near-edge-check 0.05 > "$out/near-edge.txt" || { cat "$out/near-edge.txt"; echo "FAIL a blurred foreground's edge does not spread over the background like a disc's"; exit 1; }
-echo "PASS a blurred foreground's edge spreads over a background in focus or in front of it like a disc's, with no line or step along it"
+echo "PASS a blurred foreground's edge spreads over a background in focus or in front of it like a disc's, with no line or step along it, and a farther one beside it blurs with its own disc"
 # A subject in focus over a background far out of focus, its outline anti-aliased as the game's SMAA or a supersampled shot
 # leave it: every pixel must come back as it went in, within 1% of the step between the two. The composite took a pixel
 # by its depth alone, so an outline pixel half the subject with the background's depth went into the blur, 48% off, and the
@@ -112,6 +114,34 @@ if [ -n "$frames" ] && [ -f "$meadow/frame.tsv" ]; then
     echo "PASS the meadow's flower blurs into the background behind it with no ragged rim"
 else
     echo "SKIP the meadow's flower: no .work/dof/frames/frame-20261029-172626"
+fi
+# The meadow at dusk, frame-20261029-182125: grass, flowers and bushes at many depths in front of a 101 mm lens at f/1.2
+# focused on the trees 57 m away. Inside the blurred foreground left of the middle, neighbors may differ by at most 10
+# levels: a farther surface in front of focus behind a nearer one was left to the far estimate pixel by pixel, in ragged
+# streaks through the bushes and a jagged rim where a flower overlapped the grass, 23.6 levels a step; and with the depth
+# bands, what a thin blurred blade hid was filled in from the rest of the blade or from the grass the blade hid in turn,
+# 20 levels a step.
+dusk=$frames/frame-20261029-182125
+if [ -n "$frames" ] && [ -f "$dusk/frame.tsv" ]; then
+    RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$dusk" "$out/dusk.png" f=1.2 mm=101 focus=57.12 max_blur=0.02 sa=0.5 chromatic=1 cat_eye=0.7 \
+        scatter=1 gain=4 threshold=1.5 samples=289 roundness=0.1 display=1 upscale=3 crop=1200,1300,600,350 near_steps=30 most_steps=10 \
+        > "$out/dusk.txt" || { cat "$out/dusk.txt"; echo "FAIL the dusk meadow's blurred foreground shows ragged layers"; exit 1; }
+    echo "PASS the dusk meadow's blurred foreground blurs its layers into each other"
+else
+    echo "SKIP the dusk meadow: no .work/dof/frames/frame-20261029-182125"
+fi
+# The arm, frame-20261029-210604: thin grass blades 2 to 4.5 m in front of a 152 mm lens at f/1.2 focused on the character's
+# arm 5.6 m away, over a background far behind. Inside the blades over the arm, neighbors may differ by at most 26 levels:
+# what a blade hid was filled in from sources out to their own discs, so the background's wide discs outweighed the arm
+# right beside the blade and showed through it in shards, 32 levels a step.
+arm=$frames/frame-20261029-210604
+if [ -n "$frames" ] && [ -f "$arm/frame.tsv" ]; then
+    RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$arm" "$out/arm.png" f=1.2 mm=152 focus=5.6 max_blur=0.02 sa=0.5 chromatic=1 cat_eye=0.7 \
+        scatter=1 gain=4 threshold=1.5 samples=289 roundness=0.1 display=1 upscale=3 crop=1950,1250,300,400 near_steps=5 most_steps=26 \
+        > "$out/arm.txt" || { cat "$out/arm.txt"; echo "FAIL the background shows through the blurred grass over the arm in shards"; exit 1; }
+    echo "PASS the blurred grass over the arm shows the arm behind it, not the background in shards"
+else
+    echo "SKIP the arm: no .work/dof/frames/frame-20261029-210604"
 fi
 # The harbor, frame-20261024-134128, written as a DNG with frame_dng's test EXIF: byte for byte the prototype's compressed
 # file (.work/dng/lightroom-test/harbor-exif.dng, the layout the user opened in Lightroom on 2026-10-29), which sips must

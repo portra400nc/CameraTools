@@ -133,6 +133,9 @@ namespace enhancements
         ComPtr<ID3D11RenderTargetView> rtv_;
     };
 
+    // The most layers a Scratch array holds: the depth of field's near bands, their radii and the splits between them.
+    constexpr UINT kScratchLayers = 6;
+
     // Our texture with no game counterpart, at the render size or a fraction of it, for results passed between our own
     // draws. sync() recreates it when the size changed.
     class Scratch
@@ -140,10 +143,12 @@ namespace enhancements
     public:
         // false when creation failed; the caller skips its pass and reports ENHANCEMENTS_ERROR_TEXTURE. With mips, the
         // texture has its whole mip chain for GenerateMips, its SRV all of it, and its RTV level 0. With uav, it also has a
-        // UAV of level 0 for a compute shader.
-        bool sync(ID3D11Device *device, Size size, DXGI_FORMAT format, bool mips = false, bool uav = false);
+        // UAV of level 0 for a compute shader. With more than one layer, it is an array of that many, its SRV a
+        // Texture2DArray of all of them, and each layer has an RTV of its level 0.
+        bool sync(ID3D11Device *device, Size size, DXGI_FORMAT format, bool mips = false, bool uav = false, UINT layers = 1);
         ID3D11ShaderResourceView *srv() const { return srv_.Get(); }
         ID3D11RenderTargetView *rtv() const { return rtv_.Get(); }
+        ID3D11RenderTargetView *rtv(UINT layer) const { return layer == 0 ? rtv_.Get() : layer_rtvs_[layer - 1].Get(); }
         ID3D11UnorderedAccessView *uav() const { return uav_.Get(); }
         ID3D11Texture2D *texture() const { return texture_.Get(); }
 
@@ -151,9 +156,11 @@ namespace enhancements
         Size size_;
         DXGI_FORMAT format_ = DXGI_FORMAT_UNKNOWN;
         bool mips_ = false, uav_wanted_ = false;
+        UINT layers_ = 1;
         ComPtr<ID3D11Texture2D> texture_;
         ComPtr<ID3D11ShaderResourceView> srv_;
         ComPtr<ID3D11RenderTargetView> rtv_;
+        ComPtr<ID3D11RenderTargetView> layer_rtvs_[kScratchLayers - 1];
         ComPtr<ID3D11UnorderedAccessView> uav_;
     };
 
@@ -488,7 +495,7 @@ namespace enhancements
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_,
             tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
             apply_gather_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_, dof_soften_ps_, dof_behind_ps_,
-            dof_sprite_ps_, dof_lift_ps_, dof_display_in_ps_, dof_display_out_ps_, dof_near_ps_, dof_near_mask_ps_, flare_visibility_ps_, flare_ps_,
+            dof_sprite_ps_, dof_lift_ps_, dof_display_in_ps_, dof_display_out_ps_, dof_near_ps_, dof_near_mask_ps_, dof_near_fill_ps_, flare_visibility_ps_, flare_ps_,
             dng_ps_, dng_flare_ps_;
         ComPtr<ID3D11SamplerState> point_, linear_, lit_compare_, wrap_;
         ComPtr<ID3D11Texture3D> lattice_;                   // noise_lattice(), R8_UNORM
@@ -558,7 +565,9 @@ namespace enhancements
         Scratch dof_far_, dof_near_, dof_far_post_, dof_near_post_;     // half size, R16G16B16A16_FLOAT: the gather's fields, the
                                                                         // far one with mips under the bokeh contrast
         Scratch dof_cover_, dof_cover_post_;    // half size, R16G16_FLOAT: the near field's red and blue coverage
-        Scratch dof_near_mask_;     // half size, R16G16B16A16_FLOAT with mips: the foreground's premultiplied color and share
+        // Half size, R16G16B16A16_FLOAT arrays with mips: dof_near_mask_ps's depth bands in front of focus, their radii and
+        // the splits between them, and dof_near_fill_ps's, each band continued behind the nearer ones.
+        Scratch dof_near_bands_, dof_near_filled_;
         Scratch dof_near_cover_;    // half size, R16G16_FLOAT: dof_near_ps's red and blue coverage
         Scratch dof_near_layer_;    // half size, R16G16B16A16_FLOAT: dof_near_ps's near plane, premultiplied, and its alpha
         Scratch dof_soft_;          // full size, R16G16B16A16_FLOAT: the lens softness's scene, which the blur reads

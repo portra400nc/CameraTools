@@ -33,8 +33,10 @@ namespace enhancements::shader
         std::vector<float2> near_cover;
         std::vector<float2> cover;
         // The lifted source's levels (dof_lift), and the gather's far field's, which the post-filter reads.
-        std::vector<std::vector<float4>> lifted, far_levels, near_mask, behind;
-        std::vector<uint2> lifted_sizes, far_sizes, near_mask_sizes, behind_sizes;
+        std::vector<std::vector<float4>> lifted, far_levels, behind, near_radii, near_split;
+        std::vector<uint2> lifted_sizes, far_sizes, behind_sizes, near_sizes;
+        // dof_near_bands's levels: each band's, and the bands' radii and splits.
+        std::vector<std::vector<float4>> near_bands[4];
         // The display place's ends: the back buffer's values, rgb a pixel and alpha 1, and the main depth as stored, at
         // dof_display's size; then dof_display_in's color and the composite's, at the back buffer's.
         const std::vector<float> *back = nullptr, *main_depth = nullptr;
@@ -99,7 +101,9 @@ namespace enhancements::shader
     }
 
     float4 dof_sample_source(float2 position, float lod) { return sample_levels(textures->source, textures->source_sizes, position, lod); }
-    float4 dof_sample_near_mask(float2 position, float lod) { return sample_levels(textures->near_mask, textures->near_mask_sizes, position, lod); }
+    float4 dof_sample_near_band(int band, float2 position, float lod) { return sample_levels(textures->near_bands[band], textures->near_sizes, position, lod); }
+    float4 dof_sample_near_radii(float2 position, float lod) { return sample_levels(textures->near_radii, textures->near_sizes, position, lod); }
+    float4 dof_sample_near_split(float2 position, float lod) { return sample_levels(textures->near_split, textures->near_sizes, position, lod); }
     float4 dof_sample_lifted(float2 position, float lod) { return sample_levels(textures->lifted, textures->lifted_sizes, position, lod); }
     float4 dof_sample_behind(float2 position, float lod) { return sample_levels(textures->behind, textures->behind_sizes, position, lod); }
     float2 dof_load_tile(int2 t) { return textures->tiles[at(t, tile_size())]; }
@@ -136,6 +140,7 @@ namespace enhancements::shader
 #define DOF_SPRITE
 #define DOF_NEAR
 #define DOF_NEAR_MASK
+#define DOF_NEAR_FILL
 #define DOF_COMPOSITE
 #define DOF_SOFTEN
 #define LOOP
@@ -686,11 +691,36 @@ namespace enhancements
                 field[i] = field[i] + added[i];
             nonfinite += store_half(field);
         }
-        // dof_near_mask_ps.hlsl and its mips, as R16F.
-        t.near_mask = { std::vector<float4>(t.source[0].size()) };
-        t.near_mask_sizes = { half };
-        draw(half.x, half.y, c, t, [&t, half](uint32_t x, uint32_t y) { t.near_mask[0][size_t(y) * half.x + x] = dof_near_mask(int2(int(x), int(y))); });
-        nonfinite += store_half(t.near_mask[0]) + generate_mips(t.near_mask, t.near_mask_sizes);
+        // dof_near_mask_ps.hlsl: the depth bands in front of focus; then dof_near_fill_ps.hlsl: each band continued behind
+        // the nearer ones. Each with its mips, as R16F.
+        {
+            const size_t n = t.source[0].size();
+            std::vector<DofNearBands> bands(n);
+            const auto keep = [&]() {
+                std::vector<std::vector<float4>> *const layers[] = { &t.near_bands[0], &t.near_bands[1], &t.near_bands[2], &t.near_bands[3], &t.near_radii,
+                    &t.near_split };
+                for (std::vector<std::vector<float4>> *levels : layers)
+                    *levels = { std::vector<float4>(n) };
+                for (size_t i = 0; i < n; i++)
+                {
+                    t.near_bands[0][0][i] = bands[i].band0;
+                    t.near_bands[1][0][i] = bands[i].band1;
+                    t.near_bands[2][0][i] = bands[i].band2;
+                    t.near_bands[3][0][i] = bands[i].band3;
+                    t.near_radii[0][i] = bands[i].radii;
+                    t.near_split[0][i] = bands[i].split;
+                }
+                for (std::vector<std::vector<float4>> *levels : layers)
+                {
+                    t.near_sizes = { half };
+                    nonfinite += store_half((*levels)[0]) + generate_mips(*levels, t.near_sizes);
+                }
+            };
+            draw(half.x, half.y, c, t, [&bands, half](uint32_t x, uint32_t y) { bands[size_t(y) * half.x + x] = dof_near_bands(int2(int(x), int(y))); });
+            keep();
+            draw(half.x, half.y, c, t, [&bands, half](uint32_t x, uint32_t y) { bands[size_t(y) * half.x + x] = dof_near_fill(int2(int(x), int(y))); });
+            keep();
+        }
         // dof_near_ps.hlsl: the near plane over the post-filtered far field with its sprites.
         std::vector<float4> layer(t.far.size());
         std::vector<float2> near_cover(t.far.size());

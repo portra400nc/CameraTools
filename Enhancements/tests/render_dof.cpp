@@ -44,8 +44,9 @@
 // --seam-sweep does so for every frame folder at 50, 90, 180 and 300 mm, focused at the autofocus's distance and at 0.85
 // and 1.3 times it.
 //
-// --near-edge-check renders a blurred plane's edge over a background in focus and in front of it (near_edge_at) and exits
-// with 1 when its 10-90% width is off a disc's edge spread by more than the share most.
+// --near-edge-check renders a blurred plane's edge over a background in focus and in front of it (near_edge_at), and a
+// farther plane's edge beside it (layer_edge_at), and exits with 1 when a 10-90% width is off a disc's edge spread by more
+// than the share most.
 //
 // --far-edge-check renders a subject in focus with an anti-aliased outline over a background far out of focus
 // (far_edge_at) and exits with 1 when a pixel along the outline, or the background past it, is off what went in.
@@ -743,6 +744,78 @@ namespace
         return e;
     }
 
+    // A farther surface in front of focus beside a nearer one: the plane 1 m away over the left kLayerNearShare of the
+    // frame, and right of it a plane at kLayerFarther meters, also in front of focus, dark at first and light from three
+    // of its CoC radii past the nearer plane's blur, which the tiles' largest near disc still reaches. A lens blurs that
+    // edge with the farther plane's own disc, whatever lies nearer beside it, so it rises from 10% to 90% over
+    // 2 kDiscEdge10 times that plane's CoC radius; blurred with the nearer plane's disc, it spread 3.9 times as wide.
+    // Measured as near_edge_at measures.
+    constexpr float kLayerNearShare = 0.2f, kLayerFarther = 3;
+
+    NearEdge layer_edge_at(DepthOfFieldSettings s, uint32_t height, bool display)
+    {
+        const uint32_t w = kNearEdgeWidth, h = height;
+        const Camera camera = synthetic_camera();
+        const std::optional<std::array<float, 4>> k = dof_depth_coefficients(camera);
+        const float near_gray = 1, dark = 0.1f, light = 0.6f;
+        DofImage image;
+        image.size = { w, h };
+        s.focus_distance = kNearEdgeFocus;
+        s.focus_seconds = 0;
+        s = clamp_depth_of_field(s);
+        const DofConstants c = display ? *dof_display_constants(s, camera, image.size, image.size, false, DofTransfer::srgb, 0)
+                                       : *dof_constants(s, camera, image.size, false, 0, 0);
+        const DofOptics optics { c.optics[0], c.optics[1], c.optics[2], 0, c.optics[3] };
+        NearEdge e;
+        e.radius = 2 * std::fabs(dof_capped_cocs(kLayerFarther, kNearEdgeFocus, optics)[1]);
+        e.expected = 2 * kDiscEdge10 * e.radius;
+        const float near_edge = kLayerNearShare * float(w);
+        const float near_blur = near_edge + 2 * std::fabs(dof_capped_cocs(kNearEdgeMeters, kNearEdgeFocus, optics)[1]);
+        const float edge = near_blur + 3 * e.radius;
+        image.rgb.resize(size_t(w) * h * 3);
+        image.depth.resize(size_t(w) * h);
+        for (uint32_t y = 0; y < h; y++)
+            for (uint32_t x = 0; x < w; x++)
+            {
+                const float at = float(x) + 0.5f;
+                const bool near = at < near_edge;
+                const float inverse = 1 / (near ? kNearEdgeMeters : kLayerFarther);
+                image.depth[size_t(y) * w + x] = -((*k)[1] + inverse * (*k)[3]) / ((*k)[0] + inverse * (*k)[2]);
+                for (int ch = 0; ch < 3; ch++)
+                    image.rgb[(size_t(y) * w + x) * 3 + ch] = near ? near_gray : at < edge ? dark : light;
+            }
+        const auto stored = [display](float v) { return display ? dof_srgb_decode(std::round(dof_srgb_encode(v) * 255) / 255) : v; };
+        DofOutput out;
+        if (display)
+        {
+            std::vector<float> back(image.rgb.size());
+            for (size_t i = 0; i < back.size(); i++)
+                back[i] = std::round(dof_srgb_encode(image.rgb[i]) * 255) / 255;
+            out = render_dof_display(back, image.depth, c, 0);
+            for (float &v : out.rgb)
+                v = dof_srgb_decode(v);
+        }
+        else
+            out = render_dof(image, c, 0);
+        e.nonfinite = out.nonfinite;
+        const float lo = stored(dark), hi = stored(light);
+        const uint32_t rows = 32;
+        std::vector<float> profile(w, 0.0f);
+        for (uint32_t y = h / 2 - rows / 2; y < h / 2 + rows / 2; y++)
+            for (uint32_t x = 0; x < w; x++)
+                profile[x] += (out.rgb[(size_t(y) * w + x) * 3 + 1] - lo) / (hi - lo) / rows;
+        // Where the profile first rises past level right of the nearer plane's blur, between pixel centers.
+        const size_t from = size_t(near_blur + 1);
+        const auto crossing = [&profile, from](float level) {
+            for (size_t x = from + 1; x < profile.size(); x++)
+                if (profile[x] >= level && profile[x - 1] < level)
+                    return float(x - 1) + (level - profile[x - 1]) / (profile[x] - profile[x - 1]);
+            return 0.0f;
+        };
+        e.measured = crossing(0.9f) - crossing(0.1f);
+        return e;
+    }
+
     // Exits with 1 when an edge's width is off the disc's by more than the share most, or its profile rises anywhere by more
     // than kNearEdgeRise of the step (a bright line along the silhouette), or falls steeper than kNearEdgeSteep times a
     // disc's (a step along it), over a background in focus or in front of it, at
@@ -788,6 +861,20 @@ namespace
             nonfinite += e.nonfinite;
             std::printf("height %u, max blur %.2f, f/%.1f, background %g m, %s, edge +%.1f px: CoC radius %.1f px, 10-90%% width %.1f px, the disc's %.1f, rising %.4f, steepest %.2f of a disc's%s\n", k.height,
                 k.max_blur, k.f_number, k.background, k.display ? "display" : "scene", k.offset, e.radius, e.measured, e.expected, e.rise, e.steep, fails ? " FAIL" : "");
+        }
+        // The farther plane's edge beside the nearer one, at max blur 0.08, whose tiles reach past the nearer plane's blur.
+        const Case layered[] = { { 2160, 0.08f, 2.8f, kLayerFarther, true }, { 800, 0.08f, 1, kLayerFarther, false } };
+        for (const Case &k : layered)
+        {
+            DepthOfFieldSettings s = base;
+            s.f_number = k.f_number;
+            s.max_blur = k.max_blur;
+            const NearEdge e = layer_edge_at(s, k.height, k.display);
+            const float off = std::fabs(e.measured / e.expected - 1);
+            worst = std::max(worst, off);
+            nonfinite += e.nonfinite;
+            std::printf("height %u, max blur %.2f, f/%.1f, a plane at %g m beside one at %g m, %s: its CoC radius %.1f px, its edge's 10-90%% width %.1f px, the disc's %.1f%s\n",
+                k.height, k.max_blur, k.f_number, kLayerFarther, kNearEdgeMeters, k.display ? "display" : "scene", e.radius, e.measured, e.expected, off > most ? " FAIL" : "");
         }
         std::printf("near edges: worst %.1f%% off the disc's width (at most %.1f%%), rising %.4f (at most %.4f), steepest %.2f of a disc's (at most %.2f), %u non-finite\n",
             worst * 100, most * 100, worst_rise, kNearEdgeRise, worst_steep, kNearEdgeSteep, nonfinite);

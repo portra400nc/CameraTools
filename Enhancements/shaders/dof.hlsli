@@ -26,9 +26,10 @@
 //                   only with the bokeh contrast on); dof_load_dilated; dof_load_source
 //   DOF_SPRITE:     dof_load_source
 //   DOF_NEAR_MASK:  dof_load_source
-//   DOF_NEAR:       dof_load_source, float4 dof_sample_near_mask(float2 at, float lod) (dof_near_mask's, bilinear between
-//                   its levels), dof_load_dilated (the post-filter's, with the far
-//                   sprites)
+//   DOF_NEAR_FILL:  float4 dof_sample_near_band(int band, float2 at, float lod), float4 dof_sample_near_radii(float2 at,
+//                   float lod), float4 dof_sample_near_split(float2 at, float lod): dof_near_bands's, bilinear between
+//                   their levels
+//   DOF_NEAR:       the same over dof_near_fill's, dof_load_dilated
 //   DOF_SOFTEN:     dof_load_scene
 //   DOF_COMPOSITE:  dof_load_scene, dof_load_depth, dof_load_far, dof_load_near (the post-filter's, with the sprites),
 //                   float4 dof_load_near_layer(int2 pixel), float2 dof_load_near_cover(int2 pixel) (dof_near_layer's)
@@ -49,15 +50,13 @@ static const float kDofChromaticRed = 0.0005f;
 static const float kDofChromaticBlue = 0.0012f;
 // The CoC radius in half-size pixels below which a point is in focus: half a full-size pixel.
 static const float kDofInFocus = 0.25f;
-// At a pixel in front of focus, the CoC in half-size pixels by which a source in front of focus must differ from the
-// pixel's own to lie in front of its surface, occluding it, or behind it.
+// At a pixel behind focus, the CoC in half-size pixels by which a source must lie deeper than the pixel's own to lie
+// behind its surface.
 static const float kDofLayer = 1.0f;
-// The share of a pixel's own raw CoC within which a source in front of focus lies on the pixel's own surface: a face's
-// depth varies by a few percent, a shoulder in front of it by much more. A fixed band split a face far out of focus into
-// thin contours of equal depth, each averaged on its own, which kept its detail: a sharp face under a translucent blur.
+// The share of a pixel's own raw CoC within which a source lies on the pixel's own surface: a face's depth varies by a
+// few percent, a shoulder in front of it by much more. A fixed band split a face far out of focus into thin contours of
+// equal depth, each averaged on its own, which kept its detail: a sharp face under a translucent blur.
 static const float kDofLayerShare = 0.15f;
-// The share of a foreground pixel's own CoC under which a source in front of focus counts as hidden behind it.
-static const float kDofHiddenShare = 0.5f;
 // The full-size pixels of CoC past the first over which the composite turns from a foreground pixel's own color to the
 // estimate of what it hides, under the near plane.
 static const float kDofHiddenFade = 2.0f;
@@ -217,6 +216,14 @@ float dof_cat_eye_cut(float2 u, float r, float2 ndc, DofShape s)
 float3 dof_cat_eye_cuts(float2 u, float3 r, float2 ndc, DofShape s)
 {
     return float3(dof_cat_eye_cut(u, r.x, ndc, s), dof_cat_eye_cut(u, r.y, ndc, s), dof_cat_eye_cut(u, r.z, ndc, s));
+}
+
+// The share of a disc's area the cat's eye leaves at ndc: two unit circles whose centers lie m apart overlap by
+// 2 acos(m / 2) - m / 2 sqrt(4 - m^2), over a circle's pi.
+float dof_cat_eye_area(float2 ndc, DofShape s)
+{
+    float m = s.cat_eye > 0.0f ? min(length(dof_field(ndc, s.aspect)) * s.cat_eye, 2.0f) : 0.0f;
+    return max((2.0f * acos(m * 0.5f) - m * 0.5f * sqrt(4.0f - m * m)) / kDofPi, 0.05f);
 }
 
 // The share of a source of radius r at ndc that reaches a receiver at u, both in pixels: inside the shape, its edge
@@ -578,6 +585,47 @@ float2 dof_dilate(int2 tile)
 }
 #endif
 
+// Depth bands in front of focus. Each source in front of focus belongs to kDofNearBands bands by its CoC, split
+// geometrically from kDofInFocus to the largest radius, so each band holds discs within a ratio of a few of each other.
+// Each band spreads its sources over their own discs, and the bands cover each other far to near: a nearer blurred
+// surface covers a farther one in front of focus, while each keeps its own blur. Neighboring bands share the sources
+// within kDofNearBandBlend of the edge between them, a band position each, so ground sloping toward the camera
+// crosses an edge with no seam.
+static const int kDofNearBands = 4;
+static const float kDofNearBandBlend = 0.3f;
+
+// The band position of a CoC radius in half-size pixels: 0 at kDofInFocus, kDofNearBands at the largest radius.
+float dof_band_position(float radius)
+{
+    return float(kDofNearBands) * log(max(radius, kDofInFocus) / kDofInFocus) / log(max(dof_optics.w, 2.0f * kDofInFocus) / kDofInFocus);
+}
+
+// The CoC radius at band position t.
+float dof_band_radius(float t)
+{
+    return kDofInFocus * exp(t / float(kDofNearBands) * log(max(dof_optics.w, 2.0f * kDofInFocus) / kDofInFocus));
+}
+
+// How far a source at band position t has crossed into band b from below: 0 below the edge's blend, 1 above it.
+float dof_band_rise(float t, int b)
+{
+    return b <= 0 ? 1.0f : b >= kDofNearBands ? 0.0f : saturate((t - float(b) + kDofNearBandBlend) / (2.0f * kDofNearBandBlend));
+}
+
+// A half-size pixel's share of each depth band: its color times the share and the share, the share times its CoC
+// radius per band, and per edge between neighboring bands the share the nearer band holds of a source both hold.
+struct DofNearBands
+{
+    float4 band0;
+    float4 band1;
+    float4 band2;
+    float4 band3;
+    float4 radii;
+    float4 split;
+};
+
+float4 dof_band_pick(int b) { return float4(b == 0 ? 1.0f : 0.0f, b == 1 ? 1.0f : 0.0f, b == 2 ? 1.0f : 0.0f, b == 3 ? 1.0f : 0.0f); }
+
 #ifdef DOF_GATHER
 // Scatter as gather at a half-size pixel: as many samples as dof_sampling.x rings of 8k around one would have, on a
 // golden-angle spiral out to half a ring past its tile's dilated radius, turned by the frame's seed and the pixel's
@@ -585,10 +633,10 @@ float2 dof_dilate(int2 tile)
 // across its disc over the disc's area, times the area the sample stands for. Sources behind the focus plane go to the
 // far field, normalized, with the bokeh contrast's lifted light and, in a, the plain luminance the post-filter weighs it
 // against; a source deeper than a pixel behind focus spreads no wider than that pixel's own disc, so the background does
-// not spill over a nearer blurred surface. Sources in front of focus but behind a pixel's own surface by more than its
-// layer go to the far field too, and at such a pixel every source beneath spreads as wide as the pixel's own disc or the
-// spiral's spacing, nearest first, so what lies around an out-of-focus foreground fills in behind it. Sources on or in front of the pixel's surface are dof_near_layer's. The near field and
-// its cover stay empty, the near sprites' targets.
+// not spill over a nearer blurred surface. At a pixel in front of focus, the sources behind focus, and the share of
+// those near focus that the depth bands leave out, spread as wide as the pixel's own disc or the spiral's spacing,
+// nearest first, so what lies around an out-of-focus foreground fills in behind it. Sources in front of focus are the
+// depth bands', dof_near_layer's. The near field and its cover stay empty, the near sprites' targets.
 DofFields dof_gather(int2 p)
 {
     DofFields o;
@@ -655,10 +703,12 @@ DofFields dof_gather(int2 p)
         if (abs(c) <= kDofInFocus && own_near == 0.0f)
             continue;
         bool behind = c > -kDofInFocus;
-        float layer = max(kDofLayer, kDofLayerShare * abs(own));
-        bool occluder = !behind && (own_near == 0.0f || c < own - layer);
-        bool level = !behind && !occluder && c <= own + layer;
-        bool beneath = behind || (!occluder && !level);
+        // What a pixel in front of focus hides in front of focus, dof_near_fill continues behind it in its depth band, so
+        // all that fills in behind such a pixel is what lies behind the bands, and the share of a source near focus that
+        // dof_near_bands leaves out: filled in here too, a surface in front of focus switched at a nearer one's outline
+        // between itself, hidden there, and what it hides.
+        float residual = behind ? 1.0f : own_near > 0.0f ? 1.0f - saturate(-c - kDofInFocus) : 0.0f;
+        bool beneath = residual > 0.0f;
         if (behind && c > own)
             r = float3(min(r.x, own_far.x), min(r.y, own_far.y), min(r.z, own_far.z));
         // What a pixel in front of focus hides is the nearest of the sources beneath it, whatever their own discs: a surface
@@ -683,7 +733,7 @@ DofFields dof_gather(int2 p)
         float d = fill ? length(o_px) : dof_shape_distance(u, ndc, shape);
         if (d > max(max(r.x, r.y), r.z) + 0.5f)
             continue;
-        float3 w = fill ? float3(area, area, area)
+        float3 w = fill ? float3(area, area, area) * residual
                         : dof_weights(r, d, dof_swirl_density(ndc, shape) * area, behind ? dof_bokeh.x : -dof_bokeh.x, behind ? dof_bokeh.y : dof_bokeh.z)
                             * dof_cat_eye_cuts(u, r, ndc, shape);
         float lod = log2(clamp(min(spacing, r.y), 1.0f, 256.0f));
@@ -705,7 +755,9 @@ DofFields dof_gather(int2 p)
                      : deep.w > 0.0f ? float3(deep.x, deep.y, deep.z) / deep.w
                      : own_near > 0.0f || mixed ? float3(at_q.x, at_q.y, at_q.z) : float3(filtered.x, filtered.y, filtered.z);
         // What a blurred foreground hides is seen around its edge as a lens sees it, sharp: the nearest visible background
-        // stands for it, so it meets the background beside the outline without a seam of blur.
+        // stands for it, so it meets the background beside the outline without a seam of blur. Reaching as far as each
+        // source's own disc, the far background's wide discs outweighed a subject in focus right beside a thin blurred
+        // blade, and showed through the blade in shards over the subject.
         if (own_near > 0.0f)
             w = w / (1.0f + d * d * d * d);
         if (aside)
@@ -851,24 +903,96 @@ DofFields dof_post(int2 p)
 #endif
 
 #ifdef DOF_NEAR_MASK
-// Whether a half-size pixel lies in front of focus, softened over its first half-pixel of CoC, in a, and its color times
-// that in rgb: the mips give the share of any area in front of focus and the foreground's own light there.
-float4 dof_near_mask(int2 p)
+// A half-size pixel in front of focus, softened over its first half-pixel of CoC, split into the depth bands: each band's
+// share times its color and the share, the share times the CoC radius per band, and per edge between neighboring bands
+// the share the nearer band holds of a source that both hold. The mips give each band's light, coverage and mean disc
+// over any area.
+DofNearBands dof_near_bands(int2 p)
 {
     float4 s = dof_load_source(p);
     float m = saturate(-s.w - kDofInFocus);
-    return float4(s.x * m, s.y * m, s.z * m, m);
+    float radius = min(-s.w, 4.0f * dof_optics.w);
+    float t = dof_band_position(radius);
+    float4 share = float4(0.0f, 0.0f, 0.0f, 0.0f), split = float4(0.0f, 0.0f, 0.0f, 0.0f);
+    UNROLL for (int b = 0; b < kDofNearBands; b++)
+    {
+        float rise = dof_band_rise(t, b + 1);
+        share = share + dof_band_pick(b) * ((dof_band_rise(t, b) - rise) * m);
+        // The edge above band b: what of a source both bands hold lies in the nearer.
+        split = split + dof_band_pick(b) * (rise < 1.0f ? rise * m : 0.0f);
+    }
+    DofNearBands o;
+    o.band0 = float4(s.x * share.x, s.y * share.x, s.z * share.x, share.x);
+    o.band1 = float4(s.x * share.y, s.y * share.y, s.z * share.y, share.y);
+    o.band2 = float4(s.x * share.z, s.y * share.z, s.z * share.z, share.z);
+    o.band3 = float4(s.x * share.w, s.y * share.w, s.z * share.w, share.w);
+    o.radii = share * radius;
+    o.split = split;
+    return o;
+}
+#endif
+
+#ifdef DOF_NEAR_FILL
+// Each depth band continued behind the nearer bands that hide it, after Kraus and Strengert's pyramid methods for
+// layered depth of field (2007): where a nearer surface covers a half-size pixel, the band lies behind it as densely as
+// it lies around it where nothing nearer covers it, by its share of the uncovered area through the mips, each level
+// half the weight of the one below, with its mean color and disc there. A surface hidden in part by a nearer one so
+// blurs as a whole: its light reaches the nearer one's outline from behind it too, so neither its coverage nor what
+// shows through it changes there.
+DofNearBands dof_near_fill(int2 p)
+{
+    float2 at = float2(float(p.x) + 0.5f, float(p.y) + 0.5f);
+    float4 own0 = dof_sample_near_band(0, at, 0.0f), own1 = dof_sample_near_band(1, at, 0.0f);
+    float4 own2 = dof_sample_near_band(2, at, 0.0f), own3 = dof_sample_near_band(3, at, 0.0f);
+    float4 own_radii = dof_sample_near_radii(at, 0.0f), own_split = dof_sample_near_split(at, 0.0f);
+    // What covers each band at the pixel: the shares of the nearer bands, less the split it shares with the next.
+    float4 nearer = float4(own1.w + own2.w + own3.w, own2.w + own3.w, own3.w, 0.0f) - own_split;
+    float4 light_r = float4(0.0f, 0.0f, 0.0f, 0.0f), light_g = light_r, light_b = light_r, share = light_r, radii = light_r, room = light_r, splits = light_r;
+    int top = int(ceil(log2(max(dof_optics.w * dof_bokeh.w, 1.0f)))) + 2;
+    float g = 1.0f;
+    LOOP for (int l = 1; l <= top; l++)
+    {
+        g = g * 0.5f;
+        float lod = float(l);
+        float4 b0 = dof_sample_near_band(0, at, lod), b1 = dof_sample_near_band(1, at, lod);
+        float4 b2 = dof_sample_near_band(2, at, lod), b3 = dof_sample_near_band(3, at, lod);
+        float4 split = dof_sample_near_split(at, lod);
+        float4 m = float4(b0.w, b1.w, b2.w, b3.w);
+        light_r = light_r + float4(b0.x, b1.x, b2.x, b3.x) * g;
+        light_g = light_g + float4(b0.y, b1.y, b2.y, b3.y) * g;
+        light_b = light_b + float4(b0.z, b1.z, b2.z, b3.z) * g;
+        share = share + m * g;
+        radii = radii + dof_sample_near_radii(at, lod) * g;
+        splits = splits + split * g;
+        float4 covered = float4(b1.w + b2.w + b3.w, b2.w + b3.w, b3.w, 0.0f) - split;
+        room = room + (float4(1.0f, 1.0f, 1.0f, 1.0f) - covered) * g;
+    }
+    // Each band's density behind what covers it, and what that adds of its share, light and disc.
+    float4 density = float4(room.x > 1e-4f ? share.x / room.x : 0.0f, room.y > 1e-4f ? share.y / room.y : 0.0f,
+        room.z > 1e-4f ? share.z / room.z : 0.0f, room.w > 1e-4f ? share.w / room.w : 0.0f);
+    float4 added = float4(saturate(nearer.x) * saturate(density.x), saturate(nearer.y) * saturate(density.y),
+        saturate(nearer.z) * saturate(density.z), saturate(nearer.w) * saturate(density.w));
+    float4 scale = float4(share.x > 1e-6f ? added.x / share.x : 0.0f, share.y > 1e-6f ? added.y / share.y : 0.0f,
+        share.z > 1e-6f ? added.z / share.z : 0.0f, share.w > 1e-6f ? added.w / share.w : 0.0f);
+    DofNearBands o;
+    o.band0 = own0 + float4(light_r.x, light_g.x, light_b.x, share.x) * scale.x;
+    o.band1 = own1 + float4(light_r.y, light_g.y, light_b.y, share.y) * scale.y;
+    o.band2 = own2 + float4(light_r.z, light_g.z, light_b.z, share.z) * scale.z;
+    o.band3 = own3 + float4(light_r.w, light_g.w, light_b.w, share.w) * scale.w;
+    o.radii = own_radii + radii * scale;
+    // The split between a band and the next lies in the next, so it continues as the next does.
+    o.split = own_split + float4(room.y > 1e-4f ? saturate(nearer.y) * saturate(splits.x / room.y) : 0.0f,
+        room.z > 1e-4f ? saturate(nearer.z) * saturate(splits.y / room.z) : 0.0f, room.w > 1e-4f ? saturate(nearer.w) * saturate(splits.z / room.w) : 0.0f, 0.0f);
+    return o;
 }
 #endif
 
 #ifdef DOF_NEAR
-// The near plane's blur, after Cinematic DOF's: Copyright (c) 2018-2022 Frans Bouma, released under the 2-clause BSD license
-// (OtisFX, CinematicDOF.fx, PerformSingleValueGaussianBlur and PerformNearPlaneDiscBlur). Instead of gathering the
-// foreground by its sources' discs, it blurs the foreground's CoC: the dilated tiles' near maxima, over a Gaussian a
-// little narrower than the largest disc, give each pixel a blurred near radius that falls off smoothly across a
-// silhouette on both sides. A disc of that radius averages what the far field made of the scene, the foreground
-// unblurred, evenly; and the blurred radius, boosted by the max blur, is the alpha it covers the rest with: whole inside
-// a foreground, fading out beyond its outline, with nothing of what lies behind it to guess.
+// The near plane: each depth band in front of focus spread by scatter as gather, each source over its own disc, and the
+// bands laid over each other near to far. Within a band, a source's light per channel is coverage times the light
+// across its disc over the disc's area, times the area the sample stands for, so a uniform band covers the pixel whole
+// and fades out over a disc's width beyond its outline: a veil of the foreground over what lies behind, as a lens
+// shows it.
 
 // The near plane at a half-size pixel: its light, premultiplied, with green's coverage in a, and red's and blue's.
 struct DofNear
@@ -888,7 +1012,7 @@ DofNear dof_near_none()
 DofNear dof_near_layer(int2 p)
 {
     // The largest near disc around the pixel, from the dilated tiles taken bilinearly between their centers: a tile's
-    // own would change the disc, and so the coverage, in a step at every tile's edge. None, and nothing near is near.
+    // own would change the spiral, and so its noise, in a step at every tile's edge. None, and nothing near is near.
     float2 tc = float2((float(p.x) + 0.5f) / 8.0f - 0.5f, (float(p.y) + 0.5f) / 8.0f - 0.5f);
     int2 tb = int2(int(floor(tc.x)), int(floor(tc.y)));
     float tx = tc.x - floor(tc.x), ty = tc.y - floor(tc.y);
@@ -896,63 +1020,88 @@ DofNear dof_near_layer(int2 p)
         lerp(dof_load_dilated(int2(tb.x, tb.y + 1)).y, dof_load_dilated(int2(tb.x + 1, tb.y + 1)).y, tx), ty);
     if (local <= 0.0f)
         return dof_near_none();
-    // A disc of the local near radius in the lens's shape, as the gather's discs are: the blades, the anamorphic squeeze,
-    // the cat's eye and the swirl at the source's place on the picture, the soap bubble's light across it, mirrored as in
-    // front of focus, and each channel's own radius under chromatic aberration. Behind focus, its average of dof_near_mask
-    // is the share of the pixel the foreground's discs cover, a half at its outline and none a disc beyond, and of the
-    // mask's premultiplied color the foreground's own light: laid over the background's sharp self, a veil as a lens
-    // shows it, where an average with the background beside it drew a halo of blurred background. A small bright
-    // foreground so blurs into a disc of the lens's shape.
     DofLens lens = dof_frame_lens(dof_load_focus().x);
     DofShape shape = dof_frame_shape();
-    float3 r = dof_radii(dof_channel_coc(-local, lens));
-    float reach = max(max(r.x, r.y), r.z) * dof_bokeh.w + 0.5f;
     int rings = int(dof_sampling.x) + 1;
     int count = 4 * rings * (rings + 1) + 1;
-    float spacing = reach / float(rings);
-    float lod = log2(clamp(spacing, 1.0f, 256.0f));
     float turn = dof_sampling.y + dof_noise(p);
     float up = dof_sampling.z;
     float2 half_size = float2(float(dof_sizes.x), float(dof_sizes.y));
-    float3 sum3 = float3(0.0f, 0.0f, 0.0f), w3 = float3(0.0f, 0.0f, 0.0f), disc = float3(0.0f, 0.0f, 0.0f);
-    // At a pixel itself in front of focus, sources much farther than its own surface, blurred by under half its disc,
-    // are what it hides, which the composite's far estimate stands for: a foreground's edge over a nearer-than-focus wall
-    // keeps the foreground's light instead of averaging the wall in. The rest, the foreground's own surfaces, its hair
-    // a little behind its shoulder among them, and anything nearer, cover it as the mask says: leaving out what lay only
-    // a little behind let the far estimate show through a blurred foreground in shards.
-    float own = dof_load_source(p).w;
-    bool layered = own < -kDofInFocus;
-    LOOP for (int k = 0; k < count; k++)
+    // The bands near to far, each under what lies nearer: the light that reaches the pixel, and each channel's share
+    // that the bands so far let through, which ends the walk once nothing farther would show.
+    float3 light = float3(0.0f, 0.0f, 0.0f), through = float3(1.0f, 1.0f, 1.0f);
+    float2 center = float2(float(p.x) + 0.5f, float(p.y) + 0.5f);
+    LOOP for (int b = kDofNearBands - 1; b >= 0; b--)
     {
-        float angle = 2.0f * kDofPi * (turn + float(k) * 0.38196601f);
-        float2 o_px = float2(cos(angle), sin(angle)) * (reach * sqrt((float(k) + 0.5f) / float(count)));
-        float2 q = float2(float(p.x) + 0.5f + o_px.x, float(p.y) + 0.5f + o_px.y);
-        float2 u = float2(o_px.x, o_px.y * up);
-        float2 ndc = float2(q.x / half_size.x * 2.0f - 1.0f, up * (q.y / half_size.y * 2.0f - 1.0f));
-        float d = dof_shape_distance(u, ndc, shape);
-        if (d > max(max(r.x, r.y), r.z) + 0.5f)
+        if (max(max(through.x, through.y), through.z) < 1.0f / 512.0f)
+            break;
+        // A band whose least disc lies past the local near radius has no source that reaches the pixel.
+        if (b > 0 && dof_band_radius(float(b) - kDofNearBandBlend) > local)
             continue;
-        float3 w = dof_weights(r, d, dof_swirl_density(ndc, shape), -dof_bokeh.x, dof_bokeh.z) * dof_cat_eye_cuts(u, r, ndc, shape);
-        disc = disc + w;
-        if (layered && dof_load_source(int2(int(floor(q.x)), int(floor(q.y)))).w > kDofHiddenShare * own)
+        float top = min(dof_band_radius(float(b + 1) + kDofNearBandBlend), local);
+        float3 top_r = dof_radii(dof_channel_coc(-top, lens));
+        float reach = max(max(top_r.x, top_r.y), top_r.z) * dof_bokeh.w + 0.5f;
+        // Nor does a band with nothing in the mip level that holds the whole reach around the pixel.
+        if (dof_sample_near_band(b, center, ceil(log2(max(reach, 1.0f))) + 1.0f).w <= 0.0f)
             continue;
-        // The foreground's own light, filtered to the samples' spacing so a small bright foreground blurs smoothly: beyond
-        // its outline the composite lays it over the background's sharp self by the coverage, a veil of the foreground
-        // as a lens shows it, where an average with the background beside it drew a halo of blurred background.
-        float4 fg = dof_sample_near_mask(q, lod);
-        sum3 = sum3 + float3(fg.x, fg.y, fg.z) * w;
-        w3 = w3 + w * fg.w;
+        float spacing = reach / float(rings);
+        float lod = log2(clamp(spacing * 0.5f, 1.0f, 256.0f));
+        float area = kDofPi * reach * reach / float(count);
+        float4 pick = dof_band_pick(b);
+        // The discs of the sources split between this band and the next, which lie at the edge between them.
+        float3 edge_r = dof_radii(dof_capped_coc(-dof_band_radius(float(b + 1)), lens));
+        float3 sum3 = float3(0.0f, 0.0f, 0.0f), w3 = float3(0.0f, 0.0f, 0.0f), split3 = float3(0.0f, 0.0f, 0.0f);
+        LOOP for (int k = 0; k < count; k++)
+        {
+            float angle = 2.0f * kDofPi * (turn + float(k) * 0.38196601f);
+            float2 o_px = float2(cos(angle), sin(angle)) * (reach * sqrt((float(k) + 0.5f) / float(count)));
+            float2 q = float2(float(p.x) + 0.5f + o_px.x, float(p.y) + 0.5f + o_px.y);
+            float4 fg = dof_sample_near_band(b, q, lod);
+            float sh = b + 1 < kDofNearBands ? dot(dof_sample_near_split(q, lod), pick) : 0.0f;
+            if (fg.w <= 1e-4f && sh <= 1e-4f)
+                continue;
+            float2 u = float2(o_px.x, o_px.y * up);
+            float2 ndc = float2(q.x / half_size.x * 2.0f - 1.0f, up * (q.y / half_size.y * 2.0f - 1.0f));
+            float d = dof_shape_distance(u, ndc, shape);
+            // A uniform foreground covers the pixel whole whatever the cat's eye leaves of each disc.
+            float scale = dof_swirl_density(ndc, shape) * area / dof_cat_eye_area(ndc, shape);
+            if (fg.w > 1e-4f)
+            {
+                // The mean disc of the band's sources around the sample, at least the spacing: a smaller disc would fall
+                // between the samples.
+                float3 c3 = dof_capped_coc(-dot(dof_sample_near_radii(q, lod), pick) / fg.w, lens);
+                float3 r = float3(max(abs(c3.x), spacing), max(abs(c3.y), spacing), max(abs(c3.z), spacing));
+                if (d <= max(max(r.x, r.y), r.z) + 0.5f)
+                {
+                    float3 w = dof_weights(r, d, scale, -dof_bokeh.x, dof_bokeh.z) * dof_cat_eye_cuts(u, r, ndc, shape);
+                    sum3 = sum3 + float3(fg.x, fg.y, fg.z) * w;
+                    w3 = w3 + w * fg.w;
+                }
+            }
+            if (sh > 1e-4f && d <= max(max(edge_r.x, edge_r.y), edge_r.z) + 0.5f)
+            {
+                float3 r = float3(max(edge_r.x, spacing), max(edge_r.y, spacing), max(edge_r.z, spacing));
+                split3 = split3 + dof_weights(r, d, scale, -dof_bokeh.x, dof_bokeh.z) * dof_cat_eye_cuts(u, r, ndc, shape) * sh;
+            }
+        }
+        if (w3.y <= 0.0f)
+            continue;
+        // Each channel's coverage, and its light over it. A source split between this band and the next lies in both, and the
+        // next covers this one: over itself, a surface split between them would let through what lies behind it. So
+        // this band's alpha is what, under the next band's share of those sources, leaves the coverage it holds.
+        float3 cover = float3(saturate(w3.x), saturate(w3.y), saturate(w3.z));
+        float3 alpha = float3(saturate(cover.x / max(1.0f - saturate(split3.x), 1e-4f)), saturate(cover.y / max(1.0f - saturate(split3.y), 1e-4f)),
+            saturate(cover.z / max(1.0f - saturate(split3.z), 1e-4f)));
+        float3 color = float3(w3.x > 0.0f ? sum3.x / w3.x : sum3.y / w3.y, sum3.y / w3.y, w3.z > 0.0f ? sum3.z / w3.z : sum3.y / w3.y);
+        light = light + color * alpha * through;
+        through = through * (float3(1.0f, 1.0f, 1.0f) - alpha);
     }
-    if (w3.y <= 0.0f || disc.y <= 0.0f)
+    float3 covered = float3(1.0f, 1.0f, 1.0f) - through;
+    if (covered.y <= 0.0f)
         return dof_near_none();
-    // Each channel's coverage and light over its own disc. Premultiplied, so the composite's bilinear read between a
-    // covered texel and an uncovered one fades the light, not the color.
-    float3 cover = float3(disc.x > 0.0f ? saturate(w3.x / disc.x) : saturate(w3.y / disc.y), saturate(w3.y / disc.y),
-        disc.z > 0.0f ? saturate(w3.z / disc.z) : saturate(w3.y / disc.y));
-    float3 light = float3(disc.x > 0.0f ? sum3.x / disc.x : sum3.y / disc.y, sum3.y / disc.y, disc.z > 0.0f ? sum3.z / disc.z : sum3.y / disc.y);
     DofNear o;
-    o.layer = float4(light.x, light.y, light.z, cover.y);
-    o.cover = float2(cover.x, cover.z);
+    o.layer = float4(light.x, light.y, light.z, covered.y);
+    o.cover = float2(covered.x, covered.z);
     return o;
 }
 #endif
