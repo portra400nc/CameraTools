@@ -81,6 +81,10 @@ namespace CameraTools
             {
                 Graphics.ApplySlot(1);
             }
+            if (Controls.Pressed(CamAction.TakeScreenshot) && Screenshot.HotkeyLive)
+            {
+                Screenshot.Take();
+            }
             if (Controls.Pressed(CamAction.ToggleHUD))
             {
                 SetUiHidden(!uiHidden);

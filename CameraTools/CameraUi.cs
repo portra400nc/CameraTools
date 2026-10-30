@@ -667,7 +667,7 @@ namespace CameraTools
         private static Legend BuildLegend(Builder ui, Transform row, Hint hint)
         {
             var (key, pad) = Controls.Binding(hint.Action);
-            return new Legend(ui.PadHint(row, pad, hint.Label), pad != default, ui.KeyHint(row, key, hint.Label), key != KeyCode.None);
+            return new Legend(ui.PadHint(row, pad, hint.Label), pad != default, ui.KeyHint(row, key, hint.Label), key != KeyCode.None, hint.Shown);
         }
 
         private static void BuildPanel(Builder ui, Live target, Transform root, Tab[] model)
@@ -1039,8 +1039,10 @@ namespace CameraTools
             {
                 if (Input.GetKeyDown(KeyCode.Backspace))
                     Bind(KeyCode.None, default);
+                else if (Input.GetKeyDown(KeyCode.Return) && ControlsModel.Holds(((BindingRow)capture.View.Row).Action, KeyCode.Return))
+                    Bind(KeyCode.Return, default);
                 else if (Input.GetKeyDown(KeyCode.Return))
-                    Toast("Enter is kept for Done and Play");
+                    Toast("Enter is kept for Done, Play and the screenshot");
                 else if (BindableKeys.FirstOrDefault(Input.GetKeyDown) is var key and not KeyCode.None)
                     Bind(key, default);
                 return;
@@ -1448,6 +1450,7 @@ namespace CameraTools
             }
             if (live.Hud.Visible)
             {
+                RenderLegends(layout == InputDevice.Pad);
                 RenderFov();
                 RenderLens();
             }
@@ -1516,10 +1519,16 @@ namespace CameraTools
             float glyph = Style.TabBarPadding + Shapes.Bumper.Width + Style.TabClipGap;
             live.TabClip.offsetMin = V(pad ? glyph : Style.TabsAfterBack, 0f);
             live.TabClip.offsetMax = V(pad ? -glyph : -Style.TabBarPadding, 0f);
+        }
+
+        // Every frame the HUD shows, since a legend's Shown can change any time, as the screenshot's does when ReShade loads.
+        private static void RenderLegends(bool pad)
+        {
             foreach (var legend in live.Legends)
             {
-                legend.Pad.Root.SetActive(pad && legend.HasPad);
-                legend.Key.Root.SetActive(!pad && legend.HasKey);
+                bool shown = legend.Shown?.Invoke() != false;
+                legend.Pad.Root.SetActive(shown && pad && legend.HasPad);
+                legend.Key.Root.SetActive(shown && !pad && legend.HasKey);
             }
         }
 
@@ -2090,7 +2099,7 @@ namespace CameraTools
         }
 
         // A hint's controller and keyboard versions; only one shows, and only if the action has a binding for it.
-        private sealed record Legend(HintView Pad, bool HasPad, HintView Key, bool HasKey);
+        private sealed record Legend(HintView Pad, bool HasPad, HintView Key, bool HasKey, Func<bool> Shown = null);
 
         // The keybind cell waiting for a new binding. For the controller: whether the button that started it has been let
         // go, since when nothing is held, and the buttons or stick direction held since.

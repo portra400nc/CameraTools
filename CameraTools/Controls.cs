@@ -85,6 +85,16 @@ namespace CameraTools
             }
             GameCamera.Enabled = keyboard.CreateEntry("DetachGameCamera", true,
                 description: "Point the game's camera system at a hidden camera while the free camera is on. Set to false if the game misbehaves.").Value;
+            foreach (var (addedIn, action) in ControlsModel.Added)
+            {
+                if (saved >= addedIn)
+                    continue;
+                int i = (int)action;
+                ControlsModel.Settle(keys, action, KeyCode.None);
+                ControlsModel.Settle(pads, action, default);
+                keyEntries[i].Value = keys[i];
+                padEntries[i].Value = pads[i].ToString();
+            }
             foreach (var (removedIn, name) in ControlsModel.Removed)
             {
                 if (saved >= removedIn)
@@ -113,7 +123,7 @@ namespace CameraTools
         // Rebinds as ControlsModel.Swap does, and saves to MelonPreferences.cfg.
         public static Rebind SetKey(CamAction action, KeyCode key)
         {
-            var result = ControlsModel.Swap(keys, action, key, KeyCode.None);
+            var result = ControlsModel.Swap(keys, action, key, KeyCode.None, ControlsModel.Holds);
             if (result.Done)
                 Save();
             return result;

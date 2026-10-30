@@ -113,7 +113,8 @@ namespace CameraTools
 
     public sealed record Tab(string Name, Row[] Rows);
 
-    public sealed record Hint(CamAction Action, string Label);
+    // Shown: whether the legend is on the HUD, or null for always.
+    public sealed record Hint(CamAction Action, string Label, Func<bool> Shown = null);
 
     // Hidden: the free camera is off. Hud: legends and the field of view bar. Playing: the play bar of a camera path, a
     // recording or a replay playing on its own. Panel: settings. Moving: the sticks move a light, and the legends say how.
@@ -759,6 +760,7 @@ namespace CameraTools
             new BindingRow("Settings panel", CamAction.ToggleGUI),
             new BindingRow("Free the cursor", CamAction.ToggleCursorFocus),
             new BindingRow("Hide UI", CamAction.ToggleHUD),
+            new BindingRow("Take screenshot", CamAction.TakeScreenshot),
             new BindingRow("Apply resolution slot 1", CamAction.SetResolutionTo1080p),
             new BindingRow("Apply resolution slot 2", CamAction.SetResolutionTo4K),
             new Section("Camera paths and replays") { Columns = true },
@@ -787,6 +789,7 @@ namespace CameraTools
             new(CamAction.ToggleHUD, "Hide UI"),
             new(CamAction.TogglePause, "Pause"),
             new(CamAction.ResetSpeed, "Reset speed"),
+            new(CamAction.TakeScreenshot, "Screenshot", () => ReShade.Connected),
             new(CamAction.ToggleGUI, "Settings"),
         };
 

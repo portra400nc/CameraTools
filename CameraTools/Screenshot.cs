@@ -205,6 +205,12 @@ namespace CameraTools
             Supersampling.Load();
         }
 
+        // The hotkey shoots only over the plain free camera: not with the settings panel open, nor in Move light, Pose joints,
+        // Move character or Edit replay, which read Enter and A themselves, nor while a path, a replay or a recording runs
+        // or counts down. Read before the UI's update, so the press that closes the panel does not also shoot.
+        public static bool HotkeyLive => freecamActive && ReShade.Connected && !CameraUi.PanelOpen && !Lights.Moving && !Posing.Editing
+            && !Posing.Moving && PathPlayback.Idle && ReplayPlayer.Idle && ReplayRecorder.Idle;
+
         public static void Take()
         {
             if (State is not ShotState.Idle || !freecamActive || !ReShade.Connected)

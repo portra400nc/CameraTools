@@ -47,6 +47,7 @@ namespace CameraTools
         CenterFocusPoint,
         RecordReplay,
         PlayReplay,
+        TakeScreenshot,
     }
 
     // Done is false when the change was refused. Swapped is the action that took the old binding, or null.
@@ -97,12 +98,17 @@ namespace CameraTools
             (CamAction.CenterFocusPoint, KeyCode.None, "Back+R3"),
             (CamAction.RecordReplay, KeyCode.KeypadMinus, "Back+DpadLeft"),
             (CamAction.PlayReplay, KeyCode.KeypadMultiply, "Back+DpadRight"),
+            (CamAction.TakeScreenshot, KeyCode.Return, "A"),
         };
 
         // Layout 2 moved the camera to WASD and made the free camera's toggle the controller's L3+R3. Layout 3 removed the
         // damage numbers and enemy HP bar hotkeys, which the World tab and Hide UI cover. Layout 4 made 1 and the D-pad's
-        // down zoom out, and 2 and its up zoom in. Files saved before layout 2 have no layout entry and read as 1.
-        public const int Layout = 4;
+        // down zoom out, and 2 and its up zoom in. Layout 5 added the screenshot on Enter and A. Files saved before layout 2
+        // have no layout entry and read as 1.
+        public const int Layout = 5;
+
+        // The actions each layout added. Files saved before it may already have their defaults on another action.
+        public static readonly (int Layout, CamAction Action)[] Added = { (5, CamAction.TakeScreenshot) };
 
         // The entries each layout removed, deleted from files saved before it.
         public static readonly (int Layout, string Name)[] Removed = { (2, "Inject"), (3, "RemoveHP"), (3, "ToggleDamage") };
@@ -141,24 +147,43 @@ namespace CameraTools
         // Each layout that changed defaults, with the defaults it changed as they were before it.
         private static readonly (int Layout, (CamAction Action, KeyCode Key, string Pad)[] Before)[] Changes = { (2, Layout1), (4, Layout3) };
 
+        // Enter is Done, Place and Play in the modes that read it themselves, so only the screenshot, which those modes
+        // silence, may hold it.
+        public static bool Holds(CamAction action, KeyCode key) => key != KeyCode.Return || action == CamAction.TakeScreenshot;
+
         // Binds an action's key or controller binding in bindings, indexed by action. A binding another action had swaps:
-        // that action takes this one's old binding, and is returned. The free camera's toggle never loses its binding, so
-        // the free camera can always be left; such a change is refused and changes nothing.
-        public static Rebind Swap<T>(T[] bindings, CamAction action, T binding, T none)
+        // that action takes this one's old binding, or none when holds says it may not, and is returned. The free camera's
+        // toggle never loses its binding, so the free camera can always be left; such a change is refused and changes
+        // nothing, as is a binding holds refuses.
+        public static Rebind Swap<T>(T[] bindings, CamAction action, T binding, T none, Func<CamAction, T, bool> holds = null)
         {
+            holds ??= (_, _) => true;
             var same = EqualityComparer<T>.Default;
             int index = (int)action;
             var old = bindings[index];
             if (same.Equals(old, binding))
                 return new Rebind(true, null);
+            if (!holds(action, binding))
+                return new Rebind(false, null);
             int other = same.Equals(binding, none) ? -1 : Array.FindIndex(bindings, each => same.Equals(each, binding));
+            var given = other >= 0 && holds((CamAction)other, old) ? old : none;
             const int toggle = (int)CamAction.ToggleFreecam;
-            if (index == toggle && same.Equals(binding, none) || other == toggle && same.Equals(old, none))
+            if (index == toggle && same.Equals(binding, none) || other == toggle && same.Equals(given, none))
                 return new Rebind(false, null);
             bindings[index] = binding;
             if (other >= 0)
-                bindings[other] = old;
+                bindings[other] = given;
             return new Rebind(true, other >= 0 ? (CamAction)other : null);
+        }
+
+        // An action a later layout added keeps its default binding only where no other action holds it already.
+        public static void Settle<T>(T[] bindings, CamAction action, T none)
+        {
+            var same = EqualityComparer<T>.Default;
+            int index = (int)action;
+            for (int other = 0; other < bindings.Length; other++)
+                if (other != index && same.Equals(bindings[other], bindings[index]))
+                    bindings[index] = none;
         }
 
         // A binding still at the default a later layout changed moves to that layout's default; a binding the user changed

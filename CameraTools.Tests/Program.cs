@@ -923,6 +923,28 @@ var padSwap = ControlsModel.Swap(pads, CamAction.ResetSpeed, new PadBinding(PadB
 Check("a controller binding swaps the same way: B on Reset speed gives Hide UI Y",
     padSwap == new Rebind(true, CamAction.ToggleHUD) && pads[(int)CamAction.ToggleHUD] == new PadBinding(PadButtons.Y, PadAxis.None));
 
+var shotKeys = ControlsModel.Defaults.Select(row => row.Key).ToArray();
+Check("Enter is only the screenshot's: another action may not take it", !ControlsModel.Holds(CamAction.TogglePause, UnityEngine.KeyCode.Return)
+    && ControlsModel.Swap(shotKeys, CamAction.TogglePause, UnityEngine.KeyCode.Return, UnityEngine.KeyCode.None, ControlsModel.Holds) == new Rebind(false, null)
+    && shotKeys[(int)CamAction.TakeScreenshot] == UnityEngine.KeyCode.Return);
+var handedOn = ControlsModel.Swap(shotKeys, CamAction.TakeScreenshot, UnityEngine.KeyCode.H, UnityEngine.KeyCode.None, ControlsModel.Holds);
+Check("putting H on the screenshot leaves Hide UI unbound, not on Enter",
+    handedOn == new Rebind(true, CamAction.ToggleHUD) && shotKeys[(int)CamAction.TakeScreenshot] == UnityEngine.KeyCode.H
+    && shotKeys[(int)CamAction.ToggleHUD] == UnityEngine.KeyCode.None);
+var shotBack = ControlsModel.Swap(shotKeys, CamAction.TakeScreenshot, UnityEngine.KeyCode.Return, UnityEngine.KeyCode.None, ControlsModel.Holds);
+var toggleKept = ControlsModel.Swap(shotKeys, CamAction.TakeScreenshot, UnityEngine.KeyCode.Insert, UnityEngine.KeyCode.None, ControlsModel.Holds);
+Check("the screenshot takes Enter back, but may not take the toggle's key, which would leave the toggle with none",
+    shotBack == new Rebind(true, null) && toggleKept == new Rebind(false, null)
+    && shotKeys[(int)CamAction.ToggleFreecam] == UnityEngine.KeyCode.Insert && shotKeys[(int)CamAction.TakeScreenshot] == UnityEngine.KeyCode.Return);
+var settledPads = ControlsModel.Defaults.Select(row => PadBinding.TryParse(row.Pad, out var pad) ? pad : default).ToArray();
+ControlsModel.Settle(settledPads, CamAction.TakeScreenshot, default(PadBinding));
+var takenA = settledPads.ToArray();
+takenA[(int)CamAction.TogglePause] = new PadBinding(PadButtons.A, PadAxis.None);
+ControlsModel.Settle(takenA, CamAction.TakeScreenshot, default(PadBinding));
+Check("an older file gets the screenshot on A, unless the user already put A on another action",
+    settledPads[(int)CamAction.TakeScreenshot] == new PadBinding(PadButtons.A, PadAxis.None) && takenA[(int)CamAction.TakeScreenshot] == default
+    && takenA[(int)CamAction.TogglePause] == new PadBinding(PadButtons.A, PadAxis.None));
+
 {
     var start = RefocusRules.Start("the free camera turned off", 10f);
     var whole = new FocusView(true, FocusHolder.Game);
