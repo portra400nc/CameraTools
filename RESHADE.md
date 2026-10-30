@@ -98,18 +98,22 @@ The focus point is a position relative to the screen, so it stays on the same pa
 
 ## Long exposure
 
-Long exposure makes Take screenshot record for a while, as a camera on a tripod does. Water and clouds smooth out, moving characters blur, and lights draw trails. It uses SirCobra's [RealLongExposure](https://github.com/LordKobra/CobraFX) shader. Install `RealLongExposure.fx` and the `CobraUtility.fxh` beside it into ReShade's shader folder. Until ReShade has loaded the shader, the section header reads "Install RealLongExposure.fx first" and its rows are hidden. CameraTools finds the shader by its technique, so with ReShade's "Load only enabled effects" option on, the shader has to be enabled in the preset to be found.
+Long exposure makes Take screenshot record for a while, as a camera on a tripod does. Water and clouds smooth out, moving characters blur, and lights draw trails. It needs the Enhancements add-on, `CameraToolsEnhancements.addon64`, and no ReShade shader. Without the add-on, the section header reads "Install the Enhancements add-on first" and its rows are hidden.
 
 | Row | What it does |
 |--|--|
 | Long exposure | Makes Take screenshot record for the shutter time. Off, Take screenshot takes a normal shot. |
-| Shutter | How long the picture records, from 1/8 s to 120 s in full stops |
-| ISO | 100 keeps the game's brightness. Each step brightens the picture. |
-| Highlight boost | How strongly bright lights stay as they move, from 0.4 to 4.4. 1 is plain averaging. |
+| Shutter speed | How long the picture records, from 1/8 s to 120 s in full stops |
+| ISO | 100 keeps the game's brightness. Each step doubles it. |
+| Smoothness | How many game frames each second of shutter time is made of: 60, 120, 240 or 480. More frames make smoother trails and take longer. |
 
-Shutter, ISO and Highlight boost show only while Long exposure is on. CameraTools keeps them in its own preferences, not in ReShade's preset, and switches the shader on only for the shot, so it costs no frame rate the rest of the time.
+Shutter speed, ISO and Smoothness show only while Long exposure is on. Under Smoothness, the row shows how many frames the shot adds and, after your first long exposure, about how long that takes. The time turns amber past 10 minutes.
 
-The shot runs as any screenshot does, and once the picture has settled it opens the shutter, waits the shutter time, and saves ReShade's average of every frame in that time. The game keeps running while it records: a paused game gives the same picture as a normal shot, and moving the camera blurs the whole picture. Nothing of CameraTools is on screen while it records. A long exposure skips the Enhancements' traced lighting, which pauses the game. If ReShade loads its effects again during the exposure, the screenshot fails and puts everything back.
+The shot runs as any screenshot does, and once the picture has settled it records. While it records, the game moves forward by exactly one step of 1/Smoothness of a second each frame, however long the frame takes to draw. A 2 s shutter at 240 is 480 frames, 2 seconds of game time. On the Steam Deck at 3840x2160 that took about 70 seconds, during which the game runs slowly. Because the steps are always the same, trails stay smooth even at a low frame rate. A paused game runs while it records and is paused again after. The time of day holds still, and ReShade's effects are off while the frames are added, which makes each frame faster.
+
+The Enhancements add-on adds up each frame's light before bloom and the game's tone curve, so bright lights keep their strength as they move, as on a real camera. Each frame also looks through a slightly different point of every pixel, so the shot is always supersampled. When the shutter time is over, the game pauses, ReShade's effects come back on over the average, and the screenshot is saved. Then the game's speed, the pause and the time of day go back to how they were. With Also save DNG on, the shot also saves a DNG, whose EXIF names the shutter time and the ISO.
+
+Nothing of CameraTools is on screen while it records, and the camera holds still. A long exposure skips the Enhancements' traced lighting, which pauses the game. Changing the game speed during the recording cancels the screenshot and puts everything back.
 
 ## Screenshots
 
@@ -142,9 +146,9 @@ It does not hold ReShade's effects, such as RTGI or the blur of Cinematic DOF an
 
 The DNG opens with the profile "CameraTools Game", which applies the game's tone curve, so the picture first looks as it does in the game. Lightroom's other profiles, such as Adobe Color, are in its Profile list. White balance As Shot is the game's own color.
 
-The DNG stores 16 bits for each color of each pixel, compressed without loss: about 22 MB at 3840x2160. Its EXIF names the focal length and the date. While CameraTools' depth of field is on, it also names the aperture and the focus distance.
+The DNG stores 16 bits for each color of each pixel, compressed without loss: about 22 MB at 3840x2160. Its EXIF names the focal length and the date. While CameraTools' depth of field is on, it also names the aperture and the focus distance. A long exposure's DNG also names the shutter time and the ISO.
 
-With Supersampling on, the DNG gets the full-precision average of all the samples. A long exposure saves no DNG.
+With Supersampling on, or for a long exposure, the DNG gets the full-precision average of all the frames.
 
 The `[CameraToolsReShade]` section of `MelonPreferences.cfg` holds:
 
@@ -159,5 +163,6 @@ The `[CameraToolsReShade]` section of `MelonPreferences.cfg` holds:
 | `LongExposure` | `false` | Take screenshot records for the shutter time. The ReShade tab's switch changes it. |
 | `LongExposureShutter` | `8` | The shutter time in seconds, rounded to the nearest full stop from 1/8 s to 120 s |
 | `LongExposureIso` | `100` | 100, 200, 400, 800 or 1600 |
-| `LongExposureHighlightBoost` | `1` | From 0.4 to 4.4 |
+| `LongExposureSmoothness` | `240` | Game frames for each second of shutter time: 60, 120, 240 or 480 |
+| `LongExposureFramesPerSecond` | `0` | Frames the last long exposure added each real second, for the time estimate. CameraTools sets it. |
 | `ScreenshotDng` | `false` | Also save a DNG beside each screenshot. The ReShade tab's switch changes it. |

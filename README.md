@@ -306,7 +306,7 @@ CameraTools has three parts. The mod checks each add-on's version, so build and 
 |--|--|--|
 | The mod | `CameraTools.dll` | Everything |
 | The ReShade add-on | `CameraToolsReShadeBridge.addon64` | The ReShade tab and sphere lights |
-| The Enhancements add-on | `CameraToolsEnhancements.addon64` | The Graphics tab's Enhancements |
+| The Enhancements add-on | `CameraToolsEnhancements.addon64` | The Graphics tab's Enhancements, long exposures and DNG files |
 
 ### The mod
 
