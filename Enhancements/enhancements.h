@@ -537,7 +537,9 @@ typedef struct EnhancementsShot
     uint32_t size;              // sizeof(EnhancementsShot) as the caller compiled it
     uint32_t active;            // default 0
     uint32_t samples;           // gather.samples for the shot; 0 keeps the applied one; clamped to 1..4096
-    float budget_ms;            // trace.budget_ms for the shot; 0 keeps the applied one; clamped to 2..200
+    float budget_ms;            // trace.budget_ms for the shot; 0 keeps the applied one; clamped to 2..2000, past the applied
+                                // one's 200: a paused shot has no use for the frames, and every frame also costs the game's
+                                // own, which at 4K on the Deck took most of a shot at 100
     float strength;             // gather.strength for the shot; not finite keeps the applied one; clamped to 0..4. A caller
                                 // without it keeps the applied one. Version 22 added it.
 } EnhancementsShot;

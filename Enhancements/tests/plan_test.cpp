@@ -1346,6 +1346,10 @@ int main()
         shot.budget_ms = 150;
         const Settings given = with_shot(on, parse_shot(&shot));
         check("a shot's samples and budget replace the applied ones", given.gather.samples == 128 && given.trace.budget_ms == 150.0f);
+        shot.budget_ms = 1500;
+        check("a shot's budget may pass the applied one's 200 ms", with_shot(on, parse_shot(&shot)).trace.budget_ms == 1500.0f);
+        shot.budget_ms = 9000;
+        check("a shot's budget clamps to 2000 ms", parse_shot(&shot).budget_ms == 2000.0f);
         shot.samples = 100000;
         shot.budget_ms = 1;
         check("a shot's samples clamp to 4096 and its budget to 2 ms", parse_shot(&shot).samples == 4096 && parse_shot(&shot).budget_ms == 2.0f);

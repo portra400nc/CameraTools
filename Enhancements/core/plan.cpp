@@ -557,7 +557,7 @@ namespace enhancements
         if (knows(offsetof(EnhancementsShot, samples), sizeof raw->samples))
             shot.samples = std::min<uint32_t>(raw->samples, 4096);
         if (knows(offsetof(EnhancementsShot, budget_ms), sizeof raw->budget_ms) && raw->budget_ms != 0)
-            shot.budget_ms = finite_or(raw->budget_ms, 0.0f, 2.0f, 200.0f);
+            shot.budget_ms = finite_or(raw->budget_ms, 0.0f, 2.0f, 2000.0f);
         if (knows(offsetof(EnhancementsShot, strength), sizeof raw->strength) && std::isfinite(raw->strength))
             shot.strength = std::clamp(raw->strength, 0.0f, 4.0f);
         return shot;

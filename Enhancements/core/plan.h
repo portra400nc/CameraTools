@@ -271,7 +271,7 @@ namespace enhancements
         std::optional<float> strength;  // none: the applied gather's
     };
 
-    // Honors size like parse_settings. A null pointer is no shot. samples clamps to 4096, budget_ms to 2..200 and strength
+    // Honors size like parse_settings. A null pointer is no shot. samples clamps to 4096, budget_ms to 2..2000 and strength
     // to 0..4. Samples or a budget of 0, a budget that is not finite, and a strength that is not finite or not given keep
     // the applied one.
     ShotSettings parse_shot(const EnhancementsShot *raw);

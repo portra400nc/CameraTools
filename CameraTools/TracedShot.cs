@@ -66,8 +66,9 @@ namespace CameraTools
         public const float PartialGrace = 30f;
         // From this many samples a pixel shows its own average, not its neighbors' blur.
         public const uint PartialSamples = 16;
-        // GPU time a frame for the shot's rays: nothing else needs the frames while it waits.
-        public const float BudgetMs = 100f;
+        // GPU time a frame for the shot's rays: nothing else needs the frames while it waits, and each 4K frame on the Deck
+        // also costs the game's own, about 575 ms, which took most of a shot at 100 ms a frame.
+        public const float BudgetMs = 1500f;
         // The Bounce strength row: 1 is the physical amount for the game's colors, and the default makes up for Genshin's
         // painted colors being darker than real materials.
         public const float DefaultBounceStrength = 3f, MaxBounceStrength = 4f;
