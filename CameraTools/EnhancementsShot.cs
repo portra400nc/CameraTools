@@ -92,7 +92,10 @@ namespace CameraTools
         // The game runs again under a shot that paused it.
         public static bool Unpaused => run != null && Time.timeScale != 0f;
 
-        public static float Timeout => TracedShot.Timeout + (run?.Partial != null ? TracedShot.PartialGrace : 0f);
+        public static float Timeout => TracedShot.Timeout + (run?.Partial != null ? TracedShot.PartialGrace : 0f) + (saveScene.Value ? SaveSceneGrace : 0f);
+
+        // A 4K shot at night traces about 5 samples a minute on the Deck, so the Mac's saves get longer.
+        private const float SaveSceneGrace = 300f;
 
         // What the shot waits for, to complete "timed out waiting for ...", or null while it is the screenshot's own
         // conditions.
@@ -225,11 +228,11 @@ namespace CameraTools
             if (run == null)
                 return false;
             var status = Enhancements.Status;
+            if (saveScene.Value && run.Phase == ShotPhase.Tracing)
+                Log(Enhancements.SaveTrace() ? $"saving the unfinished trace for the Mac, {status.TraceSamples} samples." : "the add-on refused to save the trace.");
             if (!TracedShot.SaveAsIs(run.Phase, run.Facts.Generation, status))
                 return false;
             run.Partial = $"{status.TraceSamples} of {status.TraceTarget} samples";
-            if (saveScene.Value)
-                Log(Enhancements.SaveTrace() ? "saving the unfinished trace for the Mac." : "the add-on refused to save the trace.");
             Melon<CameraTools>.Logger.Warning($"Traced shot: the lighting did not converge within {TracedShot.Timeout:0} s; saving the picture as it is, with {run.Partial}"
                 + (run.Stalled ? $" ({TracedShot.Changing(status.TraceRestartReason)}, {status.TraceRestarts} starts)" : "") + ".");
             CameraUi.ClearToast();
