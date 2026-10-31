@@ -101,6 +101,8 @@ namespace enhancements
         };
         // Presents without a call after which the point is forgotten and the add-on stops reading it.
         constexpr uint64_t kDepthForget = 60;
+        // Shadow-mask constants older than this many frames are a scene's that no longer draws a shadow mask.
+        constexpr uint64_t kFreshSunFrames = 30;
         std::mutex depth_mutex;
         DepthAsk depth_ask;
         // presents since the add-on loaded, for the C# thread's calls.
@@ -221,6 +223,7 @@ namespace enhancements
         std::string gather_sun_source;              // where the gather's sun came from at the last frame, for the log
         std::string trace_sun_source = "none";      // where the trace's sun came from at the last frame, for the log
         std::optional<SunCbuffers> sun_bytes;       // the newest shadow-mask constants read back
+        uint64_t sun_bytes_frame = 0;               // the frame they were read back at
         std::optional<Vec3> logged_origin;          // b1 row 10 as the log last said it
 
         // EnhancementsSaveTrace's request: set by the C# thread, cleared by the render thread once the frame is copied.
@@ -590,6 +593,14 @@ namespace enhancements
 
         bool camera_known() { return camera_age != UINT32_MAX; }
 
+        // The shadow-mask constants while the game still draws its shadow mask. At night it draws none, and constants
+        // from the day would give the night a day's sun and floating origin.
+        const std::optional<SunCbuffers> &fresh_sun()
+        {
+            static const std::optional<SunCbuffers> none;
+            return sun_bytes && frames - sun_bytes_frame <= kFreshSunFrames ? sun_bytes : none;
+        }
+
         Inputs inputs() { return { camera_known(), sun_frame, trace_gpu.state(), trace_traced }; }
 
         // The trace pass reads the game's sun direction and floating origin from the shadow-mask constants while it traces.
@@ -608,6 +619,7 @@ namespace enhancements
             {
                 sun_parse = parse_sun_shadows(*bytes);
                 sun_bytes = bytes;
+                sun_bytes_frame = frames;
             }
             sun_frame = sun_check(sun_parse, gpu.gather_sun(*map[Entry::sun_atlas], frames), map[Entry::sun_atlas]->size);
         }
@@ -708,9 +720,9 @@ namespace enhancements
                 return;
             Vec3 toward = { camera.toward_sun[0], camera.toward_sun[1], camera.toward_sun[2] };
             std::string source = toward == Vec3 {} ? "none" : "pushed";
-            if (sun_bytes)
+            if (const std::optional<SunCbuffers> &sun = fresh_sun())
             {
-                const SunFacts facts = sun_facts(*sun_bytes);
+                const SunFacts facts = sun_facts(*sun);
                 if (facts.toward_sun)
                 {
                     toward = *facts.toward_sun;
@@ -779,7 +791,7 @@ namespace enhancements
             s.level = settings.ambient.level;
             s.camera = camera;
             s.reference = trace_scene.reference;
-            s.sun = sun_bytes;
+            s.sun = fresh_sun();
             s.sun_source = trace_sun_source;
             s.floating_origin = trace_scene.floating_origin;
             s.scene = trace_scene.folder;
@@ -1138,8 +1150,8 @@ namespace enhancements
                 + folder.u8string() + ".");
             LightInputs inputs;
             inputs.combine = combine_read;
-            if (sun_bytes)
-                inputs.cascade = sun_facts(*sun_bytes).toward_sun;
+            if (const std::optional<SunCbuffers> &sun = fresh_sun())
+                inputs.cascade = sun_facts(*sun).toward_sun;
             inputs.pushed_sun_color = { camera.sun_color[0], camera.sun_color[1], camera.sun_color[2] };
             inputs.pushed_sun_direction = { camera.toward_sun[0], camera.toward_sun[1], camera.toward_sun[2] };
             worker.push([folder, scene, forward, light, inputs]() mutable {
@@ -1463,8 +1475,8 @@ namespace enhancements
                 const uint64_t cap = std::min<uint64_t>(run.schedule.request.max_triangles, trace_max_triangles);
                 LightInputs light;
                 light.combine = combine_read;
-                if (sun_bytes)
-                    light.cascade = sun_facts(*sun_bytes).toward_sun;
+                if (const std::optional<SunCbuffers> &sun = fresh_sun())
+                    light.cascade = sun_facts(*sun).toward_sun;
                 light.pushed_sun_color = { camera.sun_color[0], camera.sun_color[1], camera.sun_color[2] };
                 light.pushed_sun_direction = { camera.toward_sun[0], camera.toward_sun[1], camera.toward_sun[2] };
                 light.pushed_sky = { camera.sky_color[0], camera.sky_color[1], camera.sky_color[2] };
