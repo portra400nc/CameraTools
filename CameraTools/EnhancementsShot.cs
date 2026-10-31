@@ -92,10 +92,8 @@ namespace CameraTools
         // The game runs again under a shot that paused it.
         public static bool Unpaused => run != null && Time.timeScale != 0f;
 
-        public static float Timeout => TracedShot.Timeout + (run?.Partial != null ? TracedShot.PartialGrace : 0f) + (saveScene.Value ? SaveSceneGrace : 0f);
-
-        // A 4K shot at night traces about 5 samples a minute on the Deck, so the Mac's saves get longer.
-        private const float SaveSceneGrace = 300f;
+        // Test-mode shots wait for every sample: unpausing the game cancels them.
+        public static float Timeout => saveScene.Value ? float.PositiveInfinity : TracedShot.Timeout + (run?.Partial != null ? TracedShot.PartialGrace : 0f);
 
         // What the shot waits for, to complete "timed out waiting for ...", or null while it is the screenshot's own
         // conditions.
