@@ -690,6 +690,17 @@ namespace CameraTools
                 Detail = () => LongExposure.Active ? "Long exposure is always supersampled" : "",
             },
             new ToggleRow("Also save DNG", () => Screenshot.Dng, on => Screenshot.Dng = on, () => CameraToolsEnhancements.Enhancements.Connected),
+            new ToggleRow("Path traced lighting", () => EnhancementsShot.Enabled, on => EnhancementsShot.Enabled = on,
+                () => CameraToolsEnhancements.Enhancements.Connected)
+            {
+                Detail = () => "Pauses the game and traces the light before saving",
+            },
+            new SliderRow("Bounce strength", 0f, TracedShot.MaxBounceStrength, 0.1f, "0.0'×'", () => EnhancementsShot.BounceStrength,
+                value => EnhancementsShot.BounceStrength = value)
+            {
+                Sub = true,
+                Shown = () => EnhancementsShot.Enabled,
+            },
         }).ToArray());
 
         private static ToggleRow PathToggle(string label, Func<PathOptions, bool> get, Action<PathOptions, bool> set)

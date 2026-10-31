@@ -348,6 +348,7 @@ namespace CameraToolsEnhancements
         public uint Active;
         public uint Samples;        // 0: the applied gather's
         public float BudgetMs;      // 0: the applied trace's
+        public float Strength;      // not finite: the applied gather's
     }
 
     // EnhancementsDngInfo in enhancements.h, field for field: the camera a DNG's EXIF names, 0 or an empty date for none.
@@ -463,7 +464,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 21;
+        private const uint Version = 22;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -641,11 +642,14 @@ namespace CameraToolsEnhancements
         // applied, also while their master switch is off, with samples and budgetMs in place of the applied ones when they
         // are not 0. Status.ShotActive follows a frame later; Status.TraceConverged then says when the frame is written from
         // all its samples.
-        public static void SetShot(bool active, uint samples = 0, float budgetMs = 0)
+        public static void SetShot(bool active, uint samples = 0, float budgetMs = 0, float strength = float.NaN)
         {
             if (addOn == null)
                 return;
-            var shot = new EnhancementsShot { Size = (uint)Marshal.SizeOf<EnhancementsShot>(), Active = active ? 1u : 0u, Samples = samples, BudgetMs = budgetMs };
+            var shot = new EnhancementsShot
+            {
+                Size = (uint)Marshal.SizeOf<EnhancementsShot>(), Active = active ? 1u : 0u, Samples = samples, BudgetMs = budgetMs, Strength = strength,
+            };
             addOn.SetShot(ref shot);
         }
 

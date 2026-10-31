@@ -5,6 +5,7 @@
 #include "recipe.h"
 #include "sun.h"
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -267,15 +268,18 @@ namespace enhancements
         bool active = false;
         uint32_t samples = 0;       // 0: the applied gather's
         float budget_ms = 0;        // 0: the applied trace's
+        std::optional<float> strength;  // none: the applied gather's
     };
 
-    // Honors size like parse_settings. A null pointer is no shot. samples clamps to 4096 and budget_ms to 2..200; 0, and a
-    // budget that is not finite, keep the applied one.
+    // Honors size like parse_settings. A null pointer is no shot. samples clamps to 4096, budget_ms to 2..200 and strength
+    // to 0..4. Samples or a budget of 0, a budget that is not finite, and a strength that is not finite or not given keep
+    // the applied one.
     ShotSettings parse_shot(const EnhancementsShot *raw);
 
     // The settings a frame runs with: the applied ones, and while a shot is active, with the trace and the gather on and
-    // the shot's samples and budget where it gives them. Under a master switch that is off the shot runs alone: the
-    // master switch on, every other pass and the view off, and the passes' values as applied, the ambient level among them.
+    // the shot's samples, budget and bounce strength where it gives them. Under a master switch that is off the shot runs
+    // alone: the master switch on, every other pass and the view off, and the passes' values as applied, the ambient level
+    // among them.
     Settings with_shot(const Settings &applied, const ShotSettings &shot);
 
     // The wetness the wetness pass applies: the setting's while it is above 0, else the weather's from the camera.

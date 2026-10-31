@@ -1328,10 +1328,11 @@ int main()
         raw.tonemap.enabled = 1;
         raw.gather.samples = 32;
         raw.trace.budget_ms = 100;
+        raw.gather.strength = 1.5f;
         const Settings on = parse_settings(raw);
         raw.enabled = 0;
         const Settings off = parse_settings(raw);
-        EnhancementsShot shot = { sizeof shot, 1, 0, 0 };
+        EnhancementsShot shot = { sizeof shot, 1, 0, 0, NAN };
         const Settings same = with_shot(on, parse_shot(nullptr)), plain = with_shot(on, parse_shot(&shot));
         check("no shot leaves the applied settings as they are", !same.trace.enabled && !same.gather.enabled && same.view == View::normals && same.ambient.enabled);
         check("a shot switches the trace and the gather on over applied settings that are on, and keeps their passes, view, samples and budget",
@@ -1350,20 +1351,32 @@ int main()
         check("a shot's samples clamp to 4096 and its budget to 2 ms", parse_shot(&shot).samples == 4096 && parse_shot(&shot).budget_ms == 2.0f);
         shot.budget_ms = NAN;
         check("a NaN budget keeps the applied one", parse_shot(&shot).budget_ms == 0.0f && with_shot(on, parse_shot(&shot)).trace.budget_ms == 100.0f);
+        shot.strength = 3.0f;
+        check("a shot's strength replaces the applied bounce strength", with_shot(on, parse_shot(&shot)).gather.strength == 3.0f);
+        shot.strength = 0.0f;
+        check("a shot's strength of 0 turns the bounce off", with_shot(on, parse_shot(&shot)).gather.strength == 0.0f);
+        shot.strength = 9.0f;
+        check("a shot's strength clamps to 4", with_shot(on, parse_shot(&shot)).gather.strength == 4.0f);
+        shot.strength = NAN;
+        check("a NaN strength keeps the applied one", with_shot(on, parse_shot(&shot)).gather.strength == 1.5f);
+        shot.strength = 3.0f;
+        shot.size = 16;
+        check("a version 21 shot of 16 bytes keeps the applied strength", with_shot(on, parse_shot(&shot)).gather.strength == 1.5f);
         shot.size = 8;
         check("an 8-byte shot is active with the applied samples and budget", parse_shot(&shot).active && parse_shot(&shot).samples == 0);
         shot.size = 4;
         check("a shot too short for active, an inactive one and a null one are no shot", !parse_shot(&shot).active && !parse_shot(nullptr).active
-            && (shot = { sizeof shot, 0, 64, 100 }, !with_shot(on, parse_shot(&shot)).trace.enabled));
+            && (shot = { sizeof shot, 0, 64, 100, 1 }, !with_shot(on, parse_shot(&shot)).trace.enabled));
         // The status as a caller of each version reads it: it gets the bytes of its own size.
         check("the status is 168 bytes: the restarts at 132, in a version 9 caller's padding, their reason at 136, the shot at 140, the saved frames "
-              "at 144, the focus at 148, the flare's visibility at 152 and the DNG's id, in a version 17 caller's padding, its state and failure at 156, 160 and 164, and the shot is 16, and the DNG's camera is 44 with its date at 16, its shutter time at 36 and its ISO at 40, in version 21",
+              "at 144, the focus at 148, the flare's visibility at 152 and the DNG's id, in a version 17 caller's padding, its state and failure at 156, 160 and 164, and the shot is 20 with its strength at 16, and the DNG's camera is 44 with its date at 16, its shutter time at 36 and its ISO at 40, in version 21, and the shot's strength in version 22",
             sizeof(EnhancementsStatus) == 168 && offsetof(EnhancementsStatus, dng_id) == 156 && offsetof(EnhancementsStatus, dng_state) == 160
             && offsetof(EnhancementsStatus, dng_failure) == 164 && offsetof(EnhancementsStatus, flare_visibility) == 152 && offsetof(EnhancementsStatus, trace_light) == 128 && offsetof(EnhancementsStatus, trace_restarts) == 132
             && offsetof(EnhancementsStatus, trace_restart_reason) == 136 && offsetof(EnhancementsStatus, shot_active) == 140
-            && offsetof(EnhancementsStatus, frames_saved) == 144 && offsetof(EnhancementsStatus, dof_focus_meters) == 148 && sizeof(EnhancementsShot) == 16
+            && offsetof(EnhancementsStatus, frames_saved) == 144 && offsetof(EnhancementsStatus, dof_focus_meters) == 148 && sizeof(EnhancementsShot) == 20
+            && offsetof(EnhancementsShot, strength) == 16
             && sizeof(EnhancementsDngInfo) == 44 && offsetof(EnhancementsDngInfo, date_time) == 16 && offsetof(EnhancementsDngInfo, exposure_time_s) == 36
-            && offsetof(EnhancementsDngInfo, iso) == 40 && ENHANCEMENTS_VERSION == 21);
+            && offsetof(EnhancementsDngInfo, iso) == 40 && ENHANCEMENTS_VERSION == 22);
     }
     {
         // Unity's GL.GetGPUProjectionMatrix for a 60 degree, 16:10 camera with near 0.1 and far 1000, reversed Z.

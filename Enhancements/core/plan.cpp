@@ -70,7 +70,8 @@ namespace enhancements
         static_assert(ENHANCEMENTS_ACCUMULATE_PRESENT == static_cast<int>(AccumulateMode::present)
             && ENHANCEMENTS_ACCUMULATE_COUNT == static_cast<int>(AccumulateMode::count));
         static_assert(offsetof(EnhancementsAccumulate, mode) == 4 && offsetof(EnhancementsAccumulate, gain) == 20 && sizeof(EnhancementsAccumulate) == 24);
-        static_assert(offsetof(EnhancementsShot, active) == 4 && offsetof(EnhancementsShot, budget_ms) == 12 && sizeof(EnhancementsShot) == 16);
+        static_assert(offsetof(EnhancementsShot, active) == 4 && offsetof(EnhancementsShot, budget_ms) == 12 && offsetof(EnhancementsShot, strength) == 16
+            && sizeof(EnhancementsShot) == 20);
 
     namespace hlsl
     {
@@ -557,6 +558,8 @@ namespace enhancements
             shot.samples = std::min<uint32_t>(raw->samples, 4096);
         if (knows(offsetof(EnhancementsShot, budget_ms), sizeof raw->budget_ms) && raw->budget_ms != 0)
             shot.budget_ms = finite_or(raw->budget_ms, 0.0f, 2.0f, 200.0f);
+        if (knows(offsetof(EnhancementsShot, strength), sizeof raw->strength) && std::isfinite(raw->strength))
+            shot.strength = std::clamp(raw->strength, 0.0f, 4.0f);
         return shot;
     }
 
@@ -578,6 +581,8 @@ namespace enhancements
             s.gather.samples = shot.samples;
         if (shot.budget_ms != 0)
             s.trace.budget_ms = shot.budget_ms;
+        if (shot.strength)
+            s.gather.strength = *shot.strength;
         return s;
     }
 

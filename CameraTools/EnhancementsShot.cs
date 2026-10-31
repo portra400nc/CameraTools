@@ -53,10 +53,34 @@ namespace CameraTools
 
         private static MelonPreferences_Entry<bool> enabled;
         private static MelonPreferences_Entry<bool> saveScene;
+        private static MelonPreferences_Entry<float> bounceStrength;
         private static bool alternate = true;
         private static Run run;
         // The scene of the last traced shot, while the next one may use it again.
         private static SceneFacts? kept;
+
+        // The Path traced lighting row.
+        public static bool Enabled
+        {
+            get => enabled.Value;
+            set
+            {
+                enabled.Value = value;
+                MelonPreferences.Save();
+            }
+        }
+
+        public static float BounceStrength
+        {
+            get => Math.Clamp(float.IsFinite(bounceStrength.Value) ? bounceStrength.Value : TracedShot.DefaultBounceStrength, 0f, TracedShot.MaxBounceStrength);
+            set
+            {
+                if (value == bounceStrength.Value)
+                    return;
+                bounceStrength.Value = value;
+                MelonPreferences.Save();
+            }
+        }
 
         // Whether the next screenshot is a traced one.
         public static bool Wanted
@@ -104,6 +128,8 @@ namespace CameraTools
             enabled = MelonPreferences.CreateCategory("CameraToolsEnhancements").CreateEntry("TracedShot", false,
                 description: "Light the screenshot with the Enhancements add-on's path tracer: the shot pauses the game, captures the scene around "
                     + "the camera and waits for the traced lighting. Needs CameraToolsEnhancements.addon64.");
+            bounceStrength = MelonPreferences.CreateCategory("CameraToolsEnhancements").CreateEntry("TracedShotBounceStrength", TracedShot.DefaultBounceStrength,
+                description: $"How much light surfaces bounce onto each other in a traced shot, from 0 to {TracedShot.MaxBounceStrength:0}; 1 is the physical amount.");
             saveScene = MelonPreferences.CreateCategory("CameraToolsEnhancements").CreateEntry("TracedShotSaveScene", false,
                 description: "For tests on the Mac: each traced shot captures the scene anew, writes every face's lit HDR picture, depth and albedo "
                     + "beside it, and saves the converged trace.");
@@ -331,7 +357,7 @@ namespace CameraTools
         private static void Begin(EnhancementsStatus status, bool still, float now)
         {
             run.Owns = true;
-            Enhancements.SetShot(true, 0, TracedShot.BudgetMs);
+            Enhancements.SetShot(true, 0, TracedShot.BudgetMs, BounceStrength);
             var rtgi = new List<string>();
             for (int i = 0; i < Rtgi.Length; i++)
             {

@@ -68,6 +68,9 @@ namespace CameraTools
         public const uint PartialSamples = 16;
         // GPU time a frame for the shot's rays: nothing else needs the frames while it waits.
         public const float BudgetMs = 100f;
+        // The Bounce strength row: 1 is the physical amount for the game's colors, and the default makes up for Genshin's
+        // painted colors being darker than real materials.
+        public const float DefaultBounceStrength = 3f, MaxBounceStrength = 4f;
         // Starts without a sample after which the wait says what keeps changing.
         public const uint StalledStarts = 8;
         public const uint Faces = 7;

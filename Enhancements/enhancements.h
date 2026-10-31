@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 21
+#define ENHANCEMENTS_VERSION 22
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -538,6 +538,8 @@ typedef struct EnhancementsShot
     uint32_t active;            // default 0
     uint32_t samples;           // gather.samples for the shot; 0 keeps the applied one; clamped to 1..4096
     float budget_ms;            // trace.budget_ms for the shot; 0 keeps the applied one; clamped to 2..200
+    float strength;             // gather.strength for the shot; not finite keeps the applied one; clamped to 0..4. A caller
+                                // without it keeps the applied one. Version 22 added it.
 } EnhancementsShot;
 
 // The directions a scene capture turns the camera to: world-axis cube faces in D3D cube-map order, each with its own up

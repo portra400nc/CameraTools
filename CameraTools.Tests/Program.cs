@@ -42,8 +42,9 @@ Check("the binding's status is enhancements.h's 168 bytes, with the restarts at 
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceLight)) == 128 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceRestarts)) == 132
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceRestartReason)) == 136 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.ShotActive)) == 140
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.FramesSaved)) == 144 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.DofFocusMeters)) == 148);
-Check("the binding's shot is 16 bytes, its settings 416 with the depth of field at 236 and its highlights at 68, scatter at 76, bokeh contrast at 80, place at 84 and the eye at 88 in it, the lens flare at 332 and 68 bytes long, the ambient color at 400, the tones at 404 and the lens softness at 412, and its scene request 20",
-    Marshal.SizeOf<EnhancementsShot>() == 16 && Offset<EnhancementsShot>(nameof(EnhancementsShot.BudgetMs)) == 12 && Marshal.SizeOf<EnhancementsSettings>() == 416
+Check("the binding's shot is 20 bytes with its strength at 16, its settings 416 with the depth of field at 236 and its highlights at 68, scatter at 76, bokeh contrast at 80, place at 84 and the eye at 88 in it, the lens flare at 332 and 68 bytes long, the ambient color at 400, the tones at 404 and the lens softness at 412, and its scene request 20",
+    Marshal.SizeOf<EnhancementsShot>() == 20 && Offset<EnhancementsShot>(nameof(EnhancementsShot.BudgetMs)) == 12
+    && Offset<EnhancementsShot>(nameof(EnhancementsShot.Strength)) == 16 && Marshal.SizeOf<EnhancementsSettings>() == 416
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.AmbientColor)) == 400 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Tones)) == 404
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.LensSoftness)) == 412
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.LensFlare)) == 332 && Marshal.SizeOf<EnhancementsLensFlare>() == 68
