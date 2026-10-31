@@ -75,6 +75,10 @@ namespace CameraTools
         // Starts without a sample after which the wait says what keeps changing.
         public const uint StalledStarts = 8;
         public const uint Faces = 7;
+        // Presents each turned face is held before its capture, against the add-on's 45. The camera only turns, so nothing
+        // streams in: at 6, a Deck capture matched one at 45 in depth and in the lit pictures of every surface, and only the
+        // sun's halo, which the default sky mix does not read, was still fading in.
+        public const uint FaceSettle = 8;
         // Every face by name, EnhancementsSceneRequest.Faces' bits: with none named, a traced capture is the add-on's self-test
         // scene.
         public const uint AllFaces = (1u << (int)Faces) - 1;

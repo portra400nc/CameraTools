@@ -188,7 +188,7 @@ namespace CameraTools
                     // A capture that was stopped is still saving for a moment, and the add-on takes none meanwhile.
                     if (Enhancements.CaptureScene(new EnhancementsSceneRequest
                         {
-                            Faces = TracedShot.AllFaces, Flags = EnhancementsSceneFlags.Trace | EnhancementsSceneFlags.Light | EnhancementsSceneFlags.NoMeshes
+                            Faces = TracedShot.AllFaces, Settle = TracedShot.FaceSettle, Flags = EnhancementsSceneFlags.Trace | EnhancementsSceneFlags.Light | EnhancementsSceneFlags.NoMeshes
                                 | (saveScene.Value ? EnhancementsSceneFlags.GBuffer : EnhancementsSceneFlags.None),
                         }))
                     {
