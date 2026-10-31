@@ -52,6 +52,8 @@ namespace CameraTools
         }
 
         private static MelonPreferences_Entry<bool> enabled;
+        private static MelonPreferences_Entry<bool> saveScene;
+        private static bool alternate = true;
         private static Run run;
         // The scene of the last traced shot, while the next one may use it again.
         private static SceneFacts? kept;
@@ -63,6 +65,16 @@ namespace CameraTools
             {
                 if (!enabled.Value)
                     return false;
+                if (saveScene.Value)
+                {
+                    // Plain shots with RTGI and traced ones alternate, so both come from one pose.
+                    alternate = !alternate;
+                    if (!alternate)
+                    {
+                        Log("saving the scene for the Mac, so this shot is a plain one and the next is traced.");
+                        return false;
+                    }
+                }
                 if (!Enhancements.Connected)
                     Log("the Enhancements add-on is not loaded, so this is a plain screenshot.");
                 return Enhancements.Connected;
@@ -91,6 +103,9 @@ namespace CameraTools
             enabled = MelonPreferences.CreateCategory("CameraToolsEnhancements").CreateEntry("TracedShot", false,
                 description: "Light the screenshot with the Enhancements add-on's path tracer: the shot pauses the game, captures the scene around "
                     + "the camera and waits for the traced lighting. Needs CameraToolsEnhancements.addon64.");
+            saveScene = MelonPreferences.CreateCategory("CameraToolsEnhancements").CreateEntry("TracedShotSaveScene", false,
+                description: "For tests on the Mac: each traced shot captures the scene anew, writes every face's lit HDR picture, depth and albedo "
+                    + "beside it, and saves the converged trace.");
             MelonPreferences.Save();
         }
 
@@ -146,7 +161,8 @@ namespace CameraTools
                     // A capture that was stopped is still saving for a moment, and the add-on takes none meanwhile.
                     if (Enhancements.CaptureScene(new EnhancementsSceneRequest
                         {
-                            Faces = TracedShot.AllFaces, Flags = EnhancementsSceneFlags.Trace | EnhancementsSceneFlags.Light | EnhancementsSceneFlags.NoMeshes,
+                            Faces = TracedShot.AllFaces, Flags = EnhancementsSceneFlags.Trace | EnhancementsSceneFlags.Light | EnhancementsSceneFlags.NoMeshes
+                                | (saveScene.Value ? EnhancementsSceneFlags.GBuffer : EnhancementsSceneFlags.None),
                         }))
                     {
                         run.Facts = Facts(status.TraceGeneration);
@@ -178,6 +194,8 @@ namespace CameraTools
                             Log($"the lighting converged {now - run.PhaseBegan:0.0} s after the scene was ready: {status.TraceSamples} of {status.TraceTarget} samples at "
                                 + $"{status.RenderWidth}x{status.RenderHeight}, error {status.TraceErrorX10000 / 100f:0.00}%, after {status.TraceRestarts - run.Starts} starts of "
                                 + $"its samples, the last for {status.TraceRestartReason}.");
+                            if (saveScene.Value)
+                                Log(Enhancements.SaveTrace() ? "saving the converged trace for the Mac." : "the add-on refused to save the trace.");
                             CameraUi.ClearToast();
                             Enter(ShotPhase.Done, now);
                             return null;
@@ -326,7 +344,7 @@ namespace CameraTools
                 }
             }
             var facts = Facts(status.TraceGeneration);
-            string unusable = kept is { } last ? TracedShot.Unusable(last, facts, status.TraceState) : "no scene is kept";
+            string unusable = saveScene.Value ? "the scene is saved for the Mac" : kept is { } last ? TracedShot.Unusable(last, facts, status.TraceState) : "no scene is kept";
             Log($"settled {now - run.Began:0.0} s after the hold; the sky's light "
                 + (still ? $"has held still {now - run.Still.Since:0.0} s" : $"did not hold still for {TracedShot.StillTimeout:0} s") + $"; {string.Join(", ", rtgi)}; "
                 + (unusable == null ? $"tracing the kept scene, generation {facts.Generation}, again." : $"capturing the scene: {unusable}."));
