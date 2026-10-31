@@ -228,6 +228,8 @@ namespace CameraTools
             if (!TracedShot.SaveAsIs(run.Phase, run.Facts.Generation, status))
                 return false;
             run.Partial = $"{status.TraceSamples} of {status.TraceTarget} samples";
+            if (saveScene.Value)
+                Log(Enhancements.SaveTrace() ? "saving the unfinished trace for the Mac." : "the add-on refused to save the trace.");
             Melon<CameraTools>.Logger.Warning($"Traced shot: the lighting did not converge within {TracedShot.Timeout:0} s; saving the picture as it is, with {run.Partial}"
                 + (run.Stalled ? $" ({TracedShot.Changing(status.TraceRestartReason)}, {status.TraceRestarts} starts)" : "") + ".");
             CameraUi.ClearToast();
