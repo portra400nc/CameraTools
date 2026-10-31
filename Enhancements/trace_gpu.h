@@ -1,7 +1,8 @@
 // The trace pass's D3D11 side. Render thread only, on the native immediate context like gpu.h.
 //
 // It holds the traced scene's BVH in two raw buffers and its alpha buffer (core/alpha.h) in a third, filled a part each
-// present after the writer thread built them, and for a scene with light its sky map (core/light.h) in a fourth; the
+// present after the writer thread built them, and for a scene with light its sky map (core/light.h) in a fourth, its
+// faces' lit pictures in a texture array filled a part each present after the buffers, and their cameras; the
 // per-pixel history (a structured buffer of float4 at the render size: occlusion sum, sun sum and their counts), and
 // while the trace gathers the gather's two (the hits' light and the sun-lit hits; the sky met and the misses); the
 // kernels' counters; the Morton list of tiles; and per dispatch a set of timestamp queries and a CPU-readable copy of the
@@ -59,7 +60,8 @@ namespace enhancements
         // Starts uploading a built scene as generation: makes the compute shader the first time, the node, triangle and
         // alpha buffers (16 bytes of zeros for a scene without alpha tests), and moves to UPLOADING. false, in FAILED with
         // why, when one could not be made; buffer says whether it was a buffer, which a smaller scene may fit.
-        // light, for a scene captured with ENHANCEMENTS_SCENE_LIGHT, gives its sky map a buffer of its own.
+        // light, for a scene captured with ENHANCEMENTS_SCENE_LIGHT, gives its sky map a buffer of its own, its faces' lit
+        // pictures a texture array, and their cameras a constant buffer.
         bool begin_upload(std::shared_ptr<const Bvh> bvh, std::shared_ptr<const std::vector<uint32_t>> alpha, std::shared_ptr<const SceneLight> light,
             uint64_t generation, bool &buffer);
         // Whether rays from the camera must meet the scene where the depth buffer does; off for the self-test scene, which
@@ -186,10 +188,13 @@ namespace enhancements
         ComPtr<ID3D11Buffer> gather_hit_, gather_sky_;
         ComPtr<ID3D11UnorderedAccessView> gather_hit_uav_, gather_sky_uav_;
         ComPtr<ID3D11ShaderResourceView> gather_hit_srv_, gather_sky_srv_;
-        // The scene's light and its sky map's buffer.
+        // The scene's light, its sky map's buffer, its faces' pictures, a slice a face, and their cameras (GatherFaces).
         std::shared_ptr<const SceneLight> light_;
         ComPtr<ID3D11Buffer> sky_buffer_;
         ComPtr<ID3D11ShaderResourceView> sky_srv_;
+        ComPtr<ID3D11Texture2D> faces_;
+        ComPtr<ID3D11ShaderResourceView> faces_srv_;
+        ComPtr<ID3D11Buffer> faces_constants_;
         Size size_;                             // of the history and tile list
         uint32_t tile_count_ = 0;
         std::array<Flight, 4> flights_;

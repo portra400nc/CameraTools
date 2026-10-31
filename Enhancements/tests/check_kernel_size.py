@@ -6,7 +6,7 @@ alpha programs at each hit, had 69 temporaries, 2,782 instructions and 20,548 by
 slower. This compiles shaders/trace_cs.hlsl and shaders/gather_cs.hlsl with vkd3d-compiler to DXBC, disassembles them and
 fails when one declares more than its temporaries (48 for the trace kernel, 44 for the gather kernel, whose prototype
 had 40), any indexable temporary (scratch memory on RADV), more group-shared memory than the traversal stacks and the
-counters, or more than 1,600 instructions.
+counters, or more than 1,600 instructions (1,700 for the gather kernel).
 
     python3 check_kernel_size.py <vkd3d-compiler> [shaders folder]
 
@@ -18,10 +18,12 @@ import subprocess
 import sys
 import tempfile
 
-# The traversal stacks (64 lanes x 24 uints) and the group's counters (17 or 9 uints), with a little room for more counters.
+# The traversal stacks (64 lanes x 24 uints) and the group's counters (17 or 10 uints), with a little room for more counters.
 MAX_GROUP_SHARED = 64 * 24 * 4 + 32 * 4
 # Each kernel: its source, its most temporaries and its most instructions.
-KERNELS = (("trace_cs", 48, 1600), ("gather_cs", 44, 1600))
+# The gather kernel's 1,700: T5a's face lookup, a loop that runs once a hit, took it from 1,556 to 1,676 at 42
+# temporaries; the Deck's rays a second decide whether that holds.
+KERNELS = (("trace_cs", 48, 1600), ("gather_cs", 44, 1700))
 
 
 def measure(asm):

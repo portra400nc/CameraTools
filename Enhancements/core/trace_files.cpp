@@ -122,7 +122,7 @@ namespace enhancements
         row("trace_target", std::to_string(s.target));
         row("error", number(s.error));
         static const char *const kGatherNames[] = { "gather_rays", "gather_guard_stops", "gather_stack_overflows", "gather_hits_direct", "gather_hits_covered",
-            "gather_hits_material", "gather_hits_class", "gather_deviation", "gather_mean" };
+            "gather_hits_material", "gather_hits_class", "gather_hits_face", "gather_deviation", "gather_mean" };
         static_assert(std::size(kGatherNames) == kGatherCounters);
         for (uint32_t i = 0; i < kGatherCounters; i++)
             row(kGatherNames[i], std::to_string(s.counters[kTraceCounters + i]));
@@ -130,6 +130,7 @@ namespace enhancements
         row("exposure", "-");
         row("light", s.light != 0 || s.gathering ? s.scene : "-");
         row("light_flags", std::to_string(s.light));
+        row("light_faces", std::to_string(s.light_faces));
         return out;
     }
 
@@ -258,6 +259,7 @@ namespace enhancements
         s.settings.ao_distance = static_cast<float>(number_of("trace.ao_distance", s.settings.ao_distance));
         s.target = static_cast<uint32_t>(number_of("trace_target", 0));
         s.light = static_cast<uint32_t>(number_of("light_flags", 0));
+        s.light_faces = static_cast<uint32_t>(number_of("light_faces", 0));
         return s;
     }
 }

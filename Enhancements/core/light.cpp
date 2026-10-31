@@ -200,6 +200,62 @@ namespace enhancements
         f.hdr = std::move(hdr);
     }
 
+    std::vector<FaceLight> face_lights(const std::vector<FaceImages> &faces, const Vec3d &reference, std::string *left_out)
+    {
+        std::vector<const FaceImages *> order;
+        for (const FaceImages &f : faces)
+            if (f.face == kFaceView)
+                order.push_back(&f);
+        for (const FaceImages &f : faces)
+            if (f.face != kFaceView)
+                order.push_back(&f);
+        const auto leave = [left_out](const FaceImages &f, const std::string &why) {
+            if (left_out)
+                *left_out += (left_out->empty() ? "face " : ", face ") + std::to_string(f.face) + " (" + why + ")";
+        };
+        std::vector<FaceLight> out;
+        for (const FaceImages *from : order)
+        {
+            const FaceImages &f = *from;
+            const size_t pixels = size_t(f.size.width) * f.size.height;
+            if (pixels == 0 || f.hdr.size() != pixels || f.depth.size() != pixels)
+            {
+                leave(f, pixels != 0 && f.hdr.size() == pixels ? "no depth" : "no HDR");
+                continue;
+            }
+            FaceImages half;
+            half.size = f.size;
+            half.depth = f.depth;
+            half.hdr = f.hdr;
+            halve_face(half);
+            if (!out.empty() && half.size != out[0].size)
+            {
+                leave(f, std::to_string(half.size.width) + "x" + std::to_string(half.size.height) + ", not " + std::to_string(out[0].size.width) + "x"
+                    + std::to_string(out[0].size.height));
+                continue;
+            }
+            FaceLight light;
+            light.face = f.face;
+            light.size = half.size;
+            const Mat4d to_world = { 1, 0, 0, reference[0], 0, 1, 0, reference[1], 0, 0, 1, reference[2], 0, 0, 0, 1 };
+            const Mat4d m = multiply(f.world_to_clip, to_world);
+            for (int r = 0; r < 4; r++)
+            {
+                for (int c = 0; c < 4; c++)
+                    light.scene_to_clip[r][c] = static_cast<float>(m[r * 4 + c]);
+                light.depth_to_w[r] = static_cast<float>(f.clip_to_world[12 + r]);
+            }
+            light.pixels.resize(half.hdr.size() * 2);
+            for (size_t i = 0; i < half.hdr.size(); i++)
+            {
+                light.pixels[i * 2] = half.hdr[i];
+                std::memcpy(&light.pixels[i * 2 + 1], &half.depth[i], 4);
+            }
+            out.push_back(std::move(light));
+        }
+        return out;
+    }
+
     Vec3f hdr_rgb(uint32_t stored)
     {
         return { small_float(stored & 0x7FFu, 6), small_float(stored >> 11 & 0x7FFu, 6), small_float(stored >> 22, 5) };
@@ -771,6 +827,7 @@ namespace enhancements
         light.sun = sun_light(inputs.combine, inputs.cascade, inputs.pushed_sun_color, inputs.pushed_sun_direction);
         if (inputs.cascade)
             light.cascade = *inputs.cascade;
+        light.faces = face_lights(inputs.faces, reference, &light.faces_left_out);
         return light;
     }
 
@@ -802,7 +859,7 @@ namespace enhancements
     {
         return (albedo.triangles[static_cast<size_t>(AlbedoSource::direct)] + albedo.triangles[static_cast<size_t>(AlbedoSource::covered)] != 0 ? kLightAlbedo : 0)
             | (sky.fallback ? 0 : kLightSky) | (sun.color_source == LightSource::game && sun.shade_source == LightSource::game ? kLightSun : 0)
-            | (ambient.kind == AmbientFit::Kind::fit ? kLightAmbient : 0);
+            | (ambient.kind == AmbientFit::Kind::fit ? kLightAmbient : 0) | (faces.empty() ? 0 : kLightFaces);
     }
 
     std::string light_bytes(const std::vector<TraceTriangle> &triangles, const std::vector<uint32_t> &materials, const SceneLight &light,

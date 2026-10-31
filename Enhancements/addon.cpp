@@ -1796,6 +1796,17 @@ namespace enhancements
                         light->sun.shade_source == LightSource::game ? "combine constants" : "pushed camera",
                         light->sun.why.empty() ? "" : (" (" + light->sun.why + ")").c_str(), vec_text(light->cascade).c_str(), trace_scene.folder.c_str());
                     log(reshade::log::level::info, line);
+                    uint64_t face_bytes = 0;
+                    std::string kept;
+                    for (const FaceLight &f : light->faces)
+                    {
+                        face_bytes += f.pixels.size() * 4;
+                        kept += (kept.empty() ? "" : ", ") + std::to_string(f.face);
+                    }
+                    log(light->faces.empty() ? reshade::log::level::warning : reshade::log::level::info, "the gather's hits take the game's light from "
+                        + (light->faces.empty() ? std::string("no face's picture") : std::to_string(light->faces.size()) + " faces' pictures (" + kept + ") at "
+                            + std::to_string(light->faces[0].size.width) + "x" + std::to_string(light->faces[0].size.height) + ", " + megabytes(face_bytes))
+                        + (light->faces_left_out.empty() ? std::string() : "; left out: " + light->faces_left_out) + ".");
                 }
                 break;
             case TraceState::ready:

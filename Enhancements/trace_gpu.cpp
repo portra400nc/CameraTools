@@ -103,6 +103,9 @@ namespace enhancements
         light_.reset();
         sky_buffer_.Reset();
         sky_srv_.Reset();
+        faces_.Reset();
+        faces_srv_.Reset();
+        faces_constants_.Reset();
         gathering_ = false;
         target_ = 0;
         alpha_bytes_ = 0;
@@ -211,14 +214,40 @@ namespace enhancements
             hr = raw_buffer(device_.Get(), static_cast<UINT>(triangle_bytes), nullptr, triangle_buffer_, triangle_srv_);
         if (SUCCEEDED(hr))
             hr = raw_buffer(device_.Get(), alpha_bytes != 0 ? static_cast<UINT>(alpha_bytes) : 16, alpha_bytes != 0 ? nullptr : empty, alpha_buffer_, alpha_srv_);
-        // The sky map is small and goes up whole.
+        // The sky map is small and goes up whole, as do the faces' cameras.
         if (SUCCEEDED(hr) && light && light->sky.texels.size() == size_t(kSkyMapSide) * kSkyMapSide * 4)
+        {
             hr = raw_buffer(device_.Get(), static_cast<UINT>(light->sky.texels.size() * 4), light->sky.texels.data(), sky_buffer_, sky_srv_);
+            const GatherFaces cameras = gather_faces(light->faces);
+            D3D11_BUFFER_DESC desc = {};
+            desc.ByteWidth = sizeof cameras;
+            desc.Usage = D3D11_USAGE_IMMUTABLE;
+            desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+            const D3D11_SUBRESOURCE_DATA initial = { &cameras, 0, 0 };
+            if (SUCCEEDED(hr))
+                hr = device_->CreateBuffer(&desc, &initial, faces_constants_.ReleaseAndGetAddressOf());
+        }
+        const uint32_t face_count = sky_srv_ ? std::min<uint32_t>(static_cast<uint32_t>(light->faces.size()), kFaceCount) : 0;
+        if (SUCCEEDED(hr) && face_count != 0)
+        {
+            D3D11_TEXTURE2D_DESC desc = {};
+            desc.Width = light->faces[0].size.width;
+            desc.Height = light->faces[0].size.height;
+            desc.MipLevels = 1;
+            desc.ArraySize = face_count;
+            desc.Format = DXGI_FORMAT_R32G32_UINT;
+            desc.SampleDesc.Count = 1;
+            desc.Usage = D3D11_USAGE_DEFAULT;
+            desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            hr = device_->CreateTexture2D(&desc, nullptr, faces_.ReleaseAndGetAddressOf());
+            if (SUCCEEDED(hr))
+                hr = device_->CreateShaderResourceView(faces_.Get(), nullptr, faces_srv_.ReleaseAndGetAddressOf());
+        }
         if (FAILED(hr))
         {
             buffer = true;
             fail("its buffers of " + megabytes(node_bytes) + " of nodes, " + megabytes(triangle_bytes) + " of triangles and " + megabytes(alpha_bytes)
-                + " of alpha tests could not be made (" + hresult_text("CreateBuffer", hr) + ")");
+                + " of alpha tests, or its light's, could not be made (" + hresult_text("CreateBuffer", hr) + ")");
             return false;
         }
         light_ = sky_srv_ ? std::move(light) : nullptr;
@@ -239,31 +268,55 @@ namespace enhancements
         if (state_ != TraceState::uploading || !uploading_)
             return false;
         upload_presents_++;
-        // The nodes, then the triangles, then the alpha buffer, as one run of bytes.
-        const struct Part
+        // The nodes, then the triangles, then the alpha buffer, then each face's picture, as one run of bytes. A picture
+        // goes up in whole rows: a texture's box is rows.
+        struct Part
         {
-            ID3D11Buffer *buffer;
+            ID3D11Resource *resource;
+            UINT slice;
             const uint8_t *data;
             uint64_t bytes;
-        } parts[] = {
-            { node_buffer_.Get(), reinterpret_cast<const uint8_t *>(uploading_->nodes.data()), uploading_->nodes.size() * sizeof(BvhNode) },
-            { triangle_buffer_.Get(), reinterpret_cast<const uint8_t *>(uploading_->triangles.data()), uploading_->triangles.size() * sizeof(BvhTriangle) },
-            { alpha_buffer_.Get(), uploading_alpha_ ? reinterpret_cast<const uint8_t *>(uploading_alpha_->data()) : nullptr, alpha_bytes_ },
+            uint64_t row = 0;       // bytes of a texture's row, 0 for a buffer
         };
+        std::vector<Part> parts = {
+            { node_buffer_.Get(), 0, reinterpret_cast<const uint8_t *>(uploading_->nodes.data()), uploading_->nodes.size() * sizeof(BvhNode) },
+            { triangle_buffer_.Get(), 0, reinterpret_cast<const uint8_t *>(uploading_->triangles.data()), uploading_->triangles.size() * sizeof(BvhTriangle) },
+            { alpha_buffer_.Get(), 0, uploading_alpha_ ? reinterpret_cast<const uint8_t *>(uploading_alpha_->data()) : nullptr, alpha_bytes_ },
+        };
+        if (faces_)
+        {
+            D3D11_TEXTURE2D_DESC desc;
+            faces_->GetDesc(&desc);
+            for (UINT i = 0; i < desc.ArraySize; i++)
+                parts.push_back({ faces_.Get(), i, reinterpret_cast<const uint8_t *>(light_->faces[i].pixels.data()), light_->faces[i].pixels.size() * 4,
+                    uint64_t(desc.Width) * 8 });
+        }
         uint64_t total = 0;
         for (const Part &part : parts)
             total += part.bytes;
         const uint64_t end = std::min(total, uploaded_ + kTraceUploadBytes);
-        // UpdateSubresource returns nothing; the buffers were made, and a box inside them cannot fail.
+        // UpdateSubresource returns nothing; the buffers and the texture were made, and a box inside them cannot fail.
         while (uploaded_ < end)
         {
             uint64_t base = 0;
-            const Part *part = parts;
+            const Part *part = parts.data();
             while (uploaded_ >= base + part->bytes)
                 base += part++->bytes;
-            const uint64_t stop = std::min(end, base + part->bytes);
-            const D3D11_BOX box = { static_cast<UINT>(uploaded_ - base), 0, 0, static_cast<UINT>(stop - base), 1, 1 };
-            context_->UpdateSubresource(part->buffer, 0, &box, part->data + (uploaded_ - base), 0, 0);
+            uint64_t stop = std::min(end, base + part->bytes);
+            if (part->row == 0)
+            {
+                const D3D11_BOX box = { static_cast<UINT>(uploaded_ - base), 0, 0, static_cast<UINT>(stop - base), 1, 1 };
+                context_->UpdateSubresource(part->resource, 0, &box, part->data + (uploaded_ - base), 0, 0);
+            }
+            else
+            {
+                // At least one row, so a present whose budget ends inside a row still moves on.
+                const uint64_t first = (uploaded_ - base) / part->row;
+                const uint64_t last = std::max(first + 1, (stop - base) / part->row);
+                stop = base + last * part->row;
+                const D3D11_BOX box = { 0, static_cast<UINT>(first), 0, static_cast<UINT>(part->row / 8), static_cast<UINT>(last), 1 };
+                context_->UpdateSubresource(part->resource, part->slice, &box, part->data + first * part->row, static_cast<UINT>(part->row), 0);
+            }
             uploaded_ = stop;
         }
         if (uploaded_ < total)
@@ -454,9 +507,10 @@ namespace enhancements
             uploaded_gather_ = frame.gather;
         }
         // Both kernels' bindings at once: the trace kernel declares only b0, t0 to t6, u0 and u1; the gather kernel all.
-        ID3D11Buffer *const buffers[] = { constants_.Get(), frame.gathering ? gather_constants_.Get() : nullptr };
+        ID3D11Buffer *const buffers[] = { constants_.Get(), frame.gathering ? gather_constants_.Get() : nullptr,
+            frame.gathering ? faces_constants_.Get() : nullptr };
         ID3D11ShaderResourceView *const srvs[] = { node_srv_.Get(), triangle_srv_.Get(), normals, depth, stencil, tiles_srv_.Get(), alpha_srv_.Get(),
-            frame.gathering ? sky_srv_.Get() : nullptr };
+            frame.gathering ? sky_srv_.Get() : nullptr, frame.gathering ? faces_srv_.Get() : nullptr };
         ID3D11UnorderedAccessView *const uavs[] = { history_uav_.Get(), counters_uav_.Get(), frame.gathering ? gather_hit_uav_.Get() : nullptr,
             frame.gathering ? gather_sky_uav_.Get() : nullptr };
         c->CSSetConstantBuffers(0, static_cast<UINT>(std::size(buffers)), buffers);
@@ -657,11 +711,13 @@ namespace enhancements
                 if (gathering_)
                 {
                     const auto at = [this](GatherCounter g) { return static_cast<unsigned long long>(totals_[gather_counter(g)]); };
-                    const unsigned long long hits = at(GatherCounter::direct) + at(GatherCounter::covered) + at(GatherCounter::material) + at(GatherCounter::class_mean);
-                    char gathered[320];
-                    std::snprintf(gathered, sizeof gathered, " The gather: %llu rays, %llu cut short by a cap, %llu stack overflows; %llu hits by albedo source "
-                        "%llu direct, %llu covered, %llu material, %llu class; error %.4f.", at(GatherCounter::rays), at(GatherCounter::guard), at(GatherCounter::overflow),
-                        hits, at(GatherCounter::direct), at(GatherCounter::covered), at(GatherCounter::material), at(GatherCounter::class_mean), error_);
+                    const unsigned long long hits = at(GatherCounter::direct) + at(GatherCounter::covered) + at(GatherCounter::material) + at(GatherCounter::class_mean)
+                        + at(GatherCounter::face);
+                    char gathered[400];
+                    std::snprintf(gathered, sizeof gathered, " The gather: %llu rays, %llu cut short by a cap, %llu stack overflows; %llu hits, %llu (%.1f%%) lit by a "
+                        "face's picture and the others by albedo source %llu direct, %llu covered, %llu material, %llu class; error %.4f.", at(GatherCounter::rays),
+                        at(GatherCounter::guard), at(GatherCounter::overflow), hits, at(GatherCounter::face), hits != 0 ? 100.0 * at(GatherCounter::face) / hits : 0.0,
+                        at(GatherCounter::direct), at(GatherCounter::covered), at(GatherCounter::material), at(GatherCounter::class_mean), error_);
                     text += gathered;
                 }
                 out.log.push_back(text + pace);
@@ -686,6 +742,12 @@ namespace enhancements
         p->save.target = target_;
         p->save.error = error_;
         p->save.light = light_ ? light_->flags() : 0;
+        if (faces_)
+        {
+            D3D11_TEXTURE2D_DESC desc;
+            faces_->GetDesc(&desc);
+            p->save.light_faces = desc.ArraySize;
+        }
         if (FAILED(staging_buffer(device_.Get(), 16, size_.width * size_.height, p->history)))
             return false;
         if (p->save.gathering && (FAILED(staging_buffer(device_.Get(), 16, size_.width * size_.height, p->gather_hit))

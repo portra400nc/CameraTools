@@ -3,8 +3,8 @@
 // wrapping at trace_tiles.y. Each traced pixel with fewer than gather_counts.x samples adds one (gather.hlsli): its
 // occlusion sample and count into the trace's history, which trace_cs.hlsl then leaves alone, a hit's light and whether
 // the sun lit it into gather_hit, and a miss's sky and its count into gather_sky. Each group adds its rays, guard stops,
-// stack overflows, hits by albedo source and noise sums into the counters after the trace kernel's. Registers stay inside
-// gpu.h's ranges: t0-t7, u0-u3, b0-b1.
+// stack overflows, hits by where their light came from and noise sums into the counters after the trace kernel's.
+// Registers stay inside gpu.h's ranges: t0-t8, u0-u3, b0-b2.
 
 cbuffer Trace : register(b0)
 {
@@ -25,6 +25,13 @@ cbuffer Gather : register(b1)
     uint4 gather_counts;        // x: samples a pixel
 };
 
+cbuffer GatherFaces : register(b2)
+{
+    float4 face_rows[7][4];     // each face's scene_to_clip, by rows (core/light.h's FaceLight)
+    float4 face_w[7];           // each face's depth_to_w
+    uint4 face_info;            // x: the faces, y and z: their width and height
+};
+
 ByteAddressBuffer nodes : register(t0);         // core/bvh.h's BvhNode, 64 bytes each
 ByteAddressBuffer triangles : register(t1);     // core/bvh.h's BvhTriangle, 48 bytes each, its light word in row 1
 Texture2D<float4> normals : register(t2);       // mirror of G-buffer rt0, world normal * 0.5 + 0.5
@@ -33,6 +40,7 @@ Texture2D<uint2> stencil : register(t4);        // same mirror; stencil in .g
 ByteAddressBuffer tile_list : register(t5);     // core/trace.h's tile_order, x | y << 16
 ByteAddressBuffer alpha : register(t6);         // core/alpha_bake.h's mask buffer: each alpha triangle's record, and the masks
 ByteAddressBuffer sky : register(t7);           // core/light.h's sky map: kSkySide x kSkySide float4 texels, row by row
+Texture2DArray<uint2> faces : register(t8);     // core/light.h's FaceLight pixels, a slice a face
 RWStructuredBuffer<float4> history : register(u0);      // the trace's: occlusion sum, sun sum, their counts
 RWStructuredBuffer<uint> counters : register(u1);       // core/trace.h's TraceCounter order, then its GatherCounter order
 RWStructuredBuffer<float4> gather_hit : register(u2);   // per pixel, row by row: the hits' light summed, and the sun-lit hits
@@ -48,6 +56,7 @@ uint load_stencil(int2 pixel) { return stencil.Load(int3(pixel, 0)).g; }
 uint alpha_word(uint index) { return alpha.Load(index * 4u); }
 uint4 alpha_row(uint index) { return alpha.Load4(index * 4u); }
 uint4 sky_row(uint index) { return sky.Load4(index * 16u); }
+uint2 face_texel(uint face, uint2 pixel) { return faces.Load(uint4(pixel.x, pixel.y, face, 0u)); }
 
 #define LOOP [loop]
 #define XYZ(v) ((v).xyz)

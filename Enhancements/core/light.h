@@ -161,8 +161,25 @@ namespace enhancements
     SunLight sun_light(const std::optional<CombineConstants> &combine, const std::optional<Vec3> &cascade, const Vec3 &pushed_color,
         const Vec3 &pushed_direction);
 
+    // One scene face's lit picture for the gather: its camera and, per pixel, the HDR scene at the bloom step before any
+    // pass of ours (R11G11B10_FLOAT bits) and the main depth (float bits, reversed, 0 for the sky).
+    struct FaceLight
+    {
+        uint32_t face = kFaceView;
+        Size size;
+        float scene_to_clip[4][4] {};   // the scene's frame (corners relative to the reference) to the face's D3D clip, by rows
+        float depth_to_w[4] {};         // clip_to_world's bottom row: w = 1 / dot(row, (ndc x, ndc y, depth, 1)), as bake_albedo's "shown"
+        std::vector<uint32_t> pixels;   // 2 words a pixel: hdr bits, depth bits; top row first, as FaceImages
+    };
+
+    // The faces' lit pictures for the gather's hits, the view face first and the others in their order: every face with
+    // an HDR copy and depth, halved once more by halve_face, its camera taking the scene's frame as bake_albedo's does. A
+    // face without either copy, or whose halved size differs from the first kept face's, is left out, and left_out names
+    // each such face and why: "face 2 (no HDR)".
+    std::vector<FaceLight> face_lights(const std::vector<FaceImages> &faces, const Vec3d &reference, std::string *left_out = nullptr);
+
     // What of a scene's light came from the game and not from a fallback: ENHANCEMENTS_TRACE_LIGHT_*.
-    constexpr uint32_t kLightAlbedo = 1u << 0, kLightSky = 1u << 1, kLightSun = 1u << 2, kLightAmbient = 1u << 3;
+    constexpr uint32_t kLightAlbedo = 1u << 0, kLightSky = 1u << 1, kLightSun = 1u << 2, kLightAmbient = 1u << 3, kLightFaces = 1u << 4;
 
     // A scene's light besides its triangles' words.
     struct SceneLight
@@ -172,9 +189,12 @@ namespace enhancements
         AmbientFit ambient;
         SkyMap sky;
         AlbedoCounts albedo;
+        std::vector<FaceLight> faces;   // face_lights' of the capture's faces
+        std::string faces_left_out;     // and the faces it left out
 
         // kLightAlbedo when a face's G-buffer gave an albedo, kLightSky unless the sky map fell back, kLightSun when the
-        // color and the direction are both the game's, kLightAmbient when the ambient light is the fit.
+        // color and the direction are both the game's, kLightAmbient when the ambient light is the fit, kLightFaces when a
+        // face's lit picture is kept.
         uint32_t flags() const;
     };
 
@@ -194,7 +214,7 @@ namespace enhancements
 
     // The scene's light from its inputs, as the add-on's writer thread builds it before the alpha bake: each triangle's
     // light word (bake_albedo), the sky map (build_sky_map, the pushed sky where the faces show too little), the ambient
-    // fit of the first face (fit_ambient) and the sun (sun_light).
+    // fit of the first face (fit_ambient), the sun (sun_light) and the faces' lit pictures (face_lights).
     SceneLight build_light(std::vector<TraceTriangle> &triangles, const std::vector<uint32_t> &materials, const LightInputs &inputs, const Vec3d &reference,
         uint32_t tasks);
 

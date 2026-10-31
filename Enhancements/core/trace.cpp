@@ -151,6 +151,24 @@ namespace enhancements
         return g;
     }
 
+    GatherFaces gather_faces(const std::vector<FaceLight> &faces)
+    {
+        GatherFaces g {};
+        const uint32_t count = static_cast<uint32_t>(std::min<size_t>(faces.size(), kFaceCount));
+        for (uint32_t i = 0; i < count; i++)
+        {
+            std::memcpy(g.rows[i], faces[i].scene_to_clip, sizeof g.rows[i]);
+            std::memcpy(g.w[i], faces[i].depth_to_w, sizeof g.w[i]);
+        }
+        if (count != 0)
+        {
+            g.info[0] = count;
+            g.info[1] = faces[0].size.width;
+            g.info[2] = faces[0].size.height;
+        }
+        return g;
+    }
+
     GatherView gather_view(View view)
     {
         switch (view)

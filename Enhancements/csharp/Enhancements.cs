@@ -140,7 +140,7 @@ namespace CameraToolsEnhancements
 
     // ENHANCEMENTS_TRACE_LIGHT_* in enhancements.h: what of the traced scene's light came from the game.
     [Flags]
-    internal enum EnhancementsTraceLight : uint { None = 0, Albedo = 1 << 0, Sky = 1 << 1, Sun = 1 << 2, Ambient = 1 << 3 }
+    internal enum EnhancementsTraceLight : uint { None = 0, Albedo = 1 << 0, Sky = 1 << 1, Sun = 1 << 2, Ambient = 1 << 3, Faces = 1 << 4 }
 
     // EnhancementsGather in enhancements.h, field for field.
     [StructLayout(LayoutKind.Sequential)]

@@ -57,6 +57,19 @@ namespace enhancements
     // hit_ambient; and the samples.
     GatherConstants gather_constants(const GatherSettings &settings, const SunLight &sun, const AmbientFit &ambient);
 
+    // shaders/gather_cs.hlsl's cbuffer GatherFaces at b2: the cameras of core/light.h's FaceLights, which the gather's hits
+    // take the game's light from, 576 bytes.
+    struct GatherFaces
+    {
+        float rows[kFaceCount][4][4];   // each face's scene_to_clip
+        float w[kFaceCount][4];         // each face's depth_to_w
+        uint32_t info[4];               // the faces, their width and their height, 0
+    };
+    static_assert(sizeof(GatherFaces) == 576);
+
+    // The first kFaceCount faces' cameras; all zero for none.
+    GatherFaces gather_faces(const std::vector<FaceLight> &faces);
+
     // shaders/gather.cbuffer.hlsli's GatherApply at b2, which the gather's draws read: 176 bytes.
     struct GatherApplyConstants
     {
@@ -218,9 +231,9 @@ namespace enhancements
         return static_cast<uint32_t>(TraceCounter::grid) + static_cast<uint32_t>(c) * kGridSlots + static_cast<uint32_t>(s);
     }
     // What the gather kernel adds into the same buffer after them, in this order: rays, guard stops, stack overflows, hits
-    // by core/light.h's AlbedoSource, and the sums of each sample's distance from its pixel's mean and of that mean, in
-    // luminance, in 1 / kNoiseUnits.
-    enum class GatherCounter : uint8_t { rays, guard, overflow, direct, covered, material, class_mean, deviation, mean, count };
+    // by core/light.h's AlbedoSource and hits a face's lit picture showed, and the sums of each sample's distance from its
+    // pixel's mean and of that mean, in luminance, in 1 / kNoiseUnits.
+    enum class GatherCounter : uint8_t { rays, guard, overflow, direct, covered, material, class_mean, face, deviation, mean, count };
     constexpr uint32_t kGatherCounters = static_cast<uint32_t>(GatherCounter::count);
     constexpr uint32_t kAllCounters = kTraceCounters + kGatherCounters;
     constexpr uint32_t gather_counter(GatherCounter c) { return kTraceCounters + static_cast<uint32_t>(c); }
@@ -268,8 +281,9 @@ namespace enhancements
 
     // One pixel's work in one gather dispatch, as shaders/gather_cs.hlsl does it: on a world pixel with fewer than
     // gather.counts[0] samples, the next sample, added to history's occlusion sum and count and to hit or sky, the sums of
-    // shaders/gather_cs.hlsl's two buffers. sky is core/light.h's SkyMap::texels. The sample's own light and the counters
-    // the kernel's group adds are in sample and counters, the noise sums in 1 / 4096.
+    // shaders/gather_cs.hlsl's two buffers. sky is core/light.h's SkyMap::texels, and faces its SceneLight::faces, whose
+    // pictures light the hits they show; none lights none. The sample's own light and the counters the kernel's group
+    // adds are in sample and counters, the noise sums in 1 / 4096.
     struct GatherPixel
     {
         std::array<float, 4> history {}, hit {}, sky {};
@@ -281,12 +295,16 @@ namespace enhancements
     };
     GatherPixel gather_pixel(const Bvh &bvh, const TraceImage &image, const TraceConstants &constants, const GatherConstants &gather,
         const std::vector<float> &sky, uint32_t x, uint32_t y, const std::array<float, 4> &history, const std::array<float, 4> &hit,
-        const std::array<float, 4> &sky_sums, const std::vector<uint32_t> *alpha = nullptr);
+        const std::array<float, 4> &sky_sums, const std::vector<uint32_t> *alpha = nullptr, const std::vector<FaceLight> *faces = nullptr);
 
     // shaders/gather.hlsli's sky_texel_of: the sky map's texel a direction reads.
     uint32_t sky_texel(const Vec3 &direction);
     // Its albedo_of: a light word's albedo, as the kernel reads it.
     Vec3 kernel_albedo(uint32_t light);
+    // Its hdr_rgb_of: an R11G11B10_FLOAT value as the kernel reads a face's picture.
+    Vec3 kernel_hdr_rgb(uint32_t stored);
+    // Its face_light_of: the game's light at q, in the scene's frame, from the first of faces that shows it; empty when none does.
+    std::optional<Vec3> kernel_face_light(const std::vector<FaceLight> &faces, const Vec3 &q);
     Vec3 cosine_direction(const Vec3 &normal, const std::array<float, 2> &u);
     Vec3 cone_direction(const Vec3 &axis, float cos_max, const std::array<float, 2> &u);
 }

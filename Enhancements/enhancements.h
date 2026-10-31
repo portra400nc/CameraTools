@@ -279,6 +279,7 @@ enum
     ENHANCEMENTS_TRACE_LIGHT_SKY = 1u << 1,        // the faces' sky made the sky map
     ENHANCEMENTS_TRACE_LIGHT_SUN = 1u << 2,        // the sun's color and shading direction are the game's combine constants
     ENHANCEMENTS_TRACE_LIGHT_AMBIENT = 1u << 3,    // the ambient light at a hit is a fit of the game's irradiance
+    ENHANCEMENTS_TRACE_LIGHT_FACES = 1u << 4,      // a face's lit picture lights the gather's hits it shows
 };
 
 // The traced scene's state, values of EnhancementsStatus.trace_state.

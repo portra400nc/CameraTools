@@ -6,7 +6,9 @@
 //
 // A save that gathered is traced as the add-on traced it: the trace kernel for the sun alone, and the gather kernel for
 // the occlusion and the gathered light, with the gather's constants it saved and the light of the scene folder's
-// trace-light.bin. Then reference-gather-hit.f32 and reference-gather-sky.f32 hold the Mac's gather sums, and
+// trace-light.bin, whose hits take the game's light from the scene folder's face-N-hdr.r11g11b10 and face-N-depth.r32
+// through core/light.h's face_lights, as the add-on builds them (a capture without them gathers from the albedos alone,
+// and says so). Then reference-gather-hit.f32 and reference-gather-sky.f32 hold the Mac's gather sums, and
 // reference-gather-squares.f32 three floats a pixel: its hits' and its skies' luminances squared and summed, and the
 // luminance of its hits the sun did not light, summed. --gather does the same for a
 // save of T1, before the gather existed, whose occlusion samples are the gather's first samples, ray for ray: its light
@@ -216,7 +218,8 @@ int main(int argc, char **argv)
     const bool gathering = save->gathering || want_gather;
     GatherConstants gather = save->gather_constants;
     std::vector<float> sky;
-    std::array<uint64_t, 4> hits_by_source {};
+    std::vector<FaceLight> faces;
+    std::array<uint64_t, 5> hits_by_source {};
     Bvh lit_copy;
     if (gathering)
     {
@@ -232,6 +235,14 @@ int main(int argc, char **argv)
                 scene_folder.u8string().c_str(), light->light.sky.real, light->light.sky.fallback ? " (it fell back)" : "",
                 light->light.ambient.kind == AmbientFit::Kind::fit ? "fit" : "not fit", kLightSourceNames[static_cast<size_t>(light->light.sun.color_source)],
                 kLightSourceNames[static_cast<size_t>(light->light.sun.shade_source)]);
+            std::string left_out;
+            faces = face_lights(scene_light::read_faces(scene_folder, light, false).faces, scene->reference, &left_out);
+            if (faces.empty())
+                std::printf("INFO no face of %s has both face-N-hdr.r11g11b10 and face-N-depth.r32: the gather's hits take their albedo's light alone, as T2's\n",
+                    scene_folder.u8string().c_str());
+            else
+                std::printf("INFO the gather's hits take the game's light from %zu faces' pictures at %ux%u%s%s\n", faces.size(), faces[0].size.width,
+                    faces[0].size.height, left_out.empty() ? "" : "; left out: ", left_out.c_str());
         }
         else
         {
@@ -308,7 +319,7 @@ int main(int argc, char **argv)
     for (uint32_t t = 0; t < options.tasks; t++)
         threads.emplace_back([&] {
             uint64_t my_rays = 0, my_guard = 0, my_overflow = 0, my_gather_rays = 0, my_gather_guard = 0, my_gather_overflow = 0;
-            std::array<uint64_t, 4> my_sources {};
+            std::array<uint64_t, 5> my_sources {};
             for (uint32_t y; (y = next_row++) < height;)
                 for (uint32_t x = 0; x < width; x++)
                 {
@@ -327,7 +338,7 @@ int main(int argc, char **argv)
                         double occlusion2 = 0, hit2 = 0, sky2 = 0, unlit = 0;
                         for (uint32_t k = mine.counts[0]; k > 0; k--)
                         {
-                            const GatherPixel g = gather_pixel(lit, image, constants, mine, sky, x, y, h, hit, sky_sum, alpha);
+                            const GatherPixel g = gather_pixel(lit, image, constants, mine, sky, x, y, h, hit, sky_sum, alpha, faces.empty() ? nullptr : &faces);
                             if (!g.world)
                                 break;
                             const double l = 0.2126 * g.light[0] + 0.7152 * g.light[1] + 0.0722 * g.light[2];
@@ -341,7 +352,7 @@ int main(int argc, char **argv)
                             my_gather_rays += g.counters[static_cast<size_t>(GatherCounter::rays)];
                             my_gather_guard += g.counters[static_cast<size_t>(GatherCounter::guard)];
                             my_gather_overflow += g.counters[static_cast<size_t>(GatherCounter::overflow)];
-                            for (size_t s = 0; s < 4; s++)
+                            for (size_t s = 0; s < my_sources.size(); s++)
                                 my_sources[s] += g.counters[static_cast<size_t>(GatherCounter::direct) + s];
                         }
                         reference[at] = h[0];
@@ -379,7 +390,7 @@ int main(int argc, char **argv)
             gather_guard += my_gather_guard;
             gather_overflow += my_gather_overflow;
             std::lock_guard<std::mutex> lock(sources_lock);
-            for (size_t s = 0; s < 4; s++)
+            for (size_t s = 0; s < hits_by_source.size(); s++)
                 hits_by_source[s] += my_sources[s];
         });
     for (std::thread &t : threads)
@@ -394,12 +405,14 @@ int main(int argc, char **argv)
     check(line, guard.load() * 1000 <= rays.load());
     if (gathering)
     {
-        const uint64_t hits = hits_by_source[0] + hits_by_source[1] + hits_by_source[2] + hits_by_source[3];
-        std::printf("INFO the gather traced %llu rays, %llu cut short by a cap and %llu stack overflows; its %llu hits by albedo source: direct %.1f%%, "
-                    "covered %.1f%%, material %.1f%%, class %.1f%%\n", static_cast<unsigned long long>(gather_rays.load()),
+        uint64_t hits = 0;
+        for (uint64_t n : hits_by_source)
+            hits += n;
+        const auto share = [hits](uint64_t n) { return 100.0 * n / std::max<uint64_t>(hits, 1); };
+        std::printf("INFO the gather traced %llu rays, %llu cut short by a cap and %llu stack overflows; of its %llu hits a face's picture lit %.1f%%, "
+                    "and the others' albedo source was direct %.1f%%, covered %.1f%%, material %.1f%%, class %.1f%%\n", static_cast<unsigned long long>(gather_rays.load()),
             static_cast<unsigned long long>(gather_guard.load()), static_cast<unsigned long long>(gather_overflow.load()), static_cast<unsigned long long>(hits),
-            100.0 * hits_by_source[0] / std::max<uint64_t>(hits, 1), 100.0 * hits_by_source[1] / std::max<uint64_t>(hits, 1),
-            100.0 * hits_by_source[2] / std::max<uint64_t>(hits, 1), 100.0 * hits_by_source[3] / std::max<uint64_t>(hits, 1));
+            share(hits_by_source[4]), share(hits_by_source[0]), share(hits_by_source[1]), share(hits_by_source[2]), share(hits_by_source[3]));
         check("no gather ray met a cap", gather_guard.load() == 0);
         bool written = true;
         for (const auto &[name, data] : { std::pair { "reference-gather-hit.f32", &gather_hit }, std::pair { "reference-gather-sky.f32", &gather_sky },

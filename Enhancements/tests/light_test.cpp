@@ -7,6 +7,7 @@
 #include "../core/light.h"
 #include "../core/scene_files.h"
 #include "../core/trace_files.h"
+#include "../core/trace.h"
 
 #include <cmath>
 #include <cstdio>
@@ -663,6 +664,38 @@ int main(int argc, char **argv)
                 && light_albedo(self[2].light)[1] > 0.6f && test.sky.real == kSkyMapSide * kSkyMapSide && test.sky.texels[5] == 0.6f
                 && near(sky_irradiance(test.sky, { 0, 1, 0 }), kSelfTestSky, 2e-3f) && test.ambient.rows[0] == kSelfTestSky && test.sun.color == Vec3 { 1, 2, 3 }
                 && test.flags() == (kLightAlbedo | kLightSky));
+    }
+    {
+        // From one spot 32x20 faces that face_lights halves: the view along -Z at a wall 10 m away, red, and face 1 along +X
+        // at a wall 4 m away, green, the scene's frame the room's; and face 3 without its HDR copy.
+        const Vec3d spot = { room::kReference[0] + 1, room::kReference[1] + 2, room::kReference[2] + 3 };
+        const auto wall_face = [&spot](uint32_t number, const Vec3d &forward, double distance, const Vec3f &color) {
+            FaceImages f = *face_images(number, face_camera(spot, forward, { 0, 1, 0 }, 1.6), { 32, 20 });
+            const Mat4d &m = f.world_to_clip;
+            const Vec3d p = { spot[0] + forward[0] * distance, spot[1] + forward[1] * distance, spot[2] + forward[2] * distance };
+            const double z = m[8] * p[0] + m[9] * p[1] + m[10] * p[2] + m[11], w = m[12] * p[0] + m[13] * p[1] + m[14] * p[2] + m[15];
+            f.depth.assign(640, float(z / w));
+            f.hdr.assign(640, hdr_stored(color));
+            return f;
+        };
+        const FaceImages side = wall_face(1, { 1, 0, 0 }, 4, { 0.25f, 0.5f, 0.125f });
+        FaceImages bare = wall_face(3, { 0, 0, 1 }, 5, { 1, 1, 1 });
+        bare.hdr.clear();
+        std::string left_out;
+        const std::vector<FaceLight> lights = face_lights({ side, bare, wall_face(kFaceView, { 0, 0, -1 }, 10, { 1, 0.25f, 0.0625f }) }, room::kReference, &left_out);
+        uint32_t depth_bits;
+        std::memcpy(&depth_bits, &side.depth[0], 4);
+        check("face_lights keeps the faces with HDR and depth, the view first, at half size, 2 words a pixel, and names the face it left out",
+            lights.size() == 2 && lights[0].face == kFaceView && lights[1].face == 1 && lights[1].size == Size { 16, 10 } && lights[1].pixels.size() == 320
+                && lights[1].pixels[0] == side.hdr[0] && lights[1].pixels[1] == depth_bits && left_out == "face 3 (no HDR)");
+        const auto light_at = [&lights](float x, float y, float z) { return kernel_face_light(lights, { 1 + x, 2 + y, 3 + z }); };
+        check("a point on face 1's wall, outside the view, takes face 1's texel, (0.25, 0.5, 0.125)", light_at(4.03f, 0.5f, 0.2f) == Vec3 { 0.25f, 0.5f, 0.125f });
+        check("a point 2 m behind face 1's wall takes no face's light", !light_at(6, 0.5f, 0.2f));
+        check("4 m away a point 0.045 m behind the wall is shown, within the 0.05 m floor, and one 0.06 m behind is not",
+            light_at(4.045f, 0.5f, 0.2f) == Vec3 { 0.25f, 0.5f, 0.125f } && !light_at(4.06f, 0.5f, 0.2f));
+        check("10 m away a point 0.09 m behind the view's wall is shown, within 1% of its distance, and one 0.12 m behind is not",
+            light_at(0.3f, -0.4f, -10.09f) == Vec3 { 1, 0.25f, 0.0625f } && !light_at(0.3f, -0.4f, -10.12f));
+        check("without faces no point takes a face's light", !kernel_face_light({}, { 5.03f, 2.5f, 3.2f }));
     }
     if (argc > 1)
     {

@@ -42,6 +42,16 @@ namespace enhancements::shader
         thread_local float4 gather_sun, gather_shade, gather_ambient[4];
         thread_local uint4 gather_counts;
         thread_local const std::vector<float> *sky_texels = nullptr;
+        thread_local float4 face_rows[kFaceCount][4], face_w[kFaceCount];
+        thread_local uint4 face_info;
+        thread_local const std::vector<FaceLight> *face_lights = nullptr;
+
+        uint2 face_texel(uint face, uint2 pixel)
+        {
+            const std::vector<uint32_t> &p = (*face_lights)[face].pixels;
+            const size_t at = (size_t(pixel.y) * face_info.y + pixel.x) * 2;
+            return { p[at], p[at + 1] };
+        }
 
         uint4 sky_row(uint index)
         {
@@ -82,7 +92,8 @@ namespace enhancements::shader
         && kGridFarther == static_cast<uint32_t>(GridSlot::farther));
     static_assert(kGatherCounterCount == kGatherCounters && kGatherSourceCounters == static_cast<uint32_t>(GatherCounter::direct)
         && kGatherDeviationCounter == static_cast<uint32_t>(GatherCounter::deviation) && kGatherMeanCounter == static_cast<uint32_t>(GatherCounter::mean)
-        && kSkySide == kSkyMapSide && (4096u >> kNoiseShift) == kNoiseUnits);
+        && kSkySide == kSkyMapSide && (4096u >> kNoiseShift) == kNoiseUnits
+        && kFaceSource == static_cast<uint32_t>(GatherCounter::face) - static_cast<uint32_t>(GatherCounter::direct));
 
     namespace
     {
@@ -90,6 +101,20 @@ namespace enhancements::shader
         Vec3 vec(float3 v) { return { v.x, v.y, v.z }; }
         float4 row(const float v[4]) { return { v[0], v[1], v[2], v[3] }; }
         uint4 row(const uint32_t v[4]) { return { v[0], v[1], v[2], v[3] }; }
+
+        // The faces the current thread's hits take their light from, and their cameras as GatherFaces holds them.
+        void set_faces(const std::vector<FaceLight> *faces)
+        {
+            const GatherFaces cameras = faces ? gather_faces(*faces) : GatherFaces {};
+            for (uint32_t i = 0; i < kFaceCount; i++)
+            {
+                for (int r = 0; r < 4; r++)
+                    face_rows[i][r] = row(cameras.rows[i][r]);
+                face_w[i] = row(cameras.w[i]);
+            }
+            face_info = row(cameras.info);
+            face_lights = faces;
+        }
 
         BvhHit trace(const Bvh &bvh, const Vec3f &origin, const Vec3f &direction, float t_max, bool any_hit, uint32_t classes, TraversalStats *stats,
             const std::vector<uint32_t> *alpha_buffer)
@@ -206,9 +231,10 @@ namespace enhancements
 
     GatherPixel gather_pixel(const Bvh &bvh, const TraceImage &frame, const TraceConstants &constants, const GatherConstants &gather,
         const std::vector<float> &sky, uint32_t x, uint32_t y, const std::array<float, 4> &history, const std::array<float, 4> &hit,
-        const std::array<float, 4> &sky_sums, const std::vector<uint32_t> *alpha)
+        const std::array<float, 4> &sky_sums, const std::vector<uint32_t> *alpha, const std::vector<FaceLight> *faces)
     {
         using namespace shader;
+        set_faces(faces);
         for (int i = 0; i < 4; i++)
         {
             shader::clip_rows[i] = row(constants.clip_rows[i]);
@@ -253,6 +279,7 @@ namespace enhancements
             out.counters[static_cast<size_t>(GatherCounter::deviation)] = g.deviation;
             out.counters[static_cast<size_t>(GatherCounter::mean)] = g.mean;
         }
+        shader::face_lights = nullptr;
         shader::sky_texels = nullptr;
         shader::alpha = nullptr;
         shader::scene = nullptr;
@@ -263,6 +290,18 @@ namespace enhancements
     uint32_t sky_texel(const Vec3 &d) { return shader::sky_texel_of({ d[0], d[1], d[2] }); }
 
     Vec3 kernel_albedo(uint32_t light) { return shader::vec(shader::albedo_of(light)); }
+
+    Vec3 kernel_hdr_rgb(uint32_t stored) { return shader::vec(shader::hdr_rgb_of(stored)); }
+
+    std::optional<Vec3> kernel_face_light(const std::vector<FaceLight> &faces, const Vec3 &q)
+    {
+        shader::set_faces(&faces);
+        const shader::float4 light = shader::face_light_of({ q[0], q[1], q[2] });
+        shader::set_faces(nullptr);
+        if (light.w < 0.5f)
+            return std::nullopt;
+        return Vec3 { light.x, light.y, light.z };
+    }
 
     uint32_t pixel_seed(uint32_t x, uint32_t y, uint32_t generation) { return shader::pixel_seed_of(shader::int2(int(x), int(y)), generation); }
 

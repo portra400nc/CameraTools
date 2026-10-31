@@ -3,13 +3,17 @@
 // sun a second ray finds whether the sun reaches it. Shared by gather_cs.hlsl and, compiled as C++ through core/hlsl.h,
 // by core/kernel.cpp, so the Mac's reference tracer gathers the very same samples; it keeps to what core/hlsl.h supports.
 //
-// A hit's light is its triangle's albedo, from the light word core/light.h bakes into the triangle's spare word, times
-// the sun's color by the cosine of its side where the second ray meets nothing, plus the game's ambient light for its
-// side's normal. A miss reads the sky map. Nothing here fetches a texture or runs a program at a hit.
+// A hit's light is the game's own where a scene face shows the hit: that face's HDR picture, which holds the game's sun,
+// shadows and lights, and then no sun ray goes out. Elsewhere it is its triangle's albedo, from the light word
+// core/light.h bakes into the triangle's spare word, times the sun's color by the cosine of its side where the second
+// ray meets nothing, plus the game's ambient light for its side's normal. A miss reads the sky map. Nothing here runs a
+// program at a hit.
 //
 // The includer defines, besides what trace_common.hlsli needs:
 //   the Gather constants of core/trace.h's GatherConstants: float4 gather_sun, gather_shade, gather_ambient[4];
 //     uint4 gather_counts
+//   the GatherFaces constants of core/trace.h's GatherFaces: float4 face_rows[7][4], face_w[7]; uint4 face_info
+//   uint2 face_texel(uint face, uint2 pixel)   a face's lit picture at pixel: its HDR bits and its depth's bits
 //   float3 load_normal(int2 pixel)     the G-buffer's world normal, decoded to -1..1 but not normalized
 //   uint load_stencil(int2 pixel)
 //   uint4 sky_row(uint index)          the sky map's texel index: its rgb as floats, and 1.0 for a real texel, 0.0 for a filled one
@@ -22,12 +26,13 @@ static const uint kGatherSunSalt = 0x3C6EF372u;
 // The sky map's side: an octahedral map of kSkySide x kSkySide texels (core/light.h).
 static const uint kSkySide = 128u;
 // The gather kernel's counters, after the trace kernel's in the same buffer (core/trace.h's GatherCounter order): rays,
-// guard stops, stack overflows, hits by where their triangle's albedo came from (core/light.h's AlbedoSource), and the
-// sums of each sample's distance from its pixel's mean so far and of that mean, in luminance.
-static const uint kGatherCounterCount = 9u;
+// guard stops, stack overflows, hits by where their light came from (core/light.h's AlbedoSource, then kFaceSource for a
+// face's picture), and the sums of each sample's distance from its pixel's mean so far and of that mean, in luminance.
+static const uint kGatherCounterCount = 10u;
 static const uint kGatherSourceCounters = 3u;
-static const uint kGatherDeviationCounter = 7u;
-static const uint kGatherMeanCounter = 8u;
+static const uint kFaceSource = 4u;
+static const uint kGatherDeviationCounter = 8u;
+static const uint kGatherMeanCounter = 9u;
 // The noise sums count in 1 / 4096 (kNoiseScale) a pixel, capped at kNoiseCap, and a group adds them to the buffer in
 // 1 / 16, so a dispatch of every pixel of a 3840x2160 frame stays under 2^32.
 static const float kNoiseCap = 16.0f;
@@ -68,6 +73,51 @@ float3 sky_at(float3 d)
 
 float luminance_of(float3 c) { return c.x * 0.2126f + c.y * 0.7152f + c.z * 0.0722f; }
 
+// One R11G11B10_FLOAT channel moved into a half float's bits, as core/light.h's hdr_rgb reads it: infinity as the
+// channel's largest value, one step of its mantissa (step, in the half's bits) below, and NaN as nothing.
+float half_of(uint h, uint step)
+{
+    return f16tof32(h > 0x7C00u ? 0u : min(h, 0x7C00u - step));
+}
+
+float3 hdr_rgb_of(uint bits)
+{
+    return float3(half_of((bits & 0x7FFu) << 4, 16u), half_of(((bits >> 11) & 0x7FFu) << 4, 16u), half_of((bits >> 22) << 5, 32u));
+}
+
+// The game's light at q from the first face that shows it: the face's HDR picture at q's pixel, where the face's depth
+// puts the surface within max(0.05 m, 1%) of q's distance, as core/light.h's bake_albedo counts a direct sample. w is 1
+// when a face shows q, else 0.
+float4 face_light_of(float3 q)
+{
+    float4 p = float4(q.x, q.y, q.z, 1.0f);
+    float width = float(face_info.y);
+    float height = float(face_info.z);
+    uint shown_by = 0u;
+    uint bits = 0u;
+    LOOP for (uint i = 0u; i < face_info.x; i++)
+    {
+        float w = dot(face_rows[i][3], p);
+        float column = (dot(face_rows[i][0], p) / w * 0.5f + 0.5f) * width;
+        float row = (0.5f - 0.5f * dot(face_rows[i][1], p) / w) * height;
+        if (w > 1.0e-3f && column >= 0.0f && column < width && row >= 0.0f && row < height)
+        {
+            uint2 at = uint2(uint(column), uint(row));
+            uint2 t = face_texel(i, at);
+            float4 c = float4((float(at.x) + 0.5f) / width * 2.0f - 1.0f, 1.0f - (float(at.y) + 0.5f) / height * 2.0f, asfloat(t.y), 1.0f);
+            float shown = 1.0f / dot(face_w[i], c);
+            if (asfloat(t.y) > 0.0f && abs(shown - w) <= max(0.05f, 0.01f * w))
+            {
+                shown_by = 1u;
+                bits = t.x;
+                break;
+            }
+        }
+    }
+    float3 light = hdr_rgb_of(bits);
+    return float4(light.x, light.y, light.z, float(shown_by));
+}
+
 struct GatherData
 {
     float4 light;       // this sample's light; w: 1 from a hit, 2 from the sky
@@ -77,12 +127,12 @@ struct GatherData
     uint guard;         // rays that met a cap of bvh.hlsli's
     uint overflow;      // rays whose stack overflowed
     uint lit;           // 1 when the sun reaches the hit
-    uint source;        // the hit triangle's albedo source, bits 30 and 31 of its light word
+    uint source;        // the hit triangle's albedo source, bits 30 and 31 of its light word, or kFaceSource
 };
 
 // Sample index of a world pixel: the index-th ray of its occlusion sequence, cosine-weighted around the G-buffer's normal
-// and mirrored above the surface, to the nearest surface at any distance; then, from a hit that the sun's shading
-// direction lights, a ray in the sun's cone toward where the game's shadows put the sun.
+// and mirrored above the surface, to the nearest surface at any distance; then, from a hit that no face shows and that
+// the sun's shading direction lights, a ray in the sun's cone toward where the game's shadows put the sun.
 GatherData gather_pixel_of(int2 pixel, uint index, uint lane)
 {
     GatherData r;
@@ -153,6 +203,14 @@ GatherData gather_pixel_of(int2 pixel, uint index, uint lane)
         float3 hn = c * (1.0f / max(length(c), 1.0e-20f));
         if (dot(hn, d) > 0.0f)
             hn = -hn;
+        float3 q = o + d * h.t;
+        float4 shown = face_light_of(q);
+        if (shown.w > 0.5f)
+        {
+            light = XYZ(shown);
+            r.source = kFaceSource;
+            break;
+        }
         float3 albedo = albedo_of(r1.w);
         r.source = r1.w >> 30;
         // core/light.h keeps the rows from going below zero for any unit normal.
@@ -168,7 +226,6 @@ GatherData gather_pixel_of(int2 pixel, uint index, uint lane)
         if (!(cosine > 0.0f) || !(sun_cone.w > 0.0f))
             break;
         direct = albedo * XYZ(gather_sun) * cosine;
-        float3 q = o + d * h.t;
         float side = card && dot(hn, XYZ(sun_cone)) < 0.0f ? -1.0f : 1.0f;
         o = q + hn * (side * (0.02f + 1.0e-4f * length(q - eye)));
         d = cone_direction_of(XYZ(sun_cone), sun_cone.w, sequence_point_of(seed, kGatherSunSalt, index));

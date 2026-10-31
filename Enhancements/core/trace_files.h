@@ -51,6 +51,7 @@ namespace enhancements
         uint32_t target = 0;
         double error = 0;
         uint32_t light = 0;                 // kLightAlbedo and the rest
+        uint32_t light_faces = 0;           // the faces whose lit pictures the gather's hits read
         // The view's G-buffer albedo at the combine step (R8G8B8A8, sRGB), its HDR scene at the bloom step before any pass
         // of ours (R11G11B10_FLOAT), and the diffuse irradiance the trace pass wrote (R11G11B10_FLOAT), when copied.
         std::vector<uint8_t> albedo, hdr, irradiance_out;

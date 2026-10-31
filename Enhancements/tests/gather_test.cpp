@@ -1,11 +1,14 @@
 // The gather kernel compiled as C++ (shaders/gather.hlsli through core/kernel.cpp): a white furnace, a wall above lit
-// ground, the same ground under a roof, a foliage card lit from behind, the energy bound over a courtyard, the gather's
-// occlusion sample against the trace kernel's for the same pixel and index, its counters, and the gather's constants.
+// ground, the same ground under a roof and under a face's picture, a foliage card lit from behind, the energy bound over a
+// courtyard, the gather's occlusion sample against the trace kernel's for the same pixel and index, its counters, the
+// gather's constants, and its R11G11B10_FLOAT decode against core/light.h's.
 #include "../core/trace.h"
 #include "../enhancements.h"
 
 #include <cmath>
 #include <cstdio>
+#include <cstring>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -242,6 +245,47 @@ int main()
         }
         check("the gather counts a hit by its triangle's albedo source, and 2 rays a lit hit", direct == 0 && by_material == 64 - uint32_t(sky_sums[3])
             && by_material > 20);
+
+        // A face 3 m above the ground at x = 3 looking straight down, 90 degrees across x and 1.6 times that across z, its
+        // picture (0.75, 0.375, 0.1875) everywhere: a hit it shows takes that, with no sun ray; a hit beyond it the
+        // albedo's light and its sun ray.
+        Camera down {};
+        {
+            const double view[16] = { 0, 0, 1, 0, 1, 0, 0, -3, 0, 1, 0, -3, 0, 0, 0, 1 };
+            const double projection[16] = { 1 / 1.6, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0.25, 0, 0, -1, 0 };
+            set_unity(down.world_to_view, view);
+            set_unity(down.view_to_clip, projection);
+        }
+        FaceImages picture = *face_images(kFaceView, *scene_camera(down, false), { 32, 20 });
+        picture.depth.assign(640, 0.25f / 3);
+        picture.hdr.assign(640, hdr_stored({ 0.75f, 0.375f, 0.1875f }));
+        const std::vector<FaceLight> faces = face_lights({ picture }, { 0, 0, 0 });
+        uint32_t face_lit = 0, sun_lit = 0;
+        bool face_right = true, sun_right = true;
+        std::array<float, 4> fh {}, fhit {}, fsky {};
+        for (uint32_t i = 0; i < 256; i++)
+        {
+            const GatherPixel p = gather_pixel(bvh, wall, c, g, sky, 3, 3, fh, fhit, fsky, nullptr, &faces);
+            fh = p.history;
+            fhit = p.hit;
+            fsky = p.sky;
+            if (p.light[3] != 1)
+                continue;
+            if (p.counters[static_cast<size_t>(GatherCounter::face)] == 1)
+            {
+                face_lit++;
+                face_right &= p.light[0] == 0.75f && p.light[1] == 0.375f && p.light[2] == 0.1875f && p.counters[0] == 1 && !p.lit
+                    && p.counters[static_cast<size_t>(GatherCounter::direct)] == 0;
+            }
+            else
+            {
+                sun_lit++;
+                sun_right &= p.light[0] == a * 0.5f && p.counters[0] == 2 && p.lit && p.counters[static_cast<size_t>(GatherCounter::direct)] == 1;
+            }
+        }
+        std::printf("INFO under the face's picture: %u hits it shows, %u beyond it\n", face_lit, sun_lit);
+        check("a hit the face shows takes its picture's (0.75, 0.375, 0.1875) and shoots 1 ray, counted as the face's", face_right && face_lit > 20);
+        check("a hit the face does not show takes the albedo times the sun at 30 degrees, 0.5 a, and shoots 2 rays", sun_right && sun_lit > 20);
     }
     {
         // A foliage card 1 m in front of the wall, facing it, with the sun behind it: the card takes the sun at half on
@@ -372,6 +416,20 @@ int main()
             trace_kernel_runs(0, 32) && trace_kernel_runs(31, 32) && trace_kernel_runs(32, 32) && !trace_kernel_runs(33, 32) && !trace_kernel_runs(39, 32)
                 && trace_kernel_runs(40, 32));
         check("the error: 1.25 x deviations / (means x sqrt(samples))", near(float(gather_error(1000, 10000, 64)), 0.015625f, 1e-7f) && gather_error(5, 0, 64) == 0);
+    }
+    {
+        // Every channel's infinity reads as its largest value and NaN as 0, as core/light.h's hdr_rgb has them.
+        std::mt19937 random(20261031);
+        bool same = true;
+        for (int i = 0; i < 10000; i++)
+        {
+            const uint32_t word = random();
+            const Vec3 kernel = kernel_hdr_rgb(word), cpu = hdr_rgb(word);
+            same &= std::memcmp(kernel.data(), cpu.data(), sizeof kernel) == 0;
+        }
+        check("the kernel decodes 10,000 random R11G11B10_FLOAT words to hdr_rgb's bits", same);
+        check("the kernel reads each channel's infinity as its largest value, 65024 or 64512, and NaN as 0",
+            kernel_hdr_rgb(0x7C0u | 0x7C0u << 11 | 0x3E0u << 22) == Vec3 { 65024, 65024, 64512 } && kernel_hdr_rgb(0x7C1u | 0x7FFu << 11 | 0x3E1u << 22) == Vec3 { 0, 0, 0 });
     }
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;

@@ -29,7 +29,7 @@ namespace enhancements
     struct TraceSave;   // core/trace_files.h
 
     // Our shaders declare registers only inside these ranges, and StateGuard saves and restores exactly these.
-    constexpr UINT kSrvSlots = 8;       // t0..t7; the trace kernel uses t0..t6, the gather kernel t0..t7
+    constexpr UINT kSrvSlots = 9;       // t0..t8; the trace kernel uses t0..t6, the gather kernel t0..t8
     constexpr UINT kSamplerSlots = 4;   // s0..s3
     constexpr UINT kCbSlots = 5;        // b0..b4
     constexpr UINT kUavSlots = 4;       // u0..u3, compute only: the trace kernels' history and counters, and the gather's two buffers
