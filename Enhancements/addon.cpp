@@ -92,7 +92,6 @@ namespace enhancements
         Mailbox<CharacterLightSettings> character_light_box;
         Mailbox<std::vector<::EnhancementsShotLight>> game_lights_box;
         std::vector<::EnhancementsShotLight> game_lights;   // the render thread's newest of the box
-        float emitter_boost = 1;                            // emitter-boost.txt's at a shot's start, for tests
         uint64_t game_lights_seen = 0;
 
         // The point EnhancementsDepthAt asks about and its answer, shared by the C# thread and the render thread.
@@ -789,7 +788,6 @@ namespace enhancements
                     gather_sun_source = said;
                 }
                 gather = gather_constants(settings.gather, sun, trace_gpu.light()->ambient, settings.ambient.level);
-                gather->shade[3] = emitter_boost;
                 gather->sun[3] = kSourceOverMean * trace_gpu.light()->view_mean;
             }
             const GatherConstants *gathered = gather ? &*gather : nullptr;
@@ -2278,11 +2276,6 @@ namespace enhancements
                         said += text;
                     }
                     log(reshade::log::level::info, said + ".");
-                }
-                {
-                    std::ifstream boost_file(output_root() / "emitter-boost.txt");
-                    float boost = 1;
-                    emitter_boost = boost_file >> boost && boost >= 1 ? boost : 1.0f;
                 }
                 if (shot_box.take(shot, shot_seen))
                     log(reshade::log::level::info, shot.active ? "a traced shot begins: the trace and the gather run over the applied settings"

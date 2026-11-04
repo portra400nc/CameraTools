@@ -60,8 +60,6 @@ namespace CameraTools
         private static MelonPreferences_Entry<bool> saveScene;
         private static MelonPreferences_Entry<bool> tracedReflections;
         private static MelonPreferences_Entry<float> surfaceGloss, reflectedLight;
-        private static MelonPreferences_Entry<string> fakeLights;
-        private static bool fakeLightsOffLast;
         private const float GameLightReach = 100f;
         private static MelonPreferences_Entry<float> bounceStrength;
         private static MelonPreferences_Entry<int> bounces;
@@ -257,8 +255,6 @@ namespace CameraTools
             saveScene = MelonPreferences.CreateCategory("CameraToolsEnhancements").CreateEntry("TracedShotSaveScene", false,
                 description: "For tests on the Mac: each traced shot captures the scene anew, writes every face's lit HDR picture, depth and albedo "
                     + "beside it, and saves the converged trace.");
-            fakeLights = MelonPreferences.CreateCategory("CameraToolsEnhancements").CreateEntry("TracedShotFakeLights", "keep",
-                description: "The game's fake bounce lights in a traced shot: keep, off, or alternate between the two shot by shot, for a test.");
             MelonPreferences.Save();
         }
 
@@ -283,27 +279,8 @@ namespace CameraTools
             bool locked = TimeOfDay.Locked;
             float speed = TimeOfDay.Speed;
             run.TimeBefore = TimeOfDay.Hold();
-            HoldFakeLights();
             Log($"holding the world: the game {(ran ? "paused" : "was paused already")}; the time of day {TimeOfDay.Clock(TimeOfDay.Hour)} "
                 + (!TimeOfDay.Locked ? "could not be locked" : locked ? "was locked already" : "locked") + (speed > 0f ? $", its speed {speed:0.##} stopped" : "") + ".");
-        }
-
-        private static void HoldFakeLights()
-        {
-            bool off = fakeLights.Value is "off" or "fresh";
-            // A test's shots each capture anew, as what they test may not show in a kept trace.
-            if (fakeLights.Value == "fresh")
-                kept = null;
-            if (fakeLights.Value == "alternate")
-            {
-                off = fakeLightsOffLast = !fakeLightsOffLast;
-                // The faces show the lights as they are, so this shot's differ from the kept scene's.
-                kept = null;
-            }
-            if (off)
-                Log($"turned off {FakeLights.Hold()} of the game's fake bounce lights.");
-            else if (fakeLights.Value != "keep")
-                Log("kept the game's fake bounce lights.");
         }
 
         // Once a frame while the screenshot settles. settled: every condition but the shot's own two holds. presents is
@@ -447,7 +424,6 @@ namespace CameraTools
             if (ended == null)
                 return;
             Lights.WorldLightsHeld = false;
-            FakeLights.Release();
             if (ended.EffectsHeld)
                 ReShade.SetEffects(true);
             var notes = new List<string>();

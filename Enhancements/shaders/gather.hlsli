@@ -344,7 +344,7 @@ GatherData gather_pixel_of(int2 pixel, uint index, uint lane)
     float below = dot(d, ng);
     if (below < 0.0f)
         d = d - ng * (2.0f * below);
-    return gather_ray_of(r, o, d, eye, seed, index, float2(gather_shade.w, gather_sun.w), max(gather_counts.y, 1u), max(gather_ambient[1].w, 1.0f), lane);
+    return gather_ray_of(r, o, d, eye, seed, index, float2(1.0f, 0.0f), max(gather_counts.y, 1u), max(gather_ambient[1].w, 1.0f), lane);
 }
 
 // A pixel's sample in a dispatch: none once it has gather_counts.x of them, else the next of its sequence.
