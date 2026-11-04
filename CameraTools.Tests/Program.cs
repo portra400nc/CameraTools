@@ -42,8 +42,10 @@ Check("the binding's status is enhancements.h's 168 bytes, with the restarts at 
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceLight)) == 128 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceRestarts)) == 132
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceRestartReason)) == 136 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.ShotActive)) == 140
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.FramesSaved)) == 144 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.DofFocusMeters)) == 148);
-Check("the binding's shot is 16 bytes, its settings 416 with the depth of field at 236 and its highlights at 68, scatter at 76, bokeh contrast at 80, place at 84 and the eye at 88 in it, the lens flare at 332 and 68 bytes long, the ambient color at 400, the tones at 404 and the lens softness at 412, and its scene request 20",
-    Marshal.SizeOf<EnhancementsShot>() == 16 && Offset<EnhancementsShot>(nameof(EnhancementsShot.BudgetMs)) == 12 && Marshal.SizeOf<EnhancementsSettings>() == 416
+Check("the binding's shot is 24 bytes with its strength at 16 and its outputs at 20, its settings 416 with the depth of field at 236 and its highlights at 68, scatter at 76, bokeh contrast at 80, place at 84 and the eye at 88 in it, the lens flare at 332 and 68 bytes long, the ambient color at 400, the tones at 404 and the lens softness at 412, and its scene request 20",
+    Marshal.SizeOf<EnhancementsShotLight>() == 64 && Offset<EnhancementsShotLight>(nameof(EnhancementsShotLight.Reserved0)) == 48
+    && Marshal.SizeOf<EnhancementsShot>() == 24 && Offset<EnhancementsShot>(nameof(EnhancementsShot.BudgetMs)) == 12 && Offset<EnhancementsShot>(nameof(EnhancementsShot.Outputs)) == 20
+    && Offset<EnhancementsShot>(nameof(EnhancementsShot.Strength)) == 16 && Marshal.SizeOf<EnhancementsSettings>() == 416
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.AmbientColor)) == 400 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Tones)) == 404
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.LensSoftness)) == 412
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.LensFlare)) == 332 && Marshal.SizeOf<EnhancementsLensFlare>() == 68
@@ -159,24 +161,26 @@ Check("a scene that went stale or failed, or another scene, is lost", TracedShot
         !early && stalled && !sampled && baseline == 400 && !again && TracedShot.Stalled(ref baseline, Status(EnhancementsTraceState.Ready, 5, restarts: 408)));
 }
 
-// What the screen and a timeout say.
+// What the screen says while a traced shot waits.
 var tracing = Status(EnhancementsTraceState.Ready, 5, samples: 12);
 var changing = Status(EnhancementsTraceState.Ready, 5, restarts: 2910, reason: EnhancementsTraceRestart.Light);
-Check("the notices: the capture's direction, its build and upload, the samples, and what keeps changing in place of 0 samples",
-    TracedShot.Progress(ShotPhase.Capturing, Status(EnhancementsTraceState.Building, 4, remaining: 5), false) == "Capturing the scene 3/7"
-    && TracedShot.Progress(ShotPhase.Capturing, Status(EnhancementsTraceState.Building, 4, remaining: 7), false) == "Capturing the scene 1/7"
-    && TracedShot.Progress(ShotPhase.Capturing, Status(EnhancementsTraceState.Building, 4), false) == "Building the scene"
-    && TracedShot.Progress(ShotPhase.Capturing, Status(EnhancementsTraceState.Uploading, 5), false) == "Sending the scene to the GPU"
-    && TracedShot.Progress(ShotPhase.Requesting, tracing, false) == "Capturing the scene" && TracedShot.Progress(ShotPhase.Tracing, tracing, false) == "Lighting 12/64"
-    && TracedShot.Progress(ShotPhase.Tracing, changing, true) == "Lighting: the light keeps changing"
-    && TracedShot.Progress(ShotPhase.Settling, tracing, false) == null && TracedShot.Progress(ShotPhase.Done, tracing, false) == null);
-Check("a timeout names what the shot waited for, with why no sample came in",
-    TracedShot.Waiting(ShotPhase.Settling, tracing, false) == null && TracedShot.Waiting(ShotPhase.Done, tracing, false) == null
-    && TracedShot.Waiting(ShotPhase.Requesting, tracing, false) == "the Enhancements add-on to take a scene capture"
-    && TracedShot.Waiting(ShotPhase.Capturing, Status(EnhancementsTraceState.Building, 4, remaining: 5), false) == "the Enhancements scene to be captured (5 of 7 directions left)"
-    && TracedShot.Waiting(ShotPhase.Capturing, Status(EnhancementsTraceState.Building, 4), false) == "the Enhancements scene to be captured (building)"
-    && TracedShot.Waiting(ShotPhase.Tracing, tracing, false) == "the lighting to converge (12 of 64 samples)"
-    && TracedShot.Waiting(ShotPhase.Tracing, changing, true) == "the lighting to converge (0 of 64 samples; the light keeps changing, 2910 starts)");
+ShotProgress? Notice(ShotPhase phase, EnhancementsStatus status, bool stalled = false, float elapsed = 0f) => TracedShot.Progress(phase, status, stalled, elapsed);
+Check("the notices: the capture's direction, its build and upload, the samples with the time left, and what keeps changing in place of 0 samples",
+    Notice(ShotPhase.Capturing, Status(EnhancementsTraceState.Building, 4, remaining: 5)) == new ShotProgress("Capturing the scene", "Turning the camera, 3 of 7 directions", 0.15f * 2 / 7)
+    && Notice(ShotPhase.Capturing, Status(EnhancementsTraceState.Building, 4, remaining: 7)) == new ShotProgress("Capturing the scene", "Turning the camera, 1 of 7 directions", 0f)
+    && Notice(ShotPhase.Capturing, Status(EnhancementsTraceState.Building, 4)) == new ShotProgress("Building the scene", "Unpause the game to cancel", 0.2f)
+    && Notice(ShotPhase.Capturing, Status(EnhancementsTraceState.Uploading, 5) with { TraceTriangles = 1_940_000 })
+        == new ShotProgress("Sending the scene to the GPU", "1.9 million triangles", 0.2f)
+    && Notice(ShotPhase.Requesting, tracing) == new ShotProgress("Capturing the scene", "Unpause the game to cancel", 0f)
+    && Notice(ShotPhase.Tracing, tracing, elapsed: 30f)
+        == new ShotProgress("Tracing the light, 12 of 64 samples", "About 2 minutes left. Unpause the game to cancel", 0.25f + 0.75f * 12 / 64)
+    && Notice(ShotPhase.Tracing, Status(EnhancementsTraceState.Ready, 5)) == new ShotProgress("Tracing the light, 0 of 64 samples", "Unpause the game to cancel", 0.25f)
+    && Notice(ShotPhase.Tracing, Status(EnhancementsTraceState.Ready, 5, target: 0)) == new ShotProgress("Tracing the light", "Unpause the game to cancel", 0.25f)
+    && Notice(ShotPhase.Tracing, changing, stalled: true) == new ShotProgress("Tracing the light", "The light keeps changing. Unpause the game to cancel", 0.25f)
+    && Notice(ShotPhase.Settling, tracing) == null && Notice(ShotPhase.Done, tracing) == null);
+Check("the time left: minutes past 90 s, a minute from 45 s, less below, and none before the first sample",
+    TracedShot.TimeLeft(8, 64, 60f) == "About 7 minutes left" && TracedShot.TimeLeft(32, 64, 60f) == "About a minute left"
+    && TracedShot.TimeLeft(60, 64, 60f) == "Less than a minute left" && TracedShot.TimeLeft(0, 64, 60f) == null);
 Check("a failed capture's reason comes from the add-on's status line",
     TracedShot.Stopped("1920x1200 found gbuffer combine; ran trace@combine; scene stopped: the camera moved; error texture") == "the camera moved"
     && TracedShot.Stopped("found nothing; scene stopped: pos-x was not saved within 900 presents") == "pos-x was not saved within 900 presents"
@@ -185,14 +189,6 @@ Check("each restart reason has its words", TracedShot.Changing(EnhancementsTrace
     && TracedShot.Changing(EnhancementsTraceRestart.SunDirection) == "the sun keeps moving" && TracedShot.Changing(EnhancementsTraceRestart.RenderSize) == "the render size keeps changing"
     && TracedShot.Changing(EnhancementsTraceRestart.Settings) == "the Enhancements settings keep changing" && TracedShot.Changing(EnhancementsTraceRestart.Scene) == "the scene keeps changing"
     && TracedShot.Changing(EnhancementsTraceRestart.None) == "the samples keep starting again");
-Check("at the timeout a frame traced from 16 samples or more is saved as it is; one with fewer, one the trace pass does not draw, or a lost scene is not",
-    TracedShot.SaveAsIs(ShotPhase.Tracing, 5, Status(EnhancementsTraceState.Ready, 5, samples: 16)) && !TracedShot.SaveAsIs(ShotPhase.Tracing, 5, Status(EnhancementsTraceState.Ready, 5, samples: 15))
-    && !TracedShot.SaveAsIs(ShotPhase.Tracing, 5, Status(EnhancementsTraceState.Ready, 5, samples: 40, passes: 0))
-    && !TracedShot.SaveAsIs(ShotPhase.Tracing, 5, Status(EnhancementsTraceState.Ready, 5, samples: 40, shot: 0))
-    && !TracedShot.SaveAsIs(ShotPhase.Tracing, 5, Status(EnhancementsTraceState.Stale, 5, samples: 40))
-    && !TracedShot.SaveAsIs(ShotPhase.Capturing, 5, Status(EnhancementsTraceState.Ready, 5, samples: 40))
-    && !TracedShot.SaveAsIs(ShotPhase.Done, 5, Status(EnhancementsTraceState.Ready, 5, samples: 40)));
-
 // The Enhancements category: its table, its values, and what the add-on gets for them. Outside the free camera the depth of
 // field does not run; in it, on a 16:10 picture at real size.
 EnhancementField Field(Enhancement id) => EnhancementsModel.Field(id);
@@ -962,8 +958,9 @@ Check("the DNG's states and failures count as enhancements.h's", (uint)Enhanceme
     && (uint)EnhancementsDngFailure.Write == 4 && (uint)EnhancementsDngFailure.Dropped == 5);
 Check("a plain shot with the switch on and the add-on connected gets a DNG, supersampled or not",
     ShotKinds.Of(false, false, false, true, true) == new ShotKinds(false, false, true) && ShotKinds.Of(false, false, true, true, true) == new ShotKinds(false, true, true));
-Check("a traced shot gets none, nor does a shot without the add-on or with the switch off",
-    ShotKinds.Of(false, true, true, true, true) == new ShotKinds(true, false, false) && !ShotKinds.Of(false, false, true, true, false).Dng
+Check("a traced shot gets one but no supersampling, and a shot without the add-on or with the switch off gets none",
+    ShotKinds.Of(false, true, true, true, true) == new ShotKinds(true, false, true) && ShotKinds.Of(false, true, false, false, true) == new ShotKinds(true, false, false)
+    && !ShotKinds.Of(false, false, true, true, false).Dng
     && !ShotKinds.Of(false, false, false, false, true).Dng);
 Check("a long exposure is neither traced nor supersampled, and gets a DNG with the switch on and the add-on connected",
     ShotKinds.Of(true, true, true, true, true) == new ShotKinds(false, false, true)

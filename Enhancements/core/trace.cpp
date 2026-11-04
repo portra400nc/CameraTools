@@ -2,9 +2,11 @@
 #include "../enhancements.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <thread>
 
 namespace enhancements
 {
@@ -134,7 +136,7 @@ namespace enhancements
         return c;
     }
 
-    GatherConstants gather_constants(const GatherSettings &settings, const SunLight &sun, const AmbientFit &ambient)
+    GatherConstants gather_constants(const GatherSettings &settings, const SunLight &sun, const AmbientFit &ambient, float faces_ambient)
     {
         GatherConstants g {};
         const double length = std::sqrt(double(sun.shade[0]) * sun.shade[0] + double(sun.shade[1]) * sun.shade[1] + double(sun.shade[2]) * sun.shade[2]);
@@ -147,7 +149,191 @@ namespace enhancements
         for (int r = 0; r < 4; r++)
             for (int k = 0; k < 3; k++)
                 g.ambient[r][k] = ambient.rows[r][k] * settings.hit_ambient;
+        if (settings.hit_ambient > 0)
+            g.ambient[0][3] = faces_ambient / settings.hit_ambient;
+        g.ambient[1][3] = std::max(settings.strength, 1.0f);
         g.counts[0] = settings.samples;
+        g.counts[1] = settings.bounces;
+        return g;
+    }
+
+    bool TraceLight::operator==(const TraceLight &o) const
+    {
+        return position == o.position && range == o.range && radiance == o.radiance && cos_outer == o.cos_outer && direction == o.direction
+            && cos_inner == o.cos_inner && shadows == o.shadows;
+    }
+
+    std::vector<TraceLight> parse_trace_lights(const ::EnhancementsShotLight *lights, uint32_t count, uint32_t max)
+    {
+        std::vector<TraceLight> out;
+        if (lights == nullptr)
+            return out;
+        const auto finite = [](float v) { return std::isfinite(v); };
+        for (uint32_t i = 0; i < count && out.size() < max; i++)
+        {
+            const ::EnhancementsShotLight &raw = lights[i];
+            TraceLight l;
+            if (!finite(raw.position[0]) || !finite(raw.position[1]) || !finite(raw.position[2]) || !finite(raw.range) || !(raw.range > 0))
+                continue;
+            l.position = { raw.position[0], raw.position[1], raw.position[2] };
+            l.range = std::min(raw.range, 1000.0f);
+            for (int k = 0; k < 3; k++)
+                l.radiance[k] = finite(raw.color[k]) && raw.color[k] > 0 ? std::pow(raw.color[k], kLocalLightPower) : 0.0f;
+            if (l.radiance[0] + l.radiance[1] + l.radiance[2] <= 0)
+                continue;
+            const double length = std::sqrt(double(raw.direction[0]) * raw.direction[0] + double(raw.direction[1]) * raw.direction[1]
+                + double(raw.direction[2]) * raw.direction[2]);
+            const bool spot = finite(raw.cos_outer) && raw.cos_outer >= -1 && std::isfinite(length) && length > 0;
+            if (spot)
+            {
+                for (int k = 0; k < 3; k++)
+                    l.direction[k] = static_cast<float>(raw.direction[k] / length);
+                l.cos_outer = std::min(raw.cos_outer, 1.0f);
+                l.cos_inner = finite(raw.cos_inner) ? std::clamp(raw.cos_inner, l.cos_outer, 1.0f) : l.cos_outer;
+            }
+            l.shadows = (raw.reserved[0] & ENHANCEMENTS_SHOT_LIGHT_SHADOWS) != 0;
+            out.push_back(l);
+        }
+        return out;
+    }
+
+    static_assert(ENHANCEMENTS_MAX_SHOT_LIGHTS == 4);
+
+    ReflectConstants reflect_constants(const ReflectSettings &settings)
+    {
+        ReflectConstants c;
+        if (settings.enabled)
+        {
+            c.params[0] = 1 - settings.gloss;
+            c.params[1] = settings.reflected_light;
+        }
+        return c;
+    }
+
+    uint32_t pack_baked_light(const Vec3 &radiance)
+    {
+        uint32_t word = 0;
+        for (int k = 0; k < 3; k++)
+        {
+            const float v = std::sqrt(std::clamp(radiance[k] / kBakedLightRange, 0.0f, 1.0f));
+            word |= static_cast<uint32_t>(v * 1023.0f + 0.5f) << (10 * k);
+        }
+        return word;
+    }
+
+    float light_geometry(const TraceLight &light, const Vec3d &p, const Vec3d &n)
+    {
+        const Vec3d v = { light.position[0] - p[0], light.position[1] - p[1], light.position[2] - p[2] };
+        const double d = std::max(std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]), 1e-3);
+        const double x = d / light.range;
+        if (x >= 1)
+            return 0;
+        const double cosine = (n[0] * v[0] + n[1] * v[1] + n[2] * v[2]) / d;
+        if (cosine <= 0)
+            return 0;
+        const double along = -(light.direction[0] * v[0] + light.direction[1] * v[1] + light.direction[2] * v[2]) / d;
+        const double spot = std::clamp((along - light.cos_outer) / std::max<double>(light.cos_inner - light.cos_outer, 1e-4), 0.0, 1.0);
+        return static_cast<float>(cosine * std::clamp((1 - x) * 5, 0.0, 1.0) * spot / (1 + 25 * x * x));
+    }
+
+    GameLightCounts bake_game_lights(Bvh &bvh, const std::vector<TraceLight> &lights, const Vec3d &reference, const std::vector<uint32_t> *alpha, uint32_t tasks)
+    {
+        constexpr uint32_t kCasters = (1u << static_cast<uint32_t>(TraceClass::world)) | (1u << static_cast<uint32_t>(TraceClass::vegetation))
+            | (1u << static_cast<uint32_t>(TraceClass::foliage)) | (1u << static_cast<uint32_t>(TraceClass::other)) | kAlphaTests;
+        const size_t count = bvh.triangles.size();
+        std::atomic<uint64_t> lit { 0 }, rays { 0 };
+        const auto work = [&](size_t first, size_t last) {
+            uint64_t my_lit = 0, my_rays = 0;
+            for (size_t i = first; i < last; i++)
+            {
+                BvhTriangle &t = bvh.triangles[i];
+                t.pad1 = 0;
+                const Vec3d e1 = { t.e1[0], t.e1[1], t.e1[2] }, e2 = { t.e2[0], t.e2[1], t.e2[2] };
+                Vec3d n = { e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0] };
+                const double length = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+                if (!(length > 0))
+                    continue;
+                n = { n[0] / length, n[1] / length, n[2] / length };
+                const Vec3d local = { t.v0[0] + (e1[0] + e2[0]) / 3, t.v0[1] + (e1[1] + e2[1]) / 3, t.v0[2] + (e1[2] + e2[2]) / 3 };
+                const Vec3d world = { local[0] + reference[0], local[1] + reference[1], local[2] + reference[2] };
+                Vec3 sum {};
+                for (const TraceLight &light : lights)
+                {
+                    const float geometry = light_geometry(light, world, n);
+                    if (!(geometry > 1e-4f))
+                        continue;
+                    if (light.shadows)
+                    {
+                        const Vec3d v = { light.position[0] - world[0], light.position[1] - world[1], light.position[2] - world[2] };
+                        const double d = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+                        const double reach = d - kGameLightClearance;
+                        if (reach > 0.02)
+                        {
+                            my_rays++;
+                            const Vec3f origin = { float(local[0] + n[0] * 0.02), float(local[1] + n[1] * 0.02), float(local[2] + n[2] * 0.02) };
+                            if (trace_any(bvh, origin, { float(v[0] / d), float(v[1] / d), float(v[2] / d) }, float(reach), kCasters, nullptr, alpha))
+                                continue;
+                        }
+                    }
+                    for (int k = 0; k < 3; k++)
+                        sum[k] += light.radiance[k] * geometry;
+                }
+                if (sum[0] + sum[1] + sum[2] <= 0)
+                    continue;
+                const Vec3f albedo = light_albedo(t.light);
+                t.pad1 = pack_baked_light({ sum[0] * albedo[0], sum[1] * albedo[1], sum[2] * albedo[2] });
+                my_lit++;
+            }
+            lit += my_lit;
+            rays += my_rays;
+        };
+        std::vector<std::thread> threads;
+        tasks = std::max<uint32_t>(1, tasks);
+        for (uint32_t k = 1; k < tasks; k++)
+            threads.emplace_back(work, count * k / tasks, count * (k + 1) / tasks);
+        work(0, count / tasks);
+        for (std::thread &thread : threads)
+            thread.join();
+        return { lit.load(), rays.load() };
+    }
+
+    GatherLights gather_lights(const std::vector<TraceLight> &lights, const Vec3d &reference)
+    {
+        GatherLights g {};
+        const uint32_t count = static_cast<uint32_t>(std::min<size_t>(lights.size(), ENHANCEMENTS_MAX_SHOT_LIGHTS));
+        for (uint32_t i = 0; i < count; i++)
+        {
+            const TraceLight &l = lights[i];
+            for (int k = 0; k < 3; k++)
+            {
+                g.rows[i][0][k] = static_cast<float>(l.position[k] - reference[k]);
+                g.rows[i][1][k] = l.radiance[k];
+                g.rows[i][2][k] = l.direction[k];
+            }
+            g.rows[i][0][3] = l.range;
+            g.rows[i][1][3] = l.cos_outer;
+            g.rows[i][2][3] = l.cos_inner;
+            g.rows[i][3][1] = 0.2126f * l.radiance[0] + 0.7152f * l.radiance[1] + 0.0722f * l.radiance[2];
+        }
+        g.info[0] = count;
+        return g;
+    }
+
+    GatherFaces gather_faces(const std::vector<FaceLight> &faces)
+    {
+        GatherFaces g {};
+        const uint32_t count = static_cast<uint32_t>(std::min<size_t>(faces.size(), kFaceCount));
+        for (uint32_t i = 0; i < count; i++)
+        {
+            std::memcpy(g.rows[i], faces[i].scene_to_clip, sizeof g.rows[i]);
+            std::memcpy(g.w[i], faces[i].depth_to_w, sizeof g.w[i]);
+        }
+        if (count != 0)
+        {
+            g.info[0] = count;
+            g.info[1] = faces[0].size.width;
+            g.info[2] = faces[0].size.height;
+        }
         return g;
     }
 
@@ -171,7 +357,7 @@ namespace enhancements
         uint32_t step)
     {
         GatherApplyConstants c {};
-        c.apply[0] = settings.strength;
+        c.apply[0] = std::min(settings.strength, 1.0f);
         c.apply[1] = static_cast<float>(step);
         c.modes[0] = static_cast<uint32_t>(settings.sky);
         c.modes[1] = static_cast<uint32_t>(view);
@@ -236,9 +422,10 @@ namespace enhancements
     }
 
     TraceKey trace_key(uint64_t generation, Size render, const Camera &camera, const Vec3 &toward_sun, const TraceSettings &settings,
-        const GatherConstants *gather)
+        const GatherConstants *gather, const GatherLights &lights, const ReflectConstants &reflect)
     {
         TraceKey k;
+        k.lights = lights;
         k.generation = generation;
         k.render = render;
         std::memcpy(k.world_to_view.data(), camera.world_to_view, sizeof camera.world_to_view);
@@ -257,7 +444,11 @@ namespace enhancements
                 for (int r = 0; r < 4; r++)
                     k.light[kKeyAmbient + r * 3 + i] = gather->ambient[r][i];
             }
+            k.bounces = gather->counts[1];
+            k.faces_ambient = gather->ambient[0][3];
+            k.surface = gather->ambient[1][3];
         }
+        k.reflect = reflect;
         return k;
     }
 
@@ -279,7 +470,7 @@ namespace enhancements
             return TraceRestart::scene;
         if (a.render != b.render)
             return TraceRestart::render;
-        if (a.ao_distance != b.ao_distance || a.sun_size != b.sun_size || a.casters != b.casters || a.gather != b.gather || apart(kKeyAmbient, 12))
+        if (a.ao_distance != b.ao_distance || a.sun_size != b.sun_size || a.casters != b.casters || a.gather != b.gather || a.bounces != b.bounces || a.faces_ambient != b.faces_ambient || a.surface != b.surface || std::memcmp(a.reflect.params, b.reflect.params, sizeof a.reflect.params) != 0 || apart(kKeyAmbient, 12))
             return TraceRestart::settings;
         if (matrix_moved(a.world_to_view, b.world_to_view) || matrix_moved(a.view_to_clip, b.view_to_clip))
             return TraceRestart::camera;
@@ -288,7 +479,7 @@ namespace enhancements
                 return TraceRestart::sun_direction;
         if (apart(kKeyShade, 3))
             return TraceRestart::sun_direction;
-        return apart(kKeySun, 3) ? TraceRestart::light : TraceRestart::none;
+        return apart(kKeySun, 3) || std::memcmp(&a.lights, &b.lights, sizeof a.lights) != 0 ? TraceRestart::light : TraceRestart::none;
     }
 
     std::string restart_text(TraceRestart reason, const TraceKey *before, const TraceKey &b)
@@ -337,6 +528,10 @@ namespace enhancements
                 std::snprintf(text, sizeof text, "the sun's size went from %g to %g", a.sun_size, b.sun_size);
             else if (a.casters != b.casters)
                 std::snprintf(text, sizeof text, "the casters went from 0x%X to 0x%X", a.casters, b.casters);
+            else if (a.bounces != b.bounces)
+                std::snprintf(text, sizeof text, "the bounces went from %u to %u", a.bounces, b.bounces);
+            else if (a.surface != b.surface)
+                std::snprintf(text, sizeof text, "the bounce strength's surface gain went from %g to %g", a.surface, b.surface);
             else
                 return went("the ambient light at a hit, its first row,", &a.light[kKeyAmbient], &b.light[kKeyAmbient], false);
             return text;
@@ -439,5 +634,10 @@ namespace enhancements
     bool consistency_stale(uint64_t tested, uint64_t off)
     {
         return tested >= 32 && off * 20 > tested;
+    }
+
+    bool shot_consistency_stale(uint64_t tested, uint64_t off)
+    {
+        return tested >= 32 && off * 2 > tested;
     }
 }

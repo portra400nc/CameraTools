@@ -205,6 +205,18 @@ int main()
         const std::vector<TraceTriangle> t = b.take(2);
         check("past the cap the farthest triangles go first, and the rest keep their order", b.counts().past_max == 2 && t.size() == 2
             && t[0].corner[0] == Vec3f { 0, 0, 0 } && t[1].corner[0] == Vec3f { 0, 0, 3 });
+        double reach = 0;
+        for (const TraceTriangle &k : t)
+        {
+            double sum = 0;
+            for (int a = 0; a < 3; a++)
+            {
+                const double m = (double(k.corner[0][a]) + k.corner[1][a] + k.corner[2][a]) / 3;
+                sum += m * m;
+            }
+            reach = std::max(reach, std::sqrt(sum));
+        }
+        check("and the counts keep how far the kept triangles reach", std::abs(b.counts().kept_reach - reach) < 1e-9 && reach < 50);
     }
     {
         // A camera whose clip space is the world 10 m along x, homogeneous, with w scaling everything.

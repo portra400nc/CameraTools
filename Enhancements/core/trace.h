@@ -14,6 +14,8 @@
 #include <string>
 #include <vector>
 
+struct EnhancementsShotLight;  // enhancements.h, read only by parse_trace_lights
+
 namespace enhancements
 {
     // The classes a ray sees with these settings, as bits 1 << TraceClass: the world and other classes always,
@@ -24,7 +26,8 @@ namespace enhancements
     struct TraceConstants
     {
         float clip_rows[4][4];      // D3D clip (ndc x, ndc y, reversed depth, 1) to the scene's frame, homogeneous, by rows
-        float eye_position[4];      // xyz: the camera in the scene's frame
+        float eye_position[4];      // xyz: the camera in the scene's frame; w: how far from the reference the scene holds every
+                                    // triangle, past which the consistency grid tests nothing; 0 for all of it
         float sun_cone[4];          // xyz: toward the sun, unit length; w: the cosine of the cone's half angle; all 0 for no sun
         float trace_params[4];      // ao_distance, ao_strength, sun_strength, ambient level
         uint32_t trace_counts[4];   // ao_samples, sun_samples, caster classes, outputs (1 occlusion, 2 sun)
@@ -42,20 +45,88 @@ namespace enhancements
     // The camera's position in the world, from its world_to_view, in double.
     Vec3d camera_position(const Camera &camera);
 
+    // A traced light, parsed from EnhancementsShotLight: every value finite and in range.
+    struct TraceLight
+    {
+        Vec3d position {};
+        float range = 1;
+        Vec3 radiance {};           // color times intensity, to the power kLocalLightPower
+        float cos_outer = -2;       // below -1: a point light
+        Vec3 direction { 0, 0, 1 };
+        float cos_inner = -2;
+        bool shadows = false;       // the game's own light draws with shadows: bake_game_lights gives it shadow rays
+        bool operator==(const TraceLight &o) const;
+    };
+
+    // Unity's lights take their color times intensity from gamma to linear.
+    constexpr float kLocalLightPower = 2.2f;
+
+    // The lights the caller gave, the first max, without those of no range or no light, and with
+    // a spot's direction unit length and its inner cosine at least its outer.
+    std::vector<TraceLight> parse_trace_lights(const ::EnhancementsShotLight *lights, uint32_t count, uint32_t max = 4);
+
+    // The game's own lights, baked once into the traced scene for the gather's hits that no face shows: each triangle's
+    // pad1 holds the light on its front, its albedo times the sum of what reaches it, with a shadow ray only for the lights
+    // the game itself shadows: most of its lights have none, and the faces show that light passing through walls. A hit takes it without any ray of its own, so any number of lights adds no noise and no cost a sample. The
+    // word is 10 bits a channel, each the square root of the value over kBakedLightRange, as shaders/gather.hlsli reads it.
+    constexpr float kBakedLightRange = 16.0f;
+    uint32_t pack_baked_light(const Vec3 &radiance);
+    // How far short of a light its shadow rays stop: the game's lamps sit inside their own models.
+    constexpr float kGameLightClearance = 0.5f;
+    struct GameLightCounts
+    {
+        uint64_t lit = 0;           // triangles with any of the lights' light
+        uint64_t rays = 0;          // shadow rays
+    };
+    // The light's geometry at p of normal n, as shaders/local_light.hlsli's local_geometry_of: what multiplies its radiance.
+    float light_geometry(const TraceLight &light, const Vec3d &p, const Vec3d &n);
+    // Writes every triangle's pad1. The BVH's hash stays that of the scene without them.
+    GameLightCounts bake_game_lights(Bvh &bvh, const std::vector<TraceLight> &lights, const Vec3d &reference, const std::vector<uint32_t> *alpha, uint32_t tasks);
+
+    // The cbuffer GatherLights at b3, which both kernels and the traced lights' pass read: per light its position in the
+    // scene's frame and range, its radiance and cos_outer, its direction and cos_inner, and in the last row's y the
+    // radiance's luminance; then the count. 272 bytes.
+    struct GatherLights
+    {
+        float rows[4][4][4];
+        uint32_t info[4];           // the count, 0, 0, 0
+    };
+    static_assert(sizeof(GatherLights) == 272);
+
+    GatherLights gather_lights(const std::vector<TraceLight> &lights, const Vec3d &reference);
+
+    // shaders/local_light.hlsli's local_light_of: traced light k's light at p of normal n, before shadows, in the scene's frame.
+    Vec3 kernel_local_light(const GatherLights &lights, uint32_t k, const Vec3 &p, const Vec3 &n);
+
     // shaders/gather_cs.hlsl's cbuffer Gather at b1, which apply_gather_ps.hlsl reads too: 112 bytes.
     struct GatherConstants
     {
         float sun[4];               // rgb: the sun's color, what a white surface facing it shows
         float shade[4];             // xyz: toward the sun as the game shades with it, unit length
         float ambient[4][4];        // rgb: the ambient light at a hit of normal n, rows[0] + rows[1] n.x + rows[2] n.y + rows[3] n.z,
-                                    // the game's times hit_ambient
-        uint32_t counts[4];         // samples a pixel, then 0, 0, 0
+                                    // the game's times hit_ambient. rows[0]'s a: how many of these the faces' pictures hold;
+                                    // rows[1]'s a: how many times more light a hit surface reflects, strength above 1
+        uint32_t counts[4];         // samples a pixel, the bounces, then 0, 0
     };
     static_assert(sizeof(GatherConstants) == 112);
 
     // The gather's constants: the sun's color and shading direction, zero with no sun; the ambient fit's rows times
-    // hit_ambient; and the samples.
-    GatherConstants gather_constants(const GatherSettings &settings, const SunLight &sun, const AmbientFit &ambient);
+    // hit_ambient; the samples and the bounces. faces_ambient is the share of the game's ambient light the faces' pictures hold,
+    // ambient.level, which the traced and the raster ambient share.
+    GatherConstants gather_constants(const GatherSettings &settings, const SunLight &sun, const AmbientFit &ambient, float faces_ambient = 0);
+
+    // shaders/gather_cs.hlsl's cbuffer GatherFaces at b2: the cameras of core/light.h's FaceLights, which the gather's hits
+    // take the game's light from, 576 bytes.
+    struct GatherFaces
+    {
+        float rows[kFaceCount][4][4];   // each face's scene_to_clip
+        float w[kFaceCount][4];         // each face's depth_to_w
+        uint32_t info[4];               // the faces, their width and their height, 0
+    };
+    static_assert(sizeof(GatherFaces) == 576);
+
+    // The first kFaceCount faces' cameras; all zero for none.
+    GatherFaces gather_faces(const std::vector<FaceLight> &faces);
 
     // shaders/gather.cbuffer.hlsli's GatherApply at b2, which the gather's draws read: 176 bytes.
     struct GatherApplyConstants
@@ -125,6 +196,13 @@ namespace enhancements
     uint32_t next_chunk(uint32_t measured, double measured_ms);
 
     // What the samples depend on: a change to any of it starts them again.
+    // The cbuffer Reflect at b4, shaders/reflect.hlsli's reflect_params: what scales roughness, how much brighter light sources
+    // get. All zeros while the shot keeps the game's reflections.
+    struct ReflectConstants
+    {
+        float params[4] = {};
+    };
+    ReflectConstants reflect_constants(const ReflectSettings &settings);
     struct TraceKey
     {
         uint64_t generation = 0;    // the scene's
@@ -136,18 +214,23 @@ namespace enhancements
         // With the gather on: its sun color and shading direction, and its ambient rows times hit_ambient; all 0 while off.
         bool gather = false;
         std::array<float, 20> light {};
+        uint32_t bounces = 0;
+        float faces_ambient = 0;
+        float surface = 0;
+        GatherLights lights {};     // the traced lights; any change starts the samples again
+        ReflectConstants reflect;   // and the reflections'
     };
     // gather is null while the gather is off, or its scene has no light.
     TraceKey trace_key(uint64_t generation, Size render, const Camera &camera, const Vec3 &toward_sun, const TraceSettings &settings,
-        const GatherConstants *gather = nullptr);
+        const GatherConstants *gather = nullptr, const GatherLights &lights = {}, const ReflectConstants &reflect = {});
 
     // Why a frame's samples start again, ENHANCEMENTS_TRACE_RESTART_*: the first of these that holds. A new scene, which a
     // scene's first samples are too; another render size; a setting the rays depend on, which is the ao distance, the sun
     // size, the casters, the gather switched on or off, or the hit's share of the ambient light, which scales the
     // gather's ambient rows; a camera matrix element differing by more than 1e-6 of the matrix's largest; the direction
     // toward the sun, the shadows' or the gather's shading direction, differing by more than 1e-5; or the gather's sun
-    // color differing by more than 1e-5. before is the key the samples started with, not the last frame's, so a slow
-    // drift starts them again once it has gone that far.
+    // color differing by more than 1e-5, or any change of the traced lights. before is the key the samples started with,
+    // not the last frame's, so a slow drift starts them again once it has gone that far.
     enum class TraceRestart : uint8_t { none, scene, render, settings, camera, sun_direction, light, count };
     extern const std::array<const char *, static_cast<size_t>(TraceRestart::count)> kTraceRestartNames;
     TraceRestart trace_restart(const TraceKey &before, const TraceKey &now);
@@ -204,6 +287,10 @@ namespace enhancements
     // than 5% met the scene off the depth buffer by more than max(0.05 m, 1%), or not at all, out of at least 32.
     bool consistency_stale(uint64_t tested, uint64_t off);
 
+    // During a traced shot the game is paused and the camera held, so the world cannot move: the grid then shows only what
+    // the capture missed, which costs the shot little, and the scene goes stale only past half of its rays off.
+    bool shot_consistency_stale(uint64_t tested, uint64_t off);
+
     // What the compute shader adds into its counters buffer (u1), in this order: rays, guard stops, stack overflows, grid
     // rays and those off, then for each GridClass its grid rays and those off by GridSlot.
     enum class TraceCounter : uint8_t { rays, guard, overflow, tested, off, grid };
@@ -218,9 +305,9 @@ namespace enhancements
         return static_cast<uint32_t>(TraceCounter::grid) + static_cast<uint32_t>(c) * kGridSlots + static_cast<uint32_t>(s);
     }
     // What the gather kernel adds into the same buffer after them, in this order: rays, guard stops, stack overflows, hits
-    // by core/light.h's AlbedoSource, and the sums of each sample's distance from its pixel's mean and of that mean, in
-    // luminance, in 1 / kNoiseUnits.
-    enum class GatherCounter : uint8_t { rays, guard, overflow, direct, covered, material, class_mean, deviation, mean, count };
+    // by core/light.h's AlbedoSource and hits a face's lit picture showed, and the sums of each sample's distance from its
+    // pixel's mean and of that mean, in luminance, in 1 / kNoiseUnits.
+    enum class GatherCounter : uint8_t { rays, guard, overflow, direct, covered, material, class_mean, face, deviation, mean, count };
     constexpr uint32_t kGatherCounters = static_cast<uint32_t>(GatherCounter::count);
     constexpr uint32_t kAllCounters = kTraceCounters + kGatherCounters;
     constexpr uint32_t gather_counter(GatherCounter c) { return kTraceCounters + static_cast<uint32_t>(c); }
@@ -245,6 +332,7 @@ namespace enhancements
         std::vector<float> depth;
         std::vector<uint32_t> normals;
         std::vector<uint8_t> stencil;
+        std::vector<uint8_t> smoothness, material;  // for reflect_pixel: G-buffer rt4 and rt3 as stored
     };
 
     // One pixel's work in one dispatch, as the compute shader does it: on a world pixel with depth, one occlusion ray when
@@ -254,11 +342,13 @@ namespace enhancements
     struct PixelTrace
     {
         std::array<float, 4> history {};
+        std::array<float, 4> lights {};     // each traced light's visibility sum
         bool world = false;
         std::array<uint32_t, kTraceCounters> counters {};
     };
     PixelTrace trace_pixel(const Bvh &bvh, const TraceImage &image, const TraceConstants &constants, uint32_t x, uint32_t y,
-        const std::array<float, 4> &history, const std::vector<uint32_t> *alpha = nullptr);
+        const std::array<float, 4> &history, const std::vector<uint32_t> *alpha = nullptr, const GatherLights *lights = nullptr,
+        const std::array<float, 4> &light_sums = {});
 
     // shaders/trace.hlsli's ray generator, compiled as C++: the pixel's seed, the index-th point of its R2 sequence for
     // salt (0 occlusion, 1 sun), a cosine-weighted direction around a unit normal, and a direction in the cone around a unit
@@ -268,8 +358,9 @@ namespace enhancements
 
     // One pixel's work in one gather dispatch, as shaders/gather_cs.hlsl does it: on a world pixel with fewer than
     // gather.counts[0] samples, the next sample, added to history's occlusion sum and count and to hit or sky, the sums of
-    // shaders/gather_cs.hlsl's two buffers. sky is core/light.h's SkyMap::texels. The sample's own light and the counters
-    // the kernel's group adds are in sample and counters, the noise sums in 1 / 4096.
+    // shaders/gather_cs.hlsl's two buffers. sky is core/light.h's SkyMap::texels, and faces its SceneLight::faces, whose
+    // pictures light the hits they show; none lights none. The sample's own light and the counters the kernel's group
+    // adds are in sample and counters, the noise sums in 1 / 4096.
     struct GatherPixel
     {
         std::array<float, 4> history {}, hit {}, sky {};
@@ -281,12 +372,38 @@ namespace enhancements
     };
     GatherPixel gather_pixel(const Bvh &bvh, const TraceImage &image, const TraceConstants &constants, const GatherConstants &gather,
         const std::vector<float> &sky, uint32_t x, uint32_t y, const std::array<float, 4> &history, const std::array<float, 4> &hit,
-        const std::array<float, 4> &sky_sums, const std::vector<uint32_t> *alpha = nullptr);
+        const std::array<float, 4> &sky_sums, const std::vector<uint32_t> *alpha = nullptr, const std::vector<FaceLight> *faces = nullptr,
+        const GatherLights *lights = nullptr);
+
+    // How much a light source must outshine the view's mean luminance before it counts as one: windows and lanterns at the
+    // indoor test spot reach 6 to 20 times its mean, and sunlit snow by day 1.5 times.
+    constexpr float kSourceOverMean = 6;
+
+    // One sample of a pixel's reflection, as the reflection kernel takes it; sum is its light summed and its samples, and
+    // comes back with this sample added. world is false for a pixel that keeps the game's reflections.
+    struct ReflectPixel
+    {
+        std::array<float, 4> sum {};
+        bool world = false;
+        uint32_t rays = 0, guard = 0;
+    };
+    ReflectPixel reflect_pixel(const Bvh &bvh, const TraceImage &image, const TraceConstants &constants, const GatherConstants &gather,
+        const ReflectConstants &reflect, const std::vector<float> &sky, uint32_t x, uint32_t y, const std::array<float, 4> &sum,
+        const std::vector<uint32_t> *alpha = nullptr, const std::vector<FaceLight> *faces = nullptr, const GatherLights *lights = nullptr);
 
     // shaders/gather.hlsli's sky_texel_of: the sky map's texel a direction reads.
     uint32_t sky_texel(const Vec3 &direction);
     // Its albedo_of: a light word's albedo, as the kernel reads it.
     Vec3 kernel_albedo(uint32_t light);
+    // shaders/gather.hlsli's source_gain_of: how much brighter a light source of that luminance gets.
+    float kernel_source_gain(float seen, float gain, float above);
+    // shaders/reflect_common.hlsli's reflect_roughness_of.
+    float kernel_reflect_roughness(float smoothness, float keep);
+
+    // Its hdr_rgb_of: an R11G11B10_FLOAT value as the kernel reads a face's picture.
+    Vec3 kernel_hdr_rgb(uint32_t stored);
+    // Its face_light_of: the game's light at q, in the scene's frame, from the first of faces that shows it; empty when none does.
+    std::optional<Vec3> kernel_face_light(const std::vector<FaceLight> &faces, const Vec3 &q);
     Vec3 cosine_direction(const Vec3 &normal, const std::array<float, 2> &u);
     Vec3 cone_direction(const Vec3 &axis, float cos_max, const std::array<float, 2> &u);
 }

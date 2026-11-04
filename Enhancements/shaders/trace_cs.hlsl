@@ -2,8 +2,8 @@
 // tile_list at trace_tiles.x + SV_GroupID.y, wrapping at trace_tiles.y. Each traced pixel adds one sample of each of
 // its rays to its history (trace.hlsli), and each group adds its rays, guard stops, stack overflows and consistency
 // checks, by stencil class and reason, into counters. A triangle with an alpha record counts only where its coverage mask
-// (alpha_mask.hlsli) keeps the hit, when the caster classes ask for it. Registers stay inside gpu.h's ranges: t0-t6, u0-u1,
-// b0.
+// (alpha_mask.hlsli) keeps the hit, when the caster classes ask for it. With each sun sample, each traced light gets a ray
+// too, its visibility summed into light_history. Registers stay inside gpu.h's ranges: t0-t6, u0-u1 and u4, b0 and b3.
 
 cbuffer Trace : register(b0)
 {
@@ -16,6 +16,12 @@ cbuffer Trace : register(b0)
     uint4 trace_render;
 };
 
+cbuffer GatherLights : register(b3)
+{
+    float4 light_rows[16];      // core/trace.h's GatherLights: four rows a traced light
+    uint4 light_info;           // x: the lights
+};
+
 ByteAddressBuffer nodes : register(t0);         // core/bvh.h's BvhNode, 64 bytes each
 ByteAddressBuffer triangles : register(t1);     // core/bvh.h's BvhTriangle, 48 bytes each
 Texture2D<float4> normals : register(t2);       // mirror of G-buffer rt0, world normal * 0.5 + 0.5
@@ -25,6 +31,7 @@ ByteAddressBuffer tile_list : register(t5);     // core/trace.h's tile_order, x 
 ByteAddressBuffer alpha : register(t6);         // core/alpha_bake.h's mask buffer: each alpha triangle's record, and the masks
 RWStructuredBuffer<float4> history : register(u0);  // per pixel, row by row: occlusion sum, sun sum, their counts
 RWStructuredBuffer<uint> counters : register(u1);   // core/trace.h's TraceCounter order
+RWStructuredBuffer<float4> light_history : register(u4);    // per pixel: each traced light's visibility sum
 
 groupshared uint stack_lds[64 * 24];
 
@@ -54,10 +61,15 @@ void main(uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID, uint lane :
     if (pixel.x < int(trace_render.x) && pixel.y < int(trace_render.y))
     {
         uint at = uint(pixel.y) * trace_render.x + uint(pixel.x);
-        PixelTraceData r = trace_pixel_of(pixel, history[at], lane);
+        float4 lights = float4(0.0f, 0.0f, 0.0f, 0.0f);
+        if (light_info.x > 0u)
+            lights = light_history[at];
+        PixelTraceData r = trace_pixel_of(pixel, history[at], lights, lane);
         if (r.world != 0u)
         {
             history[at] = r.history;
+            if (light_info.x > 0u)
+                light_history[at] = r.lights;
             InterlockedAdd(group_counts[0], r.rays);
             InterlockedAdd(group_counts[1], r.guard);
             InterlockedAdd(group_counts[2], r.overflow);

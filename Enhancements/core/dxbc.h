@@ -69,4 +69,8 @@ namespace enhancements
     // start to start + count - 1 counted from the element's first, as DXVK reads an entry. Otherwise empty, with missing
     // naming the entry, such as "TEXCOORD4.w": DXVK skips an entry it cannot find, and its stride would hold garbage.
     std::optional<SoDeclaration> so_declaration(const OutputSignature &signature, const std::vector<SoEntry> &extra, std::string &missing);
+
+    // extra, entries of a domain shader's signature, as shaders/stream_attributes_gs.hlsl's outputs: each element's register
+    // as ATTR<register>, its components counted from x. Empty when an entry names no element, or one outside registers 1 to 7.
+    std::optional<std::vector<SoEntry>> attribute_entries(const OutputSignature &domain, const std::vector<SoEntry> &extra);
 }

@@ -340,7 +340,7 @@ namespace CameraTools
             float now = Time.unscaledTime;
             var bridge = ReShade.Status;
             // A runtime that ReShade created again for the new size may come back with its switch off.
-            if (bridge.Runtime == 1 && bridge.EffectsEnabled == 0)
+            if (bridge.Runtime == 1 && bridge.EffectsEnabled == 0 && !EnhancementsShot.HoldsEffectsOff)
                 ReShade.SetEffects(true);
             if (CameraUi.OnScreen)
             {
@@ -393,11 +393,15 @@ namespace CameraTools
                     + $"{now - settling.Since:0.0} s of them waiting after the countdown; window {Window}; {bridge}.");
                 return;
             }
-            float timeout = traced ? EnhancementsShot.Timeout : loading ? LoadTimeout : SettleTimeout;
-            float since = traced || loading ? settling.Since : Math.Max(settling.Since, settling.Loading);
-            if (now - since < timeout || (traced && EnhancementsShot.SaveAsIs()))
+            // A traced shot captures and traces for as long as it takes: unpausing the game cancels it. Its own conditions
+            // have their usual time from the phase they began in.
+            if (traced && EnhancementsShot.Busy)
                 return;
-            string waited = (traced ? EnhancementsShot.Waiting : null) ?? unmet.Name;
+            float timeout = loading ? LoadTimeout : SettleTimeout;
+            float since = traced ? Math.Max(settling.Since, EnhancementsShot.PhaseBegan) : loading ? settling.Since : Math.Max(settling.Since, settling.Loading);
+            if (now - since < timeout)
+                return;
+            string waited = unmet.Name;
             Finish(settling, $"Screenshot failed: timed out waiting for {waited}",
                 $"timed out after {timeout:0} s waiting for {waited}; window {Window}; {bridge}");
         }

@@ -537,7 +537,7 @@ namespace enhancements
             }
             if (rows > kAlphaStaticRows)
             {
-                why = "more than 64 constant rows";
+                why = "more than " + std::to_string(kAlphaStaticRows) + " constant rows";
                 return std::nullopt;
             }
             if (!s.dynamic.empty())

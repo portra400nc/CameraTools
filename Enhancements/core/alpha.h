@@ -61,11 +61,14 @@ namespace enhancements
     constexpr uint32_t kAlphaInputFloats = 12;      // interpolated floats, in 3 registers after the temporaries
     constexpr uint32_t kAlphaMaxCode = 48;          // instructions
     constexpr uint32_t kAlphaMaxLiterals = 16;
-    constexpr uint32_t kAlphaStaticRows = 64;       // rows of the static ranges together
+    constexpr uint32_t kAlphaStaticRows = 128;      // rows of the static ranges together: the ropes' shaders span 67
     constexpr uint32_t kAlphaDynamicRows = 4096;    // 64 KB, the most a constant buffer holds
     constexpr uint8_t kNoSlot = 0xFF;
     constexpr uint32_t kAtlasTile = 256;            // texels a side of an atlas tile
     constexpr uint32_t kNoTile = 0xFFFFu;
+    // In a draw's address modes, above their 6 bits: its tile comes from a smaller mip than the texture's own, so an alpha
+    // bake treats a hole in it as partly covered texels (core/alpha_bake.cpp).
+    constexpr uint32_t kAlphaShrunkTile = 1u << 6;
 
     // shaders/alpha.hlsli's operations, which core/kernel.cpp checks against its kOp numbers. Those up to sample take float
     // sources, whose modifiers negate and take the absolute value as floats; and to utof take integer sources.

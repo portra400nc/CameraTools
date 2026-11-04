@@ -31,7 +31,7 @@ namespace CameraTools
     // What a traced scene was captured with, which says whether a later shot may trace it again: the add-on's generation
     // of it, the free camera's position and the world's origin in scene coordinates, the World tab's weather, the pose's
     // revision, and the sky's light.
-    internal readonly record struct SceneFacts(uint Generation, Vec3 Camera, Vec3 Origin, int Weather, int Pose, SkyLight Light);
+    internal readonly record struct SceneFacts(uint Generation, Vec3 Camera, Vec3 Origin, int Weather, int Pose, SkyLight Light, int Lights = 0);
 
     internal enum ShotPhase
     {
@@ -39,12 +39,16 @@ namespace CameraTools
         Requesting, // the add-on is asked for a scene capture until it takes one
         Capturing,  // the camera turns through the faces, then the scene is built and sent to the GPU
         Tracing,    // the samples come in
+        Finishing,  // ReShade's effects, off while the shot captures and traces, come back and settle for the picture
         Done,       // the frame is drawn from all its samples, or at the timeout from enough of them
     }
 
     internal enum CaptureVerdict { Waiting, Ready, Failed }
 
     internal enum TraceVerdict { Waiting, Converged, Lost }
+
+    // A traced shot's notice: its line, the smaller line under it, and how far the bar is, from 0 to 1.
+    internal readonly record struct ShotProgress(string Title, string Detail, float Fraction);
 
     // The traced screenshot's decisions, apart from the game, ReShade and the add-on, so tests run them.
     internal static class TracedShot
@@ -61,20 +65,28 @@ namespace CameraTools
         public const float StillTimeout = 10f;
         // Presents every other condition holds before the scene is captured, so the render size has settled.
         public const ulong SettledPresents = 10;
-        public const float Timeout = 300f;
-        // After a timeout that saves the picture as it is, the wait left for the frames without the UI.
-        public const float PartialGrace = 30f;
-        // From this many samples a pixel shows its own average, not its neighbors' blur.
-        public const uint PartialSamples = 16;
-        // GPU time a frame for the shot's rays: nothing else needs the frames while it waits.
-        public const float BudgetMs = 100f;
+        // GPU time a frame for the shot's rays, the add-on's most: nothing else needs the frames while it waits, and each frame
+        // also costs the game's own, about 175 ms at 4K on the Deck, which took most of a shot at 100 ms a frame.
+        public const float BudgetMs = 2000f;
+        // How long ReShade's effects run again before the picture, for those that build up over frames.
+        public const float EffectsSettle = 1.5f;
+        // The Bounce strength row: 1 is the physical amount for the game's colors, and the default makes up for Genshin's
+        // painted colors being darker than real materials.
+        public const float DefaultBounceStrength = 3f, MaxBounceStrength = 4f;
+        public const int DefaultBounces = 4, MaxBounces = 15;
+        public const float DefaultSurfaceGloss = 0.5f, DefaultReflectedLight = 16f, MaxReflectedLight = 32f;
         // Starts without a sample after which the wait says what keeps changing.
         public const uint StalledStarts = 8;
+        // A trace with no sample after this long is not running at all: the add-on's plan skips it, and it would wait forever.
+        public const float NoSampleTimeout = 60f;
         public const uint Faces = 7;
+        // Presents each turned face is held before its capture, against the add-on's 45. The camera only turns, so nothing
+        // streams in: at 6, a Deck capture matched one at 45 in depth and in the lit pictures of every surface, and only the
+        // sun's halo, which the default sky mix does not read, was still fading in.
+        public const uint FaceSettle = 8;
         // Every face by name, EnhancementsSceneRequest.Faces' bits: with none named, a traced capture is the add-on's self-test
         // scene.
         public const uint AllFaces = (1u << (int)Faces) - 1;
-        private const uint TracePass = 1u << 7;
 
         // Why the kept scene cannot serve this shot, or null when it can. The game has stayed paused since its capture,
         // or it would have been released.
@@ -93,6 +105,8 @@ namespace CameraTools
                 return "the weather was changed";
             if (now.Pose != kept.Pose)
                 return "the pose was changed";
+            if (now.Lights != kept.Lights)
+                return "the lights were changed";
             if (!now.Light.Near(kept.Light, ReuseTolerance))
                 return "the sky's light changed";
             return null;
@@ -147,29 +161,40 @@ namespace CameraTools
             _ => "the samples keep starting again",
         };
 
-        // The notice shown while a phase waits, or null for none.
-        public static string Progress(ShotPhase phase, EnhancementsStatus status, bool stalled) => phase switch
+        // The notice shown while a phase waits, or null for none. elapsed: seconds since the trace began. The bar runs
+        // through the capture to 0.15, the build to 0.25 and the samples to 1, near each part's share of a Deck shot.
+        public static ShotProgress? Progress(ShotPhase phase, EnhancementsStatus status, bool stalled, float elapsed) => phase switch
         {
-            ShotPhase.Requesting => "Capturing the scene",
-            ShotPhase.Capturing => status.SceneRemaining > 0 ? $"Capturing the scene {Math.Min(Faces - Math.Min(status.SceneRemaining, Faces) + 1, Faces)}/{Faces}"
-                : status.TraceState == EnhancementsTraceState.Uploading ? "Sending the scene to the GPU"
-                : "Building the scene",
-            ShotPhase.Tracing => stalled ? $"Lighting: {Changing(status.TraceRestartReason)}"
-                : $"Lighting {Math.Min(status.TraceSamples, status.TraceTarget)}/{status.TraceTarget}",
+            ShotPhase.Requesting => new ShotProgress("Capturing the scene", Cancel, 0f),
+            ShotPhase.Capturing when status.SceneRemaining > 0 => Turning(Faces - Math.Min(status.SceneRemaining, Faces)),
+            ShotPhase.Capturing => new ShotProgress(status.TraceState == EnhancementsTraceState.Uploading ? "Sending the scene to the GPU" : "Building the scene",
+                status.TraceTriangles > 0 ? $"{status.TraceTriangles / 1e6f:0.0} million triangles" : Cancel, 0.2f),
+            ShotPhase.Tracing when stalled => new ShotProgress("Tracing the light", $"{Sentence(Changing(status.TraceRestartReason))}. {Cancel}", 0.25f),
+            ShotPhase.Tracing => Tracing(Math.Min(status.TraceSamples, status.TraceTarget), status.TraceTarget, elapsed),
+            ShotPhase.Finishing => new ShotProgress("Finishing the picture", Cancel, 1f),
             _ => null,
         };
 
-        // What a traced shot waits for, to complete "timed out waiting for ...", or null while it waits for the
-        // screenshot's own conditions.
-        public static string Waiting(ShotPhase phase, EnhancementsStatus status, bool stalled) => phase switch
+        private const string Cancel = "Unpause the game to cancel";
+
+        private static ShotProgress Turning(uint done)
+            => new("Capturing the scene", $"Turning the camera, {Math.Min(done + 1, Faces)} of {Faces} directions", 0.15f * done / Faces);
+
+        // Before the add-on names its target, the line has no count.
+        private static ShotProgress Tracing(uint samples, uint target, float elapsed)
+            => new(target == 0 ? "Tracing the light" : $"Tracing the light, {samples} of {target} samples", (TimeLeft(samples, target, elapsed) is { } left ? $"{left}. " : "") + Cancel,
+                0.25f + 0.75f * samples / Math.Max(target, 1u));
+
+        // From the samples so far, or null before the first.
+        public static string TimeLeft(uint samples, uint target, float elapsed)
         {
-            ShotPhase.Requesting => "the Enhancements add-on to take a scene capture",
-            ShotPhase.Capturing => "the Enhancements scene to be captured (" + (status.SceneRemaining > 0 ? $"{status.SceneRemaining} of {Faces} directions left"
-                : status.TraceState.ToString().ToLowerInvariant()) + ")",
-            ShotPhase.Tracing => $"the lighting to converge ({status.TraceSamples} of {status.TraceTarget} samples"
-                + (stalled ? $"; {Changing(status.TraceRestartReason)}, {status.TraceRestarts} starts" : "") + ")",
-            _ => null,
-        };
+            if (samples == 0 || elapsed <= 0f)
+                return null;
+            float left = elapsed / samples * (target - Math.Min(samples, target));
+            return left >= 90f ? $"About {MathF.Round(left / 60f):0} minutes left" : left >= 45f ? "About a minute left" : "Less than a minute left";
+        }
+
+        private static string Sentence(string words) => words.Length == 0 ? words : char.ToUpperInvariant(words[0]) + words[1..];
 
         // Why the add-on's last scene capture stopped, from its status line, or null when the line does not say.
         public static string Stopped(string line)
@@ -182,11 +207,5 @@ namespace CameraTools
             int end = why.IndexOf(';');
             return end < 0 ? why : why[..end];
         }
-
-        // At the timeout: a shot whose frame the trace pass draws from at least PartialSamples samples a pixel is saved as
-        // it is. Any other has no traced lighting to show and fails.
-        public static bool SaveAsIs(ShotPhase phase, uint generation, EnhancementsStatus status)
-            => phase == ShotPhase.Tracing && status.TraceState == EnhancementsTraceState.Ready && status.TraceGeneration == generation && status.ShotActive != 0
-                && (status.PassesRan & TracePass) != 0 && status.TraceSamples >= PartialSamples;
     }
 }

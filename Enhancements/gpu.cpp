@@ -639,9 +639,11 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kShaftsPs, sizeof kShaftsPs, nullptr, &made.shafts_ps_))
             && SUCCEEDED(device->CreatePixelShader(kLightShaftsPs, sizeof kLightShaftsPs, nullptr, &made.light_shafts_ps_))
             && SUCCEEDED(device->CreatePixelShader(kApplyTracePs, sizeof kApplyTracePs, nullptr, &made.apply_trace_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kTracedLightsPs, sizeof kTracedLightsPs, nullptr, &made.traced_lights_ps_))
             && SUCCEEDED(device->CreatePixelShader(kGatherAveragePs, sizeof kGatherAveragePs, nullptr, &made.gather_average_ps_))
             && SUCCEEDED(device->CreatePixelShader(kGatherFilterPs, sizeof kGatherFilterPs, nullptr, &made.gather_filter_ps_))
             && SUCCEEDED(device->CreatePixelShader(kApplyGatherPs, sizeof kApplyGatherPs, nullptr, &made.apply_gather_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kReflectApplyPs, sizeof kReflectApplyPs, nullptr, &made.reflect_apply_ps_))
             && SUCCEEDED(device->CreatePixelShader(kDofFocusPs, sizeof kDofFocusPs, nullptr, &made.dof_focus_ps_))
             && SUCCEEDED(device->CreatePixelShader(kDofPrefilterPs, sizeof kDofPrefilterPs, nullptr, &made.dof_prefilter_ps_))
             && SUCCEEDED(device->CreatePixelShader(kDofTilesPs, sizeof kDofTilesPs, nullptr, &made.dof_tiles_ps_))
@@ -767,15 +769,26 @@ namespace enhancements
         const Camera &camera, bool flip, View view, const TraceSave *save, bool &saved, TraceGpu &trace)
     {
         saved = false;
-        const Texture &mask = *map[Entry::shadow_mask], &irradiance = *map[Entry::ambient_diffuse];
-        const auto mask_format = static_cast<DXGI_FORMAT>(mask.format), irradiance_format = static_cast<DXGI_FORMAT>(irradiance.format);
+        const std::optional<Texture> &mask = map[Entry::shadow_mask];
+        const Texture &irradiance = *map[Entry::ambient_diffuse];
+        const auto irradiance_format = static_cast<DXGI_FORMAT>(irradiance.format);
         const GatherView shown = frame.gathering ? gather_view(view) : GatherView::none;
         ID3D11Device *d = device_.Get();
         Constants constants;
-        if (!shadow_mask_in_.sync(d, native(mask), mask_format, false) || !shadow_mask_out_.sync(d, native(mask), mask_format, true)
+        if ((mask && (!shadow_mask_in_.sync(d, native(*mask), static_cast<DXGI_FORMAT>(mask->format), false)
+                || !shadow_mask_out_.sync(d, native(*mask), static_cast<DXGI_FORMAT>(mask->format), true)))
             || !irradiance_in_.sync(d, native(irradiance), irradiance_format, false) || !irradiance_out_.sync(d, native(irradiance), irradiance_format, true)
             || (view == View::trace && !trace_view_.sync(d, map.render, DXGI_FORMAT_R8G8B8A8_UNORM)) || !pass_constants(camera, map.render, flip, constants)
             || !mirror_gbuffer(map))
+            return std::nullopt;
+        const std::optional<Texture> &probes = map[Entry::ambient_specular], &smoothness = map[Entry::smoothness], &material = map[Entry::material_id];
+        const bool reflecting = frame.reflecting && probes && smoothness && material;
+        if (reflecting
+            && (!reflection_in_.sync(d, native(*probes), static_cast<DXGI_FORMAT>(probes->format), false)
+                || !reflection_out_.sync(d, native(*probes), static_cast<DXGI_FORMAT>(probes->format), true)
+                || !smoothness_in_.sync(d, native(*smoothness), static_cast<DXGI_FORMAT>(smoothness->format), false)
+                || !smoothness_out_.sync(d, native(*smoothness), static_cast<DXGI_FORMAT>(smoothness->format), true)
+                || !material_id_.sync(d, native(*material), static_cast<DXGI_FORMAT>(material->format), false)))
             return std::nullopt;
         if (frame.gathering
             && (!gather_bounce_.sync(d, map.render, DXGI_FORMAT_R16G16B16A16_FLOAT) || !gather_sky_.sync(d, map.render, DXGI_FORMAT_R16G16B16A16_FLOAT)
@@ -785,20 +798,28 @@ namespace enhancements
             return std::nullopt;
         upload(constants);
         ID3D11DeviceContext1 *c = context_.Get();
-        shadow_mask_in_.copy_from(c, native(mask));
+        if (mask)
+            shadow_mask_in_.copy_from(c, native(*mask));
         irradiance_in_.copy_from(c, native(irradiance));
-        if (!trace.dispatch(frame, map.render, normals_.srv(), depth_.srv(), depth_.stencil_srv()))
+        if (reflecting)
+        {
+            reflection_in_.copy_from(c, native(*probes));
+            smoothness_in_.copy_from(c, native(*smoothness));
+            material_id_.copy_from(c, native(*material));
+        }
+        if (!trace.dispatch(frame, map.render, normals_.srv(), depth_.srv(), depth_.stencil_srv(), reflecting ? smoothness_in_.srv() : nullptr,
+                reflecting ? material_id_.srv() : nullptr))
             return std::nullopt;
 
         // The sun's visibility only where there is a sun to be visible; without one the game's mask stays. While it gathers
         // the occlusion is the gather's, written by its own draws below.
-        const bool write_sun = frame.traced && settings.sun && frame.constants.sun_cone[3] > 0;
+        const bool write_sun = mask && frame.traced && settings.sun && frame.constants.sun_cone[3] > 0;
         const bool write_ao = frame.traced && settings.ao && !frame.gathering, write_gather = frame.traced && settings.ao && frame.gathering;
         ID3D11Buffer *const traced[] = { trace.constants() };
         c->PSSetConstantBuffers(1, 1, traced);
         if (write_sun || write_ao || view == View::trace)
         {
-            ID3D11ShaderResourceView *const srvs[] = { shadow_mask_in_.srv(), normals_.srv(), depth_.srv(), depth_.stencil_srv(), nullptr, trace.history_srv(),
+            ID3D11ShaderResourceView *const srvs[] = { mask ? shadow_mask_in_.srv() : nullptr, normals_.srv(), depth_.srv(), depth_.stencil_srv(), nullptr, trace.history_srv(),
                 irradiance_in_.srv() };
             ID3D11RenderTargetView *const targets[] = { write_sun ? shadow_mask_out_.rtv() : nullptr, write_ao ? irradiance_out_.rtv() : nullptr,
                 view == View::trace ? trace_view_.rtv() : nullptr };
@@ -853,11 +874,26 @@ namespace enhancements
             ID3D11ShaderResourceView *const none[kSrvSlots] = {};
             c->PSSetShaderResources(0, kSrvSlots, none);
         }
+        if (reflecting && frame.traced)
+        {
+            ID3D11Buffer *const own[] = { trace.reflect_constants() };
+            c->PSSetConstantBuffers(4, 1, own);
+            ID3D11ShaderResourceView *const srvs[] = { trace.reflect_sum_srv(), reflection_in_.srv(), smoothness_in_.srv(), depth_.stencil_srv() };
+            ID3D11RenderTargetView *const targets[] = { reflection_out_.rtv(), smoothness_out_.rtv() };
+            draw_fullscreen(reflect_apply_ps_.Get(), srvs, 4, targets, 2, map.render);
+            ID3D11ShaderResourceView *const none[kSrvSlots] = {};
+            c->PSSetShaderResources(0, kSrvSlots, none);
+            reflection_out_.copy_to(c, native(*probes));
+            smoothness_out_.copy_to(c, native(*smoothness));
+        }
         gather_drawn_ = shown != GatherView::none;
         if (write_sun)
-            shadow_mask_out_.copy_to(c, native(mask));
+            shadow_mask_out_.copy_to(c, native(*mask));
         if (write_ao || write_gather)
             irradiance_out_.copy_to(c, native(irradiance));
+        // The traced lights' pass reads the albedo at the bloom step, after whatever the game drew over it.
+        if (frame.traced && frame.lights.info[0] != 0 && map[Entry::albedo] && albedo_.sync(d, native(*map[Entry::albedo]), static_cast<DXGI_FORMAT>(map[Entry::albedo]->format), false))
+            albedo_.copy_from(c, native(*map[Entry::albedo]));
         if (save && frame.traced)
         {
             // The view's albedo, for the Mac's predictions and its checks of the light.
@@ -865,8 +901,18 @@ namespace enhancements
             const bool albedo_copied = albedo && albedo_.sync(d, native(*albedo), static_cast<DXGI_FORMAT>(albedo->format), false);
             if (albedo_copied)
                 albedo_.copy_from(c, native(*albedo));
-            saved = trace.copy_for_save(*save, normals_.texture(), depth_.texture(), shadow_mask_in_.texture(), irradiance_in_.texture(),
+            saved = trace.copy_for_save(*save, normals_.texture(), depth_.texture(), mask ? shadow_mask_in_.texture() : nullptr, irradiance_in_.texture(),
                 albedo_copied ? albedo_.texture() : nullptr, (write_ao || write_gather) ? irradiance_out_.texture() : irradiance_in_.texture());
+            if (saved)
+            {
+                const auto texture_of = [&](Entry entry) -> ID3D11Texture2D * {
+                    const std::optional<Texture> &t = map[entry];
+                    return t ? static_cast<ID3D11Texture2D *>(native(*t)) : nullptr;
+                };
+                // Reflections changed the game's: the save holds them as they were.
+                trace.copy_gloss_for_save(texture_of(Entry::specular), reflecting ? smoothness_in_.texture() : texture_of(Entry::smoothness), texture_of(Entry::material_id),
+                    reflecting ? reflection_in_.texture() : texture_of(Entry::ambient_specular));
+            }
         }
         return GameCall::keep;
     }
@@ -1154,6 +1200,28 @@ namespace enhancements
         depth_.copy_from(c, native(depth));
         ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), nullptr, depth_.srv() };
         draw_fullscreen(atmosphere_ps_.Get(), srvs, 3, scene_out_.rtv(), map.render);
+        scene_out_.copy_to(c, native(scene));
+        return GameCall::keep;
+    }
+
+    std::optional<GameCall> Gpu::run_traced_lights(const FrameMap &map, const Camera &camera, bool flip, TraceGpu &trace)
+    {
+        const Texture &scene = *map[Entry::hdr_scene];
+        const auto scene_format = static_cast<DXGI_FORMAT>(scene.format);
+        ID3D11Device *d = device_.Get();
+        Constants constants;
+        if (!scene_in_.sync(d, native(scene), scene_format, false) || !scene_out_.sync(d, native(scene), scene_format, true)
+            || !pass_constants(camera, map.render, flip, constants) || !trace.light_history_srv())
+            return std::nullopt;
+        upload(constants);
+        ID3D11DeviceContext1 *c = context_.Get();
+        scene_in_.copy_from(c, native(scene));
+        ID3D11Buffer *const traced[] = { trace.constants() }, *const lights[] = { trace.lights_constants() };
+        c->PSSetConstantBuffers(1, 1, traced);
+        c->PSSetConstantBuffers(3, 1, lights);
+        ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), normals_.srv(), depth_.srv(), depth_.stencil_srv(), nullptr, albedo_.srv(), trace.history_srv(),
+            trace.light_history_srv() };
+        draw_fullscreen(traced_lights_ps_.Get(), srvs, 8, scene_out_.rtv(), map.render);
         scene_out_.copy_to(c, native(scene));
         return GameCall::keep;
     }

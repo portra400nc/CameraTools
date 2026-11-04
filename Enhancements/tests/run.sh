@@ -6,15 +6,47 @@
 # the melonloader workspace's .work/build/reshade/vkd3d/vkd3d-compiler in a folder above this one), check_kernel_size.py
 # holds the compiled trace kernel to build 203's size. When it finds build 199's whole deduplicated scene
 # (ENHANCEMENTS_TRACE_DATA, or .work/photoreal/tracer/scene-194351-tris.bin in a folder above this one), it also runs
-# check_bvh.sh on it.
+# check_bvh.sh on it. The core compiles once, optimized, and the tests run side by side. The checks over saved frames and
+# the scene run only when their tool's code, arguments or inputs changed since their last pass; FULL=1 runs them all.
 set -e
 cd "$(dirname "$0")"
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
+jobs=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
+# The core compiles once, optimized and in parallel, and every test and tool links it: each used to compile all of it again,
+# one after another, and dof_test ran 313 s unoptimized against 13 s optimized.
+flags="-std=c++17 -O2 -pthread -Wall -Wextra -Werror -I .."
+mkdir "$out/core"
+ls ../core/*.cpp fixture.cpp | xargs -P "$jobs" -I {} sh -c 'c++ $1 -c "$2" -o "$3/core/$(basename "$2" .cpp).o"' _ "$flags" {} "$out"
+mv "$out/core/fixture.o" "$out/fixture.o"
+ls *_test.cpp | sed 's/\.cpp$//' | xargs -P "$jobs" -I {} sh -c 'c++ $1 "$2.cpp" "$3/fixture.o" "$3"/core/*.o -o "$3/$2"' _ "$flags" {} "$out"
+# The tools link only the code they reach, so a tool's binary changes only when that code does.
+strip=
+[ "$(uname)" = Darwin ] && strip=-Wl,-dead_strip
+for tool in render_dof render_flare trace_reference bake_light check_bvh frame_dng; do echo "$tool"; done \
+    | xargs -P "$jobs" -I {} sh -c 'c++ $1 $4 "$2.cpp" "$3"/core/*.o -o "$3/$2"' _ "$flags" {} "$out" "$strip"
+# A check that renders saved frames or a whole scene again runs only when its tool's binary, its arguments or its inputs
+# differ from those of its last pass, which ENHANCEMENTS_TEST_CACHE records. FULL=1 runs them all.
+cache=${ENHANCEMENTS_TEST_CACHE:-${TMPDIR:-/tmp}/enhancements-test-cache}
+mkdir -p "$cache"
+key=
+unchanged=0
+fresh() {
+    key=$( { shasum < "$1"; shift; for input in "$@"; do if [ -e "$input" ]; then ls -lRT "$input"; else echo "$input"; fi; done; } | shasum | cut -c1-40)
+    if [ "${FULL:-0}" != 1 ] && [ -f "$cache/$key" ]; then
+        unchanged=$((unchanged + 1))
+        return 1
+    fi
+}
+passed() { touch "$cache/$key"; }
+# The tests run side by side, each into its own log, which prints in order.
+ls *_test.cpp | sed 's/\.cpp$//' | xargs -P "$jobs" -I {} sh -c '"$2/$1" "$2" > "$2/$1.log" 2>&1; echo $? > "$2/$1.status"' _ {} "$out"
+failed=0
 for test in *_test.cpp; do
-    c++ -std=c++17 -Wall -Wextra -Werror -I .. "$test" fixture.cpp ../core/*.cpp -o "$out/${test%.cpp}"
-    "$out/${test%.cpp}" "$out"
+    cat "$out/${test%.cpp}.log"
+    [ "$(cat "$out/${test%.cpp}.status")" = 0 ] || failed=1
 done
+[ "$failed" = 0 ] || { echo "FAIL a test above failed"; exit 1; }
 python3 check_png.py "$out/roundtrip.png"
 # macOS's own raw decoder (sips, through ImageIO) must open the DNG writer's 320x200 ramp at its size.
 png_size='import struct, sys; d = open(sys.argv[1], "rb").read(); sys.exit(0 if d[12:24] == b"IHDR" + struct.pack(">II", int(sys.argv[2]), int(sys.argv[3])) else 1)'
@@ -45,14 +77,20 @@ echo "PASS render_flare draws the flare into a 1280x800 PNG"
 # the nearest visible background, so the profile fell 4.2 times a disc's steepest in one step along the depth's outline.
 # A farther plane in front of focus beside the nearer one must blur its own edge with its own disc: blurred with the
 # nearer plane's, as every surface in front of focus was by the largest disc around, it spread 3.9 times as wide.
-"$out/render_dof" --near-edge-check 0.05 > "$out/near-edge.txt" || { cat "$out/near-edge.txt"; echo "FAIL a blurred foreground's edge does not spread over the background like a disc's"; exit 1; }
+if fresh "$out/render_dof" near-edge 0.05; then
+    "$out/render_dof" --near-edge-check 0.05 > "$out/near-edge.txt" || { cat "$out/near-edge.txt"; echo "FAIL a blurred foreground's edge does not spread over the background like a disc's"; exit 1; }
+    passed
+fi
 echo "PASS a blurred foreground's edge spreads over a background in focus or in front of it like a disc's, with no line or step along it, and a farther one beside it blurs with its own disc"
 # A subject in focus over a background far out of focus, its outline anti-aliased as the game's SMAA or a supersampled shot
 # leave it: every pixel must come back as it went in, within 1% of the step between the two. The composite took a pixel
 # by its depth alone, so an outline pixel half the subject with the background's depth went into the blur, 48% off, and the
 # outline followed the depth's stair-steps; and the gather's filtered reads and the prefilter averaged the subject's light
 # into the background's blur, a halo up to 6.8% of the step around it.
-"$out/render_dof" --far-edge-check 0.01 0.01 > "$out/far-edge.txt" || { cat "$out/far-edge.txt"; echo "FAIL a subject in focus loses its anti-aliased outline or spreads a halo over the blurred background"; exit 1; }
+if fresh "$out/render_dof" far-edge 0.01 0.01; then
+    "$out/render_dof" --far-edge-check 0.01 0.01 > "$out/far-edge.txt" || { cat "$out/far-edge.txt"; echo "FAIL a subject in focus loses its anti-aliased outline or spreads a halo over the blurred background"; exit 1; }
+    passed
+fi
 echo "PASS a subject in focus keeps its anti-aliased outline over a blurred background, with no halo"
 # The workspace's saved frames (.work/dof/frames in a folder above this one). The night plaza, frame-20261024-145312:
 # rendered at chromatic 1 and f/1.4 focused on the subject and just behind it, with a long lens, every half-float target
@@ -73,19 +111,26 @@ while [ "$dir" != "/" ]; do
 done
 plaza=$frames/frame-20261024-145312
 if [ -n "$frames" ] && [ -f "$plaza/frame.tsv" ]; then
-    RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$plaza" "$out/plaza.png" f=1.4 chromatic=1 crop=0,0,8,8 > /dev/null
-    RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$plaza" "$out/plaza.png" f=1.4 chromatic=1 sensor=72 focus=2.25 max_blur=0.05 crop=0,0,8,8 > /dev/null
+    if fresh "$out/render_dof" "$plaza" render_dof.sh plaza; then
+        RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$plaza" "$out/plaza.png" f=1.4 chromatic=1 crop=0,0,8,8 > /dev/null
+        RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$plaza" "$out/plaza.png" f=1.4 chromatic=1 sensor=72 focus=2.25 max_blur=0.05 crop=0,0,8,8 > /dev/null
+        passed
+    fi
     echo "PASS render_dof keeps every half-float target finite on the night plaza at chromatic 1"
 else
     echo "SKIP the night plaza's chromatic render: no .work/dof/frames/frame-20261024-145312"
 fi
 portrait=$frames/frame-20261024-195721
-if [ -n "$frames" ] && [ -f "$portrait/frame.tsv" ]; then
+if [ -n "$frames" ] && [ -f "$portrait/frame.tsv" ] && ! fresh "$out/render_dof" "$portrait" portrait; then
+    echo "PASS chromatic aberration drops no channel and leaves no tile-sized hue jump on the portrait through 202 and 300 mm lenses"
+    echo "PASS the bokeh contrast leaves no step on the gather tiles' edges in the portrait through a 300 mm lens"
+elif [ -n "$frames" ] && [ -f "$portrait/frame.tsv" ]; then
     "$out/render_dof" --chromatic-check "$portrait" 0 sensor=22.95 > "$out/portrait.txt" || { cat "$out/portrait.txt"; echo "FAIL chromatic aberration broke the portrait through a 202 mm lens"; exit 1; }
     "$out/render_dof" --chromatic-check "$portrait" 0 mm=300 focus=2.713 > "$out/portrait-300.txt" || { cat "$out/portrait-300.txt"; echo "FAIL chromatic aberration broke the portrait through a 300 mm lens"; exit 1; }
     echo "PASS chromatic aberration drops no channel and leaves no tile-sized hue jump on the portrait through 202 and 300 mm lenses"
     "$out/render_dof" --seam-check "$portrait" 2 mm=300 focus=2.606 chromatic=0 > "$out/portrait-seam.txt" || { cat "$out/portrait-seam.txt"; echo "FAIL the bokeh contrast steps on the gather tiles' edges in the portrait through a 300 mm lens"; exit 1; }
     echo "PASS the bokeh contrast leaves no step on the gather tiles' edges in the portrait through a 300 mm lens"
+    passed
 else
     echo "SKIP the portrait's chromatic and seam checks: no .work/dof/frames/frame-20261024-195721"
 fi
@@ -95,9 +140,12 @@ fi
 # hides was cut by the cat's eye, and the post's own color showed through its blur in a step of 57 along its outline.
 railing=$frames/frame-20261029-143455
 if [ -n "$frames" ] && [ -f "$railing/frame.tsv" ]; then
-    RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$railing" "$out/railing.png" f=1.2 mm=51 focus=1170 max_blur=0.02 sa=0.5 chromatic=1 cat_eye=0.7 \
-        scatter=1 gain=4 threshold=1.5 samples=289 roundness=0.1 display=1 upscale=3 crop=2550,1360,400,340 near_steps=10 most_steps=20 > "$out/railing.txt" \
-        || { cat "$out/railing.txt"; echo "FAIL the railing's post steps inside its blur"; exit 1; }
+    if fresh "$out/render_dof" "$railing" render_dof.sh railing; then
+        RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$railing" "$out/railing.png" f=1.2 mm=51 focus=1170 max_blur=0.02 sa=0.5 chromatic=1 cat_eye=0.7 \
+            scatter=1 gain=4 threshold=1.5 samples=289 roundness=0.1 display=1 upscale=3 crop=2550,1360,400,340 near_steps=10 most_steps=20 > "$out/railing.txt" \
+            || { cat "$out/railing.txt"; echo "FAIL the railing's post steps inside its blur"; exit 1; }
+        passed
+    fi
     echo "PASS the railing's post blurs with no step inside its outline"
 else
     echo "SKIP the railing's post: no .work/dof/frames/frame-20261029-143455"
@@ -108,9 +156,12 @@ fi
 # background's detail in a ragged rim, 13.7 levels a step, up against its own blur just outside.
 meadow=$frames/frame-20261029-172626
 if [ -n "$frames" ] && [ -f "$meadow/frame.tsv" ]; then
-    RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$meadow" "$out/meadow.png" f=1.2 mm=77 focus=0 x=0.73 y=0.27 max_blur=0.02 sa=0.5 chromatic=1 \
-        cat_eye=0.7 scatter=1 gain=4 threshold=1.5 samples=289 roundness=0.1 display=1 upscale=3 crop=1950,1350,450,450 near_steps=2 most_steps=6 \
-        > "$out/meadow.txt" || { cat "$out/meadow.txt"; echo "FAIL the meadow's flower shows a ragged rim inside its blur"; exit 1; }
+    if fresh "$out/render_dof" "$meadow" render_dof.sh meadow; then
+        RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$meadow" "$out/meadow.png" f=1.2 mm=77 focus=0 x=0.73 y=0.27 max_blur=0.02 sa=0.5 chromatic=1 \
+            cat_eye=0.7 scatter=1 gain=4 threshold=1.5 samples=289 roundness=0.1 display=1 upscale=3 crop=1950,1350,450,450 near_steps=2 most_steps=6 \
+            > "$out/meadow.txt" || { cat "$out/meadow.txt"; echo "FAIL the meadow's flower shows a ragged rim inside its blur"; exit 1; }
+        passed
+    fi
     echo "PASS the meadow's flower blurs into the background behind it with no ragged rim"
 else
     echo "SKIP the meadow's flower: no .work/dof/frames/frame-20261029-172626"
@@ -123,9 +174,12 @@ fi
 # 20 levels a step.
 dusk=$frames/frame-20261029-182125
 if [ -n "$frames" ] && [ -f "$dusk/frame.tsv" ]; then
-    RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$dusk" "$out/dusk.png" f=1.2 mm=101 focus=57.12 max_blur=0.02 sa=0.5 chromatic=1 cat_eye=0.7 \
-        scatter=1 gain=4 threshold=1.5 samples=289 roundness=0.1 display=1 upscale=3 crop=1200,1300,600,350 near_steps=30 most_steps=10 \
-        > "$out/dusk.txt" || { cat "$out/dusk.txt"; echo "FAIL the dusk meadow's blurred foreground shows ragged layers"; exit 1; }
+    if fresh "$out/render_dof" "$dusk" render_dof.sh dusk; then
+        RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$dusk" "$out/dusk.png" f=1.2 mm=101 focus=57.12 max_blur=0.02 sa=0.5 chromatic=1 cat_eye=0.7 \
+            scatter=1 gain=4 threshold=1.5 samples=289 roundness=0.1 display=1 upscale=3 crop=1200,1300,600,350 near_steps=30 most_steps=10 \
+            > "$out/dusk.txt" || { cat "$out/dusk.txt"; echo "FAIL the dusk meadow's blurred foreground shows ragged layers"; exit 1; }
+        passed
+    fi
     echo "PASS the dusk meadow's blurred foreground blurs its layers into each other"
 else
     echo "SKIP the dusk meadow: no .work/dof/frames/frame-20261029-182125"
@@ -136,9 +190,12 @@ fi
 # right beside the blade and showed through it in shards, 32 levels a step.
 arm=$frames/frame-20261029-210604
 if [ -n "$frames" ] && [ -f "$arm/frame.tsv" ]; then
-    RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$arm" "$out/arm.png" f=1.2 mm=152 focus=5.6 max_blur=0.02 sa=0.5 chromatic=1 cat_eye=0.7 \
-        scatter=1 gain=4 threshold=1.5 samples=289 roundness=0.1 display=1 upscale=3 crop=1950,1250,300,400 near_steps=5 most_steps=26 \
-        > "$out/arm.txt" || { cat "$out/arm.txt"; echo "FAIL the background shows through the blurred grass over the arm in shards"; exit 1; }
+    if fresh "$out/render_dof" "$arm" render_dof.sh arm; then
+        RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$arm" "$out/arm.png" f=1.2 mm=152 focus=5.6 max_blur=0.02 sa=0.5 chromatic=1 cat_eye=0.7 \
+            scatter=1 gain=4 threshold=1.5 samples=289 roundness=0.1 display=1 upscale=3 crop=1950,1250,300,400 near_steps=5 most_steps=26 \
+            > "$out/arm.txt" || { cat "$out/arm.txt"; echo "FAIL the background shows through the blurred grass over the arm in shards"; exit 1; }
+        passed
+    fi
     echo "PASS the blurred grass over the arm shows the arm behind it, not the background in shards"
 else
     echo "SKIP the arm: no .work/dof/frames/frame-20261029-210604"
@@ -149,7 +206,6 @@ fi
 harbor=$frames/frame-20261024-134128
 prototype=${frames%/dof/frames}/dng/lightroom-test/harbor-exif.dng
 if [ -n "$frames" ] && [ -f "$harbor/frame.tsv" ] && [ -f "$prototype" ]; then
-    c++ -std=c++17 -O2 -Wall -Wextra -Werror -I .. frame_dng.cpp ../core/*.cpp -o "$out/frame_dng"
     "$out/frame_dng" "$harbor" "$out/harbor.dng" exif > /dev/null
     cmp -s "$out/harbor.dng" "$prototype" || { echo "FAIL frame_dng's DNG of the harbor differs from the prototype's compressed file"; exit 1; }
     echo "PASS frame_dng writes the harbor's DNG byte for byte as the prototype's compressed file"
@@ -182,7 +238,6 @@ fi
 python3 check_scene.py "$out/scene-synthetic"
 # The synthetic traced frame trace_test wrote: traced again by the reference tracer, which check_trace.py must find equal,
 # and a copy with a block of sun samples flipped, which it must refuse.
-c++ -std=c++17 -O2 -pthread -Wall -Wextra -Werror -I .. trace_reference.cpp ../core/*.cpp -o "$out/trace_reference"
 "$out/trace_reference" "$out/trace-synthetic"
 python3 check_trace.py "$out/trace-synthetic"
 "$out/trace_reference" "$out/trace-synthetic-broken" > "$out/broken.txt"
@@ -209,11 +264,11 @@ for broken in bounce-doubled misses-dropped sky-turned; do
 done
 # The synthetic light capture light_test wrote: its light baked again to the bit and reported on, and a copy whose view
 # face's albedo was brightened, which bake_light must find off.
-sh check_light.sh "$out/scene-light-synthetic" "$out/trace-light-synthetic"
+BAKE_LIGHT_BIN="$out/bake_light" sh check_light.sh "$out/scene-light-synthetic" "$out/trace-light-synthetic"
 cp -R "$out/scene-light-synthetic" "$out/scene-light-broken"
 python3 -c "import sys; p = sys.argv[1]; b = bytearray(open(p, 'rb').read()); b[0::4] = bytes(min(v + 40, 255) for v in b[0::4]); open(p, 'wb').write(b)" \
     "$out/scene-light-broken/face-6-albedo.rgba8"
-if sh check_light.sh "$out/scene-light-broken" > "$out/broken-light.txt" 2>&1; then
+if BAKE_LIGHT_BIN="$out/bake_light" sh check_light.sh "$out/scene-light-broken" > "$out/broken-light.txt" 2>&1; then
     echo "FAIL bake_light passed a capture whose view face's albedo was changed"
     exit 1
 fi
@@ -230,7 +285,13 @@ if [ -z "$data" ]; then
     done
 fi
 if [ -n "$data" ] && [ -f "$data" ]; then
-    sh check_bvh.sh "$data"
+    if fresh "$out/check_bvh" "$data" check_bvh.sh check_bvh.cpp; then
+        CHECK_BVH_BIN="$out/check_bvh" sh check_bvh.sh "$data"
+        passed
+    else
+        echo "PASS check_bvh.sh on $(basename "$data"), as at its last pass"
+    fi
 else
     echo "SKIP check_bvh.sh: no scene-194351-tris.bin (set ENHANCEMENTS_TRACE_DATA to run it)"
 fi
+[ "$unchanged" = 0 ] || echo "INFO $unchanged saved-frame and scene checks were unchanged since their last pass and did not run again (FULL=1 runs them)"

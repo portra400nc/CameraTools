@@ -232,8 +232,13 @@ namespace enhancements
             std::nth_element(order.begin(), order.begin() + static_cast<std::ptrdiff_t>(max_triangles), order.end());
             order.resize(max_triangles);
             std::sort(order.begin(), order.end(), [](const auto &a, const auto &b) { return a.second < b.second; });
+            double farthest = 0;
             for (const auto &o : order)
+            {
                 kept_index.push_back(o.second);
+                farthest = std::max(farthest, o.first);
+            }
+            counts_.kept_reach = std::sqrt(farthest);
             counts_.past_max = out.size() - kept_index.size();
         }
         std::vector<TraceTriangle> kept;

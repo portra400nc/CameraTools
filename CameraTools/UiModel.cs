@@ -680,16 +680,58 @@ namespace CameraTools
             new ActionRow("Take screenshot", Screenshot.Take, "Shoot", () => ReShade.Connected)
             {
                 Detail = () => !ReShade.Connected ? "Needs the ReShade bridge; see Effects"
-                    : LongExposure.Active ? $"Records {LongExposure.Current.ShutterLabel}, then saves" : "",
+                    : LongExposure.Active ? $"Records {LongExposure.Current.ShutterLabel}, then saves"
+                    : EnhancementsShot.Enabled && CameraToolsEnhancements.Enhancements.Connected ? "Traced, waits for the light" : "",
             },
             new ToggleRow("3-second countdown", () => Screenshot.Countdown, on => Screenshot.Countdown = on),
             // A long exposure decides the supersampling itself, so the switch shows that and leaves the preference alone.
             new ToggleRow("Supersampling", () => Supersampling.Enabled || LongExposure.Active, Supersampling.SetEnabled,
                 () => CameraToolsEnhancements.Enhancements.Connected && !LongExposure.Active)
             {
-                Detail = () => LongExposure.Active ? "Long exposure is always supersampled" : "",
+                Detail = () => LongExposure.Active ? "Long exposure is always supersampled"
+                    : EnhancementsShot.Enabled && Supersampling.Enabled ? "Not with Path traced lighting" : "",
             },
             new ToggleRow("Also save DNG", () => Screenshot.Dng, on => Screenshot.Dng = on, () => CameraToolsEnhancements.Enhancements.Connected),
+            new ToggleRow("Path traced lighting", () => EnhancementsShot.Enabled, on => EnhancementsShot.Enabled = on,
+                () => CameraToolsEnhancements.Enhancements.Connected)
+            {
+                Detail = () => "Pauses the game and traces the light before saving",
+            },
+            new SliderRow("Bounce strength", 0f, TracedShot.MaxBounceStrength, 0.1f, "0.0'×'", () => EnhancementsShot.BounceStrength,
+                value => EnhancementsShot.BounceStrength = value)
+            {
+                Sub = true,
+                Shown = () => EnhancementsShot.Enabled,
+            },
+            new SliderRow("Light bounces", 1f, TracedShot.MaxBounces, 1f, "0", () => EnhancementsShot.Bounces, value => EnhancementsShot.Bounces = (int)MathF.Round(value))
+            {
+                Sub = true,
+                Shown = () => EnhancementsShot.Enabled,
+            },
+            new ChoiceRow("Sun shadows", new[] { "Traced", "Game" }, () => EnhancementsShot.TracedSunShadows ? 0 : 1,
+                choice => EnhancementsShot.TracedSunShadows = choice == 0, null)
+            {
+                Sub = true,
+                Shown = () => EnhancementsShot.Enabled,
+                Detail = () => EnhancementsShot.TracedSunShadows ? "Sharp, from the traced scene" : "The game's own soft shadows",
+            },
+            new ChoiceRow("Reflections", new[] { "Traced", "Game" }, () => EnhancementsShot.TracedReflections ? 0 : 1,
+                choice => EnhancementsShot.TracedReflections = choice == 0, null)
+            {
+                Sub = true,
+                Shown = () => EnhancementsShot.Enabled,
+                Detail = () => EnhancementsShot.TracedReflections ? "Sharp where surfaces are smooth, adds time" : "The game's own soft reflections",
+            },
+            new SliderRow("Surface gloss", 0f, 1f, 0.05f, "0.00", () => EnhancementsShot.SurfaceGloss, value => EnhancementsShot.SurfaceGloss = value)
+            {
+                Sub = true,
+                Shown = () => EnhancementsShot.Enabled && EnhancementsShot.TracedReflections,
+            },
+            new SliderRow("Reflected light", 1f, TracedShot.MaxReflectedLight, 1f, "0'×'", () => EnhancementsShot.ReflectedLight, value => EnhancementsShot.ReflectedLight = value)
+            {
+                Sub = true,
+                Shown = () => EnhancementsShot.Enabled && EnhancementsShot.TracedReflections,
+            },
         }).ToArray());
 
         private static ToggleRow PathToggle(string label, Func<PathOptions, bool> get, Action<PathOptions, bool> set)

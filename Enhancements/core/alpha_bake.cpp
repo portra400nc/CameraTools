@@ -282,6 +282,8 @@ namespace enhancements
         }
 
 
+        constexpr float kHoleEdge = 0.2f;
+
         // Bakes one draw's triangles into out, at their places in the alpha triangles.
         void bake_group(const std::vector<uint32_t> &a, const Group &g, std::vector<Baked> &out, std::vector<BakeDraw> &draws, size_t index)
         {
@@ -290,6 +292,7 @@ namespace enhancements
             const uint32_t program = block < a.size() ? a[block] : 0;
             const uint32_t tile = block + 1 < a.size() ? a[block + 1] : kNoTile;
             const uint32_t p = programs_at + program;
+            const bool shrunk = block + 2 < a.size() && (a[block + 2] & kAlphaShrunkTile) != 0;
             BakeDraw &draw = draws[index];
             draw.program = program;
             // The whole draw falls back, whatever its triangles found so far.
@@ -356,7 +359,14 @@ namespace enhancements
                     if (k0 == k1)
                         v.first = k0 ? Verdict::always : Verdict::never;
                     else
+                    {
                         v = { k1 ? Verdict::raise : Verdict::lower, cutoff_of(r, kThird, kThird, k1, constant) };
+                        // A hole, such as the terrain's discard at 0.99: a smaller mip averages it with what surrounds it, so
+                        // little of it reaches its cutoff. Any texel it partly covers counts: on the Deck's terrain this left 4%
+                        // of the wrong hits that 0.99 gave, and no more rays passing surfaces the game shows.
+                        if (!k1 && shrunk && v.second > kHoleEdge)
+                            v.second = kHoleEdge;
+                    }
                     known = cache.emplace(std::move(key), v).first;
                 }
                 b.verdict = known->second.first;

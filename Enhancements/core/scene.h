@@ -127,7 +127,7 @@ namespace enhancements
         unsupported,    // core/alpha.cpp could not make a program of a discard: whole; draws.tsv says why
         no_bytecode,    // its pixel shader was created before the add-on loaded
         character,      // a character, which casts whole, or grass, which the trace leaves out
-        tessellated,    // shaders/stream_triangles_gs.hlsl streams it, which carries the position alone
+        tessellated,    // shaders/stream_attributes_gs.hlsl cannot carry its inputs: they are outside registers 1 to 7
         outputs,        // its vertex shader does not write an input the program reads
         constants,      // a constant buffer row the program reads is not bound, or the frame's 4 MB of rows are full
         texture,        // the texture it samples is not one 2D texture whose mip can be copied
@@ -167,7 +167,7 @@ namespace enhancements
         DrawSkip skip = DrawSkip::none;
         uint32_t query = 0;                 // its stream-output statistics query, for the shell
         // Replayed as a point list, one corner per stream-output primitive, so every corner of every triangle is written;
-        // false for a tessellated draw, whose triangles shaders/stream_triangles_gs.hlsl streams as three points each.
+        // false for a tessellated draw, whose geometry shader streams each triangle as three points.
         bool points = false;
         // Bytes a streamed corner: its SV_Position, then the inputs of its pixel shader's alpha program (core/alpha.h).
         uint32_t stride = kCornerBytes;
@@ -183,6 +183,7 @@ namespace enhancements
         // texture as the shader bound it, and where its constant rows (4 words each) start among the frame's.
         DrawAlpha alpha = DrawAlpha::none;
         std::shared_ptr<const AlphaAnalysis> analysis;
+        std::shared_ptr<const std::string> unsupported_code;    // the pixel shader's bytecode when alpha is unsupported
         uint32_t alpha_tile = kNoTile, alpha_address = 0;
         Texture alpha_texture {};
         uint64_t alpha_constants = 0;       // in words

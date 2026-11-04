@@ -102,6 +102,7 @@ namespace enhancements
             uint64_t dropped_equal_alone = 0;   // equal-depth copies with no earlier copy to replace
             uint64_t pre_only = 0;              // kept triangles only the depth prepass drew
             uint64_t past_max = 0;              // left out by take, the farthest first
+            double kept_reach = 0;              // with past_max: the farthest kept triangle's center from the reference
             uint64_t inherited = 0;             // equal-depth copies that kept the alpha test of the prepass copy they replaced
             uint64_t alpha = 0;                 // kept with an alpha record
             uint64_t alpha_past_max = 0;        // kept whole because the records would pass 64 MB

@@ -8,12 +8,11 @@ namespace CameraTools
     {
         // The traced lighting pauses the game, which leaves a long exposure nothing to record, so a long exposure goes
         // without. A long exposure averages over time and a traced shot over its own samples, so neither is supersampled
-        // here; the long exposure moves the camera within each pixel by itself. The traced lighting is shelved, so it has
-        // no DNG.
+        // here; the long exposure moves the camera within each pixel by itself.
         public static ShotKinds Of(bool longExposure, bool tracedWanted, bool supersampling, bool dng, bool enhancements)
         {
             bool traced = tracedWanted && !longExposure;
-            return new ShotKinds(traced, supersampling && enhancements && !traced && !longExposure, dng && enhancements && !traced);
+            return new ShotKinds(traced, supersampling && enhancements && !traced && !longExposure, dng && enhancements);
         }
     }
 

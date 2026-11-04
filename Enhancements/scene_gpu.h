@@ -186,7 +186,7 @@ namespace enhancements
         // The draw's alpha test before its replay: its pixel shader's analysis, then for a program the check of its
         // inputs against the vertex shader's outputs, the copy of its constant rows and its texture's tile. Sets the
         // record's alpha fields and, with a program, its stride and the entries to stream after the position.
-        void prepare_alpha(SceneDrawRecord &r, const std::optional<ShaderCode> &ps, const std::optional<ShaderCode> &source, bool tessellated,
+        void prepare_alpha(SceneDrawRecord &r, const std::optional<ShaderCode> &ps, const std::optional<ShaderCode> &source,
             std::vector<SoEntry> &extra);
         bool copy_constants(const AlphaProgram &program, SceneDrawRecord &r);
         DrawAlpha copy_texture(const AlphaProgram &program, SceneDrawRecord &r);

@@ -526,6 +526,19 @@ int main(int argc, char **argv)
             && why(trace_key(3, { 1920, 1200 }, camera, { 0, 1, 0 }, settings)) == "settings: the gather went off"
             && why(trace_key(3, { 1920, 1200 }, camera, { 0, 1, 0 }, settings, &fainter))
                 == "settings: the ambient light at a hit, its first row, went from (0.1, 0.2, 0.3) to (0.05, 0.1, 0.15)");
+        gather_settings.hit_ambient = 0.5f;
+        gather_settings.bounces = 4;
+        const GatherConstants farther = gather_constants(gather_settings, sun, fit);
+        check("another count of bounces starts the samples again", why(trace_key(3, { 1920, 1200 }, camera, { 0, 1, 0 }, settings, &farther))
+            == "settings: the bounces went from 1 to 4");
+        gather_settings.bounces = 1;
+        gather_settings.strength = 3;
+        const GatherConstants stronger = gather_constants(gather_settings, sun, fit);
+        gather_settings.strength = 0.5f;
+        const GatherConstants weaker = gather_constants(gather_settings, sun, fit);
+        check("a Bounce strength above 1 starts the samples again, and one below only scales the bounce",
+            why(trace_key(3, { 1920, 1200 }, camera, { 0, 1, 0 }, settings, &stronger)) == "settings: the bounce strength's surface gain went from 1 to 3"
+            && trace_restart(a, trace_key(3, { 1920, 1200 }, camera, { 0, 1, 0 }, settings, &weaker)) == TraceRestart::none);
         check("a moved camera", why(trace_key(3, { 1920, 1200 }, moved, { 0, 1, 0 }, settings, &light))
             == "camera: the camera moved: its view by up to 0.5 an element and its projection by up to 0");
         check("the shadows' sun turned a degree", why(trace_key(3, { 1920, 1200 }, camera, { 0, 0.9998477f, 0.0174524f }, settings, &light))
@@ -559,6 +572,7 @@ int main(int argc, char **argv)
         check("zero cascades give no sun, and a NaN origin no origin", !sun_facts(broken).toward_sun && !sun_facts(broken).floating_origin);
         check("the origin moves past 1 cm", !origin_moved({ 1, 2, 3 }, { 1.005f, 2, 3 }) && origin_moved({ 1, 2, 3 }, { 1.02f, 2, 3 }));
         check("the scene is stale past 5% of at least 32 rays off", !consistency_stale(31, 31) && !consistency_stale(100, 5) && consistency_stale(100, 6));
+        check("during a shot, only past half", !shot_consistency_stale(31, 31) && !shot_consistency_stale(100, 50) && shot_consistency_stale(100, 51));
     }
     {
         const Camera camera = looking_down();
@@ -631,6 +645,28 @@ int main(int argc, char **argv)
         const PixelTrace again = trace_pixel(bvh, image, c, 1, 3, open.history);
         check("a second dispatch adds the next sample of the sequence", near(again.history[0], open.history[0] + expected(1, 3, 1), 2e-4f)
             && again.history[1] == 2 && again.history[2] == 2 && again.history[3] == 2);
+        // Traced lights straight above pixel (1, 3), which lies beside the roof at (-1.25, 0, 0.25): one that reaches it and one
+        // that does not. The roof stands between the first and (6, 3).
+        const auto light_above = [](float range) {
+            EnhancementsShotLight l {};
+            l.position[0] = -1.25f;
+            l.position[1] = 3;
+            l.position[2] = 0.25f;
+            l.range = range;
+            l.color[0] = l.color[1] = l.color[2] = 1;
+            l.cos_outer = l.cos_inner = -2;
+            return l;
+        };
+        const EnhancementsShotLight raw_lights[] = { light_above(8), light_above(1) };
+        const GatherLights above = gather_lights(parse_trace_lights(raw_lights, 2), { 0, 0, 0 });
+        const PixelTrace seen = trace_pixel(bvh, image, c, 1, 3, { 0, 0, 0, 0 }, nullptr, &above);
+        check("a pixel in the open sees a traced light, and one out of range counts as seen, each with a ray",
+            seen.lights[0] == 1 && seen.lights[1] == 1 && seen.lights[2] == 0 && seen.counters[0] == open.counters[0] + 2);
+        const PixelTrace shaded = trace_pixel(bvh, image, c, 6, 3, { 0, 0, 0, 0 }, nullptr, &above);
+        check("the roof hides the light from a pixel under it, and the sums add to those given", shaded.lights[0] == 0 && shaded.lights[1] == 1
+            && trace_pixel(bvh, image, c, 1, 3, seen.history, nullptr, &above, seen.lights).lights[0] == 2);
+        const PixelTrace sun_done = trace_pixel(bvh, image, c, 1, 3, { 0, 0, 0, 1e9f }, nullptr, &above);
+        check("once the sun has its samples, the lights take no more", sun_done.lights[0] == 0 && sun_done.lights[1] == 0);
         const PixelTrace grid = trace_pixel(bvh, image, c, 0, 0, { 0, 0, 0, 0 });
         const auto grid_counts = [](const PixelTrace &p) {
             return std::vector<uint32_t>(p.counters.begin() + static_cast<long>(TraceCounter::grid), p.counters.end());
@@ -641,6 +677,11 @@ int main(int argc, char **argv)
         const PixelTrace missing = trace_pixel(roof_only, image, c, 0, 0, { 0, 0, 0, 0 });
         check("without the floor that ray finds nothing, and counts as off, of stencil 128, for meeting nothing", missing.counters[3] == 1
             && missing.counters[4] == 1 && grid_counts(missing) == std::vector<uint32_t> { 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 });
+        TraceConstants cut = c;
+        cut.eye_position[3] = 0.01f;
+        const PixelTrace past_reach = trace_pixel(roof_only, image, cut, 0, 0, { 0, 0, 0, 0 });
+        check("a scene cut to its nearest triangles tests nothing past their reach", past_reach.counters[3] == 0 && past_reach.counters[4] == 0
+            && grid_counts(past_reach) == std::vector<uint32_t>(12, 0));
         // The floor 0.5 m lower and higher, under a stencil-144 pixel and another world stencil's.
         const Bvh lower = build_bvh({ triangle({ -10, -0.5f, -10 }, { 10, -0.5f, -10 }, { 10, -0.5f, 10 }), triangle({ -10, -0.5f, -10 }, { 10, -0.5f, 10 }, { -10, -0.5f, 10 }) });
         const Bvh higher = build_bvh({ triangle({ -10, 0.5f, -10 }, { 10, 0.5f, -10 }, { 10, 0.5f, 10 }), triangle({ -10, 0.5f, -10 }, { 10, 0.5f, 10 }, { -10, 0.5f, 10 }) });
@@ -742,6 +783,31 @@ int main(int argc, char **argv)
             std::filesystem::file_size(std::filesystem::path(argv[1]) / "trace-synthetic" / "history.f32") == synthetic::kWidth * synthetic::kHeight * 16
                 && std::filesystem::exists(std::filesystem::path(argv[1]) / "scene-trace-synthetic" / "trace-scene.bin") && written.shadowed > 100
                 && written.card > 50 && written.holes > 50);
+    }
+    {
+        // The traced lights: a point, a spot whose direction and inner cosine need fixing, and ones that are left out.
+        const EnhancementsShotLight raw[] = {
+            { { 10, 231, -15 }, 8, { 2, 2, 1 }, -2, { 0, 0, 0 }, -2, {} },
+            { { 12, 233, -14 }, 11, { 5.3f, 3.0f, 1.0f }, 0.7f, { 0, -2, 0 }, 0.5f, {} },
+            { { NAN, 0, 0 }, 8, { 1, 1, 1 }, -2, { 0, 0, 0 }, -2, {} },
+            { { 0, 0, 0 }, 0, { 1, 1, 1 }, -2, { 0, 0, 0 }, -2, {} },
+            { { 0, 0, 0 }, 5, { 0, -1, NAN }, -2, { 0, 0, 0 }, -2, {} },
+            { { 1, 2, 3 }, 5, { 1, 1, 1 }, -2, { 0, 0, 0 }, -2, {} },
+            { { 4, 5, 6 }, 5, { 1, 1, 1 }, -2, { 0, 0, 0 }, -2, {} },
+            { { 7, 8, 9 }, 5, { 1, 1, 1 }, -2, { 0, 0, 0 }, -2, {} },
+        };
+        const std::vector<TraceLight> lights = parse_trace_lights(raw, 8);
+        check("the traced lights leave out a position that is not finite, no range and no light, and keep the first 4 of the rest",
+            lights.size() == 4 && lights[0].position[0] == 10.0 && lights[2].position[0] == 1.0 && lights[3].position[0] == 4.0);
+        check("a point light keeps cos_outer below -1, and a spot's direction is made unit and its inner cosine at least its outer",
+            lights[0].cos_outer < -1 && lights[1].cos_outer == 0.7f && lights[1].direction[1] == -1.0f && lights[1].cos_inner == 0.7f);
+        check("no lights, or a null pointer, are none", parse_trace_lights(raw, 0).empty() && parse_trace_lights(nullptr, 4).empty());
+        const GatherLights g = gather_lights(lights, Vec3d { 10, 230, -15 });
+        check("the lights' cbuffer: the position less the reference, the range, the color times intensity to the power 2.2, the cones, its luminance and the count",
+            g.rows[0][0][0] == 0.0f && g.rows[0][0][1] == 1.0f && g.rows[0][0][3] == 8.0f && std::abs(g.rows[0][1][0] - 4.5947f) < 1e-3f && g.rows[0][1][2] == 1.0f
+                && g.rows[1][1][3] == 0.7f && g.rows[1][2][1] == -1.0f && std::abs(g.rows[0][3][1] - (0.9278f * 4.5947f + 0.0722f)) < 1e-3f && g.info[0] == 4);
+        check("the traced light is 64 bytes, its reserved words at 48, and the version is 27", sizeof(EnhancementsShotLight) == 64
+            && offsetof(EnhancementsShotLight, reserved) == 48 && ENHANCEMENTS_VERSION == 27);
     }
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;

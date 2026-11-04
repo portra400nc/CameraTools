@@ -88,6 +88,11 @@ namespace enhancements
         Mailbox<AccumulateSettings> accumulate_box;
         Mailbox<SceneRequest> scene_box;
         Mailbox<ShotSettings> shot_box;
+        Mailbox<std::vector<TraceLight>> lights_box;
+        Mailbox<std::vector<::EnhancementsShotLight>> game_lights_box;
+        std::vector<::EnhancementsShotLight> game_lights;   // the render thread's newest of the box
+        float emitter_boost = 1;                            // emitter-boost.txt's at a shot's start, for tests
+        uint64_t game_lights_seen = 0;
 
         // The point EnhancementsDepthAt asks about and its answer, shared by the C# thread and the render thread.
         struct DepthAsk
@@ -101,6 +106,8 @@ namespace enhancements
         };
         // Presents without a call after which the point is forgotten and the add-on stops reading it.
         constexpr uint64_t kDepthForget = 60;
+        // Shadow-mask constants older than this many frames are a scene's that no longer draws a shadow mask.
+        constexpr uint64_t kFreshSunFrames = 30;
         std::mutex depth_mutex;
         DepthAsk depth_ask;
         // presents since the add-on loaded, for the C# thread's calls.
@@ -136,8 +143,9 @@ namespace enhancements
         Settings settings;                  // this frame's, set at present: the applied ones under the shot
         Settings applied;                   // EnhancementsApply's newest
         ShotSettings shot;                  // EnhancementsSetShot's newest
+        std::vector<TraceLight> shot_lights;    // EnhancementsSetShotLights' newest
         bool shot_frame = false;            // this frame runs with the shot
-        uint64_t settings_seen = 0, camera_seen = 0, compare_seen = 0, accumulate_seen = 0, scene_seen = 0, shot_seen = 0;
+        uint64_t settings_seen = 0, camera_seen = 0, compare_seen = 0, accumulate_seen = 0, scene_seen = 0, shot_seen = 0, lights_seen = 0;
         AccumulateSettings accumulate;      // this frame's, taken at present
         Accumulator accumulator;
         // The depth texel in flight: the point it answers, and the frame and camera it was copied with.
@@ -181,6 +189,9 @@ namespace enhancements
             bool self_test = false;                 // the self-test scene, which the depth buffer never shows
             std::shared_ptr<const SceneLight> light;    // an ENHANCEMENTS_SCENE_LIGHT capture's
             double light_seconds = 0;               // its bake
+            GameLightCounts game_lights;            // what its game lights' bake did
+            size_t game_light_count = 0;
+            double game_light_seconds = 0;
             uint64_t asked = 0;                     // trace_asked when its capture began
         };
         TraceScene trace_scene;
@@ -221,6 +232,7 @@ namespace enhancements
         std::string gather_sun_source;              // where the gather's sun came from at the last frame, for the log
         std::string trace_sun_source = "none";      // where the trace's sun came from at the last frame, for the log
         std::optional<SunCbuffers> sun_bytes;       // the newest shadow-mask constants read back
+        uint64_t sun_bytes_frame = 0;               // the frame they were read back at
         std::optional<Vec3> logged_origin;          // b1 row 10 as the log last said it
 
         // EnhancementsSaveTrace's request: set by the C# thread, cleared by the render thread once the frame is copied.
@@ -590,6 +602,14 @@ namespace enhancements
 
         bool camera_known() { return camera_age != UINT32_MAX; }
 
+        // The shadow-mask constants while the game still draws its shadow mask. At night it draws none, and constants
+        // from the day would give the night a day's sun and floating origin.
+        const std::optional<SunCbuffers> &fresh_sun()
+        {
+            static const std::optional<SunCbuffers> none;
+            return sun_bytes && frames - sun_bytes_frame <= kFreshSunFrames ? sun_bytes : none;
+        }
+
         Inputs inputs() { return { camera_known(), sun_frame, trace_gpu.state(), trace_traced }; }
 
         // The trace pass reads the game's sun direction and floating origin from the shadow-mask constants while it traces.
@@ -608,6 +628,7 @@ namespace enhancements
             {
                 sun_parse = parse_sun_shadows(*bytes);
                 sun_bytes = bytes;
+                sun_bytes_frame = frames;
             }
             sun_frame = sun_check(sun_parse, gpu.gather_sun(*map[Entry::sun_atlas], frames), map[Entry::sun_atlas]->size);
         }
@@ -708,9 +729,9 @@ namespace enhancements
                 return;
             Vec3 toward = { camera.toward_sun[0], camera.toward_sun[1], camera.toward_sun[2] };
             std::string source = toward == Vec3 {} ? "none" : "pushed";
-            if (sun_bytes)
+            if (const std::optional<SunCbuffers> &sun = fresh_sun())
             {
-                const SunFacts facts = sun_facts(*sun_bytes);
+                const SunFacts facts = sun_facts(*sun);
                 if (facts.toward_sun)
                 {
                     toward = *facts.toward_sun;
@@ -735,10 +756,12 @@ namespace enhancements
                     : std::string("nowhere: there is no sun")) + "; the pushed camera's is " + vec_text(pushed) + (source == "game" && pushed != Vec3 {} ? apart : "") + ".");
                 trace_sun_source = source;
             }
-            const std::optional<TraceConstants> constants = trace_constants(settings.trace, settings.ambient.level, camera, settings.flip, map.render,
+            std::optional<TraceConstants> constants = trace_constants(settings.trace, settings.ambient.level, camera, settings.flip, map.render,
                 trace_scene.reference, toward, static_cast<uint32_t>(trace_gpu.generation()));
             if (!constants)
                 return;
+            if (trace_scene.counts.past_max > 0)
+                constants->eye_position[3] = static_cast<float>(trace_scene.counts.kept_reach);
             // The gather over a scene with light: the sun as the game shades with it now, and the ambient light the scene
             // was built with.
             gather_without_light = settings.gather.enabled && !trace_gpu.light();
@@ -762,11 +785,16 @@ namespace enhancements
                         + vec_text(pushed_direction) + ".");
                     gather_sun_source = said;
                 }
-                gather = gather_constants(settings.gather, sun, trace_gpu.light()->ambient);
+                gather = gather_constants(settings.gather, sun, trace_gpu.light()->ambient, settings.ambient.level);
+                gather->shade[3] = emitter_boost;
+                gather->sun[3] = kSourceOverMean * trace_gpu.light()->view_mean;
             }
             const GatherConstants *gathered = gather ? &*gather : nullptr;
-            trace_frame = trace_gpu.preview(trace_key(trace_gpu.generation(), map.render, camera, toward, settings.trace, gathered), settings.trace, *constants,
-                settings.gather, gathered);
+            // A shot's traced lights, in the scene's frame; none outside a shot.
+            const GatherLights lights = gathered && shot_frame ? gather_lights(shot_lights, trace_scene.reference) : GatherLights {};
+            const ReflectConstants reflect = gathered ? reflect_constants(settings.reflect) : ReflectConstants {};
+            trace_frame = trace_gpu.preview(trace_key(trace_gpu.generation(), map.render, camera, toward, settings.trace, gathered, lights, reflect), settings.trace,
+                *constants, settings.gather, gathered, lights, reflect);
             trace_traced = trace_frame->traced;
         }
 
@@ -779,7 +807,7 @@ namespace enhancements
             s.level = settings.ambient.level;
             s.camera = camera;
             s.reference = trace_scene.reference;
-            s.sun = sun_bytes;
+            s.sun = fresh_sun();
             s.sun_source = trace_sun_source;
             s.floating_origin = trace_scene.floating_origin;
             s.scene = trace_scene.folder;
@@ -908,6 +936,11 @@ namespace enhancements
                         break;
                     case PassId::atmosphere:
                         call = gpu.run_atmosphere(map, settings.atmosphere, camera, settings.flip);
+                        break;
+                    case PassId::traced_lights:
+                        // Nothing to add before the trace has a sample at every pixel.
+                        call = trace_traced && trace_frame && trace_frame->lights.info[0] != 0 ? gpu.run_traced_lights(map, camera, settings.flip, trace_gpu)
+                            : std::optional<GameCall>(GameCall::keep);
                         break;
                     case PassId::light_shafts:
                         call = gpu.run_light_shafts(map, settings.light_shafts, camera, sun_parse.constants, settings.flip,
@@ -1083,7 +1116,8 @@ namespace enhancements
         // On the writer thread, after a traced scene's last face: writes its triangles and alpha programs to
         // trace-scene.bin in its folder, bakes the programs into the masks the trace kernel fetches (core/alpha_bake.h),
         // builds the triangles' BVH, and hands both to the render thread through trace_box. Never throws.
-        void build_trace(std::vector<TraceTriangle> triangles, std::vector<uint32_t> alpha, TraceScene scene, const fs::path &folder)
+        void build_trace(std::vector<TraceTriangle> triangles, std::vector<uint32_t> alpha, TraceScene scene, const fs::path &folder,
+            const std::vector<EnhancementsShotLight> &game_lights = {})
         {
             TraceBuilt built;
             try
@@ -1101,6 +1135,15 @@ namespace enhancements
                 const auto start = std::chrono::steady_clock::now();
                 Bvh bvh = build_bvh(triangles, BvhOptions {});
                 scene.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+                if (!game_lights.empty() && !bvh.nodes.empty())
+                {
+                    const auto baking = std::chrono::steady_clock::now();
+                    write_file(folder / "game-lights.bin", std::string(reinterpret_cast<const char *>(game_lights.data()), game_lights.size() * sizeof game_lights[0]));
+                    const std::vector<TraceLight> lights = parse_trace_lights(game_lights.data(), static_cast<uint32_t>(game_lights.size()), ENHANCEMENTS_MAX_GAME_LIGHTS);
+                    scene.game_lights = bake_game_lights(bvh, lights, scene.reference, built.alpha.get(), BvhOptions {}.tasks);
+                    scene.game_light_count = lights.size();
+                    scene.game_light_seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - baking).count();
+                }
                 if (bvh.nodes.empty())
                     built.error = "the scene holds no triangles to trace";
                 else
@@ -1138,8 +1181,8 @@ namespace enhancements
                 + folder.u8string() + ".");
             LightInputs inputs;
             inputs.combine = combine_read;
-            if (sun_bytes)
-                inputs.cascade = sun_facts(*sun_bytes).toward_sun;
+            if (const std::optional<SunCbuffers> &sun = fresh_sun())
+                inputs.cascade = sun_facts(*sun).toward_sun;
             inputs.pushed_sun_color = { camera.sun_color[0], camera.sun_color[1], camera.sun_color[2] };
             inputs.pushed_sun_direction = { camera.toward_sun[0], camera.toward_sun[1], camera.toward_sun[2] };
             worker.push([folder, scene, forward, light, inputs]() mutable {
@@ -1420,7 +1463,12 @@ namespace enhancements
             scene_count = static_cast<uint32_t>(run.schedule.order.size());
             scene_stopped.clear();
             log(reshade::log::level::info, "capturing the scene from " + std::to_string(scene_count) + " faces into " + folder->path.u8string() + ".");
-            worker.push([folder] { log_unwritten(begin_scene_folder(*folder)); });
+            worker.push([folder, shot = request.trace && !request.gbuffer] {
+                if (shot)
+                    if (const uint32_t removed = remove_old_shot_scenes(output_root(), folder->path))
+                        log(reshade::log::level::info, "removed " + std::to_string(removed) + " older traced shots' scene folders.");
+                log_unwritten(begin_scene_folder(*folder));
+            });
             if (request.trace)
             {
                 run.trace = std::make_shared<TraceBuild>();
@@ -1463,12 +1511,13 @@ namespace enhancements
                 const uint64_t cap = std::min<uint64_t>(run.schedule.request.max_triangles, trace_max_triangles);
                 LightInputs light;
                 light.combine = combine_read;
-                if (sun_bytes)
-                    light.cascade = sun_facts(*sun_bytes).toward_sun;
+                if (const std::optional<SunCbuffers> &sun = fresh_sun())
+                    light.cascade = sun_facts(*sun).toward_sun;
                 light.pushed_sun_color = { camera.sun_color[0], camera.sun_color[1], camera.sun_color[2] };
                 light.pushed_sun_direction = { camera.toward_sun[0], camera.toward_sun[1], camera.toward_sun[2] };
                 light.pushed_sky = { camera.sky_color[0], camera.sky_color[1], camera.sky_color[2] };
-                worker.push([this_build = run.trace, folder = run.folder->path, cap, light, asked = trace_asked] {
+                game_lights_box.take(game_lights, game_lights_seen);
+                worker.push([this_build = run.trace, folder = run.folder->path, cap, light, asked = trace_asked, game_lights = game_lights] {
                     TraceScene scene;
                     scene.asked = asked;
                     scene.folder = folder.filename().u8string();
@@ -1504,7 +1553,7 @@ namespace enhancements
                         return;
                     }
                     scene.counts = this_build->builder.counts();
-                    build_trace(std::move(triangles), std::move(alpha), std::move(scene), folder);
+                    build_trace(std::move(triangles), std::move(alpha), std::move(scene), folder, game_lights);
                 });
             }
             scene_gpu.end();
@@ -1618,6 +1667,17 @@ namespace enhancements
                     data.picture = picture->size;
                 }
                 log_unwritten(write_scene_face(*folder, data, request));
+                for (const SceneDrawRecord &record : data.records)
+                    if (record.unsupported_code)
+                    {
+                        const fs::path path = output_root() / ("alpha-" + shader_name(record.ps) + ".ps.dxbc");
+                        if (!fs::exists(path))
+                        {
+                            write_file(path, *record.unsupported_code);
+                            log(reshade::log::level::info, "saved pixel shader " + shader_name(record.ps) + ", whose alpha test the trace cannot run ("
+                                + record.analysis->why + "), as " + path.u8string() + ".");
+                        }
+                    }
                 if (trace)
                 {
                     try
@@ -1755,12 +1815,15 @@ namespace enhancements
                 log(reshade::log::level::info, "building a traced scene; the raster passes run meanwhile.");
                 break;
             case TraceState::uploading:
+                if (trace_scene.game_light_count != 0)
+                    log(reshade::log::level::info, "the game's " + std::to_string(trace_scene.game_light_count) + " lights are baked on " + std::to_string(trace_scene.game_lights.lit)
+                        + " triangles for the gather's hits no face shows, with " + std::to_string(trace_scene.game_lights.rays) + " shadow rays, in " + std::to_string(trace_scene.game_light_seconds) + " s.");
                 log(reshade::log::level::info, "the traced scene: " + std::to_string(trace_gpu.triangles()) + " triangles of " + std::to_string(c.in)
                     + " captured, or of the self-test scene when none were (" + std::to_string(c.unique) + " unique on the 1 mm grid, " + std::to_string(c.replaced) + " prepass or equal-depth copies "
                     "replaced by a main draw's, " + std::to_string(c.pre_only) + " drawn by the prepass alone, " + std::to_string(c.dropped_class)
                     + " of grass and " + std::to_string(c.dropped_no_depth) + " of draws that write no depth left out, " + std::to_string(c.dropped_equal_alone)
                     + " equal-depth copies without an earlier twin left out, " + std::to_string(c.dropped_degenerate) + " degenerate, " + std::to_string(c.past_max)
-                    + " farthest past the cap; " + std::to_string(c.alpha) + " alpha-tested, " + std::to_string(c.inherited) + " of them equal-depth copies with their prepass copy's test, "
+                    + " farthest past the cap" + (c.past_max > 0 ? " (the rest within " + std::to_string(int(c.kept_reach)) + " m)" : std::string()) + "; " + std::to_string(c.alpha) + " alpha-tested, " + std::to_string(c.inherited) + " of them equal-depth copies with their prepass copy's test, "
                     + std::to_string(c.alpha_past_max) + " whole past the alpha records' 64 MB; " + bake_summary(trace_scene) + "), a BVH of "
                     + std::to_string(trace_gpu.nodes()) + " nodes built in " + seconds + " s, hash " + hash + "; uploading " + megabytes(uint64_t(trace_gpu.nodes()) * sizeof(BvhNode) + uint64_t(trace_gpu.triangles())
                     * sizeof(BvhTriangle) + trace_gpu.alpha_bytes()) + " (" + megabytes(trace_gpu.alpha_bytes()) + " of alpha tests) a part of " + megabytes(kTraceUploadBytes)
@@ -1784,6 +1847,17 @@ namespace enhancements
                         light->sun.shade_source == LightSource::game ? "combine constants" : "pushed camera",
                         light->sun.why.empty() ? "" : (" (" + light->sun.why + ")").c_str(), vec_text(light->cascade).c_str(), trace_scene.folder.c_str());
                     log(reshade::log::level::info, line);
+                    uint64_t face_bytes = 0;
+                    std::string kept;
+                    for (const FaceLight &f : light->faces)
+                    {
+                        face_bytes += f.pixels.size() * 4;
+                        kept += (kept.empty() ? "" : ", ") + std::to_string(f.face);
+                    }
+                    log(light->faces.empty() ? reshade::log::level::warning : reshade::log::level::info, "the gather's hits take the game's light from "
+                        + (light->faces.empty() ? std::string("no face's picture") : std::to_string(light->faces.size()) + " faces' pictures (" + kept + ") at "
+                            + std::to_string(light->faces[0].size.width) + "x" + std::to_string(light->faces[0].size.height) + ", " + megabytes(face_bytes))
+                        + (light->faces_left_out.empty() ? std::string() : "; left out: " + light->faces_left_out) + ".");
                 }
                 break;
             case TraceState::ready:
@@ -2184,14 +2258,33 @@ namespace enhancements
             if (!capture)
             {
                 settings_box.take(applied, settings_seen);
+                if (lights_box.take(shot_lights, lights_seen))
+                {
+                    std::string said = "the traced shot's lights: " + std::to_string(shot_lights.size());
+                    for (const TraceLight &l : shot_lights)
+                    {
+                        char text[160];
+                        std::snprintf(text, sizeof text, "; %s at (%.2f, %.2f, %.2f), range %.1f, radiance (%.2f, %.2f, %.2f)", l.cos_outer < -1 ? "point" : "spot",
+                            l.position[0], l.position[1], l.position[2], l.range, l.radiance[0], l.radiance[1], l.radiance[2]);
+                        said += text;
+                    }
+                    log(reshade::log::level::info, said + ".");
+                }
+                {
+                    std::ifstream boost_file(output_root() / "emitter-boost.txt");
+                    float boost = 1;
+                    emitter_boost = boost_file >> boost && boost >= 1 ? boost : 1.0f;
+                }
                 if (shot_box.take(shot, shot_seen))
                     log(reshade::log::level::info, shot.active ? "a traced shot begins: the trace and the gather run over the applied settings"
                         + (applied.enabled ? std::string() : std::string(", whose master switch is off, so alone")) + ", " + (shot.samples != 0
                         ? std::to_string(shot.samples) : "the applied") + " samples within " + (shot.budget_ms != 0 ? std::to_string(int(shot.budget_ms)) + " ms"
                         : std::string("the applied budget")) + " a frame." : std::string("the traced shot ended; the applied settings run as before."));
                 settings = with_shot(applied, shot);
+                settings.traced_lights = shot.active && !shot_lights.empty();
             }
             shot_frame = !capture && shot.active;
+            trace_gpu.shot_consistency(shot_frame);
             if (camera_box.take(camera, camera_seen))
                 camera_age = 0;
             else if (camera_age != UINT32_MAX)
@@ -2362,6 +2455,17 @@ extern "C" void EnhancementsSetAccumulate(const EnhancementsAccumulate *raw)
     EnhancementsAccumulate copy {};
     std::memcpy(&copy, raw, std::min<size_t>(raw->size, sizeof copy));
     accumulate_box.put(parse_accumulate(copy));
+}
+
+extern "C" void EnhancementsSetShotLights(const EnhancementsShotLight *lights, uint32_t count)
+{
+    lights_box.put(parse_trace_lights(lights, count));
+}
+
+extern "C" void EnhancementsSetGameLights(const EnhancementsShotLight *lights, uint32_t count)
+{
+    game_lights_box.put(lights ? std::vector<EnhancementsShotLight>(lights, lights + std::min<uint32_t>(count, ENHANCEMENTS_MAX_GAME_LIGHTS))
+                               : std::vector<EnhancementsShotLight>{});
 }
 
 extern "C" void EnhancementsSetShot(const EnhancementsShot *raw)

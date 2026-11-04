@@ -80,6 +80,15 @@ namespace CameraTools
         public const float ToastHeight = 40f;
         public const int ToastPadding = 26;
         public const int ToastSize = 15;
+        // A traced shot's toast: a smaller line under the first, and a progress bar under both, as wide as the wider line.
+        public const int ToastDetailSize = 13;
+        public const float ToastTwoLines = 60f;
+        public const float ToastWithBar = 74f;
+        public const float ToastTitleY = 21f;
+        public const float ToastDetailY = 40f;
+        public const float ToastBarY = 56f;
+        public const float ToastBarHeight = 4f;
+        public const float ToastBarMinWidth = 240f;
 
         public const float FovX = 44f;
         public const float FovWidth = 22f;

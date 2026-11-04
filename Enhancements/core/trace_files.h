@@ -17,6 +17,7 @@ namespace enhancements
     {
         Size size;                          // the render size; every image below is size's pixels, top row first
         std::vector<float> history;         // 4 a pixel: occlusion sum, sun sum, occlusion count, sun count
+        std::vector<float> light_history;   // 4 a pixel: each traced light's visibility sum over the sun's samples; light-history.f32
         std::vector<float> depth;           // the stored reversed depth
         std::vector<uint8_t> stencil;
         std::vector<uint32_t> normals;      // R10G10B10A2_UNORM as stored
@@ -47,13 +48,21 @@ namespace enhancements
         bool gathering = false;
         GatherSettings gather;
         GatherConstants gather_constants {};
+        GatherLights lights {};             // the traced lights the gather took; lights.bin, none in saves from before T6
         std::vector<float> gather_hit, gather_sky;
         uint32_t target = 0;
         double error = 0;
         uint32_t light = 0;                 // kLightAlbedo and the rest
+        uint32_t light_faces = 0;           // the faces whose lit pictures the gather's hits read
         // The view's G-buffer albedo at the combine step (R8G8B8A8, sRGB), its HDR scene at the bloom step before any pass
         // of ours (R11G11B10_FLOAT), and the diffuse irradiance the trace pass wrote (R11G11B10_FLOAT), when copied.
         std::vector<uint8_t> albedo, hdr, irradiance_out;
+        // What the game's reflections are made of at the combine step, when copied: rt2's F0 (R8G8B8A8, sRGB), rt4's smoothness
+        // (R8), rt3's material id (R8) and the ambient pair's reflection buffer, 4 bytes a pixel.
+        std::vector<uint8_t> specular, smoothness, material, ambient_specular;
+        // The reflections' sums and their constants, when the trace reflected.
+        std::vector<float> reflect;
+        ReflectConstants reflect_constants;
     };
 
     // history.f32, depth.r32, stencil.r8, normals.r10g10b10a2, mask.r8g8 and irradiance.r11g11b10 (each when the save

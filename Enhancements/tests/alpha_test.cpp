@@ -125,8 +125,11 @@ int main()
         const AlphaAnalysis prepass = analyze("482d98462fb30496.ps.dxbc");
         check("482d9846 (the depth prepass's leaves): the leaf test with the normal's fade, at cb0 and cb1", prepass.program
             && rows(*prepass.program) == "cb0[5+1] cb1[11+5]");
+        const AlphaAnalysis net = analyze("a040e0e966bd562c.ps.dxbc");
+        check("a040e0e9 (a rope net): t0.w against cb1[3].y, its rows from 3 to 69", kinds(net) == "texture" && net.program
+            && rows(*net.program) == "cb1[3+67]");
         bool all_valid = true;
-        for (const AlphaAnalysis *a : { &leaves, &fade, &instanced, &culled, &grass, &facing, &cutoff, &prepass })
+        for (const AlphaAnalysis *a : { &leaves, &fade, &instanced, &culled, &grass, &facing, &cutoff, &prepass, &net })
             all_valid = all_valid && a->program && check_alpha_program(*a->program).empty();
         check("every census program checks: forward jumps within it, registers, destinations and literals in range", all_valid);
     }
@@ -468,6 +471,16 @@ int main()
             masks.counts.triangles[2] == 1 && masks.counts.triangles[0] == 3 && masks.counts.why == "a verdict that changes more than once with the sample"
                 && (triangles[0].info & kOpaque) == kOpaque && masks.counts.records == 3 && masks.counts.masks == 1 && complement
                 && std::fabs(as_float(masks.words[kMaskHeaderWords + 1]) - 0.4f) < 1e-6f && same == points);
+        {
+            AlphaBuffer shrunk;
+            std::vector<TraceTriangle> holes(2);
+            holes[0].info = triangle_info(TraceClass::world, shrunk.add_record(shrunk.add_draw(shrunk.add_program(low), 0, address(kClamp), {}), uv, 2));
+            holes[1].info = triangle_info(TraceClass::world, shrunk.add_record(shrunk.add_draw(shrunk.add_program(low), 0, address(kClamp) | kAlphaShrunkTile, {}), uv, 2));
+            const AlphaMasks hole = bake_alpha(shrunk.words(atlas), holes);
+            check("a hole at 0.6 holds as it is on a tile at the texture's own size, and reaches 0.2 on a smaller mip; both keep what is clear of it",
+                alpha_mask_keeps(hole.words, 0, 0.3f, 0.3f) && !alpha_mask_keeps(hole.words, 1, 0.3f, 0.3f) && alpha_mask_keeps(hole.words, 0, 0.1f, 0.3f)
+                    && alpha_mask_keeps(hole.words, 1, 0.1f, 0.3f) && !alpha_mask_keeps(hole.words, 0, 0.7f, 0.2f));
+        }
         std::string why;
         check("before a draw: both programs exact, as they read nothing but the sample", bake_class(*band, why) == BakeClass::exact
             && bake_class(*low, why) == BakeClass::exact && why.empty());

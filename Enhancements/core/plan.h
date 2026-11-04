@@ -5,6 +5,7 @@
 #include "recipe.h"
 #include "sun.h"
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -122,6 +123,14 @@ namespace enhancements
     enum class GatherSky : uint8_t { occlusion, visibility, weighted, map, count };   // ENHANCEMENTS_GATHER_SKY_*
     extern const std::array<const char *, static_cast<size_t>(GatherSky::count)> kGatherSkyNames;
 
+    // A traced shot's reflections.
+    struct ReflectSettings
+    {
+        bool enabled = false;
+        float gloss = 0.5f;         // roughness times 1 - gloss
+        float reflected_light = 16; // how much brighter light sources are in reflections
+    };
+
     // EnhancementsGather's.
     struct GatherSettings
     {
@@ -131,8 +140,9 @@ namespace enhancements
         uint32_t samples = 64;
         GatherSky sky = GatherSky::visibility;
         uint32_t filter = 2;
-        float strength = 1.0f;
+        float strength = 1.0f;     // up to 1 scales the bounce; above, the hit surfaces reflect that many times more
         float hit_ambient = 0.5f;
+        uint32_t bounces = 1;
     };
 
     enum class DofPlace : uint8_t { scene, display, count };   // ENHANCEMENTS_DOF_PLACE_*
@@ -200,6 +210,7 @@ namespace enhancements
         bool enabled = false;
         View view = View::off;
         bool flip = true;
+        bool traced_lights = false;     // a traced shot has lights: the shell sets it, from EnhancementsSetShotLights
         AmbientSettings ambient;
         ContactShadowSettings contact_shadows;
         AtmosphereSettings atmosphere;
@@ -209,6 +220,7 @@ namespace enhancements
         LightShaftSettings light_shafts;
         TraceSettings trace;
         GatherSettings gather;
+        ReflectSettings reflect;    // only a shot's
         DepthOfFieldSettings depth_of_field;
         FlareSettings flare;
     };
@@ -261,21 +273,33 @@ namespace enhancements
     // clamps the rest. A gain of 0 or below is the default too, so a caller that zeroes the struct gets plain averaging.
     AccumulateSettings parse_accumulate(const EnhancementsAccumulate &raw);
 
+    // EnhancementsShot.outputs as TraceSettings' ao and sun.
+    struct ShotOutputs
+    {
+        bool ao = true, sun = true;
+    };
+
     // The domain form of EnhancementsShot. Built only by parse_shot, so every value in it is in range.
     struct ShotSettings
     {
         bool active = false;
         uint32_t samples = 0;       // 0: the applied gather's
         float budget_ms = 0;        // 0: the applied trace's
+        std::optional<float> strength;  // none: the applied gather's
+        std::optional<ShotOutputs> outputs; // none: the applied trace's
+        ReflectSettings reflect;
+        uint32_t bounces = 1;
     };
 
-    // Honors size like parse_settings. A null pointer is no shot. samples clamps to 4096 and budget_ms to 2..200; 0, and a
-    // budget that is not finite, keep the applied one.
+    // Honors size like parse_settings. A null pointer is no shot. samples clamps to 4096, budget_ms to 2..2000 and strength
+    // to 0..4. Samples or a budget of 0, a budget that is not finite, a strength that is not finite or not given, and
+    // outputs of 0 or not given keep the applied one.
     ShotSettings parse_shot(const EnhancementsShot *raw);
 
     // The settings a frame runs with: the applied ones, and while a shot is active, with the trace and the gather on and
-    // the shot's samples and budget where it gives them. Under a master switch that is off the shot runs alone: the
-    // master switch on, every other pass and the view off, and the passes' values as applied, the ambient level among them.
+    // the shot's samples, budget, bounce strength and outputs where it gives them. Under a master switch that is off the shot runs
+    // alone: the master switch on, every other pass and the view off, and the passes' values as applied, the ambient level
+    // among them.
     Settings with_shot(const Settings &applied, const ShotSettings &shot);
 
     // The wetness the wetness pass applies: the setting's while it is above 0, else the weather's from the camera.
@@ -321,7 +345,7 @@ namespace enhancements
     enum class GameCall : bool { keep, skip };
 
     // The ENHANCEMENTS_PASS_* bit order, not the run order.
-    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, wetness, light_shafts, trace, depth_of_field, lens_flare, count };
+    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, wetness, light_shafts, trace, depth_of_field, lens_flare, traced_lights, count };
 
     // ENHANCEMENTS_TRACE_STATE_*: where the traced scene the trace pass needs is. The names follow in kTraceStateNames.
     enum class TraceState : uint8_t { none, building, uploading, ready, stale, failed, count };

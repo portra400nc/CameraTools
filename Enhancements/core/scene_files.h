@@ -102,6 +102,10 @@ namespace enhancements
     // Creates the folder and writes scene.mtl. Returns the names of the files that could not be written.
     std::vector<std::string> begin_scene_folder(const SceneFolder &folder);
 
+    // Removes the scene folders under root other than keep that a traced shot left behind: those with a draws.tsv and
+    // without the view's stencil, which only a capture saved for the Mac (request.gbuffer) writes. Returns how many it removed.
+    uint32_t remove_old_shot_scenes(const std::filesystem::path &root, const std::filesystem::path &keep);
+
     // Writes the face's mesh (PLY when request.ply, none when request.no_meshes), half-size picture, depth, raw stream
     // when request.raw, the shadow-mask draw's b0 to b3 as they were read back when there were any (face-N-sun.bin, 2224
     // bytes), and with request.gbuffer the G-buffer copies it holds (face-N-stencil.r8, face-N-normals.r10g10b10a2,

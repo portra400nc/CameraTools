@@ -27,7 +27,7 @@ float3 main(float4 position : SV_Position) : SV_Target0
     float4 bounce = bounce_in.Load(int3(pixel, 0));
     float4 sky = sky_in.Load(int3(pixel, 0));
     float level = trace_params.w;
-    float strength = gather_apply.x;
+    float strength = gather_apply.x;    // gather.strength up to 1: above, the gather brightened its hits
     float own = gather_modes.z != 0u ? sky.w : h.x / h.z;
     float3 lit = strength * bounce.rgb;
     if (gather_modes.x == kSkyMap)

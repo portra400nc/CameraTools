@@ -425,6 +425,26 @@ int main(int argc, char **argv)
             && std::filesystem::file_size(bare.path / "face-6-normals.r10g10b10a2") == 64 && std::filesystem::file_size(bare.path / "face-6-mask.r8g8") == 32
             && slurp(bare.path / "face-6-irradiance.r11g11b10") == std::string(64, '\x3C') && tsv.find("\t2\t2\t0\t0\t0\t0\t0\t") != std::string::npos);
     }
+    {
+        namespace fs = std::filesystem;
+        const fs::path root = fs::temp_directory_path() / "enhancements-old-scenes";
+        fs::remove_all(root);
+        const auto make = [&](const char *folder, std::initializer_list<const char *> files) {
+            fs::create_directories(root / folder);
+            for (const char *file : files)
+                std::ofstream(root / folder / file) << "x";
+        };
+        make("scene-old", { "draws.tsv" });
+        make("scene-new", { "draws.tsv" });
+        make("scene-saved", { "draws.tsv", "face-6-stencil.r8" });
+        make("scene-self-test", { "trace-scene.bin" });
+        make("trace-1", { "draws.tsv" });
+        const uint32_t removed = remove_old_shot_scenes(root, root / "scene-new");
+        check("the old shot's scene goes; the new one, a save for the Mac, a self test and other folders stay",
+            removed == 1 && !fs::exists(root / "scene-old") && fs::exists(root / "scene-new") && fs::exists(root / "scene-saved")
+                && fs::exists(root / "scene-self-test") && fs::exists(root / "trace-1"));
+        fs::remove_all(root);
+    }
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;
 }

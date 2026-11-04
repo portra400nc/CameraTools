@@ -1,3 +1,4 @@
+using Il2CppInterop.Runtime;
 using CameraToolsEnhancements;
 using MelonLoader;
 using UnityEngine;
@@ -46,15 +47,103 @@ namespace CameraTools
             public uint Starts;
             public bool Stalled;
             public readonly bool[] RtgiOff = new bool[Rtgi.Length];
-            // What the picture was saved with when it was not all its samples.
-            public string Partial;
             public bool Saved;
+            // A capture or trace failed once and the shot captured the scene again.
+            public bool Retried;
+            // ReShade's effects are off from the capture until the trace converges: they cost each frame between the rays and
+            // add nothing to them.
+            public bool EffectsHeld;
+            public ulong RestoredAt;
         }
 
         private static MelonPreferences_Entry<bool> enabled;
+        private static MelonPreferences_Entry<bool> saveScene;
+        private static MelonPreferences_Entry<bool> tracedReflections;
+        private static MelonPreferences_Entry<float> surfaceGloss, reflectedLight;
+        private static MelonPreferences_Entry<string> fakeLights;
+        private static bool fakeLightsOffLast;
+        private const float GameLightReach = 100f;
+        private static MelonPreferences_Entry<float> bounceStrength;
+        private static MelonPreferences_Entry<int> bounces;
+        private static MelonPreferences_Entry<bool> tracedSunShadows;
+        private static bool alternate = true;
         private static Run run;
         // The scene of the last traced shot, while the next one may use it again.
         private static SceneFacts? kept;
+
+        // The Path traced lighting row.
+        public static bool Enabled
+        {
+            get => enabled.Value;
+            set
+            {
+                enabled.Value = value;
+                MelonPreferences.Save();
+            }
+        }
+
+        public static bool TracedReflections
+        {
+            get => tracedReflections.Value;
+            set
+            {
+                tracedReflections.Value = value;
+                MelonPreferences.Save();
+            }
+        }
+
+        public static float SurfaceGloss
+        {
+            get => Math.Clamp(float.IsFinite(surfaceGloss.Value) ? surfaceGloss.Value : TracedShot.DefaultSurfaceGloss, 0f, 1f);
+            set
+            {
+                surfaceGloss.Value = value;
+                MelonPreferences.Save();
+            }
+        }
+
+        public static float ReflectedLight
+        {
+            get => Math.Clamp(float.IsFinite(reflectedLight.Value) ? reflectedLight.Value : TracedShot.DefaultReflectedLight, 1f, TracedShot.MaxReflectedLight);
+            set
+            {
+                reflectedLight.Value = value;
+                MelonPreferences.Save();
+            }
+        }
+
+        public static int Bounces
+        {
+            get => Math.Clamp(bounces.Value, 1, TracedShot.MaxBounces);
+            set
+            {
+                bounces.Value = value;
+                MelonPreferences.Save();
+            }
+        }
+
+        public static float BounceStrength
+        {
+            get => Math.Clamp(float.IsFinite(bounceStrength.Value) ? bounceStrength.Value : TracedShot.DefaultBounceStrength, 0f, TracedShot.MaxBounceStrength);
+            set
+            {
+                if (value == bounceStrength.Value)
+                    return;
+                bounceStrength.Value = value;
+                MelonPreferences.Save();
+            }
+        }
+
+        // The Sun shadows row: the tracer's, or the game's own.
+        public static bool TracedSunShadows
+        {
+            get => tracedSunShadows.Value;
+            set
+            {
+                tracedSunShadows.Value = value;
+                MelonPreferences.Save();
+            }
+        }
 
         // Whether the next screenshot is a traced one.
         public static bool Wanted
@@ -63,6 +152,16 @@ namespace CameraTools
             {
                 if (!enabled.Value)
                     return false;
+                if (saveScene.Value)
+                {
+                    // Plain shots with RTGI and traced ones alternate, so both come from one pose.
+                    alternate = !alternate;
+                    if (!alternate)
+                    {
+                        Log("saving the scene for the Mac, so this shot is a plain one and the next is traced.");
+                        return false;
+                    }
+                }
                 if (!Enhancements.Connected)
                     Log("the Enhancements add-on is not loaded, so this is a plain screenshot.");
                 return Enhancements.Connected;
@@ -73,24 +172,43 @@ namespace CameraTools
         // starts over after it.
         public static bool Capturing => run is { Phase: ShotPhase.Requesting or ShotPhase.Capturing };
 
-        public static bool SceneCaptured => run is { Phase: ShotPhase.Tracing or ShotPhase.Done };
+        public static bool SceneCaptured => run is { Phase: ShotPhase.Tracing or ShotPhase.Finishing or ShotPhase.Done };
+
+        public static bool HoldsEffectsOff => run is { EffectsHeld: true };
 
         public static bool Converged => run is { Phase: ShotPhase.Done };
 
         // The game runs again under a shot that paused it.
         public static bool Unpaused => run != null && Time.timeScale != 0f;
 
-        public static float Timeout => TracedShot.Timeout + (run?.Partial != null ? TracedShot.PartialGrace : 0f);
+        // When the phase began: the hold, the scene's request, the trace or the converged light.
+        public static float PhaseBegan => run?.PhaseBegan ?? 0f;
 
-        // What the shot waits for, to complete "timed out waiting for ...", or null while it is the screenshot's own
-        // conditions.
-        public static string Waiting => run == null ? null : TracedShot.Waiting(run.Phase, Enhancements.Status, run.Stalled);
+        // The shot captures or traces: no time limit holds meanwhile.
+        public static bool Busy => run is { Phase: ShotPhase.Requesting or ShotPhase.Capturing or ShotPhase.Tracing or ShotPhase.Finishing };
 
         public static void Load()
         {
             enabled = MelonPreferences.CreateCategory("CameraToolsEnhancements").CreateEntry("TracedShot", false,
                 description: "Light the screenshot with the Enhancements add-on's path tracer: the shot pauses the game, captures the scene around "
                     + "the camera and waits for the traced lighting. Needs CameraToolsEnhancements.addon64.");
+            bounceStrength = MelonPreferences.CreateCategory("CameraToolsEnhancements").CreateEntry("TracedShotBounceStrength", TracedShot.DefaultBounceStrength,
+                description: $"How much light surfaces bounce onto each other in a traced shot, from 0 to {TracedShot.MaxBounceStrength:0}; 1 is the physical amount, and above 1 surfaces reflect that many times more, up to 90%.");
+            bounces = MelonPreferences.CreateCategory("CameraToolsEnhancements").CreateEntry("TracedShotBounces", TracedShot.DefaultBounces,
+                description: $"How many times light may bounce between surfaces in a traced shot, from 1 to {TracedShot.MaxBounces}.");
+            tracedSunShadows = MelonPreferences.CreateCategory("CameraToolsEnhancements").CreateEntry("TracedShotSunShadows", true,
+                description: "Sun shadows in a traced shot: true for the tracer's sharp ones from the traced scene, false for the game's own soft ones.");
+            tracedReflections = MelonPreferences.CreateCategory("CameraToolsEnhancements").CreateEntry("TracedShotReflections", true,
+                description: "Reflections in a traced shot: true traces them from the scene, false keeps the game's own soft ones.");
+            surfaceGloss = MelonPreferences.CreateCategory("CameraToolsEnhancements").CreateEntry("TracedShotSurfaceGloss", TracedShot.DefaultSurfaceGloss,
+                description: "How much smoother surfaces are than the game stores them in a traced shot, from 0 to 1.");
+            reflectedLight = MelonPreferences.CreateCategory("CameraToolsEnhancements").CreateEntry("TracedShotReflectedLight", TracedShot.DefaultReflectedLight,
+                description: $"How much brighter windows, lanterns and other light sources appear in reflections, from 1 to {TracedShot.MaxReflectedLight:0}.");
+            saveScene = MelonPreferences.CreateCategory("CameraToolsEnhancements").CreateEntry("TracedShotSaveScene", false,
+                description: "For tests on the Mac: each traced shot captures the scene anew, writes every face's lit HDR picture, depth and albedo "
+                    + "beside it, and saves the converged trace.");
+            fakeLights = MelonPreferences.CreateCategory("CameraToolsEnhancements").CreateEntry("TracedShotFakeLights", "keep",
+                description: "The game's fake bounce lights in a traced shot: keep, off, or alternate between the two shot by shot, for a test.");
             MelonPreferences.Save();
         }
 
@@ -115,8 +233,27 @@ namespace CameraTools
             bool locked = TimeOfDay.Locked;
             float speed = TimeOfDay.Speed;
             run.TimeBefore = TimeOfDay.Hold();
+            HoldFakeLights();
             Log($"holding the world: the game {(ran ? "paused" : "was paused already")}; the time of day {TimeOfDay.Clock(TimeOfDay.Hour)} "
                 + (!TimeOfDay.Locked ? "could not be locked" : locked ? "was locked already" : "locked") + (speed > 0f ? $", its speed {speed:0.##} stopped" : "") + ".");
+        }
+
+        private static void HoldFakeLights()
+        {
+            bool off = fakeLights.Value is "off" or "fresh";
+            // A test's shots each capture anew, as what they test may not show in a kept trace.
+            if (fakeLights.Value == "fresh")
+                kept = null;
+            if (fakeLights.Value == "alternate")
+            {
+                off = fakeLightsOffLast = !fakeLightsOffLast;
+                // The faces show the lights as they are, so this shot's differ from the kept scene's.
+                kept = null;
+            }
+            if (off)
+                Log($"turned off {FakeLights.Hold()} of the game's fake bounce lights.");
+            else if (fakeLights.Value != "keep")
+                Log("kept the game's fake bounce lights.");
         }
 
         // Once a frame while the screenshot settles. settled: every condition but the shot's own two holds. presents is
@@ -146,7 +283,8 @@ namespace CameraTools
                     // A capture that was stopped is still saving for a moment, and the add-on takes none meanwhile.
                     if (Enhancements.CaptureScene(new EnhancementsSceneRequest
                         {
-                            Faces = TracedShot.AllFaces, Flags = EnhancementsSceneFlags.Trace | EnhancementsSceneFlags.Light | EnhancementsSceneFlags.NoMeshes,
+                            Faces = TracedShot.AllFaces, Settle = TracedShot.FaceSettle, Flags = EnhancementsSceneFlags.Trace | EnhancementsSceneFlags.Light | EnhancementsSceneFlags.NoMeshes
+                                | (saveScene.Value ? EnhancementsSceneFlags.GBuffer : EnhancementsSceneFlags.None),
                         }))
                     {
                         run.Facts = Facts(status.TraceGeneration);
@@ -166,20 +304,36 @@ namespace CameraTools
                             break;
                         case CaptureVerdict.Failed:
                             string line = Enhancements.Describe();
+                            if (Retry(status, now, $"the scene capture failed {now - run.PhaseBegan:0.0} s after it was asked for; the add-on says: {line}"))
+                                break;
                             return ($"Screenshot failed: the scene capture stopped{(TracedShot.Stopped(line) is { } why ? $": {why}" : "; see ReShade.log")}",
                                 $"the Enhancements scene capture failed {now - run.PhaseBegan:0.0} s after it was asked for; the add-on says: {line}");
                     }
                     break;
                 case ShotPhase.Tracing:
                     run.Stalled = TracedShot.Stalled(ref run.Baseline, status);
+                    if (status.TraceSamples == 0 && now - run.PhaseBegan > TracedShot.NoSampleTimeout)
+                    {
+                        string none = $"no sample {now - run.PhaseBegan:0.0} s after the scene was ready; the add-on says: {Enhancements.Describe()}";
+                        if (Retry(status, now, none))
+                            return null;
+                        return ("Screenshot failed: the trace did not start; see ReShade.log", none);
+                    }
                     switch (TracedShot.Trace(run.Facts.Generation, status))
                     {
                         case TraceVerdict.Converged:
                             Log($"the lighting converged {now - run.PhaseBegan:0.0} s after the scene was ready: {status.TraceSamples} of {status.TraceTarget} samples at "
                                 + $"{status.RenderWidth}x{status.RenderHeight}, error {status.TraceErrorX10000 / 100f:0.00}%, after {status.TraceRestarts - run.Starts} starts of "
                                 + $"its samples, the last for {status.TraceRestartReason}.");
-                            CameraUi.ClearToast();
-                            Enter(ShotPhase.Done, now);
+                            if (saveScene.Value)
+                            {
+                                Log(Enhancements.SaveTrace() ? "saving the converged trace for the Mac." : "the add-on refused to save the trace.");
+                                TracedLights.Save();
+                            }
+                            ReShade.SetEffects(true);
+                            run.EffectsHeld = false;
+                            run.RestoredAt = presents;
+                            Enter(ShotPhase.Finishing, now);
                             return null;
                         case TraceVerdict.Lost when run.Reused:
                             // From here the camera sees what the last shot's capture did not, or the world moved after all.
@@ -190,30 +344,38 @@ namespace CameraTools
                             Enter(ShotPhase.Requesting, now);
                             break;
                         case TraceVerdict.Lost:
+                            if (Retry(status, now, $"the traced scene went {status.TraceState} {now - run.PhaseBegan:0.0} s into its trace, at "
+                                + $"{status.TraceSamples} of {status.TraceTarget} samples; the add-on says: {Enhancements.Describe()}"))
+                                break;
                             return ($"Screenshot failed: the traced scene went {status.TraceState.ToString().ToLowerInvariant()}; see ReShade.log",
                                 $"the traced scene went {status.TraceState} {now - run.PhaseBegan:0.0} s into its trace, at {status.TraceSamples} of {status.TraceTarget} "
                                     + $"samples; the add-on says: {Enhancements.Describe()}");
                     }
                     break;
             }
-            if (TracedShot.Progress(run.Phase, status, run.Stalled) is { } progress)
-                CameraUi.Toast(progress, whileHidden: true);
+            if (run.Phase == ShotPhase.Finishing && presents - run.RestoredAt >= TracedShot.SettledPresents && now - run.PhaseBegan >= TracedShot.EffectsSettle)
+            {
+                CameraUi.ClearToast();
+                Enter(ShotPhase.Done, now);
+                return null;
+            }
+            if (TracedShot.Progress(run.Phase, status, run.Stalled, now - run.PhaseBegan) is { } progress)
+                CameraUi.Toast(progress.Title, whileHidden: true, progress.Detail, progress.Fraction);
             return null;
         }
 
-        // At the timeout: whether the picture is saved as it is, drawn from fewer samples than asked for.
-        public static bool SaveAsIs()
+        // The first failure of a capture or a trace captures the scene again, so one bad capture costs time, not the picture.
+        // A scene that failed for its size comes back smaller, as the add-on halves the next capture's triangles.
+        private static bool Retry(EnhancementsStatus status, float now, string why)
         {
-            if (run == null)
+            if (run.Retried)
                 return false;
-            var status = Enhancements.Status;
-            if (!TracedShot.SaveAsIs(run.Phase, run.Facts.Generation, status))
-                return false;
-            run.Partial = $"{status.TraceSamples} of {status.TraceTarget} samples";
-            Melon<CameraTools>.Logger.Warning($"Traced shot: the lighting did not converge within {TracedShot.Timeout:0} s; saving the picture as it is, with {run.Partial}"
-                + (run.Stalled ? $" ({TracedShot.Changing(status.TraceRestartReason)}, {status.TraceRestarts} starts)" : "") + ".");
-            CameraUi.ClearToast();
-            Enter(ShotPhase.Done, Time.unscaledTime);
+            run.Retried = true;
+            Log($"{why}; capturing the scene again.");
+            kept = null;
+            run.Reused = false;
+            run.Before = status.TraceGeneration;
+            Enter(ShotPhase.Requesting, now);
             return true;
         }
 
@@ -223,7 +385,7 @@ namespace CameraTools
             if (run == null)
                 return "";
             run.Saved = true;
-            return run.Partial != null ? $", traced with {run.Partial}" : ", traced";
+            return ", traced";
         }
 
         // Puts back what the shot changed, however it ended: the add-on's trace, RTGI, the time of day and the game's speed.
@@ -234,6 +396,10 @@ namespace CameraTools
             run = null;
             if (ended == null)
                 return;
+            Lights.WorldLightsHeld = false;
+            FakeLights.Release();
+            if (ended.EffectsHeld)
+                ReShade.SetEffects(true);
             var notes = new List<string>();
             void Try(string what, Action restore)
             {
@@ -249,7 +415,10 @@ namespace CameraTools
             Try("the add-on's settings", () =>
             {
                 if (ended.Owns)
+                {
                     Enhancements.SetShot(false);
+                    Enhancements.SetShotLights(null);
+                }
             });
             Try("RTGI", () =>
             {
@@ -305,12 +474,63 @@ namespace CameraTools
             Enhancements.ReleaseScene();
         }
 
+        // CameraTools' lights that light the world, the brightest at the camera first, as the add-on takes them.
+        private static EnhancementsShotLight[] ShotLights()
+        {
+            var eye = CameraTools.maincam ? CameraTools.maincam.transform.position : Vector3.zero;
+            return Lights.WorldLights().Select(light => ToShotLight(light, 0)).OrderByDescending(l => (l.R + l.G + l.B) / Math.Max((new Vector3(l.X, l.Y, l.Z) - eye).sqrMagnitude, 0.01f))
+                .Take(EnhancementsShotLight.Max).ToArray();
+        }
+
+        // The game's own lights near the camera, nearest first, as they are at the capture: the add-on bakes them for the
+        // gather's hits that no face shows, and the game keeps drawing them. Lamp scripts move their intensities with the
+        // time of day, so this reads them after the time is locked.
+        private static EnhancementsShotLight[] GameLights()
+        {
+            var camera = CameraTools.maincam;
+            if (!camera)
+                return Array.Empty<EnhancementsShotLight>();
+            var eye = camera.transform.position;
+            var lights = UnityEngine.Object.FindObjectsOfType(Il2CppType.Of<Light>()).Select(o => o.Cast<Light>())
+                .Where(light => light.isActiveAndEnabled && !Lights.IsOurs(light) && light.intensity > 0 && light.type is LightType.Point or LightType.Spot)
+                .Select(light => (light, distance: Vector3.Distance(light.transform.position, eye)))
+                .Where(l => l.distance <= GameLightReach).OrderBy(l => l.distance).Take(EnhancementsShotLight.MaxGame)
+                .Select(l => ToShotLight(l.light, l.light.shadows != LightShadows.None ? EnhancementsShotLight.Shadows : 0)).ToArray();
+            Log($"baking {lights.Length} of the game's lights within {GameLightReach:0} m for the bounce.");
+            return lights;
+        }
+
+        private static EnhancementsShotLight ToShotLight(Light light, uint flags)
+        {
+            var t = light.transform;
+            var p = t.position;
+            var f = t.forward;
+            var c = light.color;
+            bool spot = light.type == LightType.Spot;
+            return new EnhancementsShotLight
+            {
+                X = p.x, Y = p.y, Z = p.z, Range = light.range,
+                R = c.r * light.intensity, G = c.g * light.intensity, B = c.b * light.intensity,
+                CosOuter = spot ? MathF.Cos(light.spotAngle * MathF.PI / 360f) : -2f,
+                DirectionX = f.x, DirectionY = f.y, DirectionZ = f.z,
+                CosInner = spot ? MathF.Cos(light.spotInnerAngle * MathF.PI / 360f) : -2f,
+                Reserved0 = flags,
+            };
+        }
+
         // The preset, the size and the light have settled: the add-on traces from here, with RTGI off, the kept scene or a
         // new one.
         private static void Begin(EnhancementsStatus status, bool still, float now)
         {
             run.Owns = true;
-            Enhancements.SetShot(true, 0, TracedShot.BudgetMs);
+            var lights = ShotLights();
+            Enhancements.SetShotLights(lights);
+            Enhancements.SetShot(true, 0, TracedShot.BudgetMs, BounceStrength,
+                TracedSunShadows ? EnhancementsTraceOutputs.Ao | EnhancementsTraceOutputs.Sun : EnhancementsTraceOutputs.Ao,
+                TracedReflections, SurfaceGloss, ReflectedLight, (uint)Bounces);
+            if (lights.Length > 0)
+                Log($"tracing {lights.Length} of CameraTools' lights: " + string.Join("; ", lights.Select(l =>
+                    $"({l.X:0.0}, {l.Y:0.0}, {l.Z:0.0}) range {l.Range:0.#}{(l.CosOuter >= -1f ? " spot" : "")}")) + ".");
             var rtgi = new List<string>();
             for (int i = 0; i < Rtgi.Length; i++)
             {
@@ -326,7 +546,7 @@ namespace CameraTools
                 }
             }
             var facts = Facts(status.TraceGeneration);
-            string unusable = kept is { } last ? TracedShot.Unusable(last, facts, status.TraceState) : "no scene is kept";
+            string unusable = saveScene.Value ? "the scene is saved for the Mac" : kept is { } last ? TracedShot.Unusable(last, facts, status.TraceState) : "no scene is kept";
             Log($"settled {now - run.Began:0.0} s after the hold; the sky's light "
                 + (still ? $"has held still {now - run.Still.Since:0.0} s" : $"did not hold still for {TracedShot.StillTimeout:0} s") + $"; {string.Join(", ", rtgi)}; "
                 + (unusable == null ? $"tracing the kept scene, generation {facts.Generation}, again." : $"capturing the scene: {unusable}."));
@@ -336,12 +556,19 @@ namespace CameraTools
             run.Baseline = run.Starts = status.TraceRestarts;
             run.Reused = unusable == null;
             if (!run.Reused)
+            {
                 kept = null;
+                Enhancements.SetGameLights(GameLights());
+            }
+            ReShade.SetEffects(false);
+            run.EffectsHeld = true;
             Enter(run.Reused ? ShotPhase.Tracing : ShotPhase.Requesting, now);
         }
 
         private static void Enter(ShotPhase phase, float now)
         {
+            // The scene's faces take the lights as the game draws them; from here the shot draws them itself.
+            Lights.WorldLightsHeld = phase is ShotPhase.Tracing or ShotPhase.Finishing or ShotPhase.Done;
             run.Phase = phase;
             run.PhaseBegan = now;
             run.Stalled = false;
@@ -353,7 +580,29 @@ namespace CameraTools
             var position = freecam.Pose.Position;
             var origin = WorldShift.Relative(default);
             return new SceneFacts(generation, new Vec3(position.x, position.y, position.z), new Vec3(origin.x, origin.y, origin.z), Weather.Choice, Posing.Revision,
-                EnhancementsCamera.Light);
+                EnhancementsCamera.Light, LightsHash());
+        }
+
+        // Which lights the scene's faces saw: other lights make its pictures out of date.
+        private static int LightsHash()
+        {
+            var hash = new HashCode();
+            foreach (var l in ShotLights())
+            {
+                hash.Add(l.X);
+                hash.Add(l.Y);
+                hash.Add(l.Z);
+                hash.Add(l.Range);
+                hash.Add(l.R);
+                hash.Add(l.G);
+                hash.Add(l.B);
+                hash.Add(l.CosOuter);
+                hash.Add(l.CosInner);
+                hash.Add(l.DirectionX);
+                hash.Add(l.DirectionY);
+                hash.Add(l.DirectionZ);
+            }
+            return hash.ToHashCode();
         }
 
         private static void Log(string message) => Melon<CameraTools>.Logger.Msg($"Traced shot: {message}");

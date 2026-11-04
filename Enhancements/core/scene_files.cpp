@@ -373,6 +373,24 @@ namespace enhancements
         return failed;
     }
 
+    uint32_t remove_old_shot_scenes(const fs::path &root, const fs::path &keep)
+    {
+        uint32_t removed = 0;
+        std::error_code error;
+        for (fs::directory_iterator it(root, error), end; !error && it != end; it.increment(error))
+        {
+            const fs::path path = it->path();
+            std::error_code check;
+            if (path == keep || path.filename().u8string().rfind("scene-", 0) != 0 || !fs::exists(path / "draws.tsv", check)
+                || fs::exists(path / "face-6-stencil.r8", check))
+                continue;
+            std::error_code remove;
+            if (fs::remove_all(path, remove) != 0 && !remove)
+                removed++;
+        }
+        return removed;
+    }
+
     std::vector<std::string> write_scene_face(SceneFolder &folder, const SceneFaceData &d, const SceneRequest &request)
     {
         std::vector<std::string> failed;

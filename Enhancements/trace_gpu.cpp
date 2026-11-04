@@ -103,6 +103,9 @@ namespace enhancements
         light_.reset();
         sky_buffer_.Reset();
         sky_srv_.Reset();
+        faces_.Reset();
+        faces_srv_.Reset();
+        faces_constants_.Reset();
         gathering_ = false;
         target_ = 0;
         alpha_bytes_ = 0;
@@ -137,6 +140,12 @@ namespace enhancements
         history_.Reset();
         history_uav_.Reset();
         history_srv_.Reset();
+        light_history_.Reset();
+        light_history_uav_.Reset();
+        light_history_srv_.Reset();
+        reflect_sum_.Reset();
+        reflect_sum_uav_.Reset();
+        reflect_sum_srv_.Reset();
         gather_hit_.Reset();
         gather_sky_.Reset();
         gather_hit_uav_.Reset();
@@ -161,11 +170,13 @@ namespace enhancements
 
     bool TraceGpu::make_shader()
     {
-        if (cs_ && gather_cs_ && constants_ && gather_constants_)
+        if (cs_ && gather_cs_ && reflect_cs_ && constants_ && gather_constants_ && lights_constants_ && reflect_constants_)
             return true;
         HRESULT hr = device_->CreateComputeShader(kTraceCs, sizeof kTraceCs, nullptr, cs_.ReleaseAndGetAddressOf());
         if (SUCCEEDED(hr))
             hr = device_->CreateComputeShader(kGatherCs, sizeof kGatherCs, nullptr, gather_cs_.ReleaseAndGetAddressOf());
+        if (SUCCEEDED(hr))
+            hr = device_->CreateComputeShader(kReflectCs, sizeof kReflectCs, nullptr, reflect_cs_.ReleaseAndGetAddressOf());
         if (FAILED(hr))
         {
             fail("the trace kernels could not be made (" + hresult_text("CreateComputeShader", hr) + ")");
@@ -180,6 +191,12 @@ namespace enhancements
         desc.ByteWidth = sizeof(GatherConstants);
         if (SUCCEEDED(hr))
             hr = device_->CreateBuffer(&desc, nullptr, gather_constants_.ReleaseAndGetAddressOf());
+        desc.ByteWidth = sizeof(ReflectConstants);
+        if (SUCCEEDED(hr))
+            hr = device_->CreateBuffer(&desc, nullptr, reflect_constants_.ReleaseAndGetAddressOf());
+        desc.ByteWidth = sizeof(GatherLights);
+        if (SUCCEEDED(hr))
+            hr = device_->CreateBuffer(&desc, nullptr, lights_constants_.ReleaseAndGetAddressOf());
         if (FAILED(hr))
         {
             fail("the trace's constant buffers could not be made (" + hresult_text("CreateBuffer", hr) + ")");
@@ -211,14 +228,40 @@ namespace enhancements
             hr = raw_buffer(device_.Get(), static_cast<UINT>(triangle_bytes), nullptr, triangle_buffer_, triangle_srv_);
         if (SUCCEEDED(hr))
             hr = raw_buffer(device_.Get(), alpha_bytes != 0 ? static_cast<UINT>(alpha_bytes) : 16, alpha_bytes != 0 ? nullptr : empty, alpha_buffer_, alpha_srv_);
-        // The sky map is small and goes up whole.
+        // The sky map is small and goes up whole, as do the faces' cameras.
         if (SUCCEEDED(hr) && light && light->sky.texels.size() == size_t(kSkyMapSide) * kSkyMapSide * 4)
+        {
             hr = raw_buffer(device_.Get(), static_cast<UINT>(light->sky.texels.size() * 4), light->sky.texels.data(), sky_buffer_, sky_srv_);
+            const GatherFaces cameras = gather_faces(light->faces);
+            D3D11_BUFFER_DESC desc = {};
+            desc.ByteWidth = sizeof cameras;
+            desc.Usage = D3D11_USAGE_IMMUTABLE;
+            desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+            const D3D11_SUBRESOURCE_DATA initial = { &cameras, 0, 0 };
+            if (SUCCEEDED(hr))
+                hr = device_->CreateBuffer(&desc, &initial, faces_constants_.ReleaseAndGetAddressOf());
+        }
+        const uint32_t face_count = sky_srv_ ? std::min<uint32_t>(static_cast<uint32_t>(light->faces.size()), kFaceCount) : 0;
+        if (SUCCEEDED(hr) && face_count != 0)
+        {
+            D3D11_TEXTURE2D_DESC desc = {};
+            desc.Width = light->faces[0].size.width;
+            desc.Height = light->faces[0].size.height;
+            desc.MipLevels = 1;
+            desc.ArraySize = face_count;
+            desc.Format = DXGI_FORMAT_R32G32_UINT;
+            desc.SampleDesc.Count = 1;
+            desc.Usage = D3D11_USAGE_DEFAULT;
+            desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            hr = device_->CreateTexture2D(&desc, nullptr, faces_.ReleaseAndGetAddressOf());
+            if (SUCCEEDED(hr))
+                hr = device_->CreateShaderResourceView(faces_.Get(), nullptr, faces_srv_.ReleaseAndGetAddressOf());
+        }
         if (FAILED(hr))
         {
             buffer = true;
             fail("its buffers of " + megabytes(node_bytes) + " of nodes, " + megabytes(triangle_bytes) + " of triangles and " + megabytes(alpha_bytes)
-                + " of alpha tests could not be made (" + hresult_text("CreateBuffer", hr) + ")");
+                + " of alpha tests, or its light's, could not be made (" + hresult_text("CreateBuffer", hr) + ")");
             return false;
         }
         light_ = sky_srv_ ? std::move(light) : nullptr;
@@ -239,31 +282,55 @@ namespace enhancements
         if (state_ != TraceState::uploading || !uploading_)
             return false;
         upload_presents_++;
-        // The nodes, then the triangles, then the alpha buffer, as one run of bytes.
-        const struct Part
+        // The nodes, then the triangles, then the alpha buffer, then each face's picture, as one run of bytes. A picture
+        // goes up in whole rows: a texture's box is rows.
+        struct Part
         {
-            ID3D11Buffer *buffer;
+            ID3D11Resource *resource;
+            UINT slice;
             const uint8_t *data;
             uint64_t bytes;
-        } parts[] = {
-            { node_buffer_.Get(), reinterpret_cast<const uint8_t *>(uploading_->nodes.data()), uploading_->nodes.size() * sizeof(BvhNode) },
-            { triangle_buffer_.Get(), reinterpret_cast<const uint8_t *>(uploading_->triangles.data()), uploading_->triangles.size() * sizeof(BvhTriangle) },
-            { alpha_buffer_.Get(), uploading_alpha_ ? reinterpret_cast<const uint8_t *>(uploading_alpha_->data()) : nullptr, alpha_bytes_ },
+            uint64_t row = 0;       // bytes of a texture's row, 0 for a buffer
         };
+        std::vector<Part> parts = {
+            { node_buffer_.Get(), 0, reinterpret_cast<const uint8_t *>(uploading_->nodes.data()), uploading_->nodes.size() * sizeof(BvhNode) },
+            { triangle_buffer_.Get(), 0, reinterpret_cast<const uint8_t *>(uploading_->triangles.data()), uploading_->triangles.size() * sizeof(BvhTriangle) },
+            { alpha_buffer_.Get(), 0, uploading_alpha_ ? reinterpret_cast<const uint8_t *>(uploading_alpha_->data()) : nullptr, alpha_bytes_ },
+        };
+        if (faces_)
+        {
+            D3D11_TEXTURE2D_DESC desc;
+            faces_->GetDesc(&desc);
+            for (UINT i = 0; i < desc.ArraySize; i++)
+                parts.push_back({ faces_.Get(), i, reinterpret_cast<const uint8_t *>(light_->faces[i].pixels.data()), light_->faces[i].pixels.size() * 4,
+                    uint64_t(desc.Width) * 8 });
+        }
         uint64_t total = 0;
         for (const Part &part : parts)
             total += part.bytes;
         const uint64_t end = std::min(total, uploaded_ + kTraceUploadBytes);
-        // UpdateSubresource returns nothing; the buffers were made, and a box inside them cannot fail.
+        // UpdateSubresource returns nothing; the buffers and the texture were made, and a box inside them cannot fail.
         while (uploaded_ < end)
         {
             uint64_t base = 0;
-            const Part *part = parts;
+            const Part *part = parts.data();
             while (uploaded_ >= base + part->bytes)
                 base += part++->bytes;
-            const uint64_t stop = std::min(end, base + part->bytes);
-            const D3D11_BOX box = { static_cast<UINT>(uploaded_ - base), 0, 0, static_cast<UINT>(stop - base), 1, 1 };
-            context_->UpdateSubresource(part->buffer, 0, &box, part->data + (uploaded_ - base), 0, 0);
+            uint64_t stop = std::min(end, base + part->bytes);
+            if (part->row == 0)
+            {
+                const D3D11_BOX box = { static_cast<UINT>(uploaded_ - base), 0, 0, static_cast<UINT>(stop - base), 1, 1 };
+                context_->UpdateSubresource(part->resource, 0, &box, part->data + (uploaded_ - base), 0, 0);
+            }
+            else
+            {
+                // At least one row, so a present whose budget ends inside a row still moves on.
+                const uint64_t first = (uploaded_ - base) / part->row;
+                const uint64_t last = std::max(first + 1, (stop - base) / part->row);
+                stop = base + last * part->row;
+                const D3D11_BOX box = { 0, static_cast<UINT>(first), 0, static_cast<UINT>(part->row / 8), static_cast<UINT>(last), 1 };
+                context_->UpdateSubresource(part->resource, part->slice, &box, part->data + first * part->row, static_cast<UINT>(part->row), 0);
+            }
             uploaded_ = stop;
         }
         if (uploaded_ < total)
@@ -278,7 +345,7 @@ namespace enhancements
     }
 
     TraceFrame TraceGpu::preview(const TraceKey &key, const TraceSettings &settings, const TraceConstants &constants, const GatherSettings &gather_settings,
-        const GatherConstants *gather) const
+        const GatherConstants *gather, const GatherLights &lights, const ReflectConstants &reflect) const
     {
         TraceFrame f;
         f.key = key;
@@ -288,7 +355,10 @@ namespace enhancements
         if (f.gathering)
         {
             f.gather = *gather;
+            f.lights = lights;
             f.constants.trace_counts[0] = 0;
+            f.reflecting = reflect.params[1] > 0;
+            f.reflect = reflect;
         }
         f.target = trace_target(settings, gather_settings, f.gathering);
         const uint32_t tiles = static_cast<uint32_t>(((key.render.width + kTileSize - 1) / kTileSize) * ((key.render.height + kTileSize - 1) / kTileSize));
@@ -316,12 +386,14 @@ namespace enhancements
         return f;
     }
 
-    bool TraceGpu::sync(Size render, bool gathering)
+    bool TraceGpu::sync(Size render, bool gathering, bool lit, bool reflecting)
     {
         if (!history_ || render != size_)
         {
+            reflect_sum_.Reset();
             gather_hit_.Reset();
             gather_sky_.Reset();
+            light_history_.Reset();
             const std::vector<uint32_t> order = tile_order(render);
             HRESULT hr = structured_buffer(device_.Get(), 16, render.width * render.height, history_, history_uav_, &history_srv_);
             if (SUCCEEDED(hr))
@@ -354,24 +426,52 @@ namespace enhancements
                 return false;
             }
         }
+        // The reflections' sums, the first time a frame reflects: reflections that change start the samples again, which clears them.
+        if (reflecting && !reflect_sum_)
+        {
+            const HRESULT hr = structured_buffer(device_.Get(), 16, render.width * render.height, reflect_sum_, reflect_sum_uav_, &reflect_sum_srv_);
+            if (FAILED(hr))
+            {
+                reflect_sum_.Reset();
+                fail("the reflections' buffer of " + std::to_string(render.width) + "x" + std::to_string(render.height) + " could not be made ("
+                    + hresult_text("CreateBuffer", hr) + ")");
+                return false;
+            }
+        }
+        // The lights' sums, the first time a frame traces lights: lights that change start the samples again, which clears them.
+        if (lit && !light_history_)
+        {
+            const HRESULT hr = structured_buffer(device_.Get(), 16, render.width * render.height, light_history_, light_history_uav_, &light_history_srv_);
+            if (FAILED(hr))
+            {
+                light_history_.Reset();
+                fail("the traced lights' buffer of " + std::to_string(render.width) + "x" + std::to_string(render.height) + " could not be made ("
+                    + hresult_text("CreateBuffer", hr) + ")");
+                return false;
+            }
+        }
         return true;
     }
 
     bool TraceGpu::dispatch(const TraceFrame &frame, Size render, ID3D11ShaderResourceView *normals, ID3D11ShaderResourceView *depth,
-        ID3D11ShaderResourceView *stencil)
+        ID3D11ShaderResourceView *stencil, ID3D11ShaderResourceView *smoothness, ID3D11ShaderResourceView *material)
     {
-        if (state_ != TraceState::ready || !sync(render, frame.gathering))
+        if (state_ != TraceState::ready || !sync(render, frame.gathering, frame.lights.info[0] != 0, frame.reflecting))
             return false;
         ID3D11DeviceContext1 *c = context_.Get();
         if (frame.reset)
         {
             const UINT zero[4] = {};
             c->ClearUnorderedAccessViewUint(history_uav_.Get(), zero);
+            if (reflect_sum_)
+                c->ClearUnorderedAccessViewUint(reflect_sum_uav_.Get(), zero);
             if (gather_hit_)
             {
                 c->ClearUnorderedAccessViewUint(gather_hit_uav_.Get(), zero);
                 c->ClearUnorderedAccessViewUint(gather_sky_uav_.Get(), zero);
             }
+            if (light_history_)
+                c->ClearUnorderedAccessViewUint(light_history_uav_.Get(), zero);
             epoch_++;
             restart_ = frame.restart;
             totals_ = {};
@@ -452,13 +552,35 @@ namespace enhancements
             std::memcpy(mapped.pData, &frame.gather, sizeof frame.gather);
             c->Unmap(gather_constants_.Get(), 0);
             uploaded_gather_ = frame.gather;
+            hr = c->Map(lights_constants_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+            if (FAILED(hr))
+            {
+                fail("the traced lights' constants could not be written (" + hresult_text("Map", hr) + ")");
+                return false;
+            }
+            std::memcpy(mapped.pData, &frame.lights, sizeof frame.lights);
+            c->Unmap(lights_constants_.Get(), 0);
+            uploaded_lights_ = frame.lights;
+            hr = c->Map(reflect_constants_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+            if (FAILED(hr))
+            {
+                fail("the reflections' constants could not be written (" + hresult_text("Map", hr) + ")");
+                return false;
+            }
+            std::memcpy(mapped.pData, &frame.reflect, sizeof frame.reflect);
+            c->Unmap(reflect_constants_.Get(), 0);
+            uploaded_reflect_ = frame.reflect;
         }
-        // Both kernels' bindings at once: the trace kernel declares only b0, t0 to t6, u0 and u1; the gather kernel all.
-        ID3D11Buffer *const buffers[] = { constants_.Get(), frame.gathering ? gather_constants_.Get() : nullptr };
+        // Both kernels' bindings at once: the trace kernel declares only b0, b3, t0 to t6, u0, u1 and u4; the gather kernel u4 none.
+        ID3D11Buffer *const buffers[] = { constants_.Get(), frame.gathering ? gather_constants_.Get() : nullptr,
+            frame.gathering ? faces_constants_.Get() : nullptr, frame.gathering ? lights_constants_.Get() : nullptr,
+            frame.reflecting ? reflect_constants_.Get() : nullptr };
         ID3D11ShaderResourceView *const srvs[] = { node_srv_.Get(), triangle_srv_.Get(), normals, depth, stencil, tiles_srv_.Get(), alpha_srv_.Get(),
-            frame.gathering ? sky_srv_.Get() : nullptr };
+            frame.gathering ? sky_srv_.Get() : nullptr, frame.gathering ? faces_srv_.Get() : nullptr,
+            frame.reflecting ? smoothness : nullptr, frame.reflecting ? material : nullptr };
         ID3D11UnorderedAccessView *const uavs[] = { history_uav_.Get(), counters_uav_.Get(), frame.gathering ? gather_hit_uav_.Get() : nullptr,
-            frame.gathering ? gather_sky_uav_.Get() : nullptr };
+            frame.gathering ? gather_sky_uav_.Get() : nullptr, frame.lights.info[0] != 0 ? light_history_uav_.Get() : nullptr,
+            frame.reflecting ? reflect_sum_uav_.Get() : nullptr };
         c->CSSetConstantBuffers(0, static_cast<UINT>(std::size(buffers)), buffers);
         c->CSSetShaderResources(0, static_cast<UINT>(std::size(srvs)), srvs);
         c->CSSetUnorderedAccessViews(0, static_cast<UINT>(std::size(uavs)), uavs, nullptr);
@@ -488,6 +610,11 @@ namespace enhancements
             if (frame.gathering)
             {
                 c->CSSetShader(gather_cs_.Get(), nullptr, 0);
+                c->Dispatch(kGroupsPerTile, parts[i].count, 1);
+            }
+            if (frame.reflecting)
+            {
+                c->CSSetShader(reflect_cs_.Get(), nullptr, 0);
                 c->Dispatch(kGroupsPerTile, parts[i].count, 1);
             }
             if (i == 0)
@@ -618,10 +745,17 @@ namespace enhancements
             const uint64_t tested = window_[static_cast<size_t>(TraceCounter::tested)], off = window_[static_cast<size_t>(TraceCounter::off)];
             if (f.passes_after > window_pass_ && tested >= 32)
             {
-                if (check_consistency_ && consistency_stale(tested, off))
+                // Logged at passes 1, 2, 4 and so on, as the passes are.
+                if (check_consistency_ && shot_consistency_ && consistency_stale(tested, off) && !shot_consistency_stale(tested, off))
+                {
+                    if ((f.passes_after & (f.passes_after - 1)) == 0)
+                        out.log.push_back("the trace's consistency grid has " + std::to_string(off) + " of " + std::to_string(tested) + " pixels off in pass "
+                        + std::to_string(f.passes_after) + " (" + grid_breakdown(window_) + "): the capture missed part of the view, which the shot traces without");
+                }
+                else if (check_consistency_ && (shot_consistency_ ? shot_consistency_stale(tested, off) : consistency_stale(tested, off)))
                 {
                     stale("rays from the camera met the scene off the depth buffer at " + std::to_string(off) + " of " + std::to_string(tested)
-                        + " grid pixels in pass " + std::to_string(f.passes_after) + " (more than 5%; " + grid_breakdown(window_)
+                        + " grid pixels in pass " + std::to_string(f.passes_after) + " (more than " + (shot_consistency_ ? "half" : "5%") + "; " + grid_breakdown(window_)
                         + "): the world moved, or the camera sees what the capture did not");
                     out.went_stale = true;
                     return out;
@@ -657,11 +791,13 @@ namespace enhancements
                 if (gathering_)
                 {
                     const auto at = [this](GatherCounter g) { return static_cast<unsigned long long>(totals_[gather_counter(g)]); };
-                    const unsigned long long hits = at(GatherCounter::direct) + at(GatherCounter::covered) + at(GatherCounter::material) + at(GatherCounter::class_mean);
-                    char gathered[320];
-                    std::snprintf(gathered, sizeof gathered, " The gather: %llu rays, %llu cut short by a cap, %llu stack overflows; %llu hits by albedo source "
-                        "%llu direct, %llu covered, %llu material, %llu class; error %.4f.", at(GatherCounter::rays), at(GatherCounter::guard), at(GatherCounter::overflow),
-                        hits, at(GatherCounter::direct), at(GatherCounter::covered), at(GatherCounter::material), at(GatherCounter::class_mean), error_);
+                    const unsigned long long hits = at(GatherCounter::direct) + at(GatherCounter::covered) + at(GatherCounter::material) + at(GatherCounter::class_mean)
+                        + at(GatherCounter::face);
+                    char gathered[400];
+                    std::snprintf(gathered, sizeof gathered, " The gather: %llu rays, %llu cut short by a cap, %llu stack overflows; %llu hits, %llu (%.1f%%) lit by a "
+                        "face's picture and the others by albedo source %llu direct, %llu covered, %llu material, %llu class; error %.4f.", at(GatherCounter::rays),
+                        at(GatherCounter::guard), at(GatherCounter::overflow), hits, at(GatherCounter::face), hits != 0 ? 100.0 * at(GatherCounter::face) / hits : 0.0,
+                        at(GatherCounter::direct), at(GatherCounter::covered), at(GatherCounter::material), at(GatherCounter::class_mean), error_);
                     text += gathered;
                 }
                 out.log.push_back(text + pace);
@@ -686,20 +822,39 @@ namespace enhancements
         p->save.target = target_;
         p->save.error = error_;
         p->save.light = light_ ? light_->flags() : 0;
+        if (faces_)
+        {
+            D3D11_TEXTURE2D_DESC desc;
+            faces_->GetDesc(&desc);
+            p->save.light_faces = desc.ArraySize;
+        }
         if (FAILED(staging_buffer(device_.Get(), 16, size_.width * size_.height, p->history)))
+            return false;
+        if (light_history_ && uploaded_lights_.info[0] != 0 && FAILED(staging_buffer(device_.Get(), 16, size_.width * size_.height, p->light_history)))
+            return false;
+        const bool reflected = reflect_sum_ && uploaded_reflect_.params[1] > 0;
+        if (reflected && FAILED(staging_buffer(device_.Get(), 16, size_.width * size_.height, p->reflect)))
             return false;
         if (p->save.gathering && (FAILED(staging_buffer(device_.Get(), 16, size_.width * size_.height, p->gather_hit))
             || FAILED(staging_buffer(device_.Get(), 16, size_.width * size_.height, p->gather_sky))))
             return false;
         ID3D11DeviceContext1 *c = context_.Get();
         c->CopyResource(p->history.Get(), history_.Get());
+        if (p->light_history)
+            c->CopyResource(p->light_history.Get(), light_history_.Get());
+        if (reflected)
+        {
+            c->CopyResource(p->reflect.Get(), reflect_sum_.Get());
+            p->save.reflect_constants = uploaded_reflect_;
+        }
         if (p->save.gathering)
         {
             c->CopyResource(p->gather_hit.Get(), gather_hit_.Get());
             c->CopyResource(p->gather_sky.Get(), gather_sky_.Get());
             p->save.gather_constants = uploaded_gather_;
+            p->save.lights = uploaded_lights_;
         }
-        if (!p->normals.copy_from(device_.Get(), c, normals) || !p->depth.copy_from(device_.Get(), c, depth) || !p->mask.copy_from(device_.Get(), c, mask)
+        if (!p->normals.copy_from(device_.Get(), c, normals) || !p->depth.copy_from(device_.Get(), c, depth) || (mask && !p->mask.copy_from(device_.Get(), c, mask))
             || !p->irradiance.copy_from(device_.Get(), c, irradiance))
             return false;
         // The optional copies leave their files out when they fail.
@@ -710,6 +865,17 @@ namespace enhancements
         p->save.size = size_;
         save_ = std::move(p);
         return true;
+    }
+
+    void TraceGpu::copy_gloss_for_save(ID3D11Texture2D *specular, ID3D11Texture2D *smoothness, ID3D11Texture2D *material, ID3D11Texture2D *ambient_specular)
+    {
+        if (!save_)
+            return;
+        ID3D11DeviceContext1 *c = context_.Get();
+        for (const auto &[readback, texture] : { std::pair { &save_->specular, specular }, std::pair { &save_->smoothness, smoothness },
+                 std::pair { &save_->material, material }, std::pair { &save_->ambient_specular, ambient_specular } })
+            if (texture)
+                readback->copy_from(device_.Get(), c, texture);
     }
 
     void TraceGpu::copy_hdr_for_save(ID3D11Texture2D *hdr)
@@ -731,6 +897,9 @@ namespace enhancements
         for (const auto &[readback, bytes] : { std::pair { &p.normals, &normals }, std::pair { &p.depth, &depth }, std::pair { &p.mask, &mask },
                  std::pair { &p.irradiance, &irradiance } })
         {
+            // No shadow mask was copied of a frame without one.
+            if (readback == &p.mask && !readback->copied())
+                continue;
             const Readback::Read r = readback->read(c, *bytes);
             if (r == Readback::Read::not_ready)
             {
@@ -744,8 +913,10 @@ namespace enhancements
             }
         }
         // The optional copies: not ready waits, a failed one is left out.
-        std::vector<uint8_t> albedo, irradiance_out, hdr;
-        for (const auto &[readback, bytes] : { std::pair { &p.albedo, &albedo }, std::pair { &p.irradiance_out, &irradiance_out }, std::pair { &p.hdr, &hdr } })
+        std::vector<uint8_t> albedo, irradiance_out, hdr, specular, smoothness, material, ambient_specular;
+        for (const auto &[readback, bytes] : { std::pair { &p.albedo, &albedo }, std::pair { &p.irradiance_out, &irradiance_out }, std::pair { &p.hdr, &hdr },
+                 std::pair { &p.specular, &specular }, std::pair { &p.smoothness, &smoothness }, std::pair { &p.material, &material },
+                 std::pair { &p.ambient_specular, &ambient_specular } })
         {
             if (!readback->copied())
                 continue;
@@ -762,7 +933,7 @@ namespace enhancements
         const size_t pixels = size_t(save.size.width) * save.size.height;
         // The history, then the gather's two buffers when it gathered, each 16 bytes a pixel.
         for (const auto &[buffer, into] : { std::pair { p.history.Get(), &save.history }, std::pair { p.gather_hit.Get(), &save.gather_hit },
-                 std::pair { p.gather_sky.Get(), &save.gather_sky } })
+                 std::pair { p.gather_sky.Get(), &save.gather_sky }, std::pair { p.light_history.Get(), &save.light_history }, std::pair { p.reflect.Get(), &save.reflect } })
         {
             if (!buffer)
                 continue;
@@ -786,6 +957,10 @@ namespace enhancements
         save.albedo = std::move(albedo);
         save.irradiance_out = std::move(irradiance_out);
         save.hdr = std::move(hdr);
+        save.specular = std::move(specular);
+        save.smoothness = std::move(smoothness);
+        save.material = std::move(material);
+        save.ambient_specular = std::move(ambient_specular);
         // The depth copy holds 8 bytes a texel: the float depth, then the stencil and padding.
         save.depth.resize(pixels);
         save.stencil.resize(pixels);

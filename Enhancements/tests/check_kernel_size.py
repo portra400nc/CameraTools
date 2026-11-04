@@ -6,7 +6,7 @@ alpha programs at each hit, had 69 temporaries, 2,782 instructions and 20,548 by
 slower. This compiles shaders/trace_cs.hlsl and shaders/gather_cs.hlsl with vkd3d-compiler to DXBC, disassembles them and
 fails when one declares more than its temporaries (48 for the trace kernel, 44 for the gather kernel, whose prototype
 had 40), any indexable temporary (scratch memory on RADV), more group-shared memory than the traversal stacks and the
-counters, or more than 1,600 instructions.
+counters, or more than 1,700 instructions (1,820 for the gather kernel).
 
     python3 check_kernel_size.py <vkd3d-compiler> [shaders folder]
 
@@ -18,10 +18,20 @@ import subprocess
 import sys
 import tempfile
 
-# The traversal stacks (64 lanes x 24 uints) and the group's counters (17 or 9 uints), with a little room for more counters.
+# The traversal stacks (64 lanes x 24 uints) and the group's counters (17 or 10 uints), with a little room for more counters.
 MAX_GROUP_SHARED = 64 * 24 * 4 + 32 * 4
 # Each kernel: its source, its most temporaries and its most instructions.
-KERNELS = (("trace_cs", 48, 1600), ("gather_cs", 44, 1600))
+# The gather kernel's 1,700: T5a's face lookup, a loop that runs once a hit, took it from 1,556 to 1,676 at 42
+# temporaries; the Deck's rays a second decide whether that holds.
+# T6's traced lights, one light's geometry at a hit a face does not show, took it to 1,788 at 43 temporaries: 1,800.
+# The game's lights, baked on the triangles and read at such a hit, took it to 1,808: 1,820.
+# The trace kernel's 1,700: T6's shadow rays to the traced lights, with the sun's samples only, took it from 1,476 to 1,643
+# at 47 temporaries.
+# Light bounces, a loop over up to 15 hits a sample, took the gather kernel from 45 temporaries and 1,850 instructions to 52
+# and 2,049, and the reflection kernel, which shares it, from 44 and 1,764 to 51 and 1,971. Build 382 converged a 4K shot
+# of one bounce on the Deck in 173.5 s against build 381's 161.8 s at the same street: 7% slower. Bounce strength's gain on the
+# hit surfaces took them to 2,060 and 1,981 instructions.
+KERNELS = (("trace_cs", 48, 1700), ("gather_cs", 52, 2060), ("reflect_cs", 51, 1990))
 
 
 def measure(asm):

@@ -5,11 +5,24 @@
 // The includer defines, besides what trace_common.hlsli needs:
 //   float3 load_normal(int2 pixel)     the G-buffer's world normal, decoded to -1..1 but not normalized
 //   uint load_stencil(int2 pixel)
+//   the GatherLights constants of core/trace.h's GatherLights: float4 light_rows[16]; uint4 light_info
 #include "trace_common.hlsli"
+
+// A traced light's shadow rays aim at a sphere of this radius around it, so its shadows' edges soften with distance as
+// a lamp's do.
+static const float kLightRadius = 0.1f;
+static const uint kLightSalt = 0x510E527Fu;
+
+// v plus x in component j.
+float4 add_at(float4 v, uint j, float x)
+{
+    return v + float4(j == 0u ? x : 0.0f, j == 1u ? x : 0.0f, j == 2u ? x : 0.0f, j == 3u ? x : 0.0f);
+}
 
 struct PixelTraceData
 {
     float4 history;     // occlusion sum, sun sum, occlusion count, sun count
+    float4 lights;      // each traced light's visibility summed over the sun's samples
     uint world;         // 1 when the pixel is traced
     uint rays;
     uint guard;         // rays that met a cap of bvh.hlsli's
@@ -22,10 +35,11 @@ struct PixelTraceData
 
 uint grid_class_of(uint s) { return s == 128u ? 0u : s == 144u ? 1u : 2u; }
 
-PixelTraceData trace_pixel_of(int2 pixel, float4 history, uint lane)
+PixelTraceData trace_pixel_of(int2 pixel, float4 history, float4 lights, uint lane)
 {
     PixelTraceData r;
     r.history = history;
+    r.lights = lights;
     r.world = 0u;
     r.rays = 0u;
     r.guard = 0u;
@@ -53,11 +67,14 @@ PixelTraceData trace_pixel_of(int2 pixel, float4 history, uint lane)
     uint mask = trace_counts.z;
 
     // One traversal in a loop over the pixel's rays, so the shader holds one copy of it: 0 occlusion, 1 sun, 2 the
-    // consistency grid's ray from the camera.
+    // consistency grid's ray from the camera, then one ray a traced light, with each sun sample.
     bool want_ao = r.history.z < float(trace_counts.x);
     bool want_sun = r.history.w < float(trace_counts.y);
-    bool want_check = trace_render.w != 0u && pixel.x % int(trace_render.w) == 0 && pixel.y % int(trace_render.w) == 0 && !is_alpha_stencil(s);
-    LOOP for (uint kind = 0u; kind < 3u; kind++)
+    // A scene cut to its nearest triangles misses what lies past eye_position.w, which then says nothing about it.
+    bool want_check = trace_render.w != 0u && pixel.x % int(trace_render.w) == 0 && pixel.y % int(trace_render.w) == 0 && !is_alpha_stencil(s)
+        && !(eye_position.w > 0.0f && length(p) > eye_position.w);
+    uint sample = uint(r.history.w);
+    LOOP for (uint kind = 0u; kind < 3u + light_info.x; kind++)
     {
         float3 o = origin;
         float3 d = view;
@@ -90,7 +107,7 @@ PixelTraceData trace_pixel_of(int2 pixel, float4 history, uint lane)
             t_max = kSunReach;
             any_hit = true;
         }
-        else
+        else if (kind == 2u)
         {
             if (!want_check)
                 continue;
@@ -98,6 +115,20 @@ PixelTraceData trace_pixel_of(int2 pixel, float4 history, uint lane)
             d = -view;
             t_max = dist * 1.5f + 1.0f;
             classes = kSolidClasses | (mask & kAlphaTests);
+        }
+        else
+        {
+            uint j = kind - 3u;
+            if (!want_sun)
+                continue;
+            // A light out of range has nothing to shadow: its ray has no length, so it meets nothing and counts as seen. One
+            // facing away gives no light, so its ray does not matter.
+            float3 v = float3(light_rows[j * 4u].x - origin.x, light_rows[j * 4u].y - origin.y, light_rows[j * 4u].z - origin.z);
+            float reach = length(v);
+            d = cone_direction_of(v * (1.0f / reach), reach / sqrt(reach * reach + kLightRadius * kLightRadius),
+                sequence_point_of(seed, kLightSalt + j, sample));
+            t_max = reach < light_rows[j * 4u].w ? max(reach - kLightRadius, 0.0f) : 0.0f;
+            any_hit = true;
         }
         BvhHit h = trace_bvh(o, d, t_max, any_hit, classes, lane);
         r.rays++;
@@ -113,6 +144,10 @@ PixelTraceData trace_pixel_of(int2 pixel, float4 history, uint lane)
         {
             r.history.y += h.prim != kNoHit ? 0.0f : 1.0f;
             r.history.w += 1.0f;
+        }
+        else if (kind > 2u)
+        {
+            r.lights = add_at(r.lights, kind - 3u, h.prim != kNoHit ? 0.0f : 1.0f);
         }
         else if (h.guard == 0u)
         {

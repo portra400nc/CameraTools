@@ -85,6 +85,14 @@ int main()
         check("the stream output of the vertex shaders and the domain shader: SV_POSITION 0, components 0 to 3 in slot 0, 16 bytes",
             a && same(*a, "SV_POSITION", 16) && b && same(*b, "SV_POSITION", 16) && c && same(*c, "SV_POSITION", 16));
         check("no stream output for the vertex shader that feeds the hull shader", !so_declaration(*feed));
+        OutputSignature terrain;
+        terrain.elements = { { "SV_POSITION", 0, 1, 3, 0, 15, 0 }, { "TEXCOORD", 0, 0, 3, 2, 3, 0 }, { "TEXCOORD", 1, 0, 3, 2, 12, 0 }, { "COLOR", 0, 0, 3, 0, 15, 0 }, { "NORMAL", 0, 0, 3, 8, 15, 0 } };
+        const auto attributes = attribute_entries(terrain, { { "texcoord", 0, 0, 2, 0 }, { "TEXCOORD", 1, 1, 1, 0 } });
+        check("a domain shader's inputs as ATTR by register, their components from x: TEXCOORD0.xy in o2 and TEXCOORD1's second in o2.w",
+            attributes && attributes->size() == 2 && (*attributes)[0].semantic == "ATTR" && (*attributes)[0].index == 2 && (*attributes)[0].start == 0
+                && (*attributes)[0].count == 2 && (*attributes)[1].index == 2 && (*attributes)[1].start == 3 && (*attributes)[1].count == 1);
+        check("nothing for an element in register 0 or past 7, or that is not there", !attribute_entries(terrain, { { "COLOR", 0, 0, 4, 0 } })
+            && !attribute_entries(terrain, { { "NORMAL", 0, 0, 3, 0 } }) && !attribute_entries(terrain, { { "TEXCOORD", 9, 0, 2, 0 } }));
         OutputSignature moved = *vs;
         std::swap(moved.elements[0], moved.elements[3]);
         moved.elements[3].reg = 2;

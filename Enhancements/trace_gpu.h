@@ -1,7 +1,8 @@
 // The trace pass's D3D11 side. Render thread only, on the native immediate context like gpu.h.
 //
 // It holds the traced scene's BVH in two raw buffers and its alpha buffer (core/alpha.h) in a third, filled a part each
-// present after the writer thread built them, and for a scene with light its sky map (core/light.h) in a fourth; the
+// present after the writer thread built them, and for a scene with light its sky map (core/light.h) in a fourth, its
+// faces' lit pictures in a texture array filled a part each present after the buffers, and their cameras; the
 // per-pixel history (a structured buffer of float4 at the render size: occlusion sum, sun sum and their counts), and
 // while the trace gathers the gather's two (the hits' light and the sun-lit hits; the sky met and the misses); the
 // kernels' counters; the Morton list of tiles; and per dispatch a set of timestamp queries and a CPU-readable copy of the
@@ -38,6 +39,10 @@ namespace enhancements
         bool gathering = false;
         bool trace_kernel = true;
         GatherConstants gather {};
+        GatherLights lights {};                 // the traced lights, in the scene's frame
+        // While it gathers with reflections on: the reflection kernel runs over the frame's tiles after the gather kernel.
+        bool reflecting = false;
+        ReflectConstants reflect;
         uint32_t target = 0;                    // the samples every traced pixel gets
     };
 
@@ -59,12 +64,15 @@ namespace enhancements
         // Starts uploading a built scene as generation: makes the compute shader the first time, the node, triangle and
         // alpha buffers (16 bytes of zeros for a scene without alpha tests), and moves to UPLOADING. false, in FAILED with
         // why, when one could not be made; buffer says whether it was a buffer, which a smaller scene may fit.
-        // light, for a scene captured with ENHANCEMENTS_SCENE_LIGHT, gives its sky map a buffer of its own.
+        // light, for a scene captured with ENHANCEMENTS_SCENE_LIGHT, gives its sky map a buffer of its own, its faces' lit
+        // pictures a texture array, and their cameras a constant buffer.
         bool begin_upload(std::shared_ptr<const Bvh> bvh, std::shared_ptr<const std::vector<uint32_t>> alpha, std::shared_ptr<const SceneLight> light,
             uint64_t generation, bool &buffer);
         // Whether rays from the camera must meet the scene where the depth buffer does; off for the self-test scene, which
         // no frame shows and which would go stale after its first pass.
         void check_consistency(bool on) { check_consistency_ = on; }
+        // While a traced shot holds the world: shot_consistency_stale in place of consistency_stale.
+        void shot_consistency(bool on) { shot_consistency_ = on; }
         // At present while UPLOADING: the next kTraceUploadBytes. true when the scene became READY at this present.
         bool upload_step();
         uint32_t upload_presents() const { return upload_presents_; }
@@ -97,16 +105,20 @@ namespace enhancements
         // frame that goes on traces with the start's camera, sun and light (core/trace.h's held_constants). With gather,
         // the frame gathers with its constants, and the trace kernel's constants ask for no occlusion ray.
         TraceFrame preview(const TraceKey &key, const TraceSettings &settings, const TraceConstants &constants, const GatherSettings &gather_settings,
-            const GatherConstants *gather) const;
+            const GatherConstants *gather, const GatherLights &lights = {}, const ReflectConstants &reflect = {}) const;
 
         // When the trace pass runs, after the shell mirrored the G-buffer: makes the history, counters and tile list for
         // the render size when needed, clears the history when frame.reset, uploads the constants (also for the apply
         // draw, at b1), and dispatches frame's tiles with the timestamp queries around them; then frame's schedule is this
         // one's. false, in FAILED with why, when a resource or call failed.
         bool dispatch(const TraceFrame &frame, Size render, ID3D11ShaderResourceView *normals, ID3D11ShaderResourceView *depth,
-            ID3D11ShaderResourceView *stencil);
+            ID3D11ShaderResourceView *stencil, ID3D11ShaderResourceView *smoothness = nullptr, ID3D11ShaderResourceView *material = nullptr);
+        ID3D11ShaderResourceView *reflect_sum_srv() const { return reflect_sum_srv_.Get(); }
+        ID3D11Buffer *reflect_constants() const { return reflect_constants_.Get(); }
 
         ID3D11ShaderResourceView *history_srv() const { return history_srv_.Get(); }
+        ID3D11ShaderResourceView *light_history_srv() const { return light_history_srv_.Get(); }
+        ID3D11Buffer *lights_constants() const { return lights_constants_.Get(); }
         ID3D11ShaderResourceView *gather_hit_srv() const { return gather_hit_srv_.Get(); }
         ID3D11ShaderResourceView *gather_sky_srv() const { return gather_sky_srv_.Get(); }
         ID3D11ShaderResourceView *sky_srv() const { return sky_srv_.Get(); }
@@ -135,6 +147,8 @@ namespace enhancements
         bool saving() const { return save_ != nullptr; }
         // At the bloom step of the frame a save copied, before any pass of ours: its HDR scene. Once per save.
         void copy_hdr_for_save(ID3D11Texture2D *hdr);
+        // The game's reflection inputs of the frame a pending save copied, any of them left out when null.
+        void copy_gloss_for_save(ID3D11Texture2D *specular, ID3D11Texture2D *smoothness, ID3D11Texture2D *material, ID3D11Texture2D *ambient_specular);
         // At present: the save once the GPU has finished its copies, else empty; failed when a map failed, and the save is
         // dropped. Throws std::bad_alloc when its images cannot be held, and the save is dropped too.
         std::optional<TraceSave> read_save(bool &failed);
@@ -142,7 +156,7 @@ namespace enhancements
     private:
         void free_scene();
         bool make_shader();
-        bool sync(Size render, bool gathering);
+        bool sync(Size render, bool gathering, bool lit, bool reflecting);
 
         // One dispatch's measurements in flight.
         struct Flight
@@ -159,15 +173,19 @@ namespace enhancements
         struct PendingSave
         {
             TraceSave save;
-            ComPtr<ID3D11Buffer> history, gather_hit, gather_sky;   // CPU-readable
-            Readback normals, depth, mask, irradiance, albedo, irradiance_out, hdr;
+            ComPtr<ID3D11Buffer> history, gather_hit, gather_sky, light_history, reflect;    // CPU-readable
+            Readback normals, depth, mask, irradiance, albedo, irradiance_out, hdr, specular, smoothness, material, ambient_specular;
             bool hdr_copied = false;
         };
 
         ComPtr<ID3D11Device> device_;
         ComPtr<ID3D11DeviceContext1> context_;
-        ComPtr<ID3D11ComputeShader> cs_, gather_cs_;
-        ComPtr<ID3D11Buffer> constants_, gather_constants_;
+        ComPtr<ID3D11ComputeShader> cs_, gather_cs_, reflect_cs_;
+        ComPtr<ID3D11Buffer> reflect_sum_, reflect_constants_;
+        ComPtr<ID3D11UnorderedAccessView> reflect_sum_uav_;
+        ComPtr<ID3D11ShaderResourceView> reflect_sum_srv_;
+        ReflectConstants uploaded_reflect_;
+        ComPtr<ID3D11Buffer> constants_, gather_constants_, lights_constants_;
         ComPtr<ID3D11Buffer> node_buffer_, triangle_buffer_, alpha_buffer_;
         ComPtr<ID3D11ShaderResourceView> node_srv_, triangle_srv_, alpha_srv_;
         std::shared_ptr<const Bvh> uploading_;
@@ -185,11 +203,18 @@ namespace enhancements
         // The gather's, made at the first frame that gathers at a render size and kept with the history.
         ComPtr<ID3D11Buffer> gather_hit_, gather_sky_;
         ComPtr<ID3D11UnorderedAccessView> gather_hit_uav_, gather_sky_uav_;
+        // The traced lights' visibility sums, four halves a pixel, made the first time a frame traces lights at this size.
+        ComPtr<ID3D11Buffer> light_history_;
+        ComPtr<ID3D11UnorderedAccessView> light_history_uav_;
+        ComPtr<ID3D11ShaderResourceView> light_history_srv_;
         ComPtr<ID3D11ShaderResourceView> gather_hit_srv_, gather_sky_srv_;
-        // The scene's light and its sky map's buffer.
+        // The scene's light, its sky map's buffer, its faces' pictures, a slice a face, and their cameras (GatherFaces).
         std::shared_ptr<const SceneLight> light_;
         ComPtr<ID3D11Buffer> sky_buffer_;
         ComPtr<ID3D11ShaderResourceView> sky_srv_;
+        ComPtr<ID3D11Texture2D> faces_;
+        ComPtr<ID3D11ShaderResourceView> faces_srv_;
+        ComPtr<ID3D11Buffer> faces_constants_;
         Size size_;                             // of the history and tile list
         uint32_t tile_count_ = 0;
         std::array<Flight, 4> flights_;
@@ -204,6 +229,7 @@ namespace enhancements
         std::optional<TraceConstants> started_constants_;   // the constants of the frame that started them, and its gather's,
         GatherConstants started_gather_ {};                 // which every later frame's camera, sun and light are
         std::optional<TraceConstants> uploaded_constants_;  // what the last dispatch put in the constant buffer, tiles and all
+        GatherLights uploaded_lights_ {};       // what the last gathering dispatch put in the lights'
         GatherConstants uploaded_gather_ {};    // what the last gathering dispatch put in the gather's
         TraceSchedule schedule_;
         uint64_t epoch_ = 0;
@@ -211,6 +237,7 @@ namespace enhancements
         TraceCounts totals_ {};
         TraceCounts window_ {};                 // since the last pass the consistency grid judged
         bool check_consistency_ = true;
+        bool shot_consistency_ = false;
         uint32_t window_pass_ = 0, logged_pass_ = 0;
         uint32_t measures_logged_ = 0;         // measurements of these samples logged, before any pass
         double mrays_ = 0;

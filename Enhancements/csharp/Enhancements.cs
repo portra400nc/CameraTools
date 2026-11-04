@@ -140,7 +140,7 @@ namespace CameraToolsEnhancements
 
     // ENHANCEMENTS_TRACE_LIGHT_* in enhancements.h: what of the traced scene's light came from the game.
     [Flags]
-    internal enum EnhancementsTraceLight : uint { None = 0, Albedo = 1 << 0, Sky = 1 << 1, Sun = 1 << 2, Ambient = 1 << 3 }
+    internal enum EnhancementsTraceLight : uint { None = 0, Albedo = 1 << 0, Sky = 1 << 1, Sun = 1 << 2, Ambient = 1 << 3, Faces = 1 << 4 }
 
     // EnhancementsGather in enhancements.h, field for field.
     [StructLayout(LayoutKind.Sequential)]
@@ -348,6 +348,29 @@ namespace CameraToolsEnhancements
         public uint Active;
         public uint Samples;        // 0: the applied gather's
         public float BudgetMs;      // 0: the applied trace's
+        public float Strength;      // not finite: the applied gather's
+        public EnhancementsTraceOutputs Outputs;    // None: the applied trace's
+        public uint Reflections;    // 1: the shot traces its reflections
+        public float Gloss;
+        public float ReflectedLight;
+        public uint Bounces;
+    }
+
+    // EnhancementsShotLight in enhancements.h, field for field.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct EnhancementsShotLight
+    {
+        public float X, Y, Z;
+        public float Range;
+        public float R, G, B;           // color times intensity, as a Unity Light holds them
+        public float CosOuter;          // below -1 for a point light
+        public float DirectionX, DirectionY, DirectionZ;
+        public float CosInner;
+        public uint Reserved0, Reserved1, Reserved2, Reserved3;
+
+        public const int Max = 4;
+        public const int MaxGame = 256;
+        public const uint Shadows = 1;  // in Reserved0: the game draws this light with shadows
     }
 
     // EnhancementsDngInfo in enhancements.h, field for field: the camera a DNG's EXIF names, 0 or an empty date for none.
@@ -463,7 +486,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 21;
+        private const uint Version = 27;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -510,9 +533,15 @@ namespace CameraToolsEnhancements
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate uint WriteDngCall(uint id, [In] byte[] path, ref EnhancementsDngInfo info);
 
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate void SetShotLightsCall([In] EnhancementsShotLight[] lights, uint count);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate void SetGameLightsCall([In] EnhancementsShotLight[] lights, uint count);
+
         private sealed record AddOn(IntPtr Module, ApplyCall Apply, SetCameraCall SetCamera, GetStatusCall GetStatus, DescribeCall Describe, CompareCall Compare,
             SetAccumulateCall SetAccumulate, DepthAtCall DepthAt, CaptureSceneCall CaptureScene, SaveTraceCall SaveTrace, SetShotCall SetShot, SaveFrameCall SaveFrame,
-            DevelopDngCall DevelopDng, WriteDngCall WriteDng);
+            DevelopDngCall DevelopDng, WriteDngCall WriteDng, SetShotLightsCall SetShotLights, SetGameLightsCall SetGameLights);
 
         private static readonly float[] camera = new float[52];
         private static readonly byte[] line = new byte[512];
@@ -641,12 +670,34 @@ namespace CameraToolsEnhancements
         // applied, also while their master switch is off, with samples and budgetMs in place of the applied ones when they
         // are not 0. Status.ShotActive follows a frame later; Status.TraceConverged then says when the frame is written from
         // all its samples.
-        public static void SetShot(bool active, uint samples = 0, float budgetMs = 0)
+        public static void SetShot(bool active, uint samples = 0, float budgetMs = 0, float strength = float.NaN,
+            EnhancementsTraceOutputs outputs = EnhancementsTraceOutputs.None, bool reflections = false, float gloss = 0.5f, float reflectedLight = 16f, uint bounces = 1)
         {
             if (addOn == null)
                 return;
-            var shot = new EnhancementsShot { Size = (uint)Marshal.SizeOf<EnhancementsShot>(), Active = active ? 1u : 0u, Samples = samples, BudgetMs = budgetMs };
+            var shot = new EnhancementsShot
+            {
+                Size = (uint)Marshal.SizeOf<EnhancementsShot>(), Active = active ? 1u : 0u, Samples = samples, BudgetMs = budgetMs, Strength = strength, Outputs = outputs,
+                Reflections = reflections ? 1u : 0u, Gloss = gloss, ReflectedLight = reflectedLight, Bounces = bounces,
+            };
             addOn.SetShot(ref shot);
+        }
+
+        // The lights a traced shot traces, the first EnhancementsShotLight.Max of them; none ends them.
+        public static void SetShotLights(EnhancementsShotLight[] lights)
+        {
+            if (addOn == null)
+                return;
+            addOn.SetShotLights(lights ?? Array.Empty<EnhancementsShotLight>(), (uint)Math.Min(lights?.Length ?? 0, EnhancementsShotLight.Max));
+        }
+
+        // The game's own lights the next scene capture bakes for the gather's hits that no face shows, the first
+        // EnhancementsShotLight.MaxGame of them.
+        public static void SetGameLights(EnhancementsShotLight[] lights)
+        {
+            if (addOn == null)
+                return;
+            addOn.SetGameLights(lights, (uint)Math.Min(lights.Length, EnhancementsShotLight.MaxGame));
         }
 
         // Saves the next frame the trace pass writes, with what the Mac's reference tracer needs, to
@@ -768,14 +819,16 @@ namespace CameraToolsEnhancements
                 || !TryExport<SetShotCall>(module, "EnhancementsSetShot", out var setShot)
                 || !TryExport<SaveFrameCall>(module, "EnhancementsSaveFrame", out var saveFrame)
                 || !TryExport<DevelopDngCall>(module, "EnhancementsDevelopDng", out var developDng)
-                || !TryExport<WriteDngCall>(module, "EnhancementsWriteDng", out var writeDng))
+                || !TryExport<WriteDngCall>(module, "EnhancementsWriteDng", out var writeDng)
+                || !TryExport<SetShotLightsCall>(module, "EnhancementsSetShotLights", out var setShotLights)
+                || !TryExport<SetGameLightsCall>(module, "EnhancementsSetGameLights", out var setGameLights))
             {
                 MelonLogger.Warning($"Enhancements: {ModuleName} version {found} is missing an export.");
                 return;
             }
             rejected = IntPtr.Zero;
             addOn = new AddOn(module, apply, setCamera, getStatus, describe, compare, setAccumulate, depthAt, captureScene, saveTrace, setShot, saveFrame,
-                developDng, writeDng);
+                developDng, writeDng, setShotLights, setGameLights);
             Connections++;
             MelonLogger.Msg($"Enhancements: connected to {ModuleName} version {found}.");
         }

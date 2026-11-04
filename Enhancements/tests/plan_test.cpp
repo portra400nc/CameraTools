@@ -236,10 +236,16 @@ int main()
         FrameTracker tracker;
         fixture::replay(rows, tracker);
         const Plan at_bloom = plan(Step::bloom, tracker.map(), atmosphere_on(), kCamera);
-        check("the bloom plan runs atmosphere and holds light shafts, the depth of field and the lens flare, off", at_bloom.count == 4
-            && at_bloom.items[0].pass == PassId::atmosphere && at_bloom.items[0].kind == Decision::Kind::run && at_bloom.items[1].pass == PassId::light_shafts
-            && at_bloom.items[1].kind == Decision::Kind::off && at_bloom.items[2].pass == PassId::depth_of_field && at_bloom.items[2].kind == Decision::Kind::off
-            && at_bloom.items[3].pass == PassId::lens_flare && at_bloom.items[3].kind == Decision::Kind::off);
+        check("the bloom plan holds the traced lights off, runs atmosphere and holds light shafts, the depth of field and the lens flare, off", at_bloom.count == 5
+            && at_bloom.items[0].pass == PassId::traced_lights && at_bloom.items[0].kind == Decision::Kind::off
+            && at_bloom.items[1].pass == PassId::atmosphere && at_bloom.items[1].kind == Decision::Kind::run && at_bloom.items[2].pass == PassId::light_shafts
+            && at_bloom.items[2].kind == Decision::Kind::off && at_bloom.items[3].pass == PassId::depth_of_field && at_bloom.items[3].kind == Decision::Kind::off
+            && at_bloom.items[4].pass == PassId::lens_flare && at_bloom.items[4].kind == Decision::Kind::off);
+        Settings lit = atmosphere_on();
+        lit.traced_lights = true;
+        const Plan with_lights = plan(Step::bloom, tracker.map(), lit, kCamera);
+        check("a traced shot's lights run first at the bloom step", with_lights.items[0].pass == PassId::traced_lights && with_lights.items[0].kind == Decision::Kind::run
+            && wanted_steps(lit).has(Step::bloom));
         check("the combine plan holds the trace, sun shadows, contact shadows and ambient, all off",
             plan(Step::combine, tracker.map(), atmosphere_on(), kCamera).count == 4
             && plan(Step::combine, tracker.map(), atmosphere_on(), kCamera).items[0].kind == Decision::Kind::off);
@@ -317,9 +323,9 @@ int main()
         FrameTracker tracker;
         fixture::replay(rows, tracker);
         const Plan at_bloom = plan(Step::bloom, tracker.map(), light_shafts_on(true), kCamera);
-        check("the bloom plan runs atmosphere first, then light shafts with this frame's sun constants", at_bloom.count == 4
-            && at_bloom.items[0].pass == PassId::atmosphere && at_bloom.items[0].kind == Decision::Kind::run
-            && at_bloom.items[1].pass == PassId::light_shafts && at_bloom.items[1].kind == Decision::Kind::run && at_bloom.items[1].uses_sun);
+        check("the bloom plan runs atmosphere first, then light shafts with this frame's sun constants", at_bloom.count == 5
+            && at_bloom.items[1].pass == PassId::atmosphere && at_bloom.items[1].kind == Decision::Kind::run
+            && at_bloom.items[2].pass == PassId::light_shafts && at_bloom.items[2].kind == Decision::Kind::run && at_bloom.items[2].uses_sun);
     }
     {
         auto rows = walk;
@@ -329,10 +335,10 @@ int main()
         FrameTracker tracker;
         fixture::replay(rows, tracker);
         const Plan read = plan(Step::bloom, tracker.map(), lens_flare_on(), kCamera);
-        check("with this frame's sun constants it reads the atlas", read.items[3].pass == PassId::lens_flare && read.items[3].kind == Decision::Kind::run
-            && read.items[3].uses_sun);
+        check("with this frame's sun constants it reads the atlas", read.items[4].pass == PassId::lens_flare && read.items[4].kind == Decision::Kind::run
+            && read.items[4].uses_sun);
         const Plan unread = plan(Step::bloom, tracker.map(), lens_flare_on(), Inputs { true, SunCheck::unread });
-        check("without them it still runs, from the depth alone", unread.items[3].kind == Decision::Kind::run && !unread.items[3].uses_sun);
+        check("without them it still runs, from the depth alone", unread.items[4].kind == Decision::Kind::run && !unread.items[4].uses_sun);
         check("the lens flare asks for the sun constants", wants_sun(lens_flare_on()));
     }
     {
@@ -587,6 +593,8 @@ int main()
         check("without the shadow mask, contact shadows skip and ambient runs",
             report.skipped.bits == ENHANCEMENTS_PASS_CONTACT_SHADOWS && report.ran.bits == ENHANCEMENTS_PASS_AMBIENT);
         check("and the shadow mask is the missing entry", report.missing.bits == ENHANCEMENTS_ENTRY_SHADOW_MASK);
+        const FrameReport indoors = run_frame(rows, trace_on(0), Inputs { true, SunCheck::ok, TraceState::ready, true });
+        check("the trace runs without the shadow mask, as the game draws none indoors", indoors.ran.has(PassId::trace));
         check("describe says why", describe(report)
             == "1152x720 found gbuffer quarter-shadow ambient-pair combine bloom tonemap forward gbuffer-done tonemap-read; ran ambient@combine; skipped contact-shadows: missing shadow-mask");
     }
@@ -1212,8 +1220,8 @@ int main()
         raw.lens_softness = { 0.5f };
         raw.depth_of_field.enabled = 0;
         check("the lens softness alone wants the depth of field's pass, which then does not blur",
-            !parse_settings(raw).depth_of_field.enabled && kPasses[7].wanted(parse_settings(raw))
-            && (raw.lens_softness = { 0 }, !kPasses[7].wanted(parse_settings(raw))));
+            !parse_settings(raw).depth_of_field.enabled && kPasses[8].wanted(parse_settings(raw))
+            && (raw.lens_softness = { 0 }, !kPasses[8].wanted(parse_settings(raw))));
         raw.depth_of_field.enabled = 1;
         raw.lens_softness = { 0 };
         raw.size = 324;     // a caller of version 15
@@ -1268,7 +1276,7 @@ int main()
         raw.depth_of_field.focus_seconds = -1;
         check("0.1 seconds of focus stays and -1 clamps to 0, which jumps", fast == 0.1f && parse_settings(raw).depth_of_field.focus_seconds == 0);
         check("the depth of field runs last at the bloom step and wants it", wanted_steps(parse_settings(raw)).has(Step::bloom)
-            && kPasses[7].id == PassId::depth_of_field && std::string(kPasses[7].name) == "depth-of-field");
+            && kPasses[8].id == PassId::depth_of_field && std::string(kPasses[8].name) == "depth-of-field");
     }
     {
         EnhancementsCamera raw {};
@@ -1328,10 +1336,12 @@ int main()
         raw.tonemap.enabled = 1;
         raw.gather.samples = 32;
         raw.trace.budget_ms = 100;
+        raw.gather.strength = 1.5f;
+        raw.trace.outputs = ENHANCEMENTS_TRACE_SUN;
         const Settings on = parse_settings(raw);
         raw.enabled = 0;
         const Settings off = parse_settings(raw);
-        EnhancementsShot shot = { sizeof shot, 1, 0, 0 };
+        EnhancementsShot shot = { sizeof shot, 1, 0, 0, NAN, 0, 0, 0, 0, 0 };
         const Settings same = with_shot(on, parse_shot(nullptr)), plain = with_shot(on, parse_shot(&shot));
         check("no shot leaves the applied settings as they are", !same.trace.enabled && !same.gather.enabled && same.view == View::normals && same.ambient.enabled);
         check("a shot switches the trace and the gather on over applied settings that are on, and keeps their passes, view, samples and budget",
@@ -1345,25 +1355,66 @@ int main()
         shot.budget_ms = 150;
         const Settings given = with_shot(on, parse_shot(&shot));
         check("a shot's samples and budget replace the applied ones", given.gather.samples == 128 && given.trace.budget_ms == 150.0f);
+        shot.budget_ms = 1500;
+        check("a shot's budget may pass the applied one's 200 ms", with_shot(on, parse_shot(&shot)).trace.budget_ms == 1500.0f);
+        shot.budget_ms = 9000;
+        check("a shot's budget clamps to 2000 ms", parse_shot(&shot).budget_ms == 2000.0f);
         shot.samples = 100000;
         shot.budget_ms = 1;
         check("a shot's samples clamp to 4096 and its budget to 2 ms", parse_shot(&shot).samples == 4096 && parse_shot(&shot).budget_ms == 2.0f);
         shot.budget_ms = NAN;
         check("a NaN budget keeps the applied one", parse_shot(&shot).budget_ms == 0.0f && with_shot(on, parse_shot(&shot)).trace.budget_ms == 100.0f);
+        shot.strength = 3.0f;
+        check("a shot's strength replaces the applied bounce strength", with_shot(on, parse_shot(&shot)).gather.strength == 3.0f);
+        shot.strength = 0.0f;
+        check("a shot's strength of 0 turns the bounce off", with_shot(on, parse_shot(&shot)).gather.strength == 0.0f);
+        shot.strength = 9.0f;
+        check("a shot's strength clamps to 4", with_shot(on, parse_shot(&shot)).gather.strength == 4.0f);
+        shot.strength = NAN;
+        check("a NaN strength keeps the applied one", with_shot(on, parse_shot(&shot)).gather.strength == 1.5f);
+        shot.strength = 3.0f;
+        shot.size = 16;
+        check("a version 21 shot of 16 bytes keeps the applied strength", with_shot(on, parse_shot(&shot)).gather.strength == 1.5f);
+        shot.size = sizeof shot;
+        shot.outputs = ENHANCEMENTS_TRACE_AO;
+        const Settings game_sun = with_shot(on, parse_shot(&shot));
+        check("a shot's outputs of AO alone keep the game's sun shadows", game_sun.trace.ao && !game_sun.trace.sun);
+        shot.outputs = ENHANCEMENTS_TRACE_AO | ENHANCEMENTS_TRACE_SUN | 0x100u;
+        const Settings both = with_shot(on, parse_shot(&shot));
+        check("a shot's outputs of both trace the sun shadows, unknown bits dropped", both.trace.ao && both.trace.sun);
+        shot.outputs = 0;
+        check("a shot's outputs of 0 keep the applied ones", !with_shot(on, parse_shot(&shot)).trace.ao && with_shot(on, parse_shot(&shot)).trace.sun);
+        shot.outputs = ENHANCEMENTS_TRACE_AO;
+        shot.size = 20;
+        check("a version 22 shot of 20 bytes keeps the applied outputs", !with_shot(on, parse_shot(&shot)).trace.ao && with_shot(on, parse_shot(&shot)).trace.sun);
         shot.size = 8;
         check("an 8-byte shot is active with the applied samples and budget", parse_shot(&shot).active && parse_shot(&shot).samples == 0);
         shot.size = 4;
         check("a shot too short for active, an inactive one and a null one are no shot", !parse_shot(&shot).active && !parse_shot(nullptr).active
-            && (shot = { sizeof shot, 0, 64, 100 }, !with_shot(on, parse_shot(&shot)).trace.enabled));
+            && (shot = { sizeof shot, 0, 64, 100, 1, 0, 0, 0, 0, 0 }, !with_shot(on, parse_shot(&shot)).trace.enabled));
+        shot = { sizeof shot, 1, 0, 0, NAN, 0, 1, 5, 99, 0 };
+        const ShotSettings reflecting = parse_shot(&shot);
+        check("reflections: off unless asked for, and the gloss and the reflected light clamped", !parse_shot(nullptr).reflect.enabled && reflecting.reflect.enabled
+            && reflecting.reflect.gloss == 1 && reflecting.reflect.reflected_light == 32 && with_shot(on, reflecting).reflect.enabled);
+        shot.size = offsetof(EnhancementsShot, reflections);
+        check("a caller from before them keeps the game's", !parse_shot(&shot).reflect.enabled);
+        shot = { sizeof shot, 1, 0, 0, NAN, 0, 0, 0, 1, 99 };
+        check("bounces clamp to 15 and reach the gather", with_shot(on, parse_shot(&shot)).gather.bounces == 15);
+        shot.bounces = 0;
+        check("0 bounces count as 1", with_shot(on, parse_shot(&shot)).gather.bounces == 1);
+        shot.bounces = 4;
+        shot.size = offsetof(EnhancementsShot, bounces);
+        check("a caller from before them bounces once", with_shot(on, parse_shot(&shot)).gather.bounces == 1);
         // The status as a caller of each version reads it: it gets the bytes of its own size.
         check("the status is 168 bytes: the restarts at 132, in a version 9 caller's padding, their reason at 136, the shot at 140, the saved frames "
-              "at 144, the focus at 148, the flare's visibility at 152 and the DNG's id, in a version 17 caller's padding, its state and failure at 156, 160 and 164, and the shot is 16, and the DNG's camera is 44 with its date at 16, its shutter time at 36 and its ISO at 40, in version 21",
+              "at 144, the focus at 148, the flare's visibility at 152 and the DNG's id, in a version 17 caller's padding, its state and failure at 156, 160 and 164, and the shot is 24 with its strength at 16 and its outputs at 20, and the DNG's camera is 44 with its date at 16, its shutter time at 36 and its ISO at 40, in version 21, the shot's strength in version 22 and its outputs in 23",
             sizeof(EnhancementsStatus) == 168 && offsetof(EnhancementsStatus, dng_id) == 156 && offsetof(EnhancementsStatus, dng_state) == 160
             && offsetof(EnhancementsStatus, dng_failure) == 164 && offsetof(EnhancementsStatus, flare_visibility) == 152 && offsetof(EnhancementsStatus, trace_light) == 128 && offsetof(EnhancementsStatus, trace_restarts) == 132
             && offsetof(EnhancementsStatus, trace_restart_reason) == 136 && offsetof(EnhancementsStatus, shot_active) == 140
-            && offsetof(EnhancementsStatus, frames_saved) == 144 && offsetof(EnhancementsStatus, dof_focus_meters) == 148 && sizeof(EnhancementsShot) == 16
+            && offsetof(EnhancementsStatus, frames_saved) == 144 && offsetof(EnhancementsStatus, dof_focus_meters) == 148 && sizeof(EnhancementsShot) == 40
+            && offsetof(EnhancementsShot, strength) == 16 && offsetof(EnhancementsShot, outputs) == 20
             && sizeof(EnhancementsDngInfo) == 44 && offsetof(EnhancementsDngInfo, date_time) == 16 && offsetof(EnhancementsDngInfo, exposure_time_s) == 36
-            && offsetof(EnhancementsDngInfo, iso) == 40 && ENHANCEMENTS_VERSION == 21);
+            && offsetof(EnhancementsDngInfo, iso) == 40 && ENHANCEMENTS_VERSION == 27);
     }
     {
         // Unity's GL.GetGPUProjectionMatrix for a 60 degree, 16:10 camera with near 0.1 and far 1000, reversed Z.

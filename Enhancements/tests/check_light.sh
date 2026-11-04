@@ -8,8 +8,9 @@
 here=$(cd "$(dirname "$0")" && pwd)
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
-c++ -std=c++17 -O2 -pthread -Wall -Wextra -Werror -I "$here/.." "$here/bake_light.cpp" "$here"/../core/*.cpp -o "$out/bake_light" || exit 1
-"$out/bake_light" "$@"
+bin=${BAKE_LIGHT_BIN:-$out/bake_light}
+[ -n "$BAKE_LIGHT_BIN" ] || c++ -std=c++17 -O2 -pthread -Wall -Wextra -Werror -I "$here/.." "$here/bake_light.cpp" "$here"/../core/*.cpp -o "$bin" || exit 1
+"$bin" "$@"
 baked=$?
 python3 "$here/check_light.py" "$@"
 checked=$?

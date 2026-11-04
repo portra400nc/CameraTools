@@ -129,5 +129,14 @@ namespace enhancements::shader
         return u;
     }
     inline uint asuint(int i) { return static_cast<uint>(i); }
+    // The low 16 bits as a half float, exactly.
+    inline float f16tof32(uint h)
+    {
+        const uint exponent = h >> 10 & 31u, mantissa = h & 1023u;
+        float v = exponent == 0 ? std::ldexp(float(mantissa), -24) : std::ldexp(float(mantissa | 1024u), int(exponent) - 25);
+        if (exponent == 31)
+            v = mantissa == 0 ? INFINITY : NAN;
+        return (h & 0x8000u) != 0 ? -v : v;
+    }
     inline int asint(uint u) { return static_cast<int>(u); }
 }

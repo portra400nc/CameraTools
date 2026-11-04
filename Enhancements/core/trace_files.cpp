@@ -118,11 +118,12 @@ namespace enhancements
         row("gather.filter", std::to_string(g.filter));
         row("gather.strength", number(g.strength));
         row("gather.hit_ambient", number(g.hit_ambient));
+        row("gather.bounces", std::to_string(g.bounces));
         row("gathering", s.gathering ? "1" : "0");
         row("trace_target", std::to_string(s.target));
         row("error", number(s.error));
         static const char *const kGatherNames[] = { "gather_rays", "gather_guard_stops", "gather_stack_overflows", "gather_hits_direct", "gather_hits_covered",
-            "gather_hits_material", "gather_hits_class", "gather_deviation", "gather_mean" };
+            "gather_hits_material", "gather_hits_class", "gather_hits_face", "gather_deviation", "gather_mean" };
         static_assert(std::size(kGatherNames) == kGatherCounters);
         for (uint32_t i = 0; i < kGatherCounters; i++)
             row(kGatherNames[i], std::to_string(s.counters[kTraceCounters + i]));
@@ -130,6 +131,7 @@ namespace enhancements
         row("exposure", "-");
         row("light", s.light != 0 || s.gathering ? s.scene : "-");
         row("light_flags", std::to_string(s.light));
+        row("light_faces", std::to_string(s.light_faces));
         return out;
     }
 
@@ -139,6 +141,8 @@ namespace enhancements
         std::error_code error;
         fs::create_directories(folder, error);
         write_vector(failed, folder, "history.f32", s.history);
+        if (!s.light_history.empty())
+            write_vector(failed, folder, "light-history.f32", s.light_history);
         write_vector(failed, folder, "depth.r32", s.depth);
         write_vector(failed, folder, "stencil.r8", s.stencil);
         write_vector(failed, folder, "normals.r10g10b10a2", s.normals);
@@ -156,11 +160,20 @@ namespace enhancements
             write_vector(failed, folder, "gather-sky.f32", s.gather_sky);
             if (!write_bytes(folder / "gather.bin", &s.gather_constants, sizeof s.gather_constants))
                 failed.push_back("gather.bin");
+            if (s.lights.info[0] != 0 && !write_bytes(folder / "lights.bin", &s.lights, sizeof s.lights))
+                failed.push_back("lights.bin");
         }
         for (const auto &[bytes, name] : { std::pair { &s.albedo, "albedo.rgba8" }, std::pair { &s.hdr, "hdr.r11g11b10" },
-                 std::pair { &s.irradiance_out, "irradiance-out.r11g11b10" } })
+                 std::pair { &s.irradiance_out, "irradiance-out.r11g11b10" }, std::pair { &s.specular, "specular.rgba8" },
+                 std::pair { &s.smoothness, "smoothness.r8" }, std::pair { &s.material, "material.r8" }, std::pair { &s.ambient_specular, "ambient-specular.raw" } })
             if (!bytes->empty())
                 write_vector(failed, folder, name, *bytes);
+        if (!s.reflect.empty())
+        {
+            write_vector(failed, folder, "reflect.f32", s.reflect);
+            if (!write_bytes(folder / "reflect.bin", &s.reflect_constants, sizeof s.reflect_constants))
+                failed.push_back("reflect.bin");
+        }
         const std::string tsv = trace_tsv(s);
         if (!write_bytes(folder / "trace.tsv", tsv.data(), tsv.size()))
             failed.push_back("trace.tsv");
@@ -229,6 +242,14 @@ namespace enhancements
         read_vector(folder / "albedo.rgba8", pixels * 4, s.albedo);
         read_vector(folder / "hdr.r11g11b10", pixels * 4, s.hdr);
         read_vector(folder / "irradiance-out.r11g11b10", pixels * 4, s.irradiance_out);
+        read_vector(folder / "smoothness.r8", pixels, s.smoothness);
+        read_vector(folder / "material.r8", pixels, s.material);
+        if (read_vector(folder / "reflect.f32", pixels * 4, s.reflect))
+        {
+            std::vector<uint8_t> constants;
+            if (read_vector(folder / "reflect.bin", sizeof s.reflect_constants, constants))
+                std::memcpy(&s.reflect_constants, constants.data(), sizeof s.reflect_constants);
+        }
         s.gathering = get("gathering") == "1";
         if (s.gathering)
         {
@@ -240,6 +261,10 @@ namespace enhancements
                 return std::nullopt;
             }
             std::memcpy(&s.gather_constants, gather.data(), sizeof s.gather_constants);
+            std::vector<uint8_t> lights;
+            if (read_vector(folder / "lights.bin", sizeof s.lights, lights))
+                std::memcpy(&s.lights, lights.data(), sizeof s.lights);
+            read_vector(folder / "light-history.f32", pixels * 4, s.light_history);
         }
         s.gather.enabled = get("gather.enabled") == "1";
         for (size_t i = 0; i < kGatherSkyNames.size(); i++)
@@ -253,11 +278,13 @@ namespace enhancements
         s.gather.filter = static_cast<uint32_t>(number_of("gather.filter", s.gather.filter));
         s.gather.strength = static_cast<float>(number_of("gather.strength", s.gather.strength));
         s.gather.hit_ambient = static_cast<float>(number_of("gather.hit_ambient", s.gather.hit_ambient));
+        s.gather.bounces = static_cast<uint32_t>(number_of("gather.bounces", s.gather.bounces));
         s.level = static_cast<float>(number_of("ambient.level", s.level));
         s.settings.ao_strength = static_cast<float>(number_of("trace.ao_strength", s.settings.ao_strength));
         s.settings.ao_distance = static_cast<float>(number_of("trace.ao_distance", s.settings.ao_distance));
         s.target = static_cast<uint32_t>(number_of("trace_target", 0));
         s.light = static_cast<uint32_t>(number_of("light_flags", 0));
+        s.light_faces = static_cast<uint32_t>(number_of("light_faces", 0));
         return s;
     }
 }

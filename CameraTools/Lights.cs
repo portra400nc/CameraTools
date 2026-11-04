@@ -114,6 +114,22 @@ namespace CameraTools
         // ReShade's effects switch from before the first sphere, put back when the last one goes.
         private static bool? effectsBefore;
 
+        // The Unity lights of CameraTools' lights that light the world now.
+        public static bool IsOurs(Light light) => gameLights.Exists(g => g.Light == light || g.Twin == light);
+
+        public static List<Light> WorldLights()
+        {
+            var lights = new List<Light>();
+            for (int i = 0; i < gameLights.Count && i < All.Count; i++)
+                if (gameLights[i].Light && !All[i].CharactersOnly)
+                    lights.Add(gameLights[i].Light);
+            return lights;
+        }
+
+        // While a traced shot traces, it draws these lights itself, with traced shadows: the game leaves them out and
+        // characters keep their twins.
+        public static bool WorldLightsHeld { get; set; }
+
         private sealed class GameLight
         {
             public GameObject Object;
@@ -513,6 +529,9 @@ namespace CameraTools
                     Create(game, !light.CharactersOnly);
                 game.Object.transform.position = pose.Position.ToUnity();
                 game.Object.transform.rotation = pose.Rotation.ToUnity();
+                bool lit = light.CharactersOnly || !WorldLightsHeld;
+                if (game.Light.enabled != lit)
+                    game.Light.enabled = lit;
                 if (game.Shown == wanted)
                     continue;
                 var component = game.Light;

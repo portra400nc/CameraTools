@@ -416,6 +416,8 @@ namespace enhancements
             return DrawAlpha::texture;
         D3D11_TEXTURE2D_DESC desc;
         texture->GetDesc(&desc);
+        if (std::max(desc.Width >> view.Texture2D.MostDetailedMip, desc.Height >> view.Texture2D.MostDetailedMip) > kAtlasTile)
+            r.alpha_address |= kAlphaShrunkTile;
         r.alpha_texture = { static_cast<ResourceId>(reinterpret_cast<uintptr_t>(resource.Get())), static_cast<Format>(view.Format), { desc.Width, desc.Height } };
         const auto key = std::make_tuple(reinterpret_cast<uintptr_t>(resource.Get()), static_cast<uint32_t>(view.Format), uint32_t(program.channel));
         if (const auto known = tiles_.find(key); known != tiles_.end())
@@ -463,7 +465,7 @@ namespace enhancements
         return DrawAlpha::program;
     }
 
-    void SceneGpu::prepare_alpha(SceneDrawRecord &r, const std::optional<ShaderCode> &ps, const std::optional<ShaderCode> &source, bool tessellated,
+    void SceneGpu::prepare_alpha(SceneDrawRecord &r, const std::optional<ShaderCode> &ps, const std::optional<ShaderCode> &source,
         std::vector<SoEntry> &extra)
     {
         extra.clear();
@@ -492,14 +494,11 @@ namespace enhancements
         {
             // No program without a reason: no discard at all, or dither alone.
             r.alpha = !analysis->why.empty() ? DrawAlpha::unsupported : analysis->discards.empty() ? DrawAlpha::none : DrawAlpha::dither;
+            if (r.alpha == DrawAlpha::unsupported)
+                r.unsupported_code = ps->code;
             return;
         }
         const AlphaProgram &program = *analysis->program;
-        if (tessellated)
-        {
-            r.alpha = DrawAlpha::tessellated;
-            return;
-        }
         // DXVK skips an entry the vertex shader does not write, which would leave garbage in its place.
         const std::optional<OutputSignature> signature = parse_output_signature(reinterpret_cast<const uint8_t *>(source->code->data()), source->code->size());
         std::string missing;
@@ -595,9 +594,10 @@ namespace enhancements
             }
         }
         std::vector<SoEntry> extra;
-        prepare_alpha(r, ps_code, source, ds != nullptr, extra);
+        prepare_alpha(r, ps_code, source, extra);
         // The key of our own shader: a census hash is FNV-1a of bytecode, never 0.
         static const std::string triangles_gs(reinterpret_cast<const char *>(kStreamTrianglesGs), sizeof kStreamTrianglesGs);
+        static const std::string attributes_gs(reinterpret_cast<const char *>(kStreamAttributesGs), sizeof kStreamAttributesGs);
         // One stream layout per source shader, the first a capture made for it: build 207's equal-depth vegetation draws
         // asked for the position alone after their prepass draws had streamed the same vertex shader with an alpha
         // program's inputs, and their data came back in the prepass's layout, read as garbage. A later draw therefore
@@ -610,14 +610,27 @@ namespace enhancements
             extra = first->second.extra;
             r.stride = first->second.stride;
         }
-        const CachedGs *found = ds ? &geometry_shader(0, triangles_gs, {}) : &geometry_shader(source->hash, *source->code, extra);
+        std::optional<std::vector<SoEntry>> attributes;
+        if (ds && !extra.empty())
+        {
+            const std::optional<OutputSignature> signature = parse_output_signature(reinterpret_cast<const uint8_t *>(source->code->data()), source->code->size());
+            attributes = signature ? attribute_entries(*signature, extra) : std::nullopt;
+            if (!attributes)
+            {
+                r.alpha = DrawAlpha::tessellated;
+                r.stride = kCornerBytes;
+                extra.clear();
+            }
+        }
+        const CachedGs *found = attributes ? &geometry_shader(1, attributes_gs, *attributes) : ds ? &geometry_shader(0, triangles_gs, {})
+                                           : &geometry_shader(source->hash, *source->code, extra);
         if (!extra.empty() && found->skip != DrawSkip::none && first == layouts_.end())
         {
             // Without its alpha program's inputs, the draw still streams its triangles, whole.
             r.alpha = DrawAlpha::stream;
             r.stride = kCornerBytes;
             extra.clear();
-            found = &geometry_shader(source->hash, *source->code, {});
+            found = ds ? &geometry_shader(0, triangles_gs, {}) : &geometry_shader(source->hash, *source->code, {});
         }
         if (!ds && found->skip == DrawSkip::none)
             layouts_.try_emplace(source->hash, StreamLayoutOf { extra, r.stride });
@@ -937,7 +950,7 @@ namespace enhancements
             if (r.skip != DrawSkip::none)
                 continue;
             // Every replay streams one corner a primitive: a point replay its points, a tessellated one the three points
-            // stream_triangles_gs.hlsl emits for each triangle.
+            // its geometry shader emits for each triangle.
             const D3D11_QUERY_DATA_SO_STATISTICS &s = stats[r.query];
             r.corners = s.NumPrimitivesWritten;
             r.corners_needed = std::max(s.PrimitivesStorageNeeded, s.NumPrimitivesWritten);

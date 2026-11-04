@@ -202,6 +202,25 @@ namespace enhancements
         return out;
     }
 
+    std::optional<std::vector<SoEntry>> attribute_entries(const OutputSignature &domain, const std::vector<SoEntry> &extra)
+    {
+        std::vector<SoEntry> out;
+        for (const SoEntry &entry : extra)
+        {
+            const auto element = std::find_if(domain.elements.begin(), domain.elements.end(), [&](const SignatureElement &e) {
+                return e.index == entry.index && e.mask != 0 && e.semantic.size() == entry.semantic.size()
+                    && std::equal(e.semantic.begin(), e.semantic.end(), entry.semantic.begin(), [](char x, char y) { return std::tolower(x) == std::tolower(y); });
+            });
+            if (element == domain.elements.end() || element->reg < 1 || element->reg > 7)
+                return std::nullopt;
+            uint32_t first = 0;
+            while ((element->mask >> first & 1u) == 0)
+                first++;
+            out.push_back({ "ATTR", element->reg, static_cast<uint8_t>(first + entry.start), entry.count, 0 });
+        }
+        return out;
+    }
+
     std::optional<SoDeclaration> so_declaration(const OutputSignature &signature)
     {
         constexpr uint32_t kPosition = 1;  // D3D_NAME_POSITION

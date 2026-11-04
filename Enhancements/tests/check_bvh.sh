@@ -7,5 +7,6 @@ set -e
 cd "$(dirname "$0")"
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
-c++ -std=c++17 -O2 -pthread -Wall -Wextra -Werror -I .. check_bvh.cpp ../core/*.cpp -o "$out/check_bvh"
-"$out/check_bvh" "$1" 5acc3b0243e8c541
+bin=${CHECK_BVH_BIN:-$out/check_bvh}
+[ -n "$CHECK_BVH_BIN" ] || c++ -std=c++17 -O2 -pthread -Wall -Wextra -Werror -I .. check_bvh.cpp ../core/*.cpp -o "$bin"
+"$bin" "$1" 5acc3b0243e8c541

@@ -14,6 +14,7 @@ namespace enhancements
         bool ambient_wanted(const Settings &s) { return s.ambient.enabled; }
         bool contact_shadows_wanted(const Settings &s) { return s.contact_shadows.enabled; }
         bool atmosphere_wanted(const Settings &s) { return s.atmosphere.enabled; }
+        bool traced_lights_wanted(const Settings &s) { return s.traced_lights; }
         bool tonemap_wanted(const Settings &s) { return s.tonemap.enabled; }
         bool sun_shadows_wanted(const Settings &s) { return s.sun_shadows.enabled; }
         bool wetness_wanted(const Settings &s) { return s.wetness.enabled; }
@@ -34,7 +35,7 @@ namespace enhancements
             && ENHANCEMENTS_PASS_SUN_SHADOWS == bit(PassId::sun_shadows) && ENHANCEMENTS_PASS_WETNESS == bit(PassId::wetness)
             && ENHANCEMENTS_PASS_LIGHT_SHAFTS == bit(PassId::light_shafts) && ENHANCEMENTS_PASS_TRACE == bit(PassId::trace)
             && ENHANCEMENTS_PASS_DEPTH_OF_FIELD == bit(PassId::depth_of_field) && ENHANCEMENTS_PASS_LENS_FLARE == bit(PassId::lens_flare)
-            && static_cast<int>(PassId::count) == 10);
+            && ENHANCEMENTS_PASS_TRACED_LIGHTS == bit(PassId::traced_lights) && static_cast<int>(PassId::count) == 11);
         static_assert(ENHANCEMENTS_TRACE_STATE_FAILED == static_cast<int>(TraceState::failed) && static_cast<int>(TraceState::count) == 6);
         static_assert(ENHANCEMENTS_CURVE_AGX == static_cast<int>(Curve::agx) && ENHANCEMENTS_CURVE_COUNT == static_cast<int>(Curve::count));
         static_assert(ENHANCEMENTS_VIEW_COUNT == static_cast<int>(View::count) && ENHANCEMENTS_VIEW_STENCIL == static_cast<int>(View::stencil)
@@ -70,7 +71,8 @@ namespace enhancements
         static_assert(ENHANCEMENTS_ACCUMULATE_PRESENT == static_cast<int>(AccumulateMode::present)
             && ENHANCEMENTS_ACCUMULATE_COUNT == static_cast<int>(AccumulateMode::count));
         static_assert(offsetof(EnhancementsAccumulate, mode) == 4 && offsetof(EnhancementsAccumulate, gain) == 20 && sizeof(EnhancementsAccumulate) == 24);
-        static_assert(offsetof(EnhancementsShot, active) == 4 && offsetof(EnhancementsShot, budget_ms) == 12 && sizeof(EnhancementsShot) == 16);
+        static_assert(offsetof(EnhancementsShot, active) == 4 && offsetof(EnhancementsShot, budget_ms) == 12 && offsetof(EnhancementsShot, strength) == 16
+            && offsetof(EnhancementsShot, outputs) == 20 && sizeof(EnhancementsShot) == 40);
 
     namespace hlsl
     {
@@ -99,8 +101,8 @@ namespace enhancements
         { PassId::wetness, "wetness", Step::gbuffer_done,
           { Entry::normals, Entry::albedo, Entry::specular, Entry::material_id, Entry::smoothness, Entry::depth }, true, SunUse::none, wetness_wanted },
         // First, so that once it writes the frame the passes it replaces never run; its own sun constants and scene come
-        // from the shell.
-        { PassId::trace, "trace", Step::combine, { Entry::normals, Entry::depth, Entry::shadow_mask, Entry::ambient_diffuse }, true, SunUse::none,
+        // from the shell. Not the shadow mask: the game draws none indoors, where the trace still lights the frame.
+        { PassId::trace, "trace", Step::combine, { Entry::normals, Entry::depth, Entry::ambient_diffuse }, true, SunUse::none,
           trace_wanted },
         // Before contact shadows, which lower what it writes, and the camera only for its blur: it finds positions from
         // the game's own camera constants.
@@ -109,6 +111,9 @@ namespace enhancements
         { PassId::contact_shadows, "contact-shadows", Step::combine, { Entry::normals, Entry::depth, Entry::shadow_mask }, true, SunUse::none,
           contact_shadows_wanted },
         { PassId::ambient, "ambient", Step::combine, { Entry::normals, Entry::depth, Entry::ambient_diffuse }, true, SunUse::none, ambient_wanted },
+        // First at bloom, so haze, mist and the depth of field take its light like the game's own.
+        { PassId::traced_lights, "traced-lights", Step::bloom, { Entry::depth, Entry::hdr_scene, Entry::albedo, Entry::normals }, true, SunUse::none,
+          traced_lights_wanted },
         { PassId::atmosphere, "atmosphere", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::none, atmosphere_wanted },
         // After atmosphere, so the haze lies behind the mist. The atlas and the game's camera constants place every step of
         // the march, and the camera brings the sun's direction and the sun and sky colors.
@@ -556,7 +561,23 @@ namespace enhancements
         if (knows(offsetof(EnhancementsShot, samples), sizeof raw->samples))
             shot.samples = std::min<uint32_t>(raw->samples, 4096);
         if (knows(offsetof(EnhancementsShot, budget_ms), sizeof raw->budget_ms) && raw->budget_ms != 0)
-            shot.budget_ms = finite_or(raw->budget_ms, 0.0f, 2.0f, 200.0f);
+            shot.budget_ms = finite_or(raw->budget_ms, 0.0f, 2.0f, 2000.0f);
+        if (knows(offsetof(EnhancementsShot, strength), sizeof raw->strength) && std::isfinite(raw->strength))
+            shot.strength = std::clamp(raw->strength, 0.0f, 4.0f);
+        if (knows(offsetof(EnhancementsShot, outputs), sizeof raw->outputs))
+        {
+            const uint32_t outputs = raw->outputs & (ENHANCEMENTS_TRACE_AO | ENHANCEMENTS_TRACE_SUN);
+            if (outputs != 0)
+                shot.outputs = ShotOutputs { (outputs & ENHANCEMENTS_TRACE_AO) != 0, (outputs & ENHANCEMENTS_TRACE_SUN) != 0 };
+        }
+        if (knows(offsetof(EnhancementsShot, reflected_light), sizeof raw->reflected_light) && raw->reflections != 0)
+        {
+            shot.reflect.enabled = true;
+            shot.reflect.gloss = finite_or(raw->gloss, shot.reflect.gloss, 0.0f, 1.0f);
+            shot.reflect.reflected_light = finite_or(raw->reflected_light, shot.reflect.reflected_light, 1.0f, 32.0f);
+        }
+        if (knows(offsetof(EnhancementsShot, bounces), sizeof raw->bounces))
+            shot.bounces = std::clamp<uint32_t>(raw->bounces, 1, 15);
         return shot;
     }
 
@@ -578,6 +599,15 @@ namespace enhancements
             s.gather.samples = shot.samples;
         if (shot.budget_ms != 0)
             s.trace.budget_ms = shot.budget_ms;
+        if (shot.strength)
+            s.gather.strength = *shot.strength;
+        if (shot.outputs)
+        {
+            s.trace.ao = shot.outputs->ao;
+            s.trace.sun = shot.outputs->sun;
+        }
+        s.reflect = shot.reflect;
+        s.gather.bounces = shot.bounces;
         return s;
     }
 

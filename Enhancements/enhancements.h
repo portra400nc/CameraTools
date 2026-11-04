@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 21
+#define ENHANCEMENTS_VERSION 27
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -99,6 +99,7 @@ enum
     ENHANCEMENTS_PASS_TRACE = 1u << 7,
     ENHANCEMENTS_PASS_DEPTH_OF_FIELD = 1u << 8,
     ENHANCEMENTS_PASS_LENS_FLARE = 1u << 9,
+    ENHANCEMENTS_PASS_TRACED_LIGHTS = 1u << 10,
 };
 
 // The tonemap pass's curves, values of EnhancementsTonemap.curve.
@@ -279,6 +280,7 @@ enum
     ENHANCEMENTS_TRACE_LIGHT_SKY = 1u << 1,        // the faces' sky made the sky map
     ENHANCEMENTS_TRACE_LIGHT_SUN = 1u << 2,        // the sun's color and shading direction are the game's combine constants
     ENHANCEMENTS_TRACE_LIGHT_AMBIENT = 1u << 3,    // the ambient light at a hit is a fit of the game's irradiance
+    ENHANCEMENTS_TRACE_LIGHT_FACES = 1u << 4,      // a face's lit picture lights the gather's hits it shows
 };
 
 // The traced scene's state, values of EnhancementsStatus.trace_state.
@@ -536,8 +538,40 @@ typedef struct EnhancementsShot
     uint32_t size;              // sizeof(EnhancementsShot) as the caller compiled it
     uint32_t active;            // default 0
     uint32_t samples;           // gather.samples for the shot; 0 keeps the applied one; clamped to 1..4096
-    float budget_ms;            // trace.budget_ms for the shot; 0 keeps the applied one; clamped to 2..200
+    float budget_ms;            // trace.budget_ms for the shot; 0 keeps the applied one; clamped to 2..2000, past the applied
+                                // one's 200: a paused shot has no use for the frames, and every frame also costs the game's
+                                // own, which at 4K on the Deck took most of a shot at 100
+    float strength;             // gather.strength for the shot, which up to 1 scales the bounce and above it brightens what the
+                                // traced surfaces reflect, up to an albedo of 0.9; not finite keeps the applied one; clamped to 0..4. A caller
+                                // without it keeps the applied one. Version 22 added it.
+    uint32_t outputs;           // trace.outputs for the shot: ENHANCEMENTS_TRACE_AO alone keeps the game's sun shadows; 0, and
+                                // a caller without it, keep the applied ones. Version 23 added it.
+    uint32_t reflections;       // 1: the shot traces its reflections in place of the game's probes; 0, and a caller without it,
+                                // keep the game's. Version 26 added this and the two below.
+    float gloss;                // how much smoother surfaces are than the game stores them: roughness times 1 - gloss; clamped to 0..1
+    float reflected_light;      // how much brighter light sources are in reflections; clamped to 1..32
+    uint32_t bounces;           // how many surfaces the gather's light may bounce between; clamped to 1..15; 0, and a caller
+                                // without it, 1. Version 27 added it.
 } EnhancementsShot;
+
+// A light a traced shot traces: one of CameraTools' own, which the caller switches off in the game while the shot traces. The
+// gather's hits that no face shows take its light behind a shadow ray, and the bloom step adds its light to the picture's
+// world pixels behind traced shadows. Genshin lights a surface with a Unity Light as albedo x (color x intensity)^2.2 x
+// max(n.l, 0) / (1 + 25 x^2) x saturate(5 (1 - x)), x the distance over the range, and for a spot a linear ramp in the
+// cosine from the outer cone to the inner (measured on the Deck: the falloff within 1.4%, the power and the cone within
+// 0.5%). Version 24 added it.
+#define ENHANCEMENTS_MAX_SHOT_LIGHTS 4
+#define ENHANCEMENTS_SHOT_LIGHT_SHADOWS 1u  // in reserved[0]: the game draws this light with shadows
+typedef struct EnhancementsShotLight
+{
+    float position[3];          // in the world, the frame the camera's matrices use
+    float range;                // meters; one not finite or at most 0 is left out
+    float color[3];             // the light's color times its intensity, as a Unity Light holds them; negative or not finite reads as 0
+    float cos_outer;            // a spot's cos(spot angle / 2); below -1 for a point light
+    float direction[3];         // a spot's forward
+    float cos_inner;            // a spot's cos(inner angle / 2), at least cos_outer
+    uint32_t reserved[4];
+} EnhancementsShotLight;
 
 // The directions a scene capture turns the camera to: world-axis cube faces in D3D cube-map order, each with its own up
 // (+X, -X, +Z and -Z keep +Y up; +Y has -Z up and -Y has +Z up), at a 90-degree vertical field of view, and the view as
@@ -771,6 +805,16 @@ ENHANCEMENTS_EXPORT void EnhancementsSetAccumulate(const EnhancementsAccumulate 
 // follows a frame later. A null pointer, a size too small to hold active, or active 0 ends the shot, and the applied
 // settings run as before. It works whether settings.enabled is on or not.
 ENHANCEMENTS_EXPORT void EnhancementsSetShot(const EnhancementsShot *shot);
+
+// Copies the lights a traced shot traces, the first ENHANCEMENTS_MAX_SHOT_LIGHTS of count; they take effect at the next
+// frame boundary, and a change starts the samples again. Null or 0 traces none.
+ENHANCEMENTS_EXPORT void EnhancementsSetShotLights(const EnhancementsShotLight *lights, uint32_t count);
+
+// Copies the game's own lights near the camera, the first ENHANCEMENTS_MAX_GAME_LIGHTS of count; the next scene capture with
+// light bakes them into its triangles, for the gather's hits that no face shows (core/trace.h, bake_game_lights). They are
+// left on in the game. A set shadow flag gives a light shadow rays in the bake. Version 25 added it.
+#define ENHANCEMENTS_MAX_GAME_LIGHTS 256
+ENHANCEMENTS_EXPORT void EnhancementsSetGameLights(const EnhancementsShotLight *lights, uint32_t count);
 
 // Asks for the view-space depth in meters (the distance along the camera's forward axis) at a point on the screen, u and
 // v from 0 at the top left to 1, and returns the newest answer read from a frame that began after the point was first

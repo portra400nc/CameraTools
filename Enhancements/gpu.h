@@ -29,10 +29,11 @@ namespace enhancements
     struct TraceSave;   // core/trace_files.h
 
     // Our shaders declare registers only inside these ranges, and StateGuard saves and restores exactly these.
-    constexpr UINT kSrvSlots = 8;       // t0..t7; the trace kernel uses t0..t6, the gather kernel t0..t7
+    constexpr UINT kSrvSlots = 11;      // t0..t10; the trace kernel uses t0..t6, the gather kernel t0..t8, the reflection kernel all
     constexpr UINT kSamplerSlots = 4;   // s0..s3
     constexpr UINT kCbSlots = 5;        // b0..b4
-    constexpr UINT kUavSlots = 4;       // u0..u3, compute only: the trace kernels' history and counters, and the gather's two buffers
+    constexpr UINT kUavSlots = 6;       // u0..u5, u5 the reflection kernel's sums; before it u0..u4, compute only: the trace kernels' history and counters, the gather's two buffers, and
+                                        // the traced lights' visibility
     constexpr UINT kSoSlots = D3D11_SO_BUFFER_SLOT_COUNT;
     constexpr UINT kClassInstances = 256;
 
@@ -326,6 +327,8 @@ namespace enhancements
         // (1 - T) on pixels with depth, where T is the transmittance of the height-fading haze along the view ray, and in
         // on the sky; copy out over the game's HDR scene. Empty when a texture of ours failed.
         std::optional<GameCall> run_atmosphere(const FrameMap &map, const AtmosphereSettings &settings, const Camera &camera, bool flip);
+        // A traced shot's lights added to the HDR scene behind their traced visibility; run_trace mirrored what it reads this frame.
+        std::optional<GameCall> run_traced_lights(const FrameMap &map, const Camera &camera, bool flip, TraceGpu &trace);
 
         // The depth of field pass, last at the bloom step: mirror in the HDR scene and depth; draw the focus distance into
         // one of two 1x1 textures from the other, the setting's or the autofocus eased over seconds; the half-size source,
@@ -494,8 +497,8 @@ namespace enhancements
         ComPtr<ID3D11VertexShader> fullscreen_vs_, dof_sprite_vs_;
         ComPtr<ID3D11ComputeShader> dof_scatter_cs_;
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_,
-            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
-            apply_gather_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_, dof_soften_ps_, dof_behind_ps_,
+            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
+            apply_gather_ps_, reflect_apply_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_, dof_soften_ps_, dof_behind_ps_,
             dof_sprite_ps_, dof_lift_ps_, dof_display_in_ps_, dof_display_out_ps_, dof_near_ps_, dof_near_mask_ps_, dof_near_fill_ps_, flare_visibility_ps_, flare_ps_,
             dng_ps_, dng_flare_ps_;
         ComPtr<ID3D11SamplerState> point_, linear_, lit_compare_, wrap_;
@@ -532,7 +535,7 @@ namespace enhancements
         ComPtr<ID3D11DepthStencilState> no_depth_;
         ComPtr<ID3D11RasterizerState> no_cull_;
         Mirror irradiance_in_, irradiance_out_, shadow_mask_in_, shadow_mask_out_, scene_in_, scene_out_, bloom_in_, tonemap_out_, normals_, depth_,
-            back_buffer_, sun_atlas_, albedo_, material_id_, albedo_out_, specular_in_, specular_out_, smoothness_in_, smoothness_out_;
+            back_buffer_, sun_atlas_, albedo_, material_id_, albedo_out_, specular_in_, specular_out_, reflection_in_, reflection_out_, smoothness_in_, smoothness_out_;
         Scratch ao_;                // R8_UNORM raw occlusion, 1 = open
         Scratch contact_;           // R8_UNORM raw sun visibility, 1 = lit
         Scratch sun_;               // R8_UNORM raw soft sun visibility, 1 = lit

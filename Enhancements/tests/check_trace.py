@@ -277,6 +277,20 @@ def main(folder):
         rows.append(np.concatenate([gray(np.where(world, deck, np.nan)), gray(np.where(world, mine, np.nan)), red(np.where(valid, difference, 0))], axis=1))
     if len(rows) == 2:
         write_png(os.path.join(folder, "check-trace.png"), np.concatenate(rows, axis=0))
+    # The traced lights' visibility, one sample a light with each sun sample: each light's sums against the reference's.
+    lights_path, mine_path = os.path.join(folder, "light-history.f32"), os.path.join(folder, "reference-light-history.f32")
+    if os.path.exists(lights_path):
+        if not os.path.exists(mine_path):
+            report("FAIL", f"{folder} has light-history.f32 but no reference-light-history.f32: run this build's trace_reference on it")
+        else:
+            deck_lights = np.fromfile(lights_path, np.float32).reshape(h, w, 4).astype(np.float64)
+            mine_lights = np.fromfile(mine_path, np.float32).reshape(h, w, 4).astype(np.float64)
+            count = history[..., 3].astype(np.float64)
+            for j in range(4):
+                if not (deck_lights[..., j] > 0).any() and not (mine_lights[..., j] > 0).any():
+                    continue
+                valid = world & (count > 0)
+                sampling_checks(f"light {j}", (deck_lights[..., j], count), (mine_lights[..., j], count), mine_lights[..., j], valid)
     gather_checks(folder, h, w, history, world)
     compare_game(folder, info, world, averages(history, 1), depth)
     compare_irradiance(folder, world, averages(history, 0))

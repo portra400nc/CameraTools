@@ -60,6 +60,8 @@ namespace CameraTools
         private static int tab;
         private static int selected;
         private static string toast;
+        private static string toastDetail;
+        private static float? toastProgress;
         private static float toastUntil;
         private static bool toastWhileHidden;
         private static Vector2 lastMouse;
@@ -94,12 +96,15 @@ namespace CameraTools
             : View.Hud;
 
         // Drawn with IMGUI until the UI has been built.
-        public static string FallbackToast => live == null && Time.unscaledTime < toastUntil ? toast : null;
+        public static string FallbackToast => live == null && Time.unscaledTime < toastUntil ? toast + (toastDetail != null ? $" · {toastDetail}" : "") : null;
 
-        // whileHidden: shown even while the UI is hidden, as the screenshot countdown is.
-        public static void Toast(string message, bool whileHidden = false)
+        // whileHidden: shown even while the UI is hidden, as the screenshot countdown is. detail: a smaller line under the
+        // message. progress: a bar under both, from 0 to 1.
+        public static void Toast(string message, bool whileHidden = false, string detail = null, float? progress = null)
         {
             toast = message;
+            toastDetail = detail;
+            toastProgress = progress;
             toastUntil = Time.unscaledTime + Style.ToastTime;
             toastWhileHidden = whileHidden;
         }
@@ -760,13 +765,44 @@ namespace CameraTools
             Place(toastRow, V(0f, 1f), V(1f, 1f), V(0.5f, 1f), V(0f, -Style.ToastY), V(0f, Style.ToastHeight));
             Flow(toastRow.gameObject, 0f, TextAnchor.MiddleCenter);
             target.Toast = new Fader(toastRow, V(0f, 8f), Style.ToastFade);
+            target.ToastRow = toastRow;
             var pill = Picture(toastRow, "Pill", Shapes.Toast, Style.White);
             pill.rectTransform.sizeDelta = V(0f, Style.ToastHeight);
+            target.ToastPill = pill.rectTransform;
             var group = Flow(pill.gameObject, 0f, TextAnchor.MiddleCenter);
             group.padding.left = Style.ToastPadding;
             group.padding.right = Style.ToastPadding;
-            target.ToastLabel = ui.Label(pill.rectTransform, "Label", "", Style.ToastSize, Style.Text, TextAnchor.MiddleCenter);
-            target.ToastLabel.rectTransform.sizeDelta = V(0f, Style.ToastHeight);
+            // The lines and the bar sit in a column RenderToast sizes, since a horizontal flow cannot stack them.
+            var column = Node("Column", pill.rectTransform);
+            column.sizeDelta = V(0f, Style.ToastHeight);
+            target.ToastColumn = column;
+            target.ToastWidth = column.gameObject.AddComponent<LayoutElement>();
+            target.ToastLabel = ui.Label(column, "Label", "", Style.ToastSize, Style.Text, TextAnchor.MiddleCenter);
+            target.ToastDetail = ui.Label(column, "Detail", "", Style.ToastDetailSize, Style.Dim, TextAnchor.MiddleCenter);
+            var track = Picture(column, "Track", Shapes.Bar, Style.Track);
+            target.ToastTrack = track.rectTransform;
+            target.ToastFill = Picture(track.rectTransform, "Fill", Shapes.Bar, Style.Cream).rectTransform;
+        }
+
+        // Stacks the toast's lines and bar, and sizes its pill and row to them.
+        private static void LayOutToast(Live target, string detail, float? progress)
+        {
+            bool two = !string.IsNullOrEmpty(detail);
+            float height = progress != null ? Style.ToastWithBar : two ? Style.ToastTwoLines : Style.ToastHeight;
+            float width = Math.Max(target.ToastLabel.preferredWidth, two ? target.ToastDetail.preferredWidth : 0f);
+            if (progress != null)
+                width = Math.Max(width, Style.ToastBarMinWidth);
+            target.ToastWidth.preferredWidth = width;
+            target.ToastColumn.sizeDelta = V(width, height);
+            target.ToastPill.sizeDelta = V(target.ToastPill.sizeDelta.x, height);
+            target.ToastRow.sizeDelta = V(0f, height);
+            Pin(target.ToastLabel.rectTransform, 0.5f, 1f, 0f, two || progress != null ? Style.ToastHeight / 2f - Style.ToastTitleY : -height / 2f + Style.ToastHeight / 2f,
+                width, Style.ToastHeight);
+            target.ToastDetail.gameObject.SetActive(two);
+            Pin(target.ToastDetail.rectTransform, 0.5f, 1f, 0f, Style.ToastHeight / 2f - Style.ToastDetailY, width, Style.ToastHeight);
+            target.ToastTrack.gameObject.SetActive(progress != null);
+            Pin(target.ToastTrack, 0.5f, 1f, 0f, -Style.ToastBarY, width, Style.ToastBarHeight);
+            Pin(target.ToastFill, 0f, 0.5f, 0f, 0f, width * Math.Clamp(progress ?? 0f, 0f, 1f), Style.ToastBarHeight);
         }
 
         private static void ShowTab(int index, Live target)
@@ -2007,10 +2043,14 @@ namespace CameraTools
         private static void RenderToast(float deltaTime)
         {
             bool show = (toastWhileHidden || !CameraTools.uiHidden) && Time.unscaledTime < toastUntil;
-            if (show && live.ToastText != toast)
+            if (show && (live.ToastText != toast || live.ToastDetailText != toastDetail || live.ToastProgress != toastProgress))
             {
                 live.ToastLabel.text = toast;
+                live.ToastDetail.text = toastDetail ?? "";
                 live.ToastText = toast;
+                live.ToastDetailText = toastDetail;
+                live.ToastProgress = toastProgress;
+                LayOutToast(live, toastDetail, toastProgress);
             }
             live.Toast.Update(show, deltaTime);
         }
@@ -2224,6 +2264,13 @@ namespace CameraTools
             // The game's option lists could not be read when this UI was built, so its Graphics tab has no settings rows.
             public bool MissingSettings;
             public Text ToastLabel;
+            public Text ToastDetail;
+            public RectTransform ToastRow;
+            public RectTransform ToastPill;
+            public RectTransform ToastColumn;
+            public LayoutElement ToastWidth;
+            public RectTransform ToastTrack;
+            public RectTransform ToastFill;
             public View? Shown;
             public InputDevice? Layout;
             public float FovShown = float.NaN;
@@ -2234,6 +2281,8 @@ namespace CameraTools
             public Footer? FooterShown;
             public (float Scroll, float Height, float View)? ThumbShown;
             public string ToastText;
+            public string ToastDetailText;
+            public float? ToastProgress;
         }
     }
 }
