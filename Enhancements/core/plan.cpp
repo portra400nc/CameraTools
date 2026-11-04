@@ -15,6 +15,7 @@ namespace enhancements
         bool contact_shadows_wanted(const Settings &s) { return s.contact_shadows.enabled; }
         bool atmosphere_wanted(const Settings &s) { return s.atmosphere.enabled; }
         bool traced_lights_wanted(const Settings &s) { return s.traced_lights; }
+        bool character_light_wanted(const Settings &s) { return s.character_light.enabled; }
         bool tonemap_wanted(const Settings &s) { return s.tonemap.enabled; }
         bool sun_shadows_wanted(const Settings &s) { return s.sun_shadows.enabled; }
         bool wetness_wanted(const Settings &s) { return s.wetness.enabled; }
@@ -35,7 +36,8 @@ namespace enhancements
             && ENHANCEMENTS_PASS_SUN_SHADOWS == bit(PassId::sun_shadows) && ENHANCEMENTS_PASS_WETNESS == bit(PassId::wetness)
             && ENHANCEMENTS_PASS_LIGHT_SHAFTS == bit(PassId::light_shafts) && ENHANCEMENTS_PASS_TRACE == bit(PassId::trace)
             && ENHANCEMENTS_PASS_DEPTH_OF_FIELD == bit(PassId::depth_of_field) && ENHANCEMENTS_PASS_LENS_FLARE == bit(PassId::lens_flare)
-            && ENHANCEMENTS_PASS_TRACED_LIGHTS == bit(PassId::traced_lights) && static_cast<int>(PassId::count) == 11);
+            && ENHANCEMENTS_PASS_TRACED_LIGHTS == bit(PassId::traced_lights) && ENHANCEMENTS_PASS_CHARACTER_LIGHT == bit(PassId::character_light)
+            && static_cast<int>(PassId::count) == 12);
         static_assert(ENHANCEMENTS_TRACE_STATE_FAILED == static_cast<int>(TraceState::failed) && static_cast<int>(TraceState::count) == 6);
         static_assert(ENHANCEMENTS_CURVE_AGX == static_cast<int>(Curve::agx) && ENHANCEMENTS_CURVE_COUNT == static_cast<int>(Curve::count));
         static_assert(ENHANCEMENTS_VIEW_COUNT == static_cast<int>(View::count) && ENHANCEMENTS_VIEW_STENCIL == static_cast<int>(View::stencil)
@@ -71,6 +73,8 @@ namespace enhancements
         static_assert(ENHANCEMENTS_ACCUMULATE_PRESENT == static_cast<int>(AccumulateMode::present)
             && ENHANCEMENTS_ACCUMULATE_COUNT == static_cast<int>(AccumulateMode::count));
         static_assert(offsetof(EnhancementsAccumulate, mode) == 4 && offsetof(EnhancementsAccumulate, gain) == 20 && sizeof(EnhancementsAccumulate) == 24);
+        static_assert(offsetof(EnhancementsCharacterLights, head) == 20 && offsetof(EnhancementsCharacterLights, count) == 36
+            && offsetof(EnhancementsCharacterLights, lights) == 40 && sizeof(EnhancementsCharacterLights) == 296);
         static_assert(offsetof(EnhancementsShot, active) == 4 && offsetof(EnhancementsShot, budget_ms) == 12 && offsetof(EnhancementsShot, strength) == 16
             && offsetof(EnhancementsShot, outputs) == 20 && sizeof(EnhancementsShot) == 40);
 
@@ -112,6 +116,8 @@ namespace enhancements
           contact_shadows_wanted },
         { PassId::ambient, "ambient", Step::combine, { Entry::normals, Entry::depth, Entry::ambient_diffuse }, true, SunUse::none, ambient_wanted },
         // First at bloom, so haze, mist and the depth of field take its light like the game's own.
+        { PassId::character_light, "character-light", Step::bloom, { Entry::depth, Entry::hdr_scene, Entry::albedo, Entry::normals, Entry::material_id },
+          true, SunUse::none, character_light_wanted },
         { PassId::traced_lights, "traced-lights", Step::bloom, { Entry::depth, Entry::hdr_scene, Entry::albedo, Entry::normals }, true, SunUse::none,
           traced_lights_wanted },
         { PassId::atmosphere, "atmosphere", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::none, atmosphere_wanted },
@@ -611,6 +617,58 @@ namespace enhancements
         return s;
     }
 
+    CharacterLightSettings parse_character_lights(const EnhancementsCharacterLights *raw)
+    {
+        CharacterLightSettings light;
+        if (raw == nullptr)
+            return light;
+        const auto knows = [raw](size_t offset, size_t bytes) { return raw->size >= offset + bytes; };
+        if (!knows(offsetof(EnhancementsCharacterLights, rim), sizeof raw->rim) || raw->enabled == 0)
+            return light;
+        light.enabled = true;
+        light.soft = raw->shading == ENHANCEMENTS_CHARACTER_SHADING_SOFT;
+        light.game_light = finite_or(raw->game_light, light.game_light, 0.0f, 1.0f);
+        light.rim = finite_or(raw->rim, light.rim, 0.0f, 3.0f);
+        if (knows(offsetof(EnhancementsCharacterLights, head_known), sizeof raw->head_known) && raw->head_known != 0
+            && std::isfinite(raw->head[0]) && std::isfinite(raw->head[1]) && std::isfinite(raw->head[2]))
+            light.head = std::array<float, 3> { raw->head[0], raw->head[1], raw->head[2] };
+        if (knows(offsetof(EnhancementsCharacterLights, count), sizeof raw->count))
+        {
+            const size_t room = raw->size > offsetof(EnhancementsCharacterLights, lights)
+                ? (raw->size - offsetof(EnhancementsCharacterLights, lights)) / sizeof(EnhancementsShotLight) : 0;
+            const size_t count = std::min<size_t>({ raw->count, room, ENHANCEMENTS_MAX_CHARACTER_LIGHTS });
+            for (size_t i = 0; i < count; i++)
+            {
+                const EnhancementsShotLight &l = raw->lights[i];
+                CharacterLamp lamp;
+                std::copy(l.position, l.position + 3, lamp.position.begin());
+                std::copy(l.color, l.color + 3, lamp.color.begin());
+                std::copy(l.direction, l.direction + 3, lamp.direction.begin());
+                lamp.range = l.range;
+                lamp.cos_outer = l.cos_outer;
+                lamp.cos_inner = l.cos_inner;
+                light.lights.push_back(lamp);
+            }
+        }
+        return light;
+    }
+
+    Settings with_character_light(const Settings &applied, const CharacterLightSettings &light)
+    {
+        if (!light.enabled)
+            return applied;
+        Settings s = applied;
+        if (!applied.enabled)
+        {
+            s.enabled = true;
+            s.view = View::off;
+            s.ambient.enabled = s.contact_shadows.enabled = s.atmosphere.enabled = s.tonemap.enabled = s.sun_shadows.enabled = s.wetness.enabled
+                = s.light_shafts.enabled = s.trace.enabled = s.gather.enabled = s.depth_of_field.enabled = s.flare.enabled = false;
+        }
+        s.character_light = light;
+        return s;
+    }
+
     float wetness_amount(const WetnessSettings &settings, const Camera &camera)
     {
         return settings.wetness > 0 ? settings.wetness : camera.wetness;
@@ -725,6 +783,9 @@ namespace enhancements
                 steps.add(spec.at);
         if (settings.view != View::off)
             steps.add(kViews[static_cast<size_t>(settings.view)].snapshot_at);
+        // The character light pass reads the G-buffer copied at the combine step, before the game reuses its targets.
+        if (settings.character_light.enabled)
+            steps.add(Step::combine);
         for (StepSet closed; closed.bits != steps.bits;)
         {
             closed = steps;

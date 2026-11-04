@@ -6,6 +6,7 @@
 #pragma once
 
 #include "core/accumulate.h"
+#include "core/character_light.h"
 #include "core/compare.h"
 #include "core/dng.h"
 #include "core/dof.h"
@@ -329,6 +330,11 @@ namespace enhancements
         std::optional<GameCall> run_atmosphere(const FrameMap &map, const AtmosphereSettings &settings, const Camera &camera, bool flip);
         // A traced shot's lights added to the HDR scene behind their traced visibility; run_trace mirrored what it reads this frame.
         std::optional<GameCall> run_traced_lights(const FrameMap &map, const Camera &camera, bool flip, TraceGpu &trace);
+        // The normals, albedo and material ids the character light pass reads at bloom, copied at the combine step while they
+        // still hold the G-buffer.
+        bool copy_character_gbuffer(const FrameMap &map);
+        // Studio lighting for characters (enhancements.h, EnhancementsCharacterLights) over the HDR scene.
+        std::optional<GameCall> run_character_light(const FrameMap &map, const CharacterLightConstants &light, const Camera &camera, bool flip);
 
         // The depth of field pass, last at the bloom step: mirror in the HDR scene and depth; draw the focus distance into
         // one of two 1x1 textures from the other, the setting's or the autofocus eased over seconds; the half-size source,
@@ -497,7 +503,7 @@ namespace enhancements
         ComPtr<ID3D11VertexShader> fullscreen_vs_, dof_sprite_vs_;
         ComPtr<ID3D11ComputeShader> dof_scatter_cs_;
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_,
-            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
+            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, character_light_ps_, character_shadow_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
             apply_gather_ps_, reflect_apply_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_, dof_soften_ps_, dof_behind_ps_,
             dof_sprite_ps_, dof_lift_ps_, dof_display_in_ps_, dof_display_out_ps_, dof_near_ps_, dof_near_mask_ps_, dof_near_fill_ps_, flare_visibility_ps_, flare_ps_,
             dng_ps_, dng_flare_ps_;
@@ -508,6 +514,10 @@ namespace enhancements
         ComPtr<ID3D11Buffer> gather_apply_;    // core/trace.h's GatherApplyConstants, at b2 for the gather's draws
         ComPtr<ID3D11Buffer> dof_constants_;   // core/dof.h's DofConstants, at b1 for the depth of field's draws
         ComPtr<ID3D11Buffer> flare_constants_; // core/flare.h's FlareConstants, at b1 for the lens flare's draw
+        ComPtr<ID3D11Buffer> character_light_constants_; // core/character_light.h's CharacterLightConstants, at b1 for its pass
+        Mirror character_normals_, character_albedo_, character_material_;
+        Scratch character_shadow_;          // R8G8B8A8_UNORM: each light's raw visibility at character pixels
+        bool character_gbuffer_ = false;    // the copies hold this frame's G-buffer
         ComPtr<ID3D11Buffer> game_grade_;      // shaders/tonemap_ps.hlsl's GameGrade, filled by copy_game_grade
         ComPtr<ID3D11Buffer> grade_stage_;     // game_grade_ for the CPU to read
         bool grade_staged_ = false;

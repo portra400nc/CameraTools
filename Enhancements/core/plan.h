@@ -5,6 +5,7 @@
 #include "recipe.h"
 #include "sun.h"
 
+#include <array>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -14,6 +15,7 @@ struct EnhancementsSettings;  // enhancements.h, read only by parse_settings
 struct EnhancementsCamera;    // enhancements.h, read only by parse_camera
 struct EnhancementsAccumulate;  // enhancements.h, read only by parse_accumulate
 struct EnhancementsShot;      // enhancements.h, read only by parse_shot
+struct EnhancementsCharacterLights;  // enhancements.h, read only by parse_character_lights
 
 namespace enhancements
 {
@@ -204,6 +206,29 @@ namespace enhancements
     // Every value in range: non-finite floats take the default and the rest clamp.
     FlareSettings clamp_flare(const FlareSettings &settings);
 
+    // An EnhancementsShotLight as the caller sent it; core/character_light.cpp parses it as a traced shot's.
+    struct CharacterLamp
+    {
+        std::array<float, 3> position {}, color {}, direction {};
+        float range = 0, cos_outer = -2, cos_inner = -2;
+    };
+
+    // EnhancementsCharacterLights'.
+    struct CharacterLightSettings
+    {
+        bool enabled = false;
+        bool soft = false;
+        float game_light = 0.1f;
+        float rim = 1.5f;
+        std::optional<std::array<float, 3>> head;
+        std::vector<CharacterLamp> lights;
+    };
+
+    // Honors size like parse_settings. A null pointer is off. game_light clamps to 0..1 and rim to 0..3, and a value that
+    // is not finite takes the default; a head that is not finite is unknown; past ENHANCEMENTS_MAX_CHARACTER_LIGHTS the
+    // lights are left out.
+    CharacterLightSettings parse_character_lights(const EnhancementsCharacterLights *raw);
+
     // The domain form of EnhancementsSettings. Built only by parse_settings, so every value in it is in range.
     struct Settings
     {
@@ -223,6 +248,7 @@ namespace enhancements
         ReflectSettings reflect;    // only a shot's
         DepthOfFieldSettings depth_of_field;
         FlareSettings flare;
+        CharacterLightSettings character_light;
     };
 
     // Honors size (fields past it keep their defaults), maps an unknown view to off and an unknown curve to the game's,
@@ -302,6 +328,10 @@ namespace enhancements
     // among them.
     Settings with_shot(const Settings &applied, const ShotSettings &shot);
 
+    // The settings with studio lighting for characters while it is enabled. Under a master switch that is off it runs
+    // alone, as a shot does.
+    Settings with_character_light(const Settings &applied, const CharacterLightSettings &light);
+
     // The wetness the wetness pass applies: the setting's while it is above 0, else the weather's from the camera.
     float wetness_amount(const WetnessSettings &settings, const Camera &camera);
 
@@ -345,7 +375,7 @@ namespace enhancements
     enum class GameCall : bool { keep, skip };
 
     // The ENHANCEMENTS_PASS_* bit order, not the run order.
-    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, wetness, light_shafts, trace, depth_of_field, lens_flare, traced_lights, count };
+    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, wetness, light_shafts, trace, depth_of_field, lens_flare, traced_lights, character_light, count };
 
     // ENHANCEMENTS_TRACE_STATE_*: where the traced scene the trace pass needs is. The names follow in kTraceStateNames.
     enum class TraceState : uint8_t { none, building, uploading, ready, stale, failed, count };

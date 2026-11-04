@@ -500,7 +500,7 @@ namespace CameraTools
             return lights;
         }
 
-        private static EnhancementsShotLight ToShotLight(Light light, uint flags)
+        internal static EnhancementsShotLight ToShotLight(Light light, uint flags)
         {
             var t = light.transform;
             var p = t.position;

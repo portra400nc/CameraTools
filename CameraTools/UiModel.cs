@@ -291,6 +291,28 @@ namespace CameraTools
 
         private static readonly Tab LightsTab = new("Lights", new Row[]
         {
+            new Section("Character lighting"),
+            new ToggleRow("Studio lighting", () => CharacterLighting.Enabled, on => CharacterLighting.Enabled = on, () => CameraToolsEnhancements.Enhancements.Connected)
+            {
+                Detail = () => !CameraToolsEnhancements.Enhancements.Connected ? "Needs ReShade with the Enhancements add-on"
+                    : CharacterLighting.Enabled ? "Your lights shape characters like real lamps" : "The game lights characters",
+            },
+            new ChoiceRow("Shading", CharacterLighting.ShadingNames, () => CharacterLighting.Soft ? 1 : 0, choice => CharacterLighting.Soft = choice == 1, null)
+            {
+                Sub = true,
+                Shown = () => CharacterLighting.Active,
+                Detail = () => CharacterLighting.Soft ? "Gradual falloff like a real lamp" : "Hard edges like the game's own shading",
+            },
+            new SliderRow("Game light", 0f, 100f, 5f, "0'%'", () => CharacterLighting.GameLight * 100f, value => CharacterLighting.GameLight = value / 100f)
+            {
+                Sub = true,
+                Shown = () => CharacterLighting.Active,
+            },
+            new SliderRow("Rim light", 0f, CharacterLighting.MaxRim, 0.1f, "0.0'×'", () => CharacterLighting.Rim, value => CharacterLighting.Rim = value)
+            {
+                Sub = true,
+                Shown = () => CharacterLighting.Active,
+            },
             new Section("Lights"),
             new StepperRow("Light", () => Lights.All.Count, () => Lights.Active, Lights.Select, () => Lights.LightNote),
             new ToggleRow("Light on", () => Lights.Current?.On ?? false, on => Lights.Edit(light => light.On = on)) { Shown = () => Lights.HasLight },

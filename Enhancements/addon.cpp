@@ -89,6 +89,7 @@ namespace enhancements
         Mailbox<SceneRequest> scene_box;
         Mailbox<ShotSettings> shot_box;
         Mailbox<std::vector<TraceLight>> lights_box;
+        Mailbox<CharacterLightSettings> character_light_box;
         Mailbox<std::vector<::EnhancementsShotLight>> game_lights_box;
         std::vector<::EnhancementsShotLight> game_lights;   // the render thread's newest of the box
         float emitter_boost = 1;                            // emitter-boost.txt's at a shot's start, for tests
@@ -144,6 +145,8 @@ namespace enhancements
         Settings applied;                   // EnhancementsApply's newest
         ShotSettings shot;                  // EnhancementsSetShot's newest
         std::vector<TraceLight> shot_lights;    // EnhancementsSetShotLights' newest
+        CharacterLightSettings character_light; // EnhancementsSetCharacterLights' newest
+        uint64_t character_light_seen = 0;
         bool shot_frame = false;            // this frame runs with the shot
         uint64_t settings_seen = 0, camera_seen = 0, compare_seen = 0, accumulate_seen = 0, scene_seen = 0, shot_seen = 0, lights_seen = 0;
         AccumulateSettings accumulate;      // this frame's, taken at present
@@ -876,6 +879,9 @@ namespace enhancements
                 gather_sun(map);
             if (step == Step::combine)
             {
+                // The game reuses the G-buffer's targets after its combine, so the character light pass at bloom reads copies.
+                if (settings.enabled && settings.character_light.enabled && !gpu.copy_character_gbuffer(map))
+                    log(reshade::log::level::warning, "studio lighting: the G-buffer could not be copied at the combine step.");
                 // Before any pass of ours writes the shadow mask or the irradiance.
                 if (scene_gbuffer || scene_light)
                     scene_gpu.copy_gbuffer(map, { scene_gbuffer || (scene_light && scene_first), scene_gbuffer, scene_light });
@@ -941,6 +947,9 @@ namespace enhancements
                         // Nothing to add before the trace has a sample at every pixel.
                         call = trace_traced && trace_frame && trace_frame->lights.info[0] != 0 ? gpu.run_traced_lights(map, camera, settings.flip, trace_gpu)
                             : std::optional<GameCall>(GameCall::keep);
+                        break;
+                    case PassId::character_light:
+                        call = gpu.run_character_light(map, character_light_constants(settings.character_light, camera), camera, settings.flip);
                         break;
                     case PassId::light_shafts:
                         call = gpu.run_light_shafts(map, settings.light_shafts, camera, sun_parse.constants, settings.flip,
@@ -2280,7 +2289,10 @@ namespace enhancements
                         + (applied.enabled ? std::string() : std::string(", whose master switch is off, so alone")) + ", " + (shot.samples != 0
                         ? std::to_string(shot.samples) : "the applied") + " samples within " + (shot.budget_ms != 0 ? std::to_string(int(shot.budget_ms)) + " ms"
                         : std::string("the applied budget")) + " a frame." : std::string("the traced shot ended; the applied settings run as before."));
-                settings = with_shot(applied, shot);
+                if (character_light_box.take(character_light, character_light_seen) && character_light.enabled != settings.character_light.enabled)
+                    log(reshade::log::level::info, character_light.enabled ? "studio lighting for characters is on, with " + std::to_string(character_light.lights.size())
+                        + " lights." : std::string("studio lighting for characters is off."));
+                settings = with_character_light(with_shot(applied, shot), character_light);
                 settings.traced_lights = shot.active && !shot_lights.empty();
             }
             shot_frame = !capture && shot.active;
@@ -2460,6 +2472,15 @@ extern "C" void EnhancementsSetAccumulate(const EnhancementsAccumulate *raw)
 extern "C" void EnhancementsSetShotLights(const EnhancementsShotLight *lights, uint32_t count)
 {
     lights_box.put(parse_trace_lights(lights, count));
+}
+
+extern "C" void EnhancementsSetCharacterLights(const EnhancementsCharacterLights *raw)
+{
+    // Only the bytes the caller says it has, as for the settings.
+    EnhancementsCharacterLights copy {};
+    if (raw != nullptr && raw->size >= offsetof(EnhancementsCharacterLights, enabled) + sizeof raw->enabled)
+        std::memcpy(&copy, raw, std::min<size_t>(raw->size, sizeof copy));
+    character_light_box.put(parse_character_lights(&copy));
 }
 
 extern "C" void EnhancementsSetGameLights(const EnhancementsShotLight *lights, uint32_t count)

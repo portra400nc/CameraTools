@@ -126,6 +126,16 @@ namespace CameraTools
             return lights;
         }
 
+        // The lights that are on, whatever they light up, for studio lighting.
+        public static List<Light> CharacterLights()
+        {
+            var lights = new List<Light>();
+            for (int i = 0; i < gameLights.Count && i < All.Count; i++)
+                if (All[i].On && gameLights[i].Light)
+                    lights.Add(gameLights[i].Light);
+            return lights;
+        }
+
         // While a traced shot traces, it draws these lights itself, with traced shadows: the game leaves them out and
         // characters keep their twins.
         public static bool WorldLightsHeld { get; set; }
@@ -415,7 +425,11 @@ namespace CameraTools
                 ApplySpheres(camera);
                 int sun = All.FindIndex(light => light.SunShading && light.On);
                 var color = sun >= 0 ? All[sun].Color : default;
-                CharacterSun.Update(sun >= 0 ? placed[sun]?.Position.ToUnity() : null, new Color(color.X, color.Y, color.Z, 1f));
+                // Studio lighting turns the game's face shadow toward the camera, so its shading baked into the face fights no light.
+                if (CharacterLighting.Active && camera)
+                    CharacterSun.Update(camera.transform.position, null);
+                else
+                    CharacterSun.Update(sun >= 0 ? placed[sun]?.Position.ToUnity() : null, new Color(color.X, color.Y, color.Z, 1f));
                 if (changedAt is float at && Time.unscaledTime - at >= SaveDelay)
                 {
                     changedAt = null;

@@ -16,10 +16,11 @@ namespace CameraTools
         // The angles EnviroSky had before CameraTools took over; with the flag off again the game rewrites only the yaw.
         private static Vector3 heldAngles;
         private static Vector3? toward;
-        private static Color tint;
+        private static Color? tint;
 
-        // After the lights are placed: from is the light's position this frame, or null to give the shading back to the game.
-        public static void Update(Vector3? from, Color color)
+        // After the lights are placed: from is the light's position this frame, or null to give the shading back to the game;
+        // color null keeps the game's colour.
+        public static void Update(Vector3? from, Color? color)
         {
             var sky = EnviroSky.Instance;
             var avatar = Character.Active();
@@ -57,7 +58,8 @@ namespace CameraTools
                 int id = CharacterLight.lightDirShaderId;
                 float w = Shader.GetGlobalVector(id).w;
                 Shader.SetGlobalVector(id, new Vector4(direction.x, direction.y, direction.z, w));
-                Shader.SetGlobalColor(held.characterMainLightColorId, tint);
+                if (tint is { } color)
+                    Shader.SetGlobalColor(held.characterMainLightColorId, color);
             }
             catch (Exception e)
             {

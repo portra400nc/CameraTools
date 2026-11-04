@@ -42,6 +42,7 @@ namespace CameraTools
             EnhancementsControl.Load();
             CameraPaths.Load();
             Lights.Load();
+            CharacterLighting.Load();
             Poses.Load();
             Screenshot.Load();
             DepthOfField.Load();
@@ -158,6 +159,7 @@ namespace CameraTools
                 freecam.LateUpdate();
             }
             Lights.Update();
+            CharacterLighting.Update();
             Posing.Update();
             SyncPlayerInput();
             WindowFocus.Update();

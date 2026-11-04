@@ -373,6 +373,22 @@ namespace CameraToolsEnhancements
         public const uint Shadows = 1;  // in Reserved0: the game draws this light with shadows
     }
 
+    // EnhancementsCharacterLights in enhancements.h, field for field.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct EnhancementsCharacterLights
+    {
+        public uint Size;
+        public uint Enabled;
+        public uint Shading;            // 0 toon, 1 soft
+        public float GameLight;
+        public float Rim;
+        public float HeadX, HeadY, HeadZ;
+        public uint HeadKnown;
+        public uint Count;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = EnhancementsShotLight.Max)]
+        public EnhancementsShotLight[] Lights;
+    }
+
     // EnhancementsDngInfo in enhancements.h, field for field: the camera a DNG's EXIF names, 0 or an empty date for none.
     [StructLayout(LayoutKind.Sequential)]
     internal struct EnhancementsDngInfo
@@ -486,7 +502,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 27;
+        private const uint Version = 28;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -539,9 +555,13 @@ namespace CameraToolsEnhancements
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void SetGameLightsCall([In] EnhancementsShotLight[] lights, uint count);
 
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate void SetCharacterLightsCall(ref EnhancementsCharacterLights lights);
+
         private sealed record AddOn(IntPtr Module, ApplyCall Apply, SetCameraCall SetCamera, GetStatusCall GetStatus, DescribeCall Describe, CompareCall Compare,
             SetAccumulateCall SetAccumulate, DepthAtCall DepthAt, CaptureSceneCall CaptureScene, SaveTraceCall SaveTrace, SetShotCall SetShot, SaveFrameCall SaveFrame,
-            DevelopDngCall DevelopDng, WriteDngCall WriteDng, SetShotLightsCall SetShotLights, SetGameLightsCall SetGameLights);
+            DevelopDngCall DevelopDng, WriteDngCall WriteDng, SetShotLightsCall SetShotLights, SetGameLightsCall SetGameLights,
+            SetCharacterLightsCall SetCharacterLights);
 
         private static readonly float[] camera = new float[52];
         private static readonly byte[] line = new byte[512];
@@ -683,6 +703,23 @@ namespace CameraToolsEnhancements
             addOn.SetShot(ref shot);
         }
 
+        // Studio lighting for characters: the first EnhancementsShotLight.Max lights shape the characters, which keep gameLight of
+        // the game's light; head is the center of the active character's head, null when it is not known. Off when enabled is false.
+        public static void SetCharacterLights(bool enabled, bool soft, float gameLight, float rim, Vector3? head, IReadOnlyList<EnhancementsShotLight> lights)
+        {
+            if (addOn == null)
+                return;
+            var raw = new EnhancementsCharacterLights
+            {
+                Size = (uint)Marshal.SizeOf<EnhancementsCharacterLights>(), Enabled = enabled ? 1u : 0u, Shading = soft ? 1u : 0u, GameLight = gameLight, Rim = rim,
+                HeadX = head?.x ?? 0, HeadY = head?.y ?? 0, HeadZ = head?.z ?? 0, HeadKnown = head.HasValue ? 1u : 0u,
+                Count = (uint)Math.Min(lights?.Count ?? 0, EnhancementsShotLight.Max), Lights = new EnhancementsShotLight[EnhancementsShotLight.Max],
+            };
+            for (int i = 0; i < raw.Count; i++)
+                raw.Lights[i] = lights[i];
+            addOn.SetCharacterLights(ref raw);
+        }
+
         // The lights a traced shot traces, the first EnhancementsShotLight.Max of them; none ends them.
         public static void SetShotLights(EnhancementsShotLight[] lights)
         {
@@ -821,14 +858,15 @@ namespace CameraToolsEnhancements
                 || !TryExport<DevelopDngCall>(module, "EnhancementsDevelopDng", out var developDng)
                 || !TryExport<WriteDngCall>(module, "EnhancementsWriteDng", out var writeDng)
                 || !TryExport<SetShotLightsCall>(module, "EnhancementsSetShotLights", out var setShotLights)
-                || !TryExport<SetGameLightsCall>(module, "EnhancementsSetGameLights", out var setGameLights))
+                || !TryExport<SetGameLightsCall>(module, "EnhancementsSetGameLights", out var setGameLights)
+                || !TryExport<SetCharacterLightsCall>(module, "EnhancementsSetCharacterLights", out var setCharacterLights))
             {
                 MelonLogger.Warning($"Enhancements: {ModuleName} version {found} is missing an export.");
                 return;
             }
             rejected = IntPtr.Zero;
             addOn = new AddOn(module, apply, setCamera, getStatus, describe, compare, setAccumulate, depthAt, captureScene, saveTrace, setShot, saveFrame,
-                developDng, writeDng, setShotLights, setGameLights);
+                developDng, writeDng, setShotLights, setGameLights, setCharacterLights);
             Connections++;
             MelonLogger.Msg($"Enhancements: connected to {ModuleName} version {found}.");
         }

@@ -34,6 +34,18 @@ Only one light can have Alternative shading at a time. On the other lights, the 
 
 The intensity of the light does not change the brightness of the sun's shading, which stays the game's. For a second colour, such as a warm light on the shadow side of the face, add a second light without Alternative shading on the other side of the character.
 
+## Studio lighting
+
+Studio lighting, at the top of the tab, lets your lights shape characters the way lamps light a person. Each light gives a falloff across the face and body, shadows from hair and chin, and a rim along the edges when it stands behind the character. Everything your lights don't reach goes dark. It needs ReShade with the Enhancements add-on, and works live and in screenshots, with or without path tracing.
+
+| Row | What it does |
+|---|---|
+| Shading | Toon gives hard light and shadow shapes like the game's own shading. Soft fades gradually like a real lamp. |
+| Game light | How much of the game's own light stays on characters, from 0 to 100%. |
+| Rim light | How strongly a light behind a character makes its edges and hair glow, from 0 to 3×. |
+
+Up to four lights that are on take part, whatever they light up. While Studio lighting is on, the game's face shadow is turned toward the camera so it doesn't fight your lights, and Alternative shading has no effect. Shadows come from what is on screen, so they reach about half a meter.
+
 ## Placing a light
 
 New light places a light 1.5 m in front of the camera, facing where the camera looks. Follow decides what the light moves with:

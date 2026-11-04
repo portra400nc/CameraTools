@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 27
+#define ENHANCEMENTS_VERSION 28
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -100,6 +100,7 @@ enum
     ENHANCEMENTS_PASS_DEPTH_OF_FIELD = 1u << 8,
     ENHANCEMENTS_PASS_LENS_FLARE = 1u << 9,
     ENHANCEMENTS_PASS_TRACED_LIGHTS = 1u << 10,
+    ENHANCEMENTS_PASS_CHARACTER_LIGHT = 1u << 11,
 };
 
 // The tonemap pass's curves, values of EnhancementsTonemap.curve.
@@ -573,6 +574,31 @@ typedef struct EnhancementsShotLight
     uint32_t reserved[4];
 } EnhancementsShotLight;
 
+// Studio lighting for characters: while enabled, a pass at the bloom step keeps game_light of the game's light on every
+// character pixel (stencil bit 0x04) and adds the lights' own, read from the G-buffer's normals and albedo: a toon step
+// or a soft falloff across the normal behind a screen-space shadow, and a rim where a light stands behind the surface.
+// The face (G-buffer material ids 22 and 21) shades as a rounded head around head. It runs whether or not the settings'
+// master switch is on, like a traced shot; with it off, no other pass runs. Version 28 added it.
+#define ENHANCEMENTS_MAX_CHARACTER_LIGHTS 4
+enum
+{
+    ENHANCEMENTS_CHARACTER_SHADING_TOON = 0,   // the game's half-Lambert step: lit from n.l 0.1 to 0.3
+    ENHANCEMENTS_CHARACTER_SHADING_SOFT,       // ((n.l + 0.2) / 1.2)^1.5, a lamp's gradual falloff
+    ENHANCEMENTS_CHARACTER_SHADING_COUNT,
+};
+typedef struct EnhancementsCharacterLights
+{
+    uint32_t size;              // sizeof(EnhancementsCharacterLights) as the caller compiled it
+    uint32_t enabled;
+    uint32_t shading;           // ENHANCEMENTS_CHARACTER_SHADING_*; unknown values read as toon
+    float game_light;           // the share of the game's light kept on characters; default 0.1, clamped to 0..1
+    float rim;                  // the rim's strength; default 1.5, clamped to 0..3
+    float head[3];              // the center of the active character's head in the world
+    uint32_t head_known;        // 0: no head, and the face shades from its stored normals
+    uint32_t count;             // lights, the first ENHANCEMENTS_MAX_CHARACTER_LIGHTS of them
+    EnhancementsShotLight lights[ENHANCEMENTS_MAX_CHARACTER_LIGHTS];
+} EnhancementsCharacterLights;
+
 // The directions a scene capture turns the camera to: world-axis cube faces in D3D cube-map order, each with its own up
 // (+X, -X, +Z and -Z keep +Y up; +Y has -Z up and -Y has +Z up), at a 90-degree vertical field of view, and the view as
 // the camera already is. Values of EnhancementsStatus.scene_face, and bits 1 << face of EnhancementsSceneRequest.faces.
@@ -815,6 +841,9 @@ ENHANCEMENTS_EXPORT void EnhancementsSetShotLights(const EnhancementsShotLight *
 // left on in the game. A set shadow flag gives a light shadow rays in the bake. Version 25 added it.
 #define ENHANCEMENTS_MAX_GAME_LIGHTS 256
 ENHANCEMENTS_EXPORT void EnhancementsSetGameLights(const EnhancementsShotLight *lights, uint32_t count);
+
+// Sets studio lighting for characters (EnhancementsCharacterLights); null or disabled turns it off. Version 28 added it.
+ENHANCEMENTS_EXPORT void EnhancementsSetCharacterLights(const EnhancementsCharacterLights *lights);
 
 // Asks for the view-space depth in meters (the distance along the camera's forward axis) at a point on the screen, u and
 // v from 0 at the top left to 1, and returns the newest answer read from a frame that began after the point was first

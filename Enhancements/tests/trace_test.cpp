@@ -806,8 +806,8 @@ int main(int argc, char **argv)
         check("the lights' cbuffer: the position less the reference, the range, the color times intensity to the power 2.2, the cones, its luminance and the count",
             g.rows[0][0][0] == 0.0f && g.rows[0][0][1] == 1.0f && g.rows[0][0][3] == 8.0f && std::abs(g.rows[0][1][0] - 4.5947f) < 1e-3f && g.rows[0][1][2] == 1.0f
                 && g.rows[1][1][3] == 0.7f && g.rows[1][2][1] == -1.0f && std::abs(g.rows[0][3][1] - (0.9278f * 4.5947f + 0.0722f)) < 1e-3f && g.info[0] == 4);
-        check("the traced light is 64 bytes, its reserved words at 48, and the version is 27", sizeof(EnhancementsShotLight) == 64
-            && offsetof(EnhancementsShotLight, reserved) == 48 && ENHANCEMENTS_VERSION == 27);
+        check("the traced light is 64 bytes, its reserved words at 48, and the version is 28", sizeof(EnhancementsShotLight) == 64
+            && offsetof(EnhancementsShotLight, reserved) == 48 && ENHANCEMENTS_VERSION == 28);
     }
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;

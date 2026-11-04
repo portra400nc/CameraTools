@@ -30,7 +30,7 @@ SOURCES = [
     "addon.cpp", "gpu.cpp", "scene_gpu.cpp", "trace_gpu.cpp", "core/recipe.cpp", "core/plan.cpp", "core/sun.cpp", "core/png.cpp", "core/compare.cpp",
     "core/accumulate.cpp", "core/dxbc.cpp", "core/shaders.cpp", "core/scene.cpp", "core/scene_files.cpp", "core/trace_scene.cpp",
     "core/bvh.cpp", "core/kernel.cpp", "core/trace.cpp", "core/trace_files.cpp", "core/shex.cpp", "core/grade.cpp", "core/alpha.cpp",
-    "core/alpha_bake.cpp", "core/light.cpp", "core/dof.cpp", "core/flare.cpp", "core/dng.cpp",
+    "core/alpha_bake.cpp", "core/light.cpp", "core/dof.cpp", "core/flare.cpp", "core/character_light.cpp", "core/dng.cpp",
 ]
 # (symbol in enhancements_shaders.h, source in shaders/, profile)
 SHADERS = [
@@ -40,7 +40,7 @@ SHADERS = [
     ("kAtmospherePs", "atmosphere_ps.hlsl", "ps_5_0"), ("kTonemapPs", "tonemap_ps.hlsl", "ps_5_0"), ("kViewPs", "view_ps.hlsl", "ps_5_0"),
     ("kAccumulatePs", "accumulate_ps.hlsl", "ps_5_0"), ("kPresentPs", "present_ps.hlsl", "ps_5_0"), ("kWetnessPs", "wetness_ps.hlsl", "ps_5_0"),
     ("kShaftsPs", "shafts_ps.hlsl", "ps_5_0"), ("kLightShaftsPs", "light_shafts_ps.hlsl", "ps_5_0"),
-    ("kTracedLightsPs", "traced_lights_ps.hlsl", "ps_5_0"), ("kApplyTracePs", "apply_trace_ps.hlsl", "ps_5_0"), ("kTraceCs", "trace_cs.hlsl", "cs_5_0"),
+    ("kTracedLightsPs", "traced_lights_ps.hlsl", "ps_5_0"), ("kCharacterLightPs", "character_light_ps.hlsl", "ps_5_0"), ("kCharacterShadowPs", "character_shadow_ps.hlsl", "ps_5_0"), ("kApplyTracePs", "apply_trace_ps.hlsl", "ps_5_0"), ("kTraceCs", "trace_cs.hlsl", "cs_5_0"),
     ("kStreamTrianglesGs", "stream_triangles_gs.hlsl", "gs_5_0"), ("kStreamAttributesGs", "stream_attributes_gs.hlsl", "gs_5_0"), ("kAlphaBakeCs", "alpha_bake_cs.hlsl", "cs_5_0"),
     ("kGatherCs", "gather_cs.hlsl", "cs_5_0"), ("kReflectCs", "reflect_cs.hlsl", "cs_5_0"), ("kReflectApplyPs", "reflect_apply_ps.hlsl", "ps_5_0"), ("kGatherAveragePs", "gather_average_ps.hlsl", "ps_5_0"),
     ("kGatherFilterPs", "gather_filter_ps.hlsl", "ps_5_0"), ("kApplyGatherPs", "apply_gather_ps.hlsl", "ps_5_0"),

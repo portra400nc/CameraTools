@@ -6,8 +6,8 @@
 #ifndef LOCAL_LIGHT_HLSLI
 #define LOCAL_LIGHT_HLSLI
 
-// The light's geometry at p of normal n: what multiplies its radiance.
-float local_geometry_of(uint k, float3 p, float3 n)
+// The unit direction toward the light from p, and in w its reach there before the surface's facing.
+float4 local_reach_of(uint k, float3 p)
 {
     float4 at = light_rows[k * 4u];
     float cos_outer = light_rows[k * 4u + 1u].w;
@@ -18,7 +18,14 @@ float local_geometry_of(uint k, float3 p, float3 n)
     float x = d / at.w;
     // A point light's cosines are -2, which makes its ramp 1 wherever it shines.
     float spot = saturate((-dot(l, float3(axis.x, axis.y, axis.z)) - cos_outer) / max(axis.w - cos_outer, 1.0e-4f));
-    return max(dot(n, l), 0.0f) * saturate((1.0f - x) * 5.0f) * spot / (1.0f + 25.0f * x * x);
+    return float4(l.x, l.y, l.z, saturate((1.0f - x) * 5.0f) * spot / (1.0f + 25.0f * x * x));
+}
+
+// The light's geometry at p of normal n: what multiplies its radiance.
+float local_geometry_of(uint k, float3 p, float3 n)
+{
+    float4 r = local_reach_of(k, p);
+    return max(dot(n, float3(r.x, r.y, r.z)), 0.0f) * r.w;
 }
 
 float3 local_light_of(uint k, float3 p, float3 n)

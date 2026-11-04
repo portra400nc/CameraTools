@@ -553,6 +553,8 @@ namespace enhancements
         dof_constants.ByteWidth = sizeof(DofConstants);
         D3D11_BUFFER_DESC flare_constants = buffer;
         flare_constants.ByteWidth = sizeof(FlareConstants);
+        D3D11_BUFFER_DESC character_light_constants = buffer;
+        character_light_constants.ByteWidth = sizeof(CharacterLightConstants);
         // Zeros until a grade is copied in, which the shader takes for no grade.
         D3D11_BUFFER_DESC game_grade = {};
         game_grade.ByteWidth = kGameGradeBytes;
@@ -640,6 +642,8 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kLightShaftsPs, sizeof kLightShaftsPs, nullptr, &made.light_shafts_ps_))
             && SUCCEEDED(device->CreatePixelShader(kApplyTracePs, sizeof kApplyTracePs, nullptr, &made.apply_trace_ps_))
             && SUCCEEDED(device->CreatePixelShader(kTracedLightsPs, sizeof kTracedLightsPs, nullptr, &made.traced_lights_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kCharacterLightPs, sizeof kCharacterLightPs, nullptr, &made.character_light_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kCharacterShadowPs, sizeof kCharacterShadowPs, nullptr, &made.character_shadow_ps_))
             && SUCCEEDED(device->CreatePixelShader(kGatherAveragePs, sizeof kGatherAveragePs, nullptr, &made.gather_average_ps_))
             && SUCCEEDED(device->CreatePixelShader(kGatherFilterPs, sizeof kGatherFilterPs, nullptr, &made.gather_filter_ps_))
             && SUCCEEDED(device->CreatePixelShader(kApplyGatherPs, sizeof kApplyGatherPs, nullptr, &made.apply_gather_ps_))
@@ -682,6 +686,7 @@ namespace enhancements
             && SUCCEEDED(device->CreateBuffer(&gather_apply, nullptr, &made.gather_apply_))
             && SUCCEEDED(device->CreateBuffer(&dof_constants, nullptr, &made.dof_constants_))
             && SUCCEEDED(device->CreateBuffer(&flare_constants, nullptr, &made.flare_constants_))
+            && SUCCEEDED(device->CreateBuffer(&character_light_constants, nullptr, &made.character_light_constants_))
             && SUCCEEDED(device->CreateBuffer(&game_grade, &no_grade_data, &made.game_grade_))
             && SUCCEEDED(device->CreateBuffer(&grade_stage, nullptr, &made.grade_stage_))
             && SUCCEEDED(device->CreateBlendState(&blend, &made.opaque_))
@@ -1222,6 +1227,56 @@ namespace enhancements
         ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), normals_.srv(), depth_.srv(), depth_.stencil_srv(), nullptr, albedo_.srv(), trace.history_srv(),
             trace.light_history_srv() };
         draw_fullscreen(traced_lights_ps_.Get(), srvs, 8, scene_out_.rtv(), map.render);
+        scene_out_.copy_to(c, native(scene));
+        return GameCall::keep;
+    }
+
+    bool Gpu::copy_character_gbuffer(const FrameMap &map)
+    {
+        const std::optional<Texture> &normals = map[Entry::normals], &albedo = map[Entry::albedo], &material = map[Entry::material_id];
+        ID3D11Device *d = device_.Get();
+        character_gbuffer_ = normals && albedo && material
+            && character_normals_.sync(d, native(*normals), static_cast<DXGI_FORMAT>(normals->format), false)
+            && character_albedo_.sync(d, native(*albedo), static_cast<DXGI_FORMAT>(albedo->format), false)
+            && character_material_.sync(d, native(*material), static_cast<DXGI_FORMAT>(material->format), false);
+        if (!character_gbuffer_)
+            return false;
+        ID3D11DeviceContext1 *c = context_.Get();
+        character_normals_.copy_from(c, native(*normals));
+        character_albedo_.copy_from(c, native(*albedo));
+        character_material_.copy_from(c, native(*material));
+        return true;
+    }
+
+    std::optional<GameCall> Gpu::run_character_light(const FrameMap &map, const CharacterLightConstants &light, const Camera &camera, bool flip)
+    {
+        const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
+        const auto scene_format = static_cast<DXGI_FORMAT>(scene.format);
+        ID3D11Device *d = device_.Get();
+        Constants constants;
+        // Without this frame's copies from the combine step there is nothing to light the characters from.
+        const bool copied = character_gbuffer_;
+        character_gbuffer_ = false;
+        if (!copied || !scene_in_.sync(d, native(scene), scene_format, false) || !scene_out_.sync(d, native(scene), scene_format, true)
+            || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false) || !character_shadow_.sync(d, map.render, DXGI_FORMAT_R8G8B8A8_UNORM)
+            || !pass_constants(camera, map.render, flip, constants))
+            return std::nullopt;
+        upload(constants);
+        ID3D11DeviceContext1 *c = context_.Get();
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        if (FAILED(c->Map(character_light_constants_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+            return std::nullopt;
+        std::memcpy(mapped.pData, &light, sizeof light);
+        c->Unmap(character_light_constants_.Get(), 0);
+        ID3D11Buffer *const own[] = { character_light_constants_.Get() };
+        c->PSSetConstantBuffers(1, 1, own);
+        scene_in_.copy_from(c, native(scene));
+        depth_.copy_from(c, native(depth));
+        // The second draw's target change unbinds character_shadow_ as a target before it is bound at t7.
+        ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), character_normals_.srv(), depth_.srv(), depth_.stencil_srv(), nullptr, character_albedo_.srv(),
+            character_material_.srv(), character_shadow_.srv() };
+        draw_fullscreen(character_shadow_ps_.Get(), srvs, 7, character_shadow_.rtv(), map.render);
+        draw_fullscreen(character_light_ps_.Get(), srvs, 8, scene_out_.rtv(), map.render);
         scene_out_.copy_to(c, native(scene));
         return GameCall::keep;
     }
