@@ -1,7 +1,7 @@
 using MelonLoader;
 using UnityEngine;
 using UnityEngine.Rendering.PostProcessing;
-using SettingKey = DNMAIIHOLOL;
+using SettingKey = OJBCBBBGDMN;
 
 namespace CameraTools
 {
@@ -800,58 +800,58 @@ namespace CameraTools
         {
             try
             {
-                var saved = FMMBOLGMJGM.MGCADENEBCP(key);
-                return saved != null ? saved.index : FMMBOLGMJGM.ADNAKKLFMHG(key);
+                var saved = DMLIPKCKBNL.FIPDGIJGAPI(key);
+                return saved != null ? saved.index : DMLIPKCKBNL.CAKGFPFOJMM(key);
             }
             catch (Exception e)
             {
-                CameraTools.LogOnce($"Graphics: reading setting {(int)key} (FMMBOLGMJGM.MGCADENEBCP, ADNAKKLFMHG) failed: {e.Message}");
+                CameraTools.LogOnce($"Graphics: reading setting {(int)key} (DMLIPKCKBNL.FIPDGIJGAPI, CAKGFPFOJMM) failed: {e.Message}");
                 return null;
             }
         }
 
         public static string Describe(SettingKey key) => Call($"describing setting {(int)key}", () =>
         {
-            var saved = FMMBOLGMJGM.MGCADENEBCP(key);
-            return $"saved {(saved != null ? saved.index.ToString() : "none")}, default {FMMBOLGMJGM.ADNAKKLFMHG(key)}";
+            var saved = DMLIPKCKBNL.FIPDGIJGAPI(key);
+            return $"saved {(saved != null ? saved.index.ToString() : "none")}, default {DMLIPKCKBNL.CAKGFPFOJMM(key)}";
         }, "unreadable");
 
         // The settings menu's dropdown handler: the index in the current store, the 1-based grade in the older store, then
         // apply.
         public static bool Set(SettingKey key, int index) => Call($"setting {(int)key} to {index}", () =>
         {
-            FMMBOLGMJGM.ENHADOCFABO(key, index, true, true);
-            DFNEKCNFEDF.FDHDFCLKFBJ(key, index + 1, true, false);
-            DFNEKCNFEDF.PENEIPFNKHB(key);
-            CameraTools.LogOnce("Graphics: settings are set with FMMBOLGMJGM.ENHADOCFABO(key, index, true, true), "
-                + "DFNEKCNFEDF.FDHDFCLKFBJ(key, index + 1, true, false) and DFNEKCNFEDF.PENEIPFNKHB(key).");
+            DMLIPKCKBNL.EFFAMAECGHF(key, index, true, true);
+            MAEPPPPNGJD.JFLFPNEAJFM(key, index + 1, true, false);
+            MAEPPPPNGJD.OJNOEONDIGH(key);
+            CameraTools.LogOnce("Graphics: settings are set with DMLIPKCKBNL.EFFAMAECGHF(key, index, true, true), "
+                + "MAEPPPPNGJD.JFLFPNEAJFM(key, index + 1, true, false) and MAEPPPPNGJD.OJNOEONDIGH(key).");
             return true;
         }, false);
 
-        public static bool Reapply(SettingKey key) => Call($"re-applying setting {(int)key} (DFNEKCNFEDF.PENEIPFNKHB)", () =>
+        public static bool Reapply(SettingKey key) => Call($"re-applying setting {(int)key} (MAEPPPPNGJD.OJNOEONDIGH)", () =>
         {
-            DFNEKCNFEDF.PENEIPFNKHB(key);
+            MAEPPPPNGJD.OJNOEONDIGH(key);
             return true;
         }, false);
 
         public static bool Save() => Call("saving the settings", () =>
         {
-            FMMBOLGMJGM.DJMHMKEJJFA(true);
-            DFNEKCNFEDF.DJMHMKEJJFA();
-            CameraTools.LogOnce("Graphics: settings are saved with FMMBOLGMJGM.DJMHMKEJJFA(true) and DFNEKCNFEDF.DJMHMKEJJFA().");
+            DMLIPKCKBNL.DLLCGDACHOP(true);
+            MAEPPPPNGJD.DLLCGDACHOP();
+            CameraTools.LogOnce("Graphics: settings are saved with DMLIPKCKBNL.DLLCGDACHOP(true) and MAEPPPPNGJD.DLLCGDACHOP().");
             return true;
         }, false);
 
-        // MPDLNNKGPCP returns a setting's last option index, or -1 for a setting the game has no options for. The options are
-        // stored in the order they were added to the game; CHONAFGBIKI maps an option index to its position in the menu, and
+        // MFMHKNLODKB returns a setting's last option index, or -1 for a setting the game has no options for. The options are
+        // stored in the order they were added to the game; AFOGBJCGKNM maps an option index to its position in the menu, and
         // returns the index itself for a setting whose menu shows the stored order.
         public static Dictionary<SettingKey, OptionList> OptionLists(IEnumerable<SettingKey> keys) => Call(
-            "reading the options (FMMBOLGMJGM.MPDLNNKGPCP, LLJPCNPPHIO.CEJHBLKFKCH.CHONAFGBIKI)", () =>
+            "reading the options (DMLIPKCKBNL.MFMHKNLODKB, CNIOMGKAIJM.KMFKHGLKGHC.AFOGBJCGKNM)", () =>
         {
             var lists = new Dictionary<SettingKey, OptionList>();
             foreach (var key in keys)
             {
-                int count = FMMBOLGMJGM.MPDLNNKGPCP(key) + 1;
+                int count = DMLIPKCKBNL.MFMHKNLODKB(key) + 1;
                 if (count > 0)
                     lists[key] = new OptionList(Menu(key, count));
             }
@@ -864,7 +864,7 @@ namespace CameraTools
             Array.Fill(menu, -1);
             for (int index = 0; index < count; index++)
             {
-                int position = LLJPCNPPHIO.CEJHBLKFKCH.CHONAFGBIKI(index, key);
+                int position = CNIOMGKAIJM.KMFKHGLKGHC.AFOGBJCGKNM(index, key);
                 if (position < 0 || position >= count || menu[position] >= 0)
                 {
                     CameraTools.LogOnce($"Graphics: setting {(int)key}'s menu positions are not one per option (index {index} -> {position}); using the stored order.");

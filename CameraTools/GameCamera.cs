@@ -123,14 +123,14 @@ namespace CameraTools
 
         private static (CameraStateMgr manager, string path) Resolve()
         {
-            var controller = DFNJDCCAGDN.BOGHODCPFEP.OMOBMJMJIEC();
-            string path = "OMOBMJMJIEC";
+            var controller = DHPNFMGLGGH.FCEOONOPENO.GKNMLJGMMGK();
+            string path = "GKNMLJGMMGK";
             if (controller == null)
             {
-                controller = DFNJDCCAGDN.BOGHODCPFEP.FECLLEJFLLD()?.OFCNFCMCGHP;
-                path = "FECLLEJFLLD.OFCNFCMCGHP";
+                controller = DHPNFMGLGGH.FCEOONOPENO.IBLBAMNAFOC()?.FJIBMABNJKL;
+                path = "IBLBAMNAFOC.FJIBMABNJKL";
             }
-            return (controller?.JECIECJGGML, path);
+            return (controller?.NFHJDNEFJOH, path);
         }
     }
 }

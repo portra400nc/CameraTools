@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace CameraTools
 {
-    // The game's own sun flare, a LensFlare that EnviroSky keeps (FDFJLNHBLKA), off while the Enhancements add-on draws
+    // The game's own sun flare, a LensFlare that EnviroSky keeps (APGKONKNENB), off while the Enhancements add-on draws
     // CameraTools' lens flare, and back as the game had it once that stops.
     internal static class GameFlare
     {
@@ -23,7 +23,7 @@ namespace CameraTools
                 return;
             }
             var sky = EnviroSky.Instance;
-            var flare = sky != null ? sky.FDFJLNHBLKA : null;
+            var flare = sky != null ? sky.APGKONKNENB : null;
             if (!reported && sky != null)
             {
                 reported = true;

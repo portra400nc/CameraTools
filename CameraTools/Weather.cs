@@ -1,8 +1,8 @@
 using MelonLoader;
 using MoleMole;
-using Climate = NEHLNJHKNOG;
-using WeatherManager = NOIBMODMMPI;
-using WeatherSource = NOIBMODMMPI.LCDLJEDCEFJ;
+using Climate = EFNOHOGBLMP;
+using WeatherManager = KFINCLCDAJA;
+using WeatherSource = KFINCLCDAJA.EKFAKPFJMKD;
 
 namespace CameraTools
 {
@@ -98,11 +98,11 @@ namespace CameraTools
 
         private static void Request(WeatherManager manager, EnviroSky sky, int index, string preset)
         {
-            var before = manager.LCMAHHGNHBJ();
-            bool accepted = manager.EBEIIKLMIAM(preset, Source, TransitionFirst, TransitionSecond, null, false);
+            var before = manager.KNKAEDIADAI();
+            bool accepted = manager.AGIAOBOKCMB(preset, Source, TransitionFirst, TransitionSecond, null, false);
             held = new Held(index, preset, manager.Pointer, sky.Pointer);
             Log($"asked for \"{preset}\" ({Options[index].Label}) under source {(int)Source} with ({TransitionFirst}, {TransitionSecond}); "
-                + $"returned {accepted}; manager climate {before} -> {manager.LCMAHHGNHBJ()}; sky heading to \"{sky.targetWeatherPresetName}\".");
+                + $"returned {accepted}; manager climate {before} -> {manager.KNKAEDIADAI()}; sky heading to \"{sky.targetWeatherPresetName}\".");
         }
 
         private static void Clear()
@@ -116,10 +116,10 @@ namespace CameraTools
                 Log("back to the game's weather; no weather manager to clear.");
                 return;
             }
-            var before = manager.LCMAHHGNHBJ();
-            bool cleared = manager.DJIJAFKONCH(Source, TransitionFirst);
+            var before = manager.KNKAEDIADAI();
+            bool cleared = manager.ALKIOOLLMGB(Source, TransitionFirst);
             var sky = EnviroSky.Instance;
-            Log($"cleared source {(int)Source} with ({TransitionFirst}); returned {cleared}; manager climate {before} -> {manager.LCMAHHGNHBJ()}; "
+            Log($"cleared source {(int)Source} with ({TransitionFirst}); returned {cleared}; manager climate {before} -> {manager.KNKAEDIADAI()}; "
                 + $"sky heading to \"{(sky != null ? sky.targetWeatherPresetName : "no sky")}\".");
         }
 
@@ -130,12 +130,12 @@ namespace CameraTools
             {
                 var manager = Singleton<WeatherManager>._instance;
                 if (manager == null)
-                    CameraTools.LogOnce("Weather: Singleton<NOIBMODMMPI>._instance is null; no weather manager yet.");
+                    CameraTools.LogOnce("Weather: Singleton<KFINCLCDAJA>._instance is null; no weather manager yet.");
                 return manager;
             }
             catch (Exception e)
             {
-                CameraTools.LogOnce($"Weather: Singleton<NOIBMODMMPI>._instance failed ({e.GetType().Name}: {e.Message}).");
+                CameraTools.LogOnce($"Weather: Singleton<KFINCLCDAJA>._instance failed ({e.GetType().Name}: {e.Message}).");
                 return null;
             }
         }

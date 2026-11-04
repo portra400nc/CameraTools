@@ -108,45 +108,45 @@ namespace CameraTools
 
         public static readonly Setter[] Setters =
         {
-            new("set_useHIZAABBScale", 0x144B6D0, "48895c2408574883ec200fb6fa488bd9", false),
-            new("set_perObjectHIZBoundScale", 0x144B710, "40534883ec300f297424200f28f1488b", true),
-            new("set_skipGPUCulling", 0x144B780, "48895c2408574883ec200fb6fa488bd9", false),
-            new("set_enableBlockFlare", 0x144B7D0, "48895c2408574883ec200fb6fa488bd9", false),
-            new("set_useSpecialOrderWhenInSortingGroup", 0x144B820, "48895c2408574883ec200fb6fa488bd9", false),
-            new("set_kodamaShadowVisibilityMask", 0x144B870, "48895c2408574883ec208bfa488bd948", false),
-            new("set_forceDisableEarlyZ", 0x144B8C0, "48895c2408574883ec200fb6fa488bd9", false),
-            new("set_inWaterShadowCullingOption", 0x144B940, "48895c2408574883ec208bfa488bd948", false),
-            new("set_streamingUseHighestMip", 0x144C000, "48895c2408574883ec200fb6fa488bd9", false),
-            new("set_receiveDecals", 0x144CA70, "48895c2408574883ec200fb6fa488bd9", false),
-            new("set_enableDither", 0x144CB30, "48895c2408574883ec200fb6fa488bd9", false),
-            new("set_matLayer", 0x144CBB0, "48895c2408574883ec208bfa488bd948", false),
-            new("set_cullingBoundGroupID", 0x144CC20, "48895c2408574883ec208bfa488bd948", false),
-            new("set_customeRenderingObjectID", 0x144CC70, "48895c2408574883ec208bfa488bd948", false),
-            new("set_perObjectShadowGroupID", 0x144CCF0, "48895c2408574883ec208bfa488bd948", false),
-            new("set_characterGroupID", 0x144CD40, "48895c2408574883ec208bfa488bd948", false),
-            new("set_characterGroupRendererType", 0x144CDB0, "48895c2408574883ec208bfa488bd948", false),
-            new("set_allowHalfResolution", 0x144CE30, "48895c2408574883ec200fb6fa488bd9", false),
-            new("set_enableDragonizeOutline", 0x144CE80, "48895c2408574883ec200fb6fa488bd9", false),
-            new("set_enableBrowStencilDraw", 0x144CED0, "48895c2408574883ec200fb6fa488bd9", false),
-            new("set_viewDistanceRatio", 0x144CF50, "40534883ec300f297424200f28f1488b", true),
-            new("set_enableReflectionAndRefraction", 0x144CF90, "48895c2408574883ec200fb6fa488bd9", false),
-            new("set_disableShadowRendering", 0x144CFE0, "48895c2408574883ec200fb6fa488bd9", false),
-            new("set_reflectionAndRefractionMode", 0x144D030, "48895c2408574883ec208bda488bf948", false),
-            new("set_enableRenderToReflectionAndRefractionTexture", 0x144D080, "48895c2408574883ec200fb6fa488bd9", false),
-            new("set_renderDecalAfterLocalLightMobile", 0x144D0D0, "48895c2408574883ec200fb6fa488bd9", false),
-            new("set_enablePerMaterialCustomPropBatching", 0x144D120, "48895c2408574883ec200fb6fa488bd9", false),
-            new("set_useScaledThreshForWaterTextures", 0x144D170, "48895c2408574883ec200fb6fa488bd9", false),
-            new("set_enableRenderingObjectMask", 0x144D1C0, "48895c2408574883ec200fb6fa488bd9", false),
-            new("set_renderingObjectMaskMode", 0x144D220, "48895c2408574883ec208bfa488bd948", false),
-            new("set_renderingObjectBehindOccMode", 0x144D280, "48895c2408574883ec208bda488bf948", false),
-            new("set_disableOutputDepthWithSSR", 0x144D2F0, "48895c2408574883ec200fb6fa488bd9", false),
-            new("set_castHeightfieldDeformation", 0x144D340, "48895c2408574883ec200fb6fa488bd9", false),
-            new("set_receiveHeightfieldDeformation", 0x144D390, "48895c2408574883ec200fb6fa488bd9", false),
-            new("set_perObjectShadowZExtendScale", 0x144D3E0, "40534883ec400f297424300f28f1488b", true),
+            new("set_useHIZAABBScale", 0x145E770, "48895c2408574883ec200fb6fa488bd9", false),
+            new("set_perObjectHIZBoundScale", 0x145E7B0, "40534883ec300f297424200f28f1488b", true),
+            new("set_skipGPUCulling", 0x145E820, "48895c2408574883ec200fb6fa488bd9", false),
+            new("set_enableBlockFlare", 0x145E870, "48895c2408574883ec200fb6fa488bd9", false),
+            new("set_useSpecialOrderWhenInSortingGroup", 0x145E8C0, "48895c2408574883ec200fb6fa488bd9", false),
+            new("set_kodamaShadowVisibilityMask", 0x145E910, "48895c2408574883ec208bfa488bd948", false),
+            new("set_forceDisableEarlyZ", 0x145E960, "48895c2408574883ec200fb6fa488bd9", false),
+            new("set_inWaterShadowCullingOption", 0x145E9E0, "48895c2408574883ec208bfa488bd948", false),
+            new("set_streamingUseHighestMip", 0x145F0A0, "48895c2408574883ec200fb6fa488bd9", false),
+            new("set_receiveDecals", 0x145FB10, "48895c2408574883ec200fb6fa488bd9", false),
+            new("set_enableDither", 0x145FBD0, "48895c2408574883ec200fb6fa488bd9", false),
+            new("set_matLayer", 0x145FC50, "48895c2408574883ec208bfa488bd948", false),
+            new("set_cullingBoundGroupID", 0x145FCC0, "48895c2408574883ec208bfa488bd948", false),
+            new("set_customeRenderingObjectID", 0x145FD10, "48895c2408574883ec208bfa488bd948", false),
+            new("set_perObjectShadowGroupID", 0x145FD90, "48895c2408574883ec208bfa488bd948", false),
+            new("set_characterGroupID", 0x145FDE0, "48895c2408574883ec208bfa488bd948", false),
+            new("set_characterGroupRendererType", 0x145FE50, "48895c2408574883ec208bfa488bd948", false),
+            new("set_allowHalfResolution", 0x145FED0, "48895c2408574883ec200fb6fa488bd9", false),
+            new("set_enableDragonizeOutline", 0x145FF20, "48895c2408574883ec200fb6fa488bd9", false),
+            new("set_enableBrowStencilDraw", 0x145FF70, "48895c2408574883ec200fb6fa488bd9", false),
+            new("set_viewDistanceRatio", 0x145FFF0, "40534883ec300f297424200f28f1488b", true),
+            new("set_enableReflectionAndRefraction", 0x1460030, "48895c2408574883ec200fb6fa488bd9", false),
+            new("set_disableShadowRendering", 0x1460080, "48895c2408574883ec200fb6fa488bd9", false),
+            new("set_reflectionAndRefractionMode", 0x14600D0, "48895c2408574883ec208bda488bf948", false),
+            new("set_enableRenderToReflectionAndRefractionTexture", 0x1460120, "48895c2408574883ec200fb6fa488bd9", false),
+            new("set_renderDecalAfterLocalLightMobile", 0x1460170, "48895c2408574883ec200fb6fa488bd9", false),
+            new("set_enablePerMaterialCustomPropBatching", 0x14601C0, "48895c2408574883ec200fb6fa488bd9", false),
+            new("set_useScaledThreshForWaterTextures", 0x1460210, "48895c2408574883ec200fb6fa488bd9", false),
+            new("set_enableRenderingObjectMask", 0x1460260, "48895c2408574883ec200fb6fa488bd9", false),
+            new("set_renderingObjectMaskMode", 0x14602C0, "48895c2408574883ec208bfa488bd948", false),
+            new("set_renderingObjectBehindOccMode", 0x1460320, "48895c2408574883ec208bda488bf948", false),
+            new("set_disableOutputDepthWithSSR", 0x1460390, "48895c2408574883ec200fb6fa488bd9", false),
+            new("set_castHeightfieldDeformation", 0x14603E0, "48895c2408574883ec200fb6fa488bd9", false),
+            new("set_receiveHeightfieldDeformation", 0x1460430, "48895c2408574883ec200fb6fa488bd9", false),
+            new("set_perObjectShadowZExtendScale", 0x1460480, "40534883ec400f297424300f28f1488b", true),
             // Genshin's LineRenderer: whether it draws a mesh the game gives it instead of its points, and how.
-            new("LineRenderer.set_useCustomMeshData", 0x144DA00, "48895c2408574883ec200fb6fa488bd9", false),
-            new("LineRenderer.set_customUVMode", 0x144DA40, "48895c2408574883ec208bfa488bd948", false),
-            new("LineRenderer.set_customAddSegmentNum", 0x144DA80, "48895c2408574883ec208bfa488bd948", false),
+            new("LineRenderer.set_useCustomMeshData", 0x1460AA0, "48895c2408574883ec200fb6fa488bd9", false),
+            new("LineRenderer.set_customUVMode", 0x1460AE0, "48895c2408574883ec208bfa488bd948", false),
+            new("LineRenderer.set_customAddSegmentNum", 0x1460B20, "48895c2408574883ec208bfa488bd948", false),
         };
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void IntSetter(IntPtr self, int value);
@@ -382,7 +382,7 @@ namespace CameraTools
             try
             {
                 var bytes = new byte[16];
-                Marshal.Copy(GetModuleHandleW("GenshinImpact.exe") + 0x143CA50, bytes, 0, bytes.Length);
+                Marshal.Copy(GetModuleHandleW("GenshinImpact.exe") + 0x144F840, bytes, 0, bytes.Length);
                 return Convert.ToHexString(bytes).ToLowerInvariant() == "48895c2408574883ec300f297424200f";
             }
             catch
@@ -416,7 +416,7 @@ namespace CameraTools
                         Add(new Raw { Self = self, Kind = CallKind.RendererSet, Id = index, Int = value });
                     }, report)));
             }
-            enableProperty = Hook<EnableCall>(module, 0x144C920, "48895c241048896c2418488974242057", "SetRenderersEnableProperty", (renderers, enable) =>
+            enableProperty = Hook<EnableCall>(module, 0x145F9C0, "48895c241048896c2418488974242057", "SetRenderersEnableProperty", (renderers, enable) =>
             {
                 enableProperty.Trampoline(renderers, enable);
                 foreach (var renderer in Elements(renderers))
@@ -426,7 +426,7 @@ namespace CameraTools
                     Add(new Raw { Self = renderer, Kind = CallKind.EnableProperty, Int = enable });
                 }
             }, report);
-            enablePropertyArray = Hook<EnableArrayCall>(module, 0x144C9A0, "48896c24184889742420574883ec2048", "SetRenderersEnablePropertyArray", (renderers, enables) =>
+            enablePropertyArray = Hook<EnableArrayCall>(module, 0x145FA40, "48896c24184889742420574883ec2048", "SetRenderersEnablePropertyArray", (renderers, enables) =>
             {
                 enablePropertyArray.Trampoline(renderers, enables);
                 int i = 0;
@@ -441,27 +441,27 @@ namespace CameraTools
             }, report);
             settable.Add(("SetRenderersEnableProperty", enableProperty));
             settable.Add(("SetRenderersEnablePropertyArray", enablePropertyArray));
-            setFloat = Hook<FloatCall>(module, 0x143CA50, "48895c2408574883ec300f297424200f", "SetFloat", (self, id, value) =>
+            setFloat = Hook<FloatCall>(module, 0x144F840, "48895c2408574883ec300f297424200f", "SetFloat", (self, id, value) =>
             {
                 setFloat.Trampoline(self, id, value);
                 Add(new Raw { Self = self, Kind = CallKind.Float, Id = id, Value = new Vector4(value, 0, 0, 0) });
             }, report);
-            setInt = Hook<IntCall>(module, 0x143CAA0, "48895c24084889742410574883ec2041", "SetInt", (self, id, value) =>
+            setInt = Hook<IntCall>(module, 0x144F890, "48895c24084889742410574883ec2041", "SetInt", (self, id, value) =>
             {
                 setInt.Trampoline(self, id, value);
                 Add(new Raw { Self = self, Kind = CallKind.Int, Id = id, Value = new Vector4(value, 0, 0, 0) });
             }, report);
-            setColor = Hook<PointerCall>(module, 0x143CAF0, "48895c24084889742410574883ec2049", "SetColor", (self, id, value) =>
+            setColor = Hook<PointerCall>(module, 0x144F8E0, "48895c24084889742410574883ec2049", "SetColor", (self, id, value) =>
             {
                 setColor.Trampoline(self, id, value);
                 Add(new Raw { Self = self, Kind = CallKind.Color, Id = id, Value = Marshal.PtrToStructure<Vector4>(value) });
             }, report);
-            setVector = Hook<PointerCall>(module, 0x143CB40, "48895c2408574883ec308bfa488bd941", "SetVector", (self, id, value) =>
+            setVector = Hook<PointerCall>(module, 0x144F930, "48895c2408574883ec308bfa488bd941", "SetVector", (self, id, value) =>
             {
                 setVector.Trampoline(self, id, value);
                 Add(new Raw { Self = self, Kind = CallKind.Vector, Id = id, Value = Marshal.PtrToStructure<Vector4>(value) });
             }, report);
-            setTexture = Hook<PointerCall>(module, 0x143CBE0, "48895c24084889742410574883ec208b", "SetTexture", (self, id, value) =>
+            setTexture = Hook<PointerCall>(module, 0x144F9D0, "48895c24084889742410574883ec208b", "SetTexture", (self, id, value) =>
             {
                 setTexture.Trampoline(self, id, value);
                 Add(new Raw { Self = self, Kind = CallKind.Texture, Id = id, Ref = value });
@@ -469,46 +469,46 @@ namespace CameraTools
             // A texture's offset and scale, which some effects scroll from code each frame.
             // Found with REA behind Material's INTERNAL_CALL_SetTextureOffsetImpl and SetTextureScaleImpl; the value comes
             // by pointer.
-            setTextureOffset = Hook<PointerCall>(module, 0x143DA70, "48895c24104889742418574883ec3049", "SetTextureOffset", (self, id, value) =>
+            setTextureOffset = Hook<PointerCall>(module, 0x1450860, "48895c24104889742418574883ec3049", "SetTextureOffset", (self, id, value) =>
             {
                 var read = ReadVector2(value);
                 setTextureOffset.Trampoline(self, id, value);
                 Add(new Raw { Self = self, Kind = CallKind.TextureOffset, Id = id, Value = read });
             }, report);
-            setTextureScale = Hook<PointerCall>(module, 0x143DB20, "48895c24104889742418574883ec3049", "SetTextureScale", (self, id, value) =>
+            setTextureScale = Hook<PointerCall>(module, 0x1450910, "48895c24104889742418574883ec3049", "SetTextureScale", (self, id, value) =>
             {
                 var read = ReadVector2(value);
                 setTextureScale.Trampoline(self, id, value);
                 Add(new Raw { Self = self, Kind = CallKind.TextureScale, Id = id, Value = read });
             }, report);
-            setShader = Hook<ObjectCall>(module, 0x143C9F0, "48895c2408574883ec20488bd94885d2", "set_shader", (self, value) =>
+            setShader = Hook<ObjectCall>(module, 0x144F7E0, "48895c2408574883ec20488bd94885d2", "set_shader", (self, value) =>
             {
                 setShader.Trampoline(self, value);
                 Add(new Raw { Self = self, Kind = CallKind.Shader, Ref = value });
             }, report);
-            enableKeyword = Hook<ObjectCall>(module, 0x143E520, "40534883ec50488bd94889542460488d", "EnableKeyword", (self, value) =>
+            enableKeyword = Hook<ObjectCall>(module, 0x1451310, "40534883ec50488bd94889542460488d", "EnableKeyword", (self, value) =>
             {
                 enableKeyword.Trampoline(self, value);
                 if (Recording)
                     Add(new Raw { Self = self, Kind = CallKind.KeywordOn, Text = IL2CPP.Il2CppStringToManaged(value) });
             }, report);
-            disableKeyword = Hook<ObjectCall>(module, 0x143E590, "40534883ec50488bd94889542460488d", "DisableKeyword", (self, value) =>
+            disableKeyword = Hook<ObjectCall>(module, 0x1451380, "40534883ec50488bd94889542460488d", "DisableKeyword", (self, value) =>
             {
                 disableKeyword.Trampoline(self, value);
                 if (Recording)
                     Add(new Raw { Self = self, Kind = CallKind.KeywordOff, Text = IL2CPP.Il2CppStringToManaged(value) });
             }, report);
-            enableKeywordId = Hook<KeywordIdCall>(module, 0x143E680, "48895c24084889742410574883ec2041", "EnableKeywordID", (self, id, didModify) =>
+            enableKeywordId = Hook<KeywordIdCall>(module, 0x1451470, "48895c24084889742410574883ec2041", "EnableKeywordID", (self, id, didModify) =>
             {
                 enableKeywordId.Trampoline(self, id, didModify);
                 Add(new Raw { Self = self, Kind = CallKind.KeywordIdOn, Id = id });
             }, report);
-            disableKeywordId = Hook<KeywordIdCall>(module, 0x143E6D0, "48895c24084889742410574883ec2041", "DisableKeywordID", (self, id, didModify) =>
+            disableKeywordId = Hook<KeywordIdCall>(module, 0x14514C0, "48895c24084889742410574883ec2041", "DisableKeywordID", (self, id, didModify) =>
             {
                 disableKeywordId.Trampoline(self, id, didModify);
                 Add(new Raw { Self = self, Kind = CallKind.KeywordIdOff, Id = id });
             }, report);
-            setCustom = Hook<CustomCall>(module, 0x144C460, "48895c24084889742410574883ec300f", "Renderer.SetCustomPropertyFloat", (self, id, value, updateHash) =>
+            setCustom = Hook<CustomCall>(module, 0x145F500, "48895c24084889742410574883ec300f", "Renderer.SetCustomPropertyFloat", (self, id, value, updateHash) =>
             {
                 setCustom.Trampoline(self, id, value, updateHash);
                 lock (gate)
@@ -522,48 +522,48 @@ namespace CameraTools
             // The engine bindings behind Renderer's other custom property setters, found with REA from the managed methods'
             // jumps. Vectors and colours come by pointer, textures as the object.
             const string Prologue = "48895c240848896c2410488974241857";
-            setCustomVector = Hook<CustomPointerCall>(module, 0x144C600, Prologue, "Renderer.SetCustomPropertyVector", (self, id, value, updateHash) =>
+            setCustomVector = Hook<CustomPointerCall>(module, 0x145F6A0, Prologue, "Renderer.SetCustomPropertyVector", (self, id, value, updateHash) =>
             {
                 var read = ReadVector(value);
                 setCustomVector.Trampoline(self, id, value, updateHash);
                 RememberCustom(self, CallKind.CustomVector, -1, id, read, IntPtr.Zero);
             }, report);
-            setCustomColor = Hook<CustomPointerCall>(module, 0x144C740, Prologue, "Renderer.SetCustomPropertyColor", (self, id, value, updateHash) =>
+            setCustomColor = Hook<CustomPointerCall>(module, 0x145F7E0, Prologue, "Renderer.SetCustomPropertyColor", (self, id, value, updateHash) =>
             {
                 var read = ReadVector(value);
                 setCustomColor.Trampoline(self, id, value, updateHash);
                 RememberCustom(self, CallKind.CustomColor, -1, id, read, IntPtr.Zero);
             }, report);
-            setCustomTexture = Hook<CustomPointerCall>(module, 0x144C830, Prologue, "Renderer.SetCustomPropertyTexture", (self, id, value, updateHash) =>
+            setCustomTexture = Hook<CustomPointerCall>(module, 0x145F8D0, Prologue, "Renderer.SetCustomPropertyTexture", (self, id, value, updateHash) =>
             {
                 setCustomTexture.Trampoline(self, id, value, updateHash);
                 RememberCustom(self, CallKind.CustomTexture, -1, id, default, value);
             }, report);
-            setMaterialFloat = Hook<MaterialFloatCall>(module, 0x144C1D0, "48895c24084889742410574883ec400f", "Renderer.SetPerMaterialCustomPropertyFloat",
+            setMaterialFloat = Hook<MaterialFloatCall>(module, 0x145F270, "48895c24084889742410574883ec400f", "Renderer.SetPerMaterialCustomPropertyFloat",
                 (self, material, id, value, updateHash) =>
                 {
                     setMaterialFloat.Trampoline(self, material, id, value, updateHash);
                     RememberCustom(self, CallKind.CustomFloat, material, id, new Vector4(value, 0, 0, 0), IntPtr.Zero);
                 }, report);
-            setMaterialVector = Hook<MaterialPointerCall>(module, 0x144C240, Prologue, "Renderer.SetPerMaterialCustomPropertyVector", (self, material, id, value, updateHash) =>
+            setMaterialVector = Hook<MaterialPointerCall>(module, 0x145F2E0, Prologue, "Renderer.SetPerMaterialCustomPropertyVector", (self, material, id, value, updateHash) =>
             {
                 var read = ReadVector(value);
                 setMaterialVector.Trampoline(self, material, id, value, updateHash);
                 RememberCustom(self, CallKind.CustomVector, material, id, read, IntPtr.Zero);
             }, report);
-            setMaterialColor = Hook<MaterialPointerCall>(module, 0x144C2B0, Prologue, "Renderer.SetPerMaterialCustomPropertyColor", (self, material, id, value, updateHash) =>
+            setMaterialColor = Hook<MaterialPointerCall>(module, 0x145F350, Prologue, "Renderer.SetPerMaterialCustomPropertyColor", (self, material, id, value, updateHash) =>
             {
                 var read = ReadVector(value);
                 setMaterialColor.Trampoline(self, material, id, value, updateHash);
                 RememberCustom(self, CallKind.CustomColor, material, id, read, IntPtr.Zero);
             }, report);
-            setMaterialTexture = Hook<MaterialPointerCall>(module, 0x144C320, Prologue, "Renderer.SetPerMaterialCustomPropertyTexture", (self, material, id, value, updateHash) =>
+            setMaterialTexture = Hook<MaterialPointerCall>(module, 0x145F3C0, Prologue, "Renderer.SetPerMaterialCustomPropertyTexture", (self, material, id, value, updateHash) =>
             {
                 setMaterialTexture.Trampoline(self, material, id, value, updateHash);
                 RememberCustom(self, CallKind.CustomTexture, material, id, default, value);
             }, report);
             // Both SetCustomMeshDataWithSize overloads reach this binding, found with REA.
-            setLineMesh = Hook<LineMeshCall>(module, 0x144DAC0, "488bc4535556574881ec88000000488b", "LineRenderer.SetCustomMeshDataWithSize",
+            setLineMesh = Hook<LineMeshCall>(module, 0x1460B60, "488bc4535556574881ec88000000488b", "LineRenderer.SetCustomMeshDataWithSize",
                 (self, triangles, triangleCount, positions, positionCount, normals, normalCount, uv0, uv0Count, colors, colorCount, uv1, uv1Count) =>
                 {
                     var mesh = LineMesh.Read(triangles, triangleCount, positions, positionCount, normals, normalCount, uv0, uv0Count, colors, colorCount, uv1, uv1Count);

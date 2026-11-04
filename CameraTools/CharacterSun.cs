@@ -3,8 +3,8 @@ using UnityEngine;
 
 namespace CameraTools
 {
-    // Genshin shades its characters with their own copy of the sun: EnviroSky turns AvatarLight (AMJHLALKIKH) by
-    // Euler(PAEKODDDLFI), a fixed 35 degree pitch with the sun's yaw, and the toon shader reads the direction toward it from the
+    // Genshin shades its characters with their own copy of the sun: EnviroSky turns AvatarLight (NMLKPMGLLHN) by
+    // Euler(FJIFANCKPDI), a fixed 35 degree pitch with the sun's yaw, and the toon shader reads the direction toward it from the
     // global CharacterLight.lightDirShaderId and its colour from characterMainLightColorId. While a light has Alternative
     // shading, CameraTools aims all of them from that light at the character, so the face shadow and the shadow edge follow it.
     internal static class CharacterSun
@@ -36,14 +36,14 @@ namespace CameraTools
             {
                 Release();
                 held = sky;
-                heldAngles = sky.PAEKODDDLFI;
+                heldAngles = sky.FJIFANCKPDI;
             }
             var rotation = Quaternion.LookRotation(shine);
             var euler = rotation.eulerAngles;
             sky.rewriteUpdateCharacterLightDir = true;
-            sky.PAEKODDDLFI = new Vector3(euler.x, euler.y, 0f);
-            if (sky.AMJHLALKIKH)
-                sky.AMJHLALKIKH.rotation = rotation;
+            sky.FJIFANCKPDI = new Vector3(euler.x, euler.y, 0f);
+            if (sky.NMLKPMGLLHN)
+                sky.NMLKPMGLLHN.rotation = rotation;
             toward = -shine.normalized;
             tint = color;
         }
@@ -72,7 +72,7 @@ namespace CameraTools
             if (held != null && held)
             {
                 held.rewriteUpdateCharacterLightDir = false;
-                held.PAEKODDDLFI = heldAngles;
+                held.FJIFANCKPDI = heldAngles;
             }
             held = null;
             toward = null;

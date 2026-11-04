@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 using MelonLoader;
 using MoleMole;
 using UnityEngine;
-using EnviroTimeType = MoleMole.EnviroSky.BJFJJOABFFC;
+using EnviroTimeType = MoleMole.EnviroSky.PODMEODDIPK;
 
 namespace CameraTools
 {
