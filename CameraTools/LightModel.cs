@@ -83,10 +83,10 @@ namespace CameraTools
         public Vector3 Color => Source == ColorSource.Temperature ? Colors.Kelvin(Kelvin) : Colors.Hsv(Hue, Saturation / 100f, 1f);
     }
 
-    // Colours as 0 to 1 RGB in a Vector3.
+    // Colors as 0 to 1 RGB in a Vector3.
     public static class Colors
     {
-        // Tanner Helland's fit to the blackbody colours, good from 1000 K to 40000 K.
+        // Tanner Helland's fit to the blackbody colors, good from 1000 K to 40000 K.
         public static Vector3 Kelvin(float kelvin)
         {
             float t = kelvin / 100f;
@@ -107,7 +107,7 @@ namespace CameraTools
             return new Vector3(Channel(5f), Channel(3f), Channel(1f));
         }
 
-        // The hue in degrees and the saturation from 0 to 1 of a colour; its value is dropped, because intensity sets brightness.
+        // The hue in degrees and the saturation from 0 to 1 of a color; its value is dropped, because intensity sets brightness.
         public static (float Hue, float Saturation) ToHueSaturation(Vector3 rgb)
         {
             float max = Math.Max(rgb.X, Math.Max(rgb.Y, rgb.Z));
@@ -132,7 +132,7 @@ namespace CameraTools
             return true;
         }
 
-        // A name for a colour temperature, as a photographer would call it.
+        // A name for a color temperature, as a photographer would call it.
         public static string KelvinName(float kelvin) => kelvin switch
         {
             < 2200f => "Candle",

@@ -784,7 +784,7 @@ namespace CameraTools
             return view;
         }
 
-        // A category's heading is a section header that can be selected: the header's size and colour at a row's place,
+        // A category's heading is a section header that can be selected: the header's size and color at a row's place,
         // with the category's state and the fold mark at its right.
         public FoldView Fold(Transform parent, FoldRow row, float y)
         {
@@ -827,7 +827,7 @@ namespace CameraTools
             Place(rail, V(0f, 0.5f), V(1f, 0.5f), V(0f, 0.5f), V(0f, 0f), V(0f, Style.RailHeight));
             view.Fill = Picture(view.Track, "Fill", Shapes.Bar, Style.Cream).rectTransform;
             Place(view.Fill, V(0f, 0.5f), V(0f, 0.5f), V(0f, 0.5f), V(0f, 0f), V(0f, Style.RailHeight));
-            // A colour rail shows what the handle picks, which a fill would cover.
+            // A color rail shows what the handle picks, which a fill would cover.
             view.Fill.gameObject.SetActive(row.Rail == RailLook.Plain);
             view.Handle = Picture(view.Track, "Handle", Shapes.Handle, Style.White).rectTransform;
             Place(view.Handle, V(0f, 0.5f), V(0f, 0.5f), V(0.5f, 0.5f), V(0f, 0f), V(Shapes.Handle.Width, Shapes.Handle.Height));

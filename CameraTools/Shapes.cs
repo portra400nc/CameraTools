@@ -12,10 +12,10 @@ namespace CameraTools
     // box-filtered first mip, and 1080p and 1440p screens (canvas scales 1.35 and 1.8) sample between the full texture and
     // that mip. They are DontSave, so the game's unloading of unused assets leaves them alone.
     //
-    // The game draws its UI in display colours: a Graphic's colour reaches the screen as it is, and nothing converts a
-    // texture's colours back after sampling. So the textures are created linear, which samples their bytes as they are:
-    // an sRGB texture is decoded when sampled, and every colour baked into one drew darker by that decode. A shape that
-    // is tinted is baked white, so the tint alone is its colour.
+    // The game draws its UI in display colors: a Graphic's color reaches the screen as it is, and nothing converts a
+    // texture's colors back after sampling. So the textures are created linear, which samples their bytes as they are:
+    // an sRGB texture is decoded when sampled, and every color baked into one drew darker by that decode. A shape that
+    // is tinted is baked white, so the tint alone is its color.
     internal static class Shapes
     {
         public const int Density = 2;
@@ -53,7 +53,7 @@ namespace CameraTools
         public static readonly Shape SwitchOff = Framed("SwitchOff", 52f, 26f, 13f, 0f, 1.5f, Style.Track, Style.SwitchRingOff);
         public static readonly Shape SwitchOn = Framed("SwitchOn", 52f, 26f, 13f, 0f, 1.5f, Style.Cream, Style.SwitchRingOn);
         public static readonly Shape Knob = Solid("Knob", 20f, 20f, 0f, Circle(10f, 10f, 10f), Style.Light);
-        // A marker's ring or dot, which takes its colour from its tint.
+        // A marker's ring or dot, which takes its color from its tint.
         public static readonly Shape Disc = Solid("Disc", 20f, 20f, 0f, Circle(10f, 10f, 10f), Style.White);
         // A square with a round hole: the shade around Move light's cone.
         public static readonly Shape Hole = Solid("Hole", 64f, 64f, 0f, Subtract(Box(0f, 0f, 64f, 64f, 0f), Circle(32f, 32f, 32f)), Style.White);
@@ -233,7 +233,7 @@ namespace CameraTools
         private static Shape Shadowed(string name, float size, float border, Field mark)
             => new(name, size, size, border, Layers((Grow(mark, 1f), Style.FocusShadow), (mark, Style.Text)));
 
-        // A slider rail as wide as the slider, coloured from left to right. It is not sliced, because the colours run along
+        // A slider rail as wide as the slider, colored from left to right. It is not sliced, because the colors run along
         // its whole length; the slider stretches it by nothing.
         private static Shape Gradient(string name, Func<float, System.Numerics.Vector3> along)
         {

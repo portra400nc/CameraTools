@@ -22,7 +22,7 @@ The game's lights have no size, so their shadows have hard edges. A sphere has a
 
 ## Alternative shading
 
-The game shades its characters with their own copy of the sun. The sun or the moon sets where the face shadow falls, where the shadow edge runs across the body, and the colour of the lit side. Alternative shading hands that copy to a light of yours: the face shadow and the shadow edge follow the light as you move it, and its colour tints the lit side. The sun still lights the world as before.
+The game shades its characters with their own copy of the sun. The sun or the moon sets where the face shadow falls, where the shadow edge runs across the body, and the color of the lit side. Alternative shading hands that copy to a light of yours: the face shadow and the shadow edge follow the light as you move it, and its color tints the lit side. The sun still lights the world as before.
 
 <p align="center">
   <img src="media/lights/no-lights.jpg" alt="Odette at night with no CameraTools lights" width="32%">
@@ -32,11 +32,11 @@ The game shades its characters with their own copy of the sun. The sun or the mo
 
 Only one light can have Alternative shading at a time. On the other lights, the row says which light has it, and turning it on there moves it to that light. It works for points, spots and spheres, and needs no ReShade.
 
-The intensity of the light does not change the brightness of the sun's shading, which stays the game's. For a second colour, such as a warm light on the shadow side of the face, add a second light without Alternative shading on the other side of the character.
+The intensity of the light does not change the brightness of the sun's shading, which stays the game's. For a second color, such as a warm light on the shadow side of the face, add a second light without Alternative shading on the other side of the character.
 
 ## Studio lighting
 
-Studio lighting, at the top of the tab, lets your lights shape characters the way lamps light a person. Each light gives a falloff across the face and body, shadows from hair and chin, and a rim along the edges when it stands behind the character. Everything your lights don't reach goes dark. It needs ReShade with the Enhancements add-on, and works live and in screenshots, with or without path tracing.
+Studio lighting, at the bottom of the tab, lets your lights shape characters the way lamps light a person. Each light gives a falloff across the face and body, shadows from hair and chin, and a rim along the edges when it stands behind the character. Everything your lights don't reach goes dark. It needs ReShade with the Enhancements add-on, and works live and in screenshots.
 
 | Row | What it does |
 |---|---|
@@ -60,11 +60,11 @@ While you move it, X and Y narrow and widen a spot (4 and 5 on the keyboard), an
 
 Move in front of camera puts the light 1.5 m in front of the camera again.
 
-Each light has a marker on the screen: a dot of its colour with its number, ringed in cream for the selected light, with a line for a spot's aim. ReLight also draws a see-through ball where a sphere is. Show light markers turns them off. Hide UI hides them, and they are never in a screenshot.
+Each light has a marker on the screen: a dot of its color with its number, ringed in cream for the selected light, with a line for a spot's aim. ReLight also draws a see-through ball where a sphere is. Show light markers turns them off. Hide UI hides them, and they are never in a screenshot.
 
-## Colour
+## Color
 
-Colour from Temperature sets the colour in kelvin, from candle light at 1000 K to an overcast blue at 12000 K. Colour from Hue sets it by hue and saturation. Intensity sets the brightness. Type a colour into Hex as six hex digits, like FFB46B, with the keyboard or with Steam+X on the Deck.
+Color from Temperature sets the color in kelvin, from candle light at 1000 K to an overcast blue at 12000 K. Color from Hue sets it by hue and saturation. Intensity sets the brightness. Type a color into Hex as six hex digits, like FFB46B, with the keyboard or with Steam+X on the Deck.
 
 ## Spheres and ReShade
 

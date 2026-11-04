@@ -71,10 +71,27 @@ namespace CameraTools
         // The scene of the last traced shot, while the next one may use it again.
         private static SceneFacts? kept;
 
+        private static MelonPreferences_Entry<bool> shown;
+        private static readonly PadButtons[] Sequence =
+        {
+            PadButtons.DpadUp, PadButtons.DpadUp, PadButtons.DpadDown, PadButtons.DpadDown,
+            PadButtons.DpadLeft, PadButtons.DpadRight, PadButtons.DpadLeft, PadButtons.DpadRight,
+        };
+        private static readonly (KeyCode Key, PadButtons Pad)[] Directions =
+        {
+            (KeyCode.UpArrow, PadButtons.DpadUp), (KeyCode.DownArrow, PadButtons.DpadDown),
+            (KeyCode.LeftArrow, PadButtons.DpadLeft), (KeyCode.RightArrow, PadButtons.DpadRight),
+        };
+        // Each press with the game speed from before it: the arrow keys and the d-pad also change the speed.
+        private static readonly List<(PadButtons Pad, float Speed, float LastSpeed)> entered = new();
+
+        // Whether the Path traced lighting row is in the ReShade tab. Off, the traced shot is off too.
+        public static bool Shown => shown.Value;
+
         // The Path traced lighting row.
         public static bool Enabled
         {
-            get => enabled.Value;
+            get => shown.Value && enabled.Value;
             set
             {
                 enabled.Value = value;
@@ -150,7 +167,7 @@ namespace CameraTools
         {
             get
             {
-                if (!enabled.Value)
+                if (!Enabled)
                     return false;
                 if (saveScene.Value)
                 {
@@ -187,8 +204,41 @@ namespace CameraTools
         // The shot captures or traces: no time limit holds meanwhile.
         public static bool Busy => run is { Phase: ShotPhase.Requesting or ShotPhase.Capturing or ShotPhase.Tracing or ShotPhase.Finishing };
 
+        // Over the plain free camera, as the screenshot hotkey reads: the arrow keys or the d-pad, in order. speed and
+        // lastSpeed are the game speed before this frame's hotkeys, which the sequence puts back once it is complete.
+        public static void ReadSequence(float speed, float lastSpeed)
+        {
+            if (shown.Value)
+                return;
+            if (!freecamActive || Controls.TextCapture || CameraUi.PanelOpen || Lights.Moving || Posing.Editing || Posing.Moving
+                || !PathPlayback.Idle || !ReplayPlayer.Idle || !ReplayRecorder.Idle)
+            {
+                entered.Clear();
+                return;
+            }
+            var pressed = Gamepad.Current.Buttons & ~Gamepad.Previous.Buttons;
+            foreach (var (key, pad) in Directions)
+            {
+                if (!Input.GetKeyDown(key) && (pressed & pad) == 0)
+                    continue;
+                entered.Add((pad, speed, lastSpeed));
+                if (entered.Count > Sequence.Length)
+                    entered.RemoveAt(0);
+                if (!entered.Select(press => press.Pad).SequenceEqual(Sequence))
+                    continue;
+                Time.timeScale = entered[0].Speed;
+                lastTimeScale = entered[0].LastSpeed;
+                entered.Clear();
+                shown.Value = true;
+                MelonPreferences.Save();
+                CameraUi.Toast("Path tracer unlocked.", whileHidden: true);
+                return;
+            }
+        }
+
         public static void Load()
         {
+            shown = MelonPreferences.CreateCategory("CameraToolsEnhancements").CreateEntry("TracedShotShown", false, dont_save_default: true);
             enabled = MelonPreferences.CreateCategory("CameraToolsEnhancements").CreateEntry("TracedShot", false,
                 description: "Light the screenshot with the Enhancements add-on's path tracer: the shot pauses the game, captures the scene around "
                     + "the camera and waits for the traced lighting. Needs CameraToolsEnhancements.addon64.");

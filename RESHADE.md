@@ -113,7 +113,7 @@ The shot runs as any screenshot does, and once the picture has settled it record
 
 The Enhancements add-on adds up each frame's light before bloom and the game's tone curve, so bright lights keep their strength as they move, as on a real camera. Each frame also looks through a slightly different point of every pixel, so the shot is always supersampled. When the shutter time is over, the game pauses, ReShade's effects come back on over the average, and the screenshot is saved. Then the game's speed, the pause and the time of day go back to how they were. With Also save DNG on, the shot also saves a DNG, whose EXIF names the shutter time and the ISO.
 
-Nothing of CameraTools is on screen while it records, and the camera holds still. A long exposure skips the Enhancements' traced lighting, which pauses the game. Changing the game speed during the recording cancels the screenshot and puts everything back.
+Nothing of CameraTools is on screen while it records, and the camera holds still. Changing the game speed during the recording cancels the screenshot and puts everything back.
 
 ## Screenshots
 

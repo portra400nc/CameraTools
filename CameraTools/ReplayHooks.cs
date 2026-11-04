@@ -163,7 +163,7 @@ namespace CameraTools
         public static readonly Dictionary<IntPtr, Dictionary<int, (int Int, float Float)>> Settings = new();
         public static readonly Dictionary<IntPtr, bool> Enabled = new();
         public static readonly Dictionary<IntPtr, Dictionary<int, float>> CustomFloats = new();
-        // Each renderer's last custom vector, colour, texture and per-material value, by kind, material (-1 for the whole
+        // Each renderer's last custom vector, color, texture and per-material value, by kind, material (-1 for the whole
         // renderer) and property: the game gives characters some of these once, as it makes them, and a copy without
         // them drew the game's snow cover on Neuvillette's hair.
         public static readonly Dictionary<IntPtr, Dictionary<(CallKind Kind, int Material, int Id), (Vector4 Value, Texture Texture)>> CustomProps = new();
@@ -520,7 +520,7 @@ namespace CameraTools
                 Add(new Raw { Self = self, Kind = CallKind.CustomFloat, Id = id, Int = -1, Value = new Vector4(value, 0, 0, 0) });
             }, report);
             // The engine bindings behind Renderer's other custom property setters, found with REA from the managed methods'
-            // jumps. Vectors and colours come by pointer, textures as the object.
+            // jumps. Vectors and colors come by pointer, textures as the object.
             const string Prologue = "48895c240848896c2410488974241857";
             setCustomVector = Hook<CustomPointerCall>(module, 0x145F6A0, Prologue, "Renderer.SetCustomPropertyVector", (self, id, value, updateHash) =>
             {

@@ -5,7 +5,7 @@ namespace CameraTools
 {
     // Genshin shades its characters with their own copy of the sun: EnviroSky turns AvatarLight (NMLKPMGLLHN) by
     // Euler(FJIFANCKPDI), a fixed 35 degree pitch with the sun's yaw, and the toon shader reads the direction toward it from the
-    // global CharacterLight.lightDirShaderId and its colour from characterMainLightColorId. While a light has Alternative
+    // global CharacterLight.lightDirShaderId and its color from characterMainLightColorId. While a light has Alternative
     // shading, CameraTools aims all of them from that light at the character, so the face shadow and the shadow edge follow it.
     internal static class CharacterSun
     {
@@ -19,7 +19,7 @@ namespace CameraTools
         private static Color? tint;
 
         // After the lights are placed: from is the light's position this frame, or null to give the shading back to the game;
-        // color null keeps the game's colour.
+        // color null keeps the game's color.
         public static void Update(Vector3? from, Color? color)
         {
             var sky = EnviroSky.Instance;

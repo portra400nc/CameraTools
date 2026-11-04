@@ -90,7 +90,7 @@ namespace CameraTools
             {
                 SetUiHidden(!uiHidden);
             }
-            float speed = Time.timeScale;
+            float speed = Time.timeScale, lastSpeed = lastTimeScale;
             if (Controls.Pressed(CamAction.TogglePause))
             {
                 SetPaused(Time.timeScale != 0.0f);
@@ -121,6 +121,8 @@ namespace CameraTools
             }
             if (Time.timeScale != speed)
                 CameraUi.Toast(Time.timeScale == 0.0f ? "Paused" : $"Game speed {Time.timeScale:0.##}x");
+            // After the speed notice, which the arrow keys and the d-pad also show.
+            EnhancementsShot.ReadSequence(speed, lastSpeed);
             // After the speed notice, so unpausing the game for playback does not show one.
             PathPlayback.Update();
             Replays.Update();

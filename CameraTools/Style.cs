@@ -163,7 +163,7 @@ namespace CameraTools
         public const float NoteHeight = 16f;
         public const float NoteExtra = 17f;
         public const int NoteSize = 11;
-        // A light's marker: a dot of its colour in a ring, cream for the selected light, and a spot's aim line.
+        // A light's marker: a dot of its color in a ring, cream for the selected light, and a spot's aim line.
         public const float MarkerDot = 18f;
         public const float MarkerRingSize = 26f;
         public const float MarkerAimLength = 30f;

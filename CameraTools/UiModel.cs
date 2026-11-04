@@ -6,7 +6,7 @@ namespace CameraTools
     // A toggle, slider, choice or action row may have Enabled. While it returns false the row is dimmed and ignores input.
     // Any row may have Shown; while it returns false the row is left out and the rows below move up. Detail, when set, is
     // read every frame for a line under the label of a slider, a choice, a toggle or an action, and DetailWarns, when set,
-    // for whether that line shows in the warning colour. A Sub row belongs to the switch above it and starts further in.
+    // for whether that line shows in the warning color. A Sub row belongs to the switch above it and starts further in.
     public abstract record Row(string Label)
     {
         public Func<bool> Shown { get; init; }
@@ -52,7 +52,7 @@ namespace CameraTools
         public Func<PresetNote> Note { get; init; }
     }
 
-    // A slider's rail: the plain track with a cream fill, or the colours it picks from, with no fill.
+    // A slider's rail: the plain track with a cream fill, or the colors it picks from, with no fill.
     public enum RailLook { Plain, Hue, Temperature }
 
     // Note, when set, is read every frame for what the presets set the row to, shown under its label.
@@ -99,8 +99,8 @@ namespace CameraTools
     public sealed record ResolutionRow(string Label, int Slot) : Row(Label);
 
     // A value typed on the keyboard, or with Steam+X on the Deck. Allowed lists the characters it takes, in lower case;
-    // Commit gets the typed text, and Tint colours the value while it is not being typed. Prefix shows before the text
-    // being typed, as # before a colour's hex.
+    // Commit gets the typed text, and Tint colors the value while it is not being typed. Prefix shows before the text
+    // being typed, as # before a color's hex.
     public sealed record TextRow(string Label, Func<string> Get, Action<string> Commit, string Allowed, int MaxLength,
         Func<Color> Tint = null, Func<bool> Enabled = null) : Row(Label)
     {
@@ -291,28 +291,6 @@ namespace CameraTools
 
         private static readonly Tab LightsTab = new("Lights", new Row[]
         {
-            new Section("Character lighting"),
-            new ToggleRow("Studio lighting", () => CharacterLighting.Enabled, on => CharacterLighting.Enabled = on, () => CameraToolsEnhancements.Enhancements.Connected)
-            {
-                Detail = () => !CameraToolsEnhancements.Enhancements.Connected ? "Needs ReShade with the Enhancements add-on"
-                    : CharacterLighting.Enabled ? "Your lights shape characters like real lamps" : "The game lights characters",
-            },
-            new ChoiceRow("Shading", CharacterLighting.ShadingNames, () => CharacterLighting.Soft ? 1 : 0, choice => CharacterLighting.Soft = choice == 1, null)
-            {
-                Sub = true,
-                Shown = () => CharacterLighting.Active,
-                Detail = () => CharacterLighting.Soft ? "Gradual falloff like a real lamp" : "Hard edges like the game's own shading",
-            },
-            new SliderRow("Game light", 0f, 100f, 5f, "0'%'", () => CharacterLighting.GameLight * 100f, value => CharacterLighting.GameLight = value / 100f)
-            {
-                Sub = true,
-                Shown = () => CharacterLighting.Active,
-            },
-            new SliderRow("Rim light", 0f, CharacterLighting.MaxRim, 0.1f, "0.0'×'", () => CharacterLighting.Rim, value => CharacterLighting.Rim = value)
-            {
-                Sub = true,
-                Shown = () => CharacterLighting.Active,
-            },
             new Section("Lights"),
             new StepperRow("Light", () => Lights.All.Count, () => Lights.Active, Lights.Select, () => Lights.LightNote),
             new ToggleRow("Light on", () => Lights.Current?.On ?? false, on => Lights.Edit(light => light.On = on)) { Shown = () => Lights.HasLight },
@@ -365,8 +343,8 @@ namespace CameraTools
             {
                 Detail = () => "Closer to the spot angle gives a harder edge",
             },
-            new Section("Colour") { Shown = () => Lights.HasLight },
-            LightChoice("Colour from", Lights.SourceNames, light => (int)light.Source,
+            new Section("Color") { Shown = () => Lights.HasLight },
+            LightChoice("Color from", Lights.SourceNames, light => (int)light.Source,
                 choice => Lights.Edit(light => light.Source = (ColorSource)choice), _ => true),
             LightSlider("Temperature", 1000f, 12000f, 100f, "0' K'", light => light.Kelvin, (light, value) => light.Kelvin = value,
                 light => light.Source == ColorSource.Temperature) with
@@ -395,6 +373,24 @@ namespace CameraTools
             {
                 Shown = () => Lights.HasSpheres,
                 Detail = () => "Below 1 dims the game's own light, so the spheres take over",
+            },
+            new Section("Character lighting", () => CameraToolsEnhancements.Enhancements.Connected ? null : "Needs ReShade with the Enhancements add-on"),
+            new ToggleRow("Studio lighting", () => CharacterLighting.Enabled, on => CharacterLighting.Enabled = on, () => CameraToolsEnhancements.Enhancements.Connected),
+            new ChoiceRow("Shading", CharacterLighting.ShadingNames, () => CharacterLighting.Soft ? 1 : 0, choice => CharacterLighting.Soft = choice == 1, null)
+            {
+                Sub = true,
+                Shown = () => CharacterLighting.Active,
+                Detail = () => CharacterLighting.Soft ? "Gradual falloff like a real lamp" : "Hard edges like the game's own shading",
+            },
+            new SliderRow("Game light", 0f, 100f, 5f, "0'%'", () => CharacterLighting.GameLight * 100f, value => CharacterLighting.GameLight = value / 100f)
+            {
+                Sub = true,
+                Shown = () => CharacterLighting.Active,
+            },
+            new SliderRow("Rim light", 0f, CharacterLighting.MaxRim, 0.1f, "0.0'×'", () => CharacterLighting.Rim, value => CharacterLighting.Rim = value)
+            {
+                Sub = true,
+                Shown = () => CharacterLighting.Active,
             },
         });
 
@@ -717,6 +713,7 @@ namespace CameraTools
             new ToggleRow("Path traced lighting", () => EnhancementsShot.Enabled, on => EnhancementsShot.Enabled = on,
                 () => CameraToolsEnhancements.Enhancements.Connected)
             {
+                Shown = () => EnhancementsShot.Shown,
                 Detail = () => "Pauses the game and traces the light before saving",
             },
             new SliderRow("Bounce strength", 0f, TracedShot.MaxBounceStrength, 0.1f, "0.0'×'", () => EnhancementsShot.BounceStrength,
