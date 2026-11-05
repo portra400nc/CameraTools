@@ -706,8 +706,7 @@ namespace CameraTools
             new ToggleRow("Supersampling", () => Supersampling.Enabled || LongExposure.Active, Supersampling.SetEnabled,
                 () => CameraToolsEnhancements.Enhancements.Connected && !LongExposure.Active)
             {
-                Detail = () => LongExposure.Active ? "Long exposure is always supersampled"
-                    : EnhancementsShot.Enabled && Supersampling.Enabled ? "Not with Path traced lighting" : "",
+                Detail = () => LongExposure.Active ? "Long exposure is always supersampled" : "",
             },
             new ToggleRow("Also save DNG", () => Screenshot.Dng, on => Screenshot.Dng = on, () => CameraToolsEnhancements.Enhancements.Connected),
             new ToggleRow("Path traced lighting", () => EnhancementsShot.Enabled, on => EnhancementsShot.Enabled = on,

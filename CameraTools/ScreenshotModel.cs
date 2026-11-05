@@ -7,12 +7,12 @@ namespace CameraTools
     internal readonly record struct ShotKinds(bool Traced, bool Supersampled, bool Dng)
     {
         // The traced lighting pauses the game, which leaves a long exposure nothing to record, so a long exposure goes
-        // without. A long exposure averages over time and a traced shot over its own samples, so neither is supersampled
-        // here; the long exposure moves the camera within each pixel by itself.
+        // without. A long exposure moves the camera within each pixel by itself, so it is not supersampled here. A traced
+        // shot is, once its light has converged: its samples look through each pixel's center, so its edges stay jagged.
         public static ShotKinds Of(bool longExposure, bool tracedWanted, bool supersampling, bool dng, bool enhancements)
         {
             bool traced = tracedWanted && !longExposure;
-            return new ShotKinds(traced, supersampling && enhancements && !traced && !longExposure, dng && enhancements);
+            return new ShotKinds(traced, supersampling && enhancements && !longExposure, dng && enhancements);
         }
     }
 

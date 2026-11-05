@@ -961,8 +961,8 @@ Check("the DNG's states and failures count as enhancements.h's", (uint)Enhanceme
     && (uint)EnhancementsDngFailure.Write == 4 && (uint)EnhancementsDngFailure.Dropped == 5);
 Check("a plain shot with the switch on and the add-on connected gets a DNG, supersampled or not",
     ShotKinds.Of(false, false, false, true, true) == new ShotKinds(false, false, true) && ShotKinds.Of(false, false, true, true, true) == new ShotKinds(false, true, true));
-Check("a traced shot gets one but no supersampling, and a shot without the add-on or with the switch off gets none",
-    ShotKinds.Of(false, true, true, true, true) == new ShotKinds(true, false, true) && ShotKinds.Of(false, true, false, false, true) == new ShotKinds(true, false, false)
+Check("a traced shot gets one and supersampling, and a shot without the add-on or with the switch off gets none",
+    ShotKinds.Of(false, true, true, true, true) == new ShotKinds(true, true, true) && ShotKinds.Of(false, true, false, false, true) == new ShotKinds(true, false, false)
     && !ShotKinds.Of(false, false, true, true, false).Dng
     && !ShotKinds.Of(false, false, false, false, true).Dng);
 Check("a long exposure is neither traced nor supersampled, and gets a DNG with the switch on and the add-on connected",
