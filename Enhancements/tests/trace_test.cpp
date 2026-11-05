@@ -541,6 +541,13 @@ int main(int argc, char **argv)
             && trace_restart(a, trace_key(3, { 1920, 1200 }, camera, { 0, 1, 0 }, settings, &weaker)) == TraceRestart::none);
         check("a moved camera", why(trace_key(3, { 1920, 1200 }, moved, { 0, 1, 0 }, settings, &light))
             == "camera: the camera moved: its view by up to 0.5 an element and its projection by up to 0");
+        Camera shifted = camera, beyond = camera;
+        shifted.view_to_clip[8] += 2.0f * 0.4f / 1920;
+        shifted.view_to_clip[9] -= 2.0f * 0.45f / 1200;
+        beyond.view_to_clip[8] += 2.0f * 1.5f / 1920;
+        check("a supersampled frame's shift within the pixel starts nothing, a shift past a pixel does",
+            trace_restart(a, trace_key(3, { 1920, 1200 }, shifted, { 0, 1, 0 }, settings, &light)) == TraceRestart::none
+            && trace_restart(a, trace_key(3, { 1920, 1200 }, beyond, { 0, 1, 0 }, settings, &light)) == TraceRestart::camera);
         check("the shadows' sun turned a degree", why(trace_key(3, { 1920, 1200 }, camera, { 0, 0.9998477f, 0.0174524f }, settings, &light))
             == "sun direction: the direction toward the sun went from (0, 1, 0) to (0, 0.999848, 0.0174524), 1.0000 degrees");
         check("the shading sun turned a degree", why(trace_key(3, { 1920, 1200 }, camera, { 0, 1, 0 }, settings, &turn))

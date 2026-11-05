@@ -227,7 +227,8 @@ namespace enhancements
     // Why a frame's samples start again, ENHANCEMENTS_TRACE_RESTART_*: the first of these that holds. A new scene, which a
     // scene's first samples are too; another render size; a setting the rays depend on, which is the ao distance, the sun
     // size, the casters, the gather switched on or off, or the hit's share of the ambient light, which scales the
-    // gather's ambient rows; a camera matrix element differing by more than 1e-6 of the matrix's largest; the direction
+    // gather's ambient rows; a camera matrix element differing by more than 1e-6 of the matrix's largest, but for a shift
+    // of the projection's center of up to a pixel, which a supersampled shot's frames make; the direction
     // toward the sun, the shadows' or the gather's shading direction, differing by more than 1e-5; or the gather's sun
     // color differing by more than 1e-5, or any change of the traced lights. before is the key the samples started with,
     // not the last frame's, so a slow drift starts them again once it has gone that far.

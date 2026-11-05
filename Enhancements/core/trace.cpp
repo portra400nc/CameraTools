@@ -51,6 +51,20 @@ namespace enhancements
             return most;
         }
 
+        // A supersampled shot looks through another point of each pixel a frame by shifting the projection's elements 8 and
+        // 9 by under a pixel, 2 / width and 2 / height of clip space a pixel. The pixels' samples carry on through it, so
+        // each averages its pixel's surfaces as the shot averages its frames. b's projection with such a shift taken out.
+        std::array<float, 16> within_pixel(const TraceKey &a, std::array<float, 16> b)
+        {
+            const float x = 2.0f / float(std::max(a.render.width, 1u)), y = 2.0f / float(std::max(a.render.height, 1u));
+            if (std::fabs(b[8] - a.view_to_clip[8]) <= x && std::fabs(b[9] - a.view_to_clip[9]) <= y)
+            {
+                b[8] = a.view_to_clip[8];
+                b[9] = a.view_to_clip[9];
+            }
+            return b;
+        }
+
         bool matrix_moved(const std::array<float, 16> &a, const std::array<float, 16> &b)
         {
             const float tolerance = 1e-6f * std::max(largest(a), largest(b));
@@ -472,7 +486,7 @@ namespace enhancements
             return TraceRestart::render;
         if (a.ao_distance != b.ao_distance || a.sun_size != b.sun_size || a.casters != b.casters || a.gather != b.gather || a.bounces != b.bounces || a.faces_ambient != b.faces_ambient || a.surface != b.surface || std::memcmp(a.reflect.params, b.reflect.params, sizeof a.reflect.params) != 0 || apart(kKeyAmbient, 12))
             return TraceRestart::settings;
-        if (matrix_moved(a.world_to_view, b.world_to_view) || matrix_moved(a.view_to_clip, b.view_to_clip))
+        if (matrix_moved(a.world_to_view, b.world_to_view) || matrix_moved(a.view_to_clip, within_pixel(a, b.view_to_clip)))
             return TraceRestart::camera;
         for (int k = 0; k < 3; k++)
             if (!(std::fabs(a.toward_sun[k] - b.toward_sun[k]) <= 1e-5f))
