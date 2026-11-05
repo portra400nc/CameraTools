@@ -27,6 +27,8 @@ namespace CameraTools
         private bool hasLastPose;
         private float smoothFOV;
         private float gameFov;
+        // The shift column of the projection the free camera installed last, to tell it from one the game installed.
+        private (float, float) installedJitter;
         // Where the world's absolute origin was last frame, in scene coordinates.
         private Vector3 worldOrigin;
 
@@ -153,8 +155,11 @@ namespace CameraTools
         // Genshin's post-processing installs a jittered projection built from the game's field of view before this
         // runs, and Unity ignores fieldOfView while a custom projection is set. A supersampled screenshot's projection
         // looks through another point of each pixel; the add-on reads the non-jittered one, so both get it.
+        // The game's temporal anti-aliasing (FSR 2 or TAA) moves the projection a fraction of a pixel each frame and
+        // averages the frames into smooth edges, so that shift carries over to the free camera's projection.
         private void SetFieldOfView(float fov)
         {
+            var jitter = GameJitter();
             cam.fieldOfView = fov;
             cam.ResetProjectionMatrix();
             if (Supersampling.Offset != null)
@@ -162,9 +167,32 @@ namespace CameraTools
                 var projection = Supersampling.Projection(fov, cam.aspect, cam.nearClipPlane, cam.farClipPlane, cam.pixelWidth, cam.pixelHeight);
                 cam.projectionMatrix = projection;
                 cam.nonJitteredProjectionMatrix = projection;
+                installedJitter = (projection.m02, projection.m12);
                 return;
             }
-            cam.nonJitteredProjectionMatrix = Matrix4x4.Perspective(fov, cam.aspect, cam.nearClipPlane, cam.farClipPlane);
+            var plain = Matrix4x4.Perspective(fov, cam.aspect, cam.nearClipPlane, cam.farClipPlane);
+            cam.nonJitteredProjectionMatrix = plain;
+            if (jitter == (0f, 0f))
+            {
+                installedJitter = (plain.m02, plain.m12);
+                return;
+            }
+            var jittered = plain;
+            jittered.m02 += jitter.X;
+            jittered.m12 += jitter.Y;
+            cam.projectionMatrix = jittered;
+            installedJitter = (jittered.m02, jittered.m12);
+        }
+
+        // The projection's own shift from the game this frame, in clip space. Apply runs before the game installs its
+        // projection too, and the free camera's projection from the frame before is no shift of the game's.
+        private (float X, float Y) GameJitter()
+        {
+            var jittered = cam.projectionMatrix;
+            if ((jittered.m02, jittered.m12) == installedJitter)
+                return (0f, 0f);
+            var plain = cam.nonJitteredProjectionMatrix;
+            return (jittered.m02 - plain.m02, jittered.m12 - plain.m12);
         }
 
         public void Update()
