@@ -1225,6 +1225,17 @@ float3 dof_without_near(int2 pixel, float3 sharp, float focus, DofLens lens)
     return sharp + (surface - front) * saturate(dot(sharp - surface, front - surface) / spread);
 }
 
+// The full-size CoC of a half-size texel as the prefilter reckons its source: that of the nearest of its 2x2. A pixel
+// behind focus takes no far field from a texel much nearer than itself: beside a surface just past focus, such as an
+// ornament behind the eyes, that texel's far field is the surface barely blurred, which the pixel's blur would show in
+// blocks of the half size, as lumps along the surface's edge.
+float dof_texel_coc(int2 q, float focus, DofLens lens)
+{
+    int2 p = int2(q.x * 2, q.y * 2);
+    float d = max(max(dof_load_depth(p), dof_load_depth(int2(p.x + 1, p.y))), max(dof_load_depth(int2(p.x, p.y + 1)), dof_load_depth(int2(p.x + 1, p.y + 1))));
+    return 2.0f * dof_coc(dof_inverse_depth(d, dof_depth), focus, lens);
+}
+
 // A full-size pixel: its sharp color while its own green CoC is under half a pixel, the far field blended in behind focus
 // above that, the near layer over it by its alpha, as Cinematic DOF's combiner lays it, and the near sprites' light on top.
 // Each of the four half-size texels around the pixel gives its far field or, without one, the mean of those that have it,
@@ -1240,17 +1251,31 @@ float3 dof_composite(int2 pixel)
     float fx = at.x - floor(at.x), fy = at.y - floor(at.y);
     float3 far = float3(0.0f, 0.0f, 0.0f);
     float far_weight = 0.0f;
+    bool usable[4];
     UNROLL for (int i = 0; i < 4; i++)
     {
         int2 q = int2(base.x + i % 2, base.y + i / 2);
         float b = (i % 2 == 0 ? 1.0f - fx : fx) * (i / 2 == 0 ? 1.0f - fy : fy);
         float4 f = dof_load_far(q);
-        float w = f.w > 0.0f ? b : 0.0f;
+        usable[i] = f.w > 0.0f && (coc <= 0.5f || dof_texel_coc(q, focus, lens) >= coc - max(1.0f, 0.5f * coc));
+        float w = usable[i] ? b : 0.0f;
         far = far + float3(f.x, f.y, f.z) * w;
         far_weight = far_weight + w;
     }
     float t = coc > 0.0f ? saturate(coc - 0.5f) : 0.0f;
     float hidden = saturate((-coc - 1.0f) / kDofHiddenFade);
+    // Without a usable texel of the four, those around them: the pixel's own sharp color would show as a speck.
+    if (far_weight <= 0.0f && coc > 0.5f)
+    {
+        UNROLL for (int k = 0; k < 16; k++)
+        {
+            int2 q = int2(base.x + k % 4 - 1, base.y + k / 4 - 1);
+            float4 f = dof_load_far(q);
+            float w = f.w > 0.0f && dof_texel_coc(q, focus, lens) >= coc - max(1.0f, 0.5f * coc) ? 1.0f : 0.0f;
+            far = far + float3(f.x, f.y, f.z) * w;
+            far_weight = far_weight + w;
+        }
+    }
     float3 pooled = far_weight > 0.0f ? far / far_weight : sharp;
     float3 under = float3(0.0f, 0.0f, 0.0f);
     float4 layer = float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -1261,7 +1286,7 @@ float3 dof_composite(int2 pixel)
         int2 q = int2(base.x + j % 2, base.y + j / 2);
         float b = (j % 2 == 0 ? 1.0f - fx : fx) * (j / 2 == 0 ? 1.0f - fy : fy);
         float4 f = dof_load_far(q);
-        under = under + (f.w > 0.0f ? float3(f.x, f.y, f.z) : pooled) * b;
+        under = under + (usable[j] ? float3(f.x, f.y, f.z) : pooled) * b;
         layer = layer + dof_load_near_layer(q) * b;
         near_cover = near_cover + dof_load_near_cover(q) * b;
         float4 n = dof_load_near(q);
