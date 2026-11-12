@@ -200,10 +200,13 @@ namespace enhancements
         TraceScene trace_scene;
         TraceState trace_logged = TraceState::none; // the state the log last said
         // The physical sky: the live view's, from the pushed camera, and the traced scene's, from the light it was captured
-        // with, each built on a thread of its own, and what each was last asked for.
+        // with, each built on a thread of its own, and what each was last asked for. The live view's waits for the first
+        // camera push with a sun, which CameraTools sends once its free camera has been on.
         SkyBuilder live_sky_builder, traced_sky_builder;
         std::optional<SkyRequest> live_sky_asked, traced_sky_asked;
         std::shared_ptr<const SkyResult> live_sky;
+        bool ambient_physical_said = false;
+        bool live_sky_said = false;     // the log said the ambient pass took the physical sky's color
 
         // An ENHANCEMENTS_SCENE_TRACE capture's triangles as the writer thread writes its faces.
         struct TraceBuild
@@ -832,7 +835,16 @@ namespace enhancements
                 live_sky_builder.request(live);
                 live_sky_asked = live;
             }
+            const uint64_t had = live_sky ? live_sky->version : 0;
             live_sky = live_sky_builder.latest();
+            if (live_sky && had == 0)
+            {
+                const Vec3f &h = live_sky->horizon, up = sky_irradiance(live_sky->map, { 0, 1, 0 });
+                char text[220];
+                std::snprintf(text, sizeof text, "the live view's sky is the physical one: haze %.2f, its light on a floor (%.3f, %.3f, %.3f), its horizon (%.3f, %.3f, %.3f).",
+                    live_sky->request.haze, up[0], up[1], up[2], h[0], h[1], h[2]);
+                log(reshade::log::level::info, text);
+            }
             // Without a sun's direction or light, the physical sky would be black: the scene keeps its own.
             const SceneLight *light = trace_gpu.light();
             if (!light || light->sun.shade == Vec3 {} || light->sun.color == Vec3 {})
@@ -1006,6 +1018,11 @@ namespace enhancements
                     {
                     case PassId::ambient:
                         call = gpu.run_ambient(map, settings.ambient, camera, settings.flip, live_physical_sky());
+                        if (call && live_physical_sky() && !ambient_physical_said)
+                        {
+                            log(reshade::log::level::info, "the ambient pass takes its light's color from the physical sky.");
+                            ambient_physical_said = true;
+                        }
                         break;
                     case PassId::sun_shadows:
                         call = gpu.run_sun_shadows(map, settings.sun_shadows, camera, sun_parse.constants, settings.flip);
