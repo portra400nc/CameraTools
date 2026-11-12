@@ -471,8 +471,8 @@ namespace enhancements
         bool traced = false;
     };
 
-    // Whether the trace pass writes this pass's output when it writes the frame: sun shadows and contact shadows with its
-    // sun visibility, ambient with its occlusion.
+    // Whether the trace pass writes this pass's output when it writes the frame: sun shadows with its sun visibility,
+    // ambient with its occlusion. Contact shadows run after it and lower its sun visibility.
     bool replaced_by_trace(PassId pass, const TraceSettings &trace);
 
     Plan plan(Step step, const FrameMap &map, const Settings &settings, const Inputs &inputs);

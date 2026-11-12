@@ -1064,18 +1064,18 @@ int main()
         FrameReport traced = run_frame(rows, trace_on(0), Inputs { true, SunCheck::unread, TraceState::ready, true });
         traced.trace_ao = 64;
         traced.trace_sun = 32;
-        check("once it writes the frame the three passes are replaced, not skipped, whatever their sun constants",
-            traced.ran.bits == ENHANCEMENTS_PASS_TRACE && traced.skipped.empty() && traced.missing.empty()
-            && traced.replaced.bits == (ENHANCEMENTS_PASS_SUN_SHADOWS | ENHANCEMENTS_PASS_CONTACT_SHADOWS | ENHANCEMENTS_PASS_AMBIENT)
-            && describe(traced) == std::string(kAllSteps) + "; ran trace@combine (64 ao, 32 sun); replaced sun-shadows contact-shadows ambient");
+        check("once it writes the frame sun shadows and ambient are replaced, not skipped, whatever their sun constants, and contact shadows run after it",
+            traced.ran.bits == (ENHANCEMENTS_PASS_TRACE | ENHANCEMENTS_PASS_CONTACT_SHADOWS) && traced.skipped.empty() && traced.missing.empty()
+            && traced.replaced.bits == (ENHANCEMENTS_PASS_SUN_SHADOWS | ENHANCEMENTS_PASS_AMBIENT)
+            && describe(traced) == std::string(kAllSteps) + "; ran trace@combine (64 ao, 32 sun) contact-shadows@combine; replaced sun-shadows ambient");
         rows = walk;
         FrameReport ao = run_frame(rows, trace_on(ENHANCEMENTS_TRACE_AO), Inputs { true, SunCheck::ok, TraceState::ready, true });
         check("traced occlusion alone replaces ambient alone", ao.replaced.bits == ENHANCEMENTS_PASS_AMBIENT
             && describe(ao) == std::string(kAllSteps) + "; ran trace@combine (0 ao, 0 sun) sun-shadows@combine contact-shadows@combine; replaced ambient");
         rows = walk;
         FrameReport sun = run_frame(rows, trace_on(ENHANCEMENTS_TRACE_SUN), Inputs { true, SunCheck::ok, TraceState::ready, true });
-        check("traced sun alone replaces sun shadows and contact shadows", sun.replaced.bits == (ENHANCEMENTS_PASS_SUN_SHADOWS | ENHANCEMENTS_PASS_CONTACT_SHADOWS)
-            && sun.ran.bits == (ENHANCEMENTS_PASS_TRACE | ENHANCEMENTS_PASS_AMBIENT));
+        check("traced sun alone replaces sun shadows, and contact shadows lower it", sun.replaced.bits == ENHANCEMENTS_PASS_SUN_SHADOWS
+            && sun.ran.bits == (ENHANCEMENTS_PASS_TRACE | ENHANCEMENTS_PASS_CONTACT_SHADOWS | ENHANCEMENTS_PASS_AMBIENT));
         rows = walk;
         check("without a camera the trace skips like the others", describe(run_frame(rows, trace_on(0), Inputs { false, SunCheck::ok, TraceState::ready, false }))
             == std::string(kAllSteps) + "; skipped trace: no camera; skipped sun-shadows: no camera; skipped contact-shadows: no camera; skipped ambient: no camera");
@@ -1119,14 +1119,14 @@ int main()
         gathered.trace_gather = 128;
         gathered.trace_sun = 32;
         check("while it gathers, the trace names its gather samples in place of its occlusion samples",
-            describe(gathered) == std::string(kAllSteps) + "; ran trace@combine (128 gather, 32 sun); replaced sun-shadows contact-shadows ambient");
+            describe(gathered) == std::string(kAllSteps) + "; ran trace@combine (128 gather, 32 sun) contact-shadows@combine; replaced sun-shadows ambient");
         rows = walk;
         FrameReport unlit = run_frame(rows, trace_on(0), Inputs { true, SunCheck::ok, TraceState::ready, true });
         unlit.trace_ao = 64;
         unlit.trace_sun = 32;
         unlit.gather_without_light = true;
         check("the gather over a scene captured without light says so after the trace's outputs, which run as before",
-            describe(unlit) == std::string(kAllSteps) + "; ran trace@combine (64 ao, 32 sun); replaced sun-shadows contact-shadows ambient; skipped gather: scene without light");
+            describe(unlit) == std::string(kAllSteps) + "; ran trace@combine (64 ao, 32 sun) contact-shadows@combine; replaced sun-shadows ambient; skipped gather: scene without light");
         for (const auto &[view, name] : { std::pair { ENHANCEMENTS_VIEW_BOUNCE, "bounce" }, std::pair { ENHANCEMENTS_VIEW_SKY_VISIBILITY, "sky-visibility" },
                  std::pair { ENHANCEMENTS_VIEW_SKY_MAP, "sky-map" } })
         {
@@ -1138,8 +1138,8 @@ int main()
         }
         check("the bounce and sky-map views are tone mapped, the sky visibility shown as it is", kViews[ENHANCEMENTS_VIEW_BOUNCE].decode == Decode::hdr
             && kViews[ENHANCEMENTS_VIEW_SKY_MAP].decode == Decode::hdr && kViews[ENHANCEMENTS_VIEW_SKY_VISIBILITY].decode == Decode::rgb);
-        check("only sun shadows, contact shadows and ambient are replaced, each by its output", replaced_by_trace(PassId::sun_shadows, alone.trace)
-            && replaced_by_trace(PassId::ambient, alone.trace) && !replaced_by_trace(PassId::atmosphere, alone.trace)
+        check("only sun shadows and ambient are replaced, each by its output", replaced_by_trace(PassId::sun_shadows, alone.trace)
+            && replaced_by_trace(PassId::ambient, alone.trace) && !replaced_by_trace(PassId::contact_shadows, alone.trace) && !replaced_by_trace(PassId::atmosphere, alone.trace)
             && !replaced_by_trace(PassId::ambient, trace_on(ENHANCEMENTS_TRACE_SUN).trace));
     }
     {

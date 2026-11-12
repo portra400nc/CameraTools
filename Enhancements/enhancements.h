@@ -147,7 +147,9 @@ typedef struct EnhancementsAmbient
 // Screen-space contact shadows: each world pixel looks toward the sun through the depth buffer for length meters, and a
 // surface in the way lowers the sun's visibility in the game's shadow mask before the combine pass reads it. They add
 // the small shadows the game's shadow map is too coarse for, such as a character's feet on the ground. Never brightens.
-// Grass (stencil 129) never casts: its blades would shadow each other and the ground between them.
+// Grass (stencil 129) casts onto the ground under it but not onto grass, vegetation or foliage, whose dense blades would
+// shadow each other into speckle. In a traced shot they run after the trace and lower its sun visibility, since its scene
+// leaves grass out.
 // atmosphere follows it in EnhancementsSettings, so this block keeps its size.
 typedef struct EnhancementsContactShadows
 {

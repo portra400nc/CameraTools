@@ -175,7 +175,9 @@ namespace enhancements
     {
         switch (pass)
         {
-        case PassId::sun_shadows: case PassId::contact_shadows: return trace.sun;
+        // Contact shadows still run after the traced sun and only lower it: they add what the traced scene leaves out,
+        // grass above all.
+        case PassId::sun_shadows: return trace.sun;
         case PassId::ambient: return trace.ao;
         default: return false;
         }
