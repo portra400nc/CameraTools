@@ -205,8 +205,7 @@ namespace enhancements
         SkyBuilder live_sky_builder, traced_sky_builder;
         std::optional<SkyRequest> live_sky_asked, traced_sky_asked;
         std::shared_ptr<const SkyResult> live_sky;
-        bool ambient_physical_said = false;
-        bool live_sky_said = false;     // the log said the ambient pass took the physical sky's color
+        bool ambient_physical_said = false;     // the log said the ambient pass took the physical sky's color
 
         // An ENHANCEMENTS_SCENE_TRACE capture's triangles as the writer thread writes its faces.
         struct TraceBuild
