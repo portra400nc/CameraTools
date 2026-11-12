@@ -9,7 +9,7 @@ namespace CameraTools
     public enum Enhancement
     {
         Enabled,
-        AmbientLight, AmbientLevel, AmbientColor, AmbientOcclusion, AmbientOcclusionRadius, AmbientFoliageOcclusion,
+        AmbientLight, AmbientLevel, AmbientSky, AmbientHaze, AmbientColor, AmbientOcclusion, AmbientOcclusionRadius, AmbientFoliageOcclusion,
         ContactShadows, ContactShadowLength, ContactShadowStrength, ContactShadowFoliage,
         SoftSunShadows, SunShadowSoftness, SunShadowStrength,
         Haze, HazeDensity, HazeHeightFalloff, HazeSunGlow, HazeGlowTowardSun,
@@ -174,6 +174,9 @@ namespace CameraTools
         private static readonly float[] WetnessLevels = { 0f, 0.25f, 0.5f, 0.75f, 1f };
         // The lens flare's Source: the sun disc the sky draws, or a light at Position X and Y.
         public const int FlareSun = 0, FlareManual = 1;
+
+        // Ambient light's Sky: the game's own sky light, or the physical sky's.
+        public const int SkyGame = 0, SkyPhysical = 1;
         // Haze's Density row counts in multiples of this, the add-on's default.
         private static readonly float HazeDensity = EnhancementsSettings.Defaults.Atmosphere.Density;
 
@@ -183,6 +186,8 @@ namespace CameraTools
             Switch(Enhancement.Enabled, "Enhancements"),
             Switch(Enhancement.AmbientLight, "Ambient light"),
             Slider(Enhancement.AmbientLevel, Enhancement.AmbientLight, "Level", 0f, 2f, 0.6f, 0.05f, 2),
+            Choice(Enhancement.AmbientSky, Enhancement.AmbientLight, "Sky", SkyGame, "Game", "Physical"),
+            Slider(Enhancement.AmbientHaze, Enhancement.AmbientLight, "Haze", 0f, 0.5f, 0.1f, 0.05f, 2),
             Slider(Enhancement.AmbientColor, Enhancement.AmbientLight, "Color", 0f, 1f, 1f, 0.05f, 2),
             Slider(Enhancement.AmbientOcclusion, Enhancement.AmbientLight, "Occlusion", 0f, 1f, 0.5f, 0.05f, 2),
             Slider(Enhancement.AmbientOcclusionRadius, Enhancement.AmbientLight, "Occlusion radius", 0.1f, 5f, 1f, 0.1f, 1, " m"),
@@ -275,6 +280,8 @@ namespace CameraTools
             settings.Ambient.Enabled = Bit(Enhancement.AmbientLight);
             settings.Ambient.Level = values[Enhancement.AmbientLevel];
             settings.AmbientColor.Neutral = 1f - values[Enhancement.AmbientColor];
+            settings.Sky.Physical = values.On(Enhancement.Enabled) && values.On(Enhancement.AmbientLight) && (int)values[Enhancement.AmbientSky] == SkyPhysical ? 1u : 0u;
+            settings.Sky.Haze = values[Enhancement.AmbientHaze];
             settings.Ambient.AoStrength = values[Enhancement.AmbientOcclusion];
             settings.Ambient.AoRadius = values[Enhancement.AmbientOcclusionRadius];
             settings.Ambient.FoliageAoStrength = values[Enhancement.AmbientFoliageOcclusion];
@@ -323,6 +330,7 @@ namespace CameraTools
             {
                 settings.Enabled = 1;
                 settings.Ambient.Enabled = 0;
+                settings.Sky.Physical = 0;
                 settings.ContactShadows.Enabled = 0;
                 settings.SunShadows.Enabled = 0;
                 settings.Atmosphere.Enabled = 0;
@@ -403,10 +411,19 @@ namespace CameraTools
         }
 
         // A folded category shows only its heading. Open, every switch shows, and an effect's own rows show while its
-        // switch is on, whatever the master switch says; the lens flare's position only for its manual light.
+        // switch is on, whatever the master switch says; the lens flare's position only for its manual light; Haze only
+        // for the physical sky, and Color only for the game's, whose color it sets.
         public static bool Shown(EnhancementField field, EnhancementValues values, bool folded)
             => !folded && (field.Kind == EnhancementKind.Switch || values.On(field.Effect))
-            && (field.Id is not (Enhancement.LensFlareX or Enhancement.LensFlareY) || (int)values[Enhancement.LensFlareSource] == FlareManual);
+            && (field.Id is not (Enhancement.LensFlareX or Enhancement.LensFlareY) || (int)values[Enhancement.LensFlareSource] == FlareManual)
+            && (field.Id != Enhancement.AmbientHaze || (int)values[Enhancement.AmbientSky] == SkyPhysical)
+            && (field.Id != Enhancement.AmbientColor || (int)values[Enhancement.AmbientSky] == SkyGame);
+
+        // The line under a row's label, or null for none: Sky says where its light comes from.
+        public static string Detail(EnhancementField field, EnhancementValues values)
+            => field.Id == Enhancement.AmbientSky
+                ? (int)values[Enhancement.AmbientSky] == SkyPhysical ? "Light from a real sky that follows the sun" : "The game's own sky light"
+                : null;
 
         // While the master switch is off, every row but the master switch is greyed and ignores input.
         public static bool Usable(EnhancementField field, EnhancementValues values)

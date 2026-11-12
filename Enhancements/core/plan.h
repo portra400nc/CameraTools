@@ -39,6 +39,13 @@ namespace enhancements
         float neutral = 0.0f;   // EnhancementsAmbientColor's
     };
 
+    // EnhancementsSky's.
+    struct PhysicalSkySettings
+    {
+        bool enabled = false;
+        float haze = 0.1f;
+    };
+
     struct ContactShadowSettings
     {
         bool enabled = false;
@@ -238,6 +245,7 @@ namespace enhancements
         bool flip = true;
         bool traced_lights = false;     // a traced shot has lights: the shell sets it, from EnhancementsSetShotLights
         AmbientSettings ambient;
+        PhysicalSkySettings sky;
         ContactShadowSettings contact_shadows;
         AtmosphereSettings atmosphere;
         TonemapSettings tonemap;

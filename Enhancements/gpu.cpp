@@ -86,6 +86,8 @@ namespace enhancements
     // The rows of the game's tone map constants shaders/tonemap_ps.hlsl reads, 0 to 101.
     // shaders/tonemap_ps.hlsl's GameGrade: three rows of the color matrix, then exposure, bloom, gamma and an unused float.
     constexpr UINT kGameGradeBytes = 64, kGradeExposure = 48, kGradeBloom = 52, kGradeGamma = 56;
+    // shaders/ambient_ps.hlsl's SkyColor: the physical sky's nine harmonics, a float4 each.
+    constexpr UINT kSkyColorBytes = 9 * 16;
     static_assert(sizeof(Constants::label) == sizeof(Label::glyphs), "the label holds one byte per glyph");
 
     namespace
@@ -555,6 +557,8 @@ namespace enhancements
         dof_constants.ByteWidth = sizeof(DofConstants);
         D3D11_BUFFER_DESC flare_constants = buffer;
         flare_constants.ByteWidth = sizeof(FlareConstants);
+        D3D11_BUFFER_DESC sky_color = buffer;
+        sky_color.ByteWidth = kSkyColorBytes;
         D3D11_BUFFER_DESC character_light_constants = buffer;
         character_light_constants.ByteWidth = sizeof(CharacterLightConstants);
         // Zeros until a grade is copied in, which the shader takes for no grade.
@@ -690,6 +694,7 @@ namespace enhancements
             && SUCCEEDED(device->CreateBuffer(&gather_apply, nullptr, &made.gather_apply_))
             && SUCCEEDED(device->CreateBuffer(&dof_constants, nullptr, &made.dof_constants_))
             && SUCCEEDED(device->CreateBuffer(&flare_constants, nullptr, &made.flare_constants_))
+            && SUCCEEDED(device->CreateBuffer(&sky_color, nullptr, &made.sky_color_constants_))
             && SUCCEEDED(device->CreateBuffer(&character_light_constants, nullptr, &made.character_light_constants_))
             && SUCCEEDED(device->CreateBuffer(&game_grade, &no_grade_data, &made.game_grade_))
             && SUCCEEDED(device->CreateBuffer(&grade_stage, nullptr, &made.grade_stage_))
@@ -940,7 +945,7 @@ namespace enhancements
         return trace.copy_for_save(save, normals_.texture(), depth_.texture(), shadow_mask_in_.texture(), irradiance_in_.texture());
     }
 
-    std::optional<GameCall> Gpu::run_ambient(const FrameMap &map, const AmbientSettings &settings, const Camera &camera, bool flip)
+    std::optional<GameCall> Gpu::run_ambient(const FrameMap &map, const AmbientSettings &settings, const Camera &camera, bool flip, const SkyMap *physical)
     {
         const Texture &irradiance = *map[Entry::ambient_diffuse];
         const auto irradiance_format = static_cast<DXGI_FORMAT>(irradiance.format);
@@ -957,6 +962,20 @@ namespace enhancements
         upload(constants);
 
         ID3D11DeviceContext1 *c = context_.Get();
+        // Unbound, the harmonics read as zeros, and the shader keeps the game's color.
+        ID3D11Buffer *sky_color = nullptr;
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        if (physical && SUCCEEDED(c->Map(sky_color_constants_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+        {
+            float rows[9][4] = {};
+            for (int i = 0; i < 9; i++)
+                for (int k = 0; k < 3; k++)
+                    rows[i][k] = physical->harmonics[size_t(i)][size_t(k)];
+            std::memcpy(mapped.pData, rows, kSkyColorBytes);
+            c->Unmap(sky_color_constants_.Get(), 0);
+            sky_color = sky_color_constants_.Get();
+        }
+        c->PSSetConstantBuffers(2, 1, &sky_color);
         irradiance_in_.copy_from(c, native(irradiance));
         // The second draw's target change unbinds ao_ as a target before it is bound at t4.
         ID3D11ShaderResourceView *const srvs[] = { irradiance_in_.srv(), normals_.srv(), depth_.srv(), depth_.stencil_srv(), ao_.srv() };

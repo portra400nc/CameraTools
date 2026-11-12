@@ -219,15 +219,16 @@ namespace enhancements
         float surface = 0;
         GatherLights lights {};     // the traced lights; any change starts the samples again
         ReflectConstants reflect;   // and the reflections'
+        uint64_t sky = 0;           // TraceGpu::sky_version: the sky map the gather's rays meet
     };
-    // gather is null while the gather is off, or its scene has no light.
+    // gather is null while the gather is off, or its scene has no light. sky is TraceGpu::sky_version.
     TraceKey trace_key(uint64_t generation, Size render, const Camera &camera, const Vec3 &toward_sun, const TraceSettings &settings,
-        const GatherConstants *gather = nullptr, const GatherLights &lights = {}, const ReflectConstants &reflect = {});
+        const GatherConstants *gather = nullptr, const GatherLights &lights = {}, const ReflectConstants &reflect = {}, uint64_t sky = 0);
 
     // Why a frame's samples start again, ENHANCEMENTS_TRACE_RESTART_*: the first of these that holds. A new scene, which a
     // scene's first samples are too; another render size; a setting the rays depend on, which is the ao distance, the sun
-    // size, the casters, the gather switched on or off, or the hit's share of the ambient light, which scales the
-    // gather's ambient rows; a camera matrix element differing by more than 1e-6 of the matrix's largest, but for a shift
+    // size, the casters, the gather switched on or off, the hit's share of the ambient light, which scales the
+    // gather's ambient rows, or another sky map; a camera matrix element differing by more than 1e-6 of the matrix's largest, but for a shift
     // of the projection's center of up to a pixel, which a supersampled shot's frames make; the direction
     // toward the sun, the shadows' or the gather's shading direction, differing by more than 1e-5; or the gather's sun
     // color differing by more than 1e-5, or any change of the traced lights. before is the key the samples started with,

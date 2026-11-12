@@ -539,6 +539,8 @@ int main(int argc, char **argv)
         check("a Bounce strength above 1 starts the samples again, and one below only scales the bounce",
             why(trace_key(3, { 1920, 1200 }, camera, { 0, 1, 0 }, settings, &stronger)) == "settings: the bounce strength's surface gain went from 1 to 3"
             && trace_restart(a, trace_key(3, { 1920, 1200 }, camera, { 0, 1, 0 }, settings, &weaker)) == TraceRestart::none);
+        check("a new sky map starts the samples again", why(trace_key(3, { 1920, 1200 }, camera, { 0, 1, 0 }, settings, &light, {}, {}, 2))
+            == "settings: the sky map went from version 0 to 2");
         check("a moved camera", why(trace_key(3, { 1920, 1200 }, moved, { 0, 1, 0 }, settings, &light))
             == "camera: the camera moved: its view by up to 0.5 an element and its projection by up to 0");
         Camera shifted = camera, beyond = camera;
@@ -813,8 +815,8 @@ int main(int argc, char **argv)
         check("the lights' cbuffer: the position less the reference, the range, the color times intensity to the power 2.2, the cones, its luminance and the count",
             g.rows[0][0][0] == 0.0f && g.rows[0][0][1] == 1.0f && g.rows[0][0][3] == 8.0f && std::abs(g.rows[0][1][0] - 4.5947f) < 1e-3f && g.rows[0][1][2] == 1.0f
                 && g.rows[1][1][3] == 0.7f && g.rows[1][2][1] == -1.0f && std::abs(g.rows[0][3][1] - (0.9278f * 4.5947f + 0.0722f)) < 1e-3f && g.info[0] == 4);
-        check("the traced light is 64 bytes, its reserved words at 48, and the version is 29", sizeof(EnhancementsShotLight) == 64
-            && offsetof(EnhancementsShotLight, reserved) == 48 && ENHANCEMENTS_VERSION == 29);
+        check("the traced light is 64 bytes, its reserved words at 48, and the version is 30", sizeof(EnhancementsShotLight) == 64
+            && offsetof(EnhancementsShotLight, reserved) == 48 && ENHANCEMENTS_VERSION == 30);
     }
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;

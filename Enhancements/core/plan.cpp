@@ -50,8 +50,8 @@ namespace enhancements
         static_assert(ENHANCEMENTS_ERROR_STATE == 4);
         // Callers built before foliage_ao_strength send 32 bytes, those before contact shadows 36, those before their
         // foliage_strength 52, those before atmosphere 56, those before tonemap 76, those before sun shadows 100, those
-        // before light shafts 132, those before the trace 172, those before the gather 212, those before the depth of field 236, those before its highlights 304, those before its scatter 312, those before its bokeh contrast 316, those before its place 320, those before its eye 324, those before the lens flare 332, those before the ambient color 400, those before the tones 404, those before the lens softness 412, those before the auto exposure 416. Version 6 dropped the leaves blocks, which moved wetness from 128 to 116, so a binding of
-        // version 5 must not call EnhancementsApply; csharp/Enhancements.cs checks the version and marshals 420.
+        // before light shafts 132, those before the trace 172, those before the gather 212, those before the depth of field 236, those before its highlights 304, those before its scatter 312, those before its bokeh contrast 316, those before its place 320, those before its eye 324, those before the lens flare 332, those before the ambient color 400, those before the tones 404, those before the lens softness 412, those before the auto exposure 416, those before the sky 420. Version 6 dropped the leaves blocks, which moved wetness from 128 to 116, so a binding of
+        // version 5 must not call EnhancementsApply; csharp/Enhancements.cs checks the version and marshals 428.
         static_assert(offsetof(EnhancementsSettings, ambient) + offsetof(EnhancementsAmbient, foliage_ao_strength) == 32
             && offsetof(EnhancementsSettings, contact_shadows) == 36
             && offsetof(EnhancementsSettings, contact_shadows) + offsetof(EnhancementsContactShadows, foliage_strength) == 52
@@ -64,7 +64,7 @@ namespace enhancements
             && offsetof(EnhancementsSettings, lens_flare) == 332
             && offsetof(EnhancementsSettings, ambient_color) == 400 && offsetof(EnhancementsSettings, tones) == 404
             && offsetof(EnhancementsSettings, lens_softness) == 412 && offsetof(EnhancementsSettings, auto_exposure) == 416
-            && sizeof(EnhancementsSettings) == 420);
+            && offsetof(EnhancementsSettings, sky) == 420 && sizeof(EnhancementsSettings) == 428);
         static_assert(ENHANCEMENTS_FLARE_SOURCE_MANUAL == static_cast<int>(FlareSource::manual)
             && ENHANCEMENTS_FLARE_SOURCE_COUNT == static_cast<int>(FlareSource::count));
         static_assert(ENHANCEMENTS_FLARE_PLACE_DISPLAY == static_cast<int>(FlarePlace::display)
@@ -454,6 +454,15 @@ namespace enhancements
         }
         if (knows(offsetof(EnhancementsSettings, auto_exposure), sizeof raw.auto_exposure))
             s.tonemap.auto_exposure = finite_or(raw.auto_exposure.strength, tonemap_defaults.auto_exposure, 0.0f, 1.0f);
+        if (knows(offsetof(EnhancementsSettings, sky), sizeof raw.sky))
+        {
+            const PhysicalSkySettings sky_defaults;
+            s.sky.enabled = raw.sky.physical != 0;
+            s.sky.haze = finite_or(raw.sky.haze, sky_defaults.haze, 0.0f, 0.5f);
+            // A traced shot traces the physical sky's map, which only the map mode reads whole.
+            if (s.sky.enabled)
+                s.gather.sky = GatherSky::map;
+        }
         return s;
     }
 

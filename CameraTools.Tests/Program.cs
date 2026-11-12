@@ -42,15 +42,15 @@ Check("the binding's status is enhancements.h's 168 bytes, with the restarts at 
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceLight)) == 128 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceRestarts)) == 132
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceRestartReason)) == 136 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.ShotActive)) == 140
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.FramesSaved)) == 144 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.DofFocusMeters)) == 148);
-Check("the binding's shot is 40 bytes with its strength at 16, its outputs at 20 and its bounces at 36, its character lights 296 with the count at 36 and the lights at 40, its settings 416 with the depth of field at 236 and its highlights at 68, scatter at 76, bokeh contrast at 80, place at 84 and the eye at 88 in it, the lens flare at 332 and 68 bytes long, the ambient color at 400, the tones at 404, the lens softness at 412 and the auto exposure at 416, and its scene request 20",
+Check("the binding's shot is 40 bytes with its strength at 16, its outputs at 20 and its bounces at 36, its character lights 296 with the count at 36 and the lights at 40, its settings 416 with the depth of field at 236 and its highlights at 68, scatter at 76, bokeh contrast at 80, place at 84 and the eye at 88 in it, the lens flare at 332 and 68 bytes long, the ambient color at 400, the tones at 404, the lens softness at 412, the auto exposure at 416 and the sky at 420, and its scene request 20",
     Marshal.SizeOf<EnhancementsShotLight>() == 64 && Offset<EnhancementsShotLight>(nameof(EnhancementsShotLight.Reserved0)) == 48
     && Marshal.SizeOf<EnhancementsShot>() == 40 && Offset<EnhancementsShot>(nameof(EnhancementsShot.Bounces)) == 36
     && Marshal.SizeOf<EnhancementsCharacterLights>() == 296 && Offset<EnhancementsCharacterLights>(nameof(EnhancementsCharacterLights.Count)) == 36
     && Offset<EnhancementsCharacterLights>(nameof(EnhancementsCharacterLights.Lights)) == 40
     && Offset<EnhancementsShot>(nameof(EnhancementsShot.BudgetMs)) == 12 && Offset<EnhancementsShot>(nameof(EnhancementsShot.Outputs)) == 20
-    && Offset<EnhancementsShot>(nameof(EnhancementsShot.Strength)) == 16 && Marshal.SizeOf<EnhancementsSettings>() == 420
+    && Offset<EnhancementsShot>(nameof(EnhancementsShot.Strength)) == 16 && Marshal.SizeOf<EnhancementsSettings>() == 428
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.AmbientColor)) == 400 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Tones)) == 404
-    && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.LensSoftness)) == 412 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.AutoExposure)) == 416
+    && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.LensSoftness)) == 412 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.AutoExposure)) == 416 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Sky)) == 420
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.LensFlare)) == 332 && Marshal.SizeOf<EnhancementsLensFlare>() == 68
     && (uint)EnhancementsFlareSource.Manual == 1
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.DepthOfField)) == 236 && Marshal.SizeOf<EnhancementsDepthOfField>() == 96
@@ -199,8 +199,8 @@ var fresh = EnhancementValues.Defaults;
 var outside = new LensView(false, 1.6f, 1, ShotStage.None);
 var inside = new LensView(true, 1.6f, 1, ShotStage.None);
 EnhancementsSettings Settings(EnhancementValues values) => EnhancementsModel.Settings(values, outside);
-Check("the table holds 78 fields, each at its own id's place, with the master switch and eight effects' switches, and 21 of the depth of field",
-    EnhancementsModel.Fields.Length == 78 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
+Check("the table holds 80 fields, each at its own id's place, with the master switch and eight effects' switches, and 21 of the depth of field",
+    EnhancementsModel.Fields.Length == 80 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
     && EnhancementsModel.Fields.Count(field => field.Lens) == 21
     && string.Join(",", EnhancementsModel.Effects.Select(field => field.Label)) == "Ambient light,Contact shadows,Soft sun shadows,Haze,Light shafts,Wet surfaces,Tone map,Lens flare");
 {
@@ -240,6 +240,20 @@ Check("the table holds 78 fields, each at its own id's place, with the master sw
 Check("Ambient light's Color is the game's at 1 and gray at 0, and the tone map's Shadows and Highlights reach the tones block",
     on.AmbientColor.Neutral == 0.75f && Settings(fresh).AmbientColor.Neutral == 0f && Settings(fresh.With(Enhancement.AmbientColor, 0f)).AmbientColor.Neutral == 1f
     && on.Tones is { Shadows: 0.5f, Highlights: -0.75f } && Settings(fresh).Tones is { Shadows: 0f, Highlights: 0f });
+{
+    var physical = fresh.With(Enhancement.Enabled, 1).With(Enhancement.AmbientLight, 1).With(Enhancement.AmbientSky, EnhancementsModel.SkyPhysical)
+        .With(Enhancement.AmbientHaze, 0.25f);
+    Check("Ambient light's Sky reaches the sky block, Physical with its haze, off by default and while Ambient light or the master switch is off",
+        Settings(physical).Sky is { Physical: 1u, Haze: 0.25f } && Settings(fresh).Sky.Physical == 0
+        && Settings(physical.With(Enhancement.AmbientLight, 0)).Sky.Physical == 0 && Settings(physical.With(Enhancement.Enabled, 0)).Sky.Physical == 0);
+    Check("Haze shows only for the physical sky, Color only for the game's, and Sky says where its light comes from",
+        EnhancementsModel.Shown(Field(Enhancement.AmbientHaze), physical, false) && !EnhancementsModel.Shown(Field(Enhancement.AmbientColor), physical, false)
+        && !EnhancementsModel.Shown(Field(Enhancement.AmbientHaze), physical.With(Enhancement.AmbientSky, EnhancementsModel.SkyGame), false)
+        && EnhancementsModel.Shown(Field(Enhancement.AmbientColor), physical.With(Enhancement.AmbientSky, EnhancementsModel.SkyGame), false)
+        && EnhancementsModel.Detail(Field(Enhancement.AmbientSky), physical) == "Light from a real sky that follows the sun"
+        && EnhancementsModel.Detail(Field(Enhancement.AmbientSky), fresh) == "The game's own sky light"
+        && EnhancementsModel.Detail(Field(Enhancement.AmbientLevel), fresh) == null);
+}
 Check("the tone map's Auto exposure reaches its block as a share of 1, and is off by default",
     MathF.Abs(on.AutoExposure.Strength - 0.6f) < 1e-6f && Settings(fresh).AutoExposure.Strength == 0f
     && Field(Enhancement.ToneMapAutoExposure).Format == "0'%'");
@@ -294,7 +308,7 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     string text = fresh.With(Enhancement.Haze, 1f).With(Enhancement.HazeDensity, 2.5f).ToString();
     var skipped = new List<string>();
     Check("the values write as name=number pairs and read back the same",
-        text.StartsWith("Enabled=0;AmbientLight=0;AmbientLevel=0.6;AmbientColor=1;AmbientOcclusion=0.5;AmbientOcclusionRadius=1;") && text.Contains(";Haze=1;HazeDensity=2.5;")
+        text.StartsWith("Enabled=0;AmbientLight=0;AmbientLevel=0.6;AmbientSky=0;AmbientHaze=0.1;AmbientColor=1;AmbientOcclusion=0.5;AmbientOcclusionRadius=1;") && text.Contains(";Haze=1;HazeDensity=2.5;")
         && text.Contains(";ToneMap=0;ToneMapCurve=1;ToneMapExposure=0;ToneMapAutoExposure=0;ToneMapBloom=1;ToneMapSaturation=1;ToneMapContrast=1;ToneMapShadows=0;ToneMapHighlights=0;LensFlare=0;LensFlareSource=0;")
         && text.Contains(";LensFlareWarmth=0.5;LensFlareRedFringe=1;LensFlareTexture=1;DepthOfField=0;")
         && text.EndsWith(";HighlightDiscs=0;HighlightBoost=2;HighlightThreshold=2;BokehContrast=0;LensSoftness=0")

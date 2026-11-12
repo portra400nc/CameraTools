@@ -103,6 +103,7 @@ namespace enhancements
         light_.reset();
         sky_buffer_.Reset();
         sky_srv_.Reset();
+        sky_version_ = 0;
         faces_.Reset();
         faces_srv_.Reset();
         faces_constants_.Reset();
@@ -202,6 +203,20 @@ namespace enhancements
             fail("the trace's constant buffers could not be made (" + hresult_text("CreateBuffer", hr) + ")");
             return false;
         }
+        return true;
+    }
+
+    bool TraceGpu::set_sky(const SkyMap &sky, uint64_t version)
+    {
+        if (!sky_srv_ || sky.texels.size() != size_t(kSkyMapSide) * kSkyMapSide * 4)
+            return false;
+        ComPtr<ID3D11Buffer> buffer;
+        ComPtr<ID3D11ShaderResourceView> srv;
+        if (FAILED(raw_buffer(device_.Get(), static_cast<UINT>(sky.texels.size() * 4), sky.texels.data(), buffer, srv)))
+            return false;
+        sky_buffer_ = buffer;
+        sky_srv_ = srv;
+        sky_version_ = version;
         return true;
     }
 

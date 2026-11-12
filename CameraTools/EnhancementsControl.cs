@@ -73,7 +73,7 @@ namespace CameraTools
                 {
                     EnhancementKind.Choice => new ChoiceRow(field.Label, field.Options, () => (int)Values[field.Id], position => Change(field.Id, position), null, usable)
                     {
-                        Shown = shown, Sub = true,
+                        Shown = shown, Sub = true, Detail = EnhancementsModel.Detail(field, Values) != null ? () => EnhancementsModel.Detail(field, Values) : null,
                     },
                     _ => new SliderRow(field.Label, field.Min, field.Max, field.Step, field.Format, () => Values[field.Id], value => Change(field.Id, value),
                         Enabled: usable)

@@ -10,6 +10,7 @@
 #include "core/png.h"
 #include "core/scene_files.h"
 #include "core/shaders.h"
+#include "core/sky.h"
 #include "core/trace_files.h"
 #include "gpu.h"
 #include "scene_gpu.h"
@@ -198,6 +199,11 @@ namespace enhancements
         };
         TraceScene trace_scene;
         TraceState trace_logged = TraceState::none; // the state the log last said
+        // The physical sky: the live view's, from the pushed camera, and the traced scene's, from the light it was captured
+        // with, each built on a thread of its own, and what each was last asked for.
+        SkyBuilder live_sky_builder, traced_sky_builder;
+        std::optional<SkyRequest> live_sky_asked, traced_sky_asked;
+        std::shared_ptr<const SkyResult> live_sky;
 
         // An ENHANCEMENTS_SCENE_TRACE capture's triangles as the writer thread writes its faces.
         struct TraceBuild
@@ -798,9 +804,76 @@ namespace enhancements
             // A shot's traced lights, in the scene's frame; none outside a shot.
             const GatherLights lights = gathered && shot_frame ? gather_lights(shot_lights, trace_scene.reference) : GatherLights {};
             const ReflectConstants reflect = gathered ? reflect_constants(settings.reflect) : ReflectConstants {};
-            trace_frame = trace_gpu.preview(trace_key(trace_gpu.generation(), map.render, camera, toward, settings.trace, gathered, lights, reflect), settings.trace,
+            trace_frame = trace_gpu.preview(trace_key(trace_gpu.generation(), map.render, camera, toward, settings.trace, gathered, lights, reflect,
+                trace_gpu.sky_version()), settings.trace,
                 *constants, settings.gather, gathered, lights, reflect);
             trace_traced = trace_frame->traced;
+        }
+
+        // At present: asks for the physical skies this frame wants, and puts a traced scene's up once it is built for the
+        // light the scene has now. With the physical sky off, puts the scene's own sky map back.
+        void tick_sky()
+        {
+            if (!settings.sky.enabled)
+            {
+                if (trace_gpu.sky_version() != 0 && trace_gpu.light() && trace_gpu.set_sky(trace_gpu.light()->sky, 0))
+                    log(reshade::log::level::info, "the traced scene's sky is its own again.");
+                live_sky.reset();
+                return;
+            }
+            const Vec3f tint = night_tint(camera.toward_sky_sun[1]);
+            SkyRequest live;
+            live.toward_light = { camera.toward_sun[0], camera.toward_sun[1], camera.toward_sun[2] };
+            live.shade = { camera.sun_color[0], camera.sun_color[1], camera.sun_color[2] };
+            live.haze = settings.sky.haze;
+            live.tint = tint;
+            if (live.toward_light != Vec3f {} && (!live_sky_asked || sky_request_differs(*live_sky_asked, live)))
+            {
+                live_sky_builder.request(live);
+                live_sky_asked = live;
+            }
+            live_sky = live_sky_builder.latest();
+            const SceneLight *light = trace_gpu.light();
+            if (!light || light->sun.shade == Vec3 {})
+                return;
+            SkyRequest traced = live;
+            traced.toward_light = light->sun.shade;
+            traced.shade = light->sun.color;
+            if (!traced_sky_asked || sky_request_differs(*traced_sky_asked, traced))
+            {
+                traced_sky_builder.request(traced);
+                traced_sky_asked = traced;
+            }
+            const std::shared_ptr<const SkyResult> built = traced_sky_builder.latest();
+            if (built && built->version != trace_gpu.sky_version() && !sky_request_differs(built->request, *traced_sky_asked)
+                && trace_gpu.set_sky(built->map, built->version))
+            {
+                const Vec3f &h = built->horizon;
+                char text[200];
+                std::snprintf(text, sizeof text, "the traced scene's sky is the physical one, version %llu: haze %.2f, its horizon (%.3f, %.3f, %.3f).",
+                    static_cast<unsigned long long>(built->version), built->request.haze, h[0], h[1], h[2]);
+                log(reshade::log::level::info, text);
+            }
+        }
+
+        // The live view's physical sky map, while the physical sky is on and one is built.
+        const SkyMap *live_physical_sky() { return settings.sky.enabled && live_sky ? &live_sky->map : nullptr; }
+
+        // The camera the haze and the light shafts read: with the physical sky, its sky color is the physical horizon's at
+        // the pushed sky color's luminance.
+        Camera sky_camera()
+        {
+            Camera c = camera;
+            const SkyMap *physical = live_physical_sky();
+            if (!physical)
+                return c;
+            const auto luma = [](const float *v) { return 0.2126f * v[0] + 0.7152f * v[1] + 0.0722f * v[2]; };
+            const Vec3f &h = live_sky->horizon;
+            const float from = luma(h.data()), to = luma(camera.sky_color);
+            if (from > 1e-9f)
+                for (int k = 0; k < 3; k++)
+                    c.sky_color[k] = h[size_t(k)] * to / from;
+            return c;
         }
 
         // What a save holds besides the frame's images, as the trace pass has it now; TraceGpu::copy_for_save adds the
@@ -931,7 +1004,7 @@ namespace enhancements
                     switch (d.pass)  // exhaustive: a new PassId warns here until it has a run function
                     {
                     case PassId::ambient:
-                        call = gpu.run_ambient(map, settings.ambient, camera, settings.flip);
+                        call = gpu.run_ambient(map, settings.ambient, camera, settings.flip, live_physical_sky());
                         break;
                     case PassId::sun_shadows:
                         call = gpu.run_sun_shadows(map, settings.sun_shadows, camera, sun_parse.constants, settings.flip);
@@ -943,7 +1016,7 @@ namespace enhancements
                         call = gpu.run_wetness(map, settings.wetness, wetness_amount(settings.wetness, camera), camera, settings.flip);
                         break;
                     case PassId::atmosphere:
-                        call = gpu.run_atmosphere(map, settings.atmosphere, camera, settings.flip);
+                        call = gpu.run_atmosphere(map, settings.atmosphere, sky_camera(), settings.flip);
                         break;
                     case PassId::traced_lights:
                         // Nothing to add before the trace has a sample at every pixel.
@@ -954,7 +1027,7 @@ namespace enhancements
                         call = gpu.run_character_light(map, character_light_constants(settings.character_light, camera), camera, settings.flip);
                         break;
                     case PassId::light_shafts:
-                        call = gpu.run_light_shafts(map, settings.light_shafts, camera, sun_parse.constants, settings.flip,
+                        call = gpu.run_light_shafts(map, settings.light_shafts, sky_camera(), sun_parse.constants, settings.flip,
                             report.view == View::light_shafts);
                         break;
                     case PassId::tonemap:
@@ -2308,6 +2381,7 @@ namespace enhancements
             else if (camera_age != UINT32_MAX)
                 camera_age++;
             accumulate_box.take(accumulate, accumulate_seen);
+            tick_sky();
             frame_error = ENHANCEMENTS_ERROR_NONE;
             sun_frame = SunCheck::unread;
             if (!wants_sun(settings))

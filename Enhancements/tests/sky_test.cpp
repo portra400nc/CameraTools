@@ -1,6 +1,12 @@
 // The physical sky: the atmosphere's transmittance against its closed form, the sky's colors at noon, sunset and
 // twilight, its light against the sun's, haze, and the sky map's scale to the game's light.
+#include "../core/plan.h"
 #include "../core/sky.h"
+#include "../enhancements.h"
+
+#include <cstddef>
+#include <limits>
+#include <thread>
 
 #include <chrono>
 #include <cmath>
@@ -74,5 +80,55 @@ int main()
     hazy.aerosol_depth = 0.4f;
     const Vec3f hazy_horizon = sky_radiance(make_atmosphere(hazy), toward(3, 90), noon);
     check("haze whitens the horizon", hazy_horizon[2] / hazy_horizon[0] < horizon[2] / horizon[0]);
+
+    const Vec3f around = sky_horizon(sky);
+    check("the horizon's color is the map's between it and 10 degrees up, paler than the zenith's",
+        luminance(around) > luminance(sky_irradiance(sky, { 0, 1, 0 })) * 0.5f && around[2] / around[0] < up[2] / up[0]);
+    check("by day the night tint changes nothing", night_tint(0.2f) == Vec3f { 1, 1, 1 });
+    const Vec3f night = night_tint(-0.2f);
+    check("past 6 degrees down it is a blue of the same luminance", night[2] > night[0] && std::fabs(luminance(night) - 1) < 0.01f);
+    SkyMap tinted = sky;
+    tint_sky(tinted, { 2, 1, 1 });
+    check("a tint scales the texels and the harmonics", tinted.texels[4100 - 4100 % 4] == 2 * sky.texels[4100 - 4100 % 4]
+        && tinted.harmonics[0][0] == 2 * sky.harmonics[0][0] && tinted.harmonics[0][1] == sky.harmonics[0][1]);
+
+    SkyRequest a;
+    a.toward_light = noon;
+    a.shade = { 1, 1, 1 };
+    a.haze = 0.1f;
+    SkyRequest b = a;
+    b.toward_light = toward(59.9f);
+    check("a tenth of a degree is no new sky", !sky_request_differs(a, b));
+    b.toward_light = toward(59.5f);
+    check("half a degree is", sky_request_differs(a, b));
+    {
+        SkyBuilder builder;
+        check("a builder has no sky before its first request", builder.latest() == nullptr);
+        builder.request(a);
+        builder.request(b);
+        std::shared_ptr<const SkyResult> got;
+        for (int i = 0; i < 400 && !(got && got->request.toward_light == b.toward_light); i++)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            got = builder.latest();
+        }
+        SkySettings clear;
+        clear.aerosol_depth = 0.1f;
+        const SkyMap direct = physical_sky_map(make_atmosphere(clear), b.toward_light, b.shade);
+        check("it builds the newest request, as physical_sky_map does", got && got->request.toward_light == b.toward_light && got->map.texels == direct.texels);
+    }
+
+    EnhancementsSettings raw {};
+    raw.size = sizeof raw;
+    check("the physical sky is off by default", !parse_settings(raw).sky.enabled);
+    raw.sky = { 1, 0.25f };
+    const Settings on = parse_settings(raw);
+    check("switched on it keeps its haze, and a traced shot gathers its map", on.sky.enabled && on.sky.haze == 0.25f && on.gather.sky == GatherSky::map);
+    raw.sky.haze = 3;
+    check("the haze clamps to 0.5", parse_settings(raw).sky.haze == 0.5f);
+    raw.sky.haze = std::numeric_limits<float>::quiet_NaN();
+    check("and a haze that is no number reads as 0.1", parse_settings(raw).sky.haze == 0.1f);
+    raw.size = offsetof(EnhancementsSettings, sky);
+    check("a caller built before the block keeps the game's sky", !parse_settings(raw).sky.enabled && parse_settings(raw).gather.sky != GatherSky::map);
     return failures == 0 ? 0 : 1;
 }

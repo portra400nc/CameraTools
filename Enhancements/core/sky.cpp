@@ -293,4 +293,105 @@ namespace enhancements
         set_sky_harmonics(sky);
         return sky;
     }
+
+    Vec3f sky_horizon(const SkyMap &sky)
+    {
+        Vec3f sum {};
+        uint32_t count = 0;
+        const float top = std::sin(10 * kPi / 180);
+        for (uint32_t y = 0; y < kSkyMapSide; y++)
+            for (uint32_t x = 0; x < kSkyMapSide; x++)
+            {
+                const Vec3f d = sky_direction((x + 0.5f) / kSkyMapSide, (y + 0.5f) / kSkyMapSide);
+                if (d[1] < 0 || d[1] > top)
+                    continue;
+                const float *t = &sky.texels[(size_t(y) * kSkyMapSide + x) * 4];
+                sum = add(sum, { t[0], t[1], t[2] });
+                count++;
+            }
+        return count ? scale(sum, 1.0f / count) : sum;
+    }
+
+    Vec3f night_tint(float sky_sun_y)
+    {
+        // A blue of luminance 1.
+        const Vec3f blue = { 0.848f, 1.007f, 1.379f };
+        const float t = clamp01(-sky_sun_y / std::sin(6 * kPi / 180));
+        return { 1 + (blue[0] - 1) * t, 1 + (blue[1] - 1) * t, 1 + (blue[2] - 1) * t };
+    }
+
+    void tint_sky(SkyMap &sky, const Vec3f &tint)
+    {
+        for (size_t i = 0; i + 3 < sky.texels.size(); i += 4)
+            for (int c = 0; c < 3; c++)
+                sky.texels[i + size_t(c)] *= tint[size_t(c)];
+        for (Vec3f &h : sky.harmonics)
+            h = mul(h, tint);
+    }
+
+    bool sky_request_differs(const SkyRequest &a, const SkyRequest &b)
+    {
+        const float la = luminance_of(a.shade), lb = luminance_of(b.shade);
+        const float tint = std::max({ std::fabs(a.tint[0] - b.tint[0]), std::fabs(a.tint[1] - b.tint[1]), std::fabs(a.tint[2] - b.tint[2]) });
+        return dot(a.toward_light, b.toward_light) < 0.9999905f || std::fabs(la - lb) > 0.01f * std::max(la, lb) || a.haze != b.haze || tint > 0.005f;
+    }
+
+    SkyBuilder::SkyBuilder() : thread_([this] { run(); }) {}
+
+    SkyBuilder::~SkyBuilder()
+    {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            stop_ = true;
+        }
+        wake_.notify_one();
+        thread_.join();
+    }
+
+    void SkyBuilder::request(const SkyRequest &request)
+    {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            pending_ = request;
+        }
+        wake_.notify_one();
+    }
+
+    std::shared_ptr<const SkyResult> SkyBuilder::latest() const
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return latest_;
+    }
+
+    void SkyBuilder::run()
+    {
+        std::optional<Atmosphere> air;
+        uint64_t version = 0;
+        for (;;)
+        {
+            SkyRequest request;
+            {
+                std::unique_lock<std::mutex> lock(mutex_);
+                wake_.wait(lock, [this] { return stop_ || pending_.has_value(); });
+                if (stop_)
+                    return;
+                request = *pending_;
+                pending_.reset();
+            }
+            if (!air || air->settings.aerosol_depth != std::min(std::max(request.haze, 0.0f), 2.0f))
+            {
+                SkySettings settings;
+                settings.aerosol_depth = request.haze;
+                air = make_atmosphere(settings);
+            }
+            auto result = std::make_shared<SkyResult>();
+            result->request = request;
+            result->map = physical_sky_map(*air, request.toward_light, request.shade);
+            tint_sky(result->map, request.tint);
+            result->horizon = sky_horizon(result->map);
+            result->version = ++version;
+            std::lock_guard<std::mutex> lock(mutex_);
+            latest_ = std::move(result);
+        }
+    }
 }

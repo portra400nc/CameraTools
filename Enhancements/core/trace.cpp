@@ -436,9 +436,10 @@ namespace enhancements
     }
 
     TraceKey trace_key(uint64_t generation, Size render, const Camera &camera, const Vec3 &toward_sun, const TraceSettings &settings,
-        const GatherConstants *gather, const GatherLights &lights, const ReflectConstants &reflect)
+        const GatherConstants *gather, const GatherLights &lights, const ReflectConstants &reflect, uint64_t sky)
     {
         TraceKey k;
+        k.sky = sky;
         k.lights = lights;
         k.generation = generation;
         k.render = render;
@@ -484,7 +485,7 @@ namespace enhancements
             return TraceRestart::scene;
         if (a.render != b.render)
             return TraceRestart::render;
-        if (a.ao_distance != b.ao_distance || a.sun_size != b.sun_size || a.casters != b.casters || a.gather != b.gather || a.bounces != b.bounces || a.faces_ambient != b.faces_ambient || a.surface != b.surface || std::memcmp(a.reflect.params, b.reflect.params, sizeof a.reflect.params) != 0 || apart(kKeyAmbient, 12))
+        if (a.ao_distance != b.ao_distance || a.sun_size != b.sun_size || a.casters != b.casters || a.gather != b.gather || a.bounces != b.bounces || a.faces_ambient != b.faces_ambient || a.surface != b.surface || std::memcmp(a.reflect.params, b.reflect.params, sizeof a.reflect.params) != 0 || apart(kKeyAmbient, 12) || a.sky != b.sky)
             return TraceRestart::settings;
         if (matrix_moved(a.world_to_view, b.world_to_view) || matrix_moved(a.view_to_clip, within_pixel(a, b.view_to_clip)))
             return TraceRestart::camera;
@@ -546,6 +547,9 @@ namespace enhancements
                 std::snprintf(text, sizeof text, "the bounces went from %u to %u", a.bounces, b.bounces);
             else if (a.surface != b.surface)
                 std::snprintf(text, sizeof text, "the bounce strength's surface gain went from %g to %g", a.surface, b.surface);
+            else if (a.sky != b.sky)
+                std::snprintf(text, sizeof text, "the sky map went from version %llu to %llu", static_cast<unsigned long long>(a.sky),
+                    static_cast<unsigned long long>(b.sky));
             else
                 return went("the ambient light at a hit, its first row,", &a.light[kKeyAmbient], &b.light[kKeyAmbient], false);
             return text;

@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 29
+#define ENHANCEMENTS_VERSION 30
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -495,6 +495,18 @@ typedef struct EnhancementsAutoExposure
     float strength;             // 0 (the default) keeps the game's exposure, 1 meters all the way; clamped to 0..1
 } EnhancementsAutoExposure;
 
+// The physical sky: the sky light comes from a model of Earth's atmosphere lit by the game's main light (core/sky.h) in
+// place of the game's. Traced shots trace its sky map in place of the one the scene's faces gave, with the gather's sky mode
+// ENHANCEMENTS_GATHER_SKY_MAP, at the game's sun brightness. The ambient pass keeps the game's irradiance's luminance with
+// the model's color for the pixel's normal, and the haze and the light shafts' mist take the model's horizon color at the
+// luminance of the pushed sky color. While the sky's sun is below the horizon the main light is the moon's, and the colors
+// turn bluer. Version 30 added it.
+typedef struct EnhancementsSky
+{
+    uint32_t physical;          // default 0, the game's sky light
+    float haze;                 // the aerosols' optical depth straight up: 0.1 (the default) a clear day; clamped to 0..0.5
+} EnhancementsSky;
+
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller
 // knows, and fields past it keep their defaults.
 typedef struct EnhancementsSettings
@@ -519,6 +531,7 @@ typedef struct EnhancementsSettings
     EnhancementsTones tones;
     EnhancementsLensSoftness lens_softness;
     EnhancementsAutoExposure auto_exposure;
+    EnhancementsSky sky;
 } EnhancementsSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and

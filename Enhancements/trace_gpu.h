@@ -87,6 +87,11 @@ namespace enhancements
         uint32_t passes() const { return trace_passes(schedule_); }
         // The scene's light, empty for a scene captured without it.
         const SceneLight *light() const { return light_.get(); }
+        // Puts sky's texels in place of the sky map the scene's faces gave, for the gather's rays that meet the sky, and
+        // remembers version; false without a scene's sky map, or when the buffer failed, which keeps the one before.
+        bool set_sky(const SkyMap &sky, uint64_t version);
+        // The version set_sky last put up, 0 while the scene's own sky map is up.
+        uint64_t sky_version() const { return sky_version_; }
         double error() const { return error_; }
         // The samples the last dispatched frame asked every traced pixel to get, and whether it gathered.
         uint32_t target() const { return target_; }
@@ -212,6 +217,7 @@ namespace enhancements
         std::shared_ptr<const SceneLight> light_;
         ComPtr<ID3D11Buffer> sky_buffer_;
         ComPtr<ID3D11ShaderResourceView> sky_srv_;
+        uint64_t sky_version_ = 0;
         ComPtr<ID3D11Texture2D> faces_;
         ComPtr<ID3D11ShaderResourceView> faces_srv_;
         ComPtr<ID3D11Buffer> faces_constants_;

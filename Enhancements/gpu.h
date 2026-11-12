@@ -267,8 +267,10 @@ namespace enhancements
         // The ambient pass: mirror in the irradiance, normals and depth; draw raw occlusion into ao_; draw
         // out = in * level * lerp(1, blurred ao, strength) on world pixels and in elsewhere, where strength is
         // ao_strength, times foliage_ao_strength on grass, vegetation and foliage; copy out over the game's irradiance.
-        // Empty when a texture of ours failed.
-        std::optional<GameCall> run_ambient(const FrameMap &map, const AmbientSettings &settings, const Camera &camera, bool flip);
+        // With physical, in's color is the physical sky's for the pixel's normal at in's luminance. Empty when a texture of
+        // ours failed.
+        std::optional<GameCall> run_ambient(const FrameMap &map, const AmbientSettings &settings, const Camera &camera, bool flip,
+            const SkyMap *physical = nullptr);
 
         // At the game's shadow-mask draw, before it runs: copies the draw's pixel shader constants b0 to b3 into our own
         // buffers for this frame's sun-shadow pass and into frame's staging buffer for sun_constants, and the atlas into
@@ -519,6 +521,7 @@ namespace enhancements
         ComPtr<ID3D11Buffer> gather_apply_;    // core/trace.h's GatherApplyConstants, at b2 for the gather's draws
         ComPtr<ID3D11Buffer> dof_constants_;   // core/dof.h's DofConstants, at b1 for the depth of field's draws
         ComPtr<ID3D11Buffer> flare_constants_; // core/flare.h's FlareConstants, at b1 for the lens flare's draw
+        ComPtr<ID3D11Buffer> sky_color_constants_;  // the physical sky's harmonics, at b2 for the ambient pass
         ComPtr<ID3D11Buffer> character_light_constants_; // core/character_light.h's CharacterLightConstants, at b1 for its pass
         Mirror character_normals_, character_albedo_, character_material_;
         Scratch character_shadow_;          // R8G8B8A8_UNORM: each light's raw visibility at character pixels

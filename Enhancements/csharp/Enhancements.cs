@@ -242,6 +242,14 @@ namespace CameraToolsEnhancements
         public float Strength;              // 0 the game's exposure, 1 metered all the way to middle gray
     }
 
+    // EnhancementsSky in enhancements.h, field for field.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct EnhancementsSky
+    {
+        public uint Physical;               // 1: the sky light is the physical sky's
+        public float Haze;                  // the aerosols' optical depth straight up, 0.1 a clear day
+    }
+
     // EnhancementsSettings in enhancements.h, field for field.
     [StructLayout(LayoutKind.Sequential)]
     internal struct EnhancementsSettings
@@ -265,6 +273,7 @@ namespace CameraToolsEnhancements
         public EnhancementsTones Tones;
         public EnhancementsLensSoftness LensSoftness;
         public EnhancementsAutoExposure AutoExposure;
+        public EnhancementsSky Sky;
 
         // The add-on's defaults: everything off, game targets upside down, and when switched on ambient level 0.6, AO
         // strength 0.5 at a 1 m radius, half that strength on grass, vegetation and foliage, full-strength contact
@@ -314,6 +323,7 @@ namespace CameraToolsEnhancements
                 Source = EnhancementsFlareSource.Sun, X = 0.8f, Y = 0.12f, Strength = 1, Arcs = 1, Ghosts = 1, Streaks = 1, Glare = 0.5f, Size = 1, Warmth = 0.5f,
                 Chromatic = 1, VisibilitySeconds = 0.15f, FilledArcs = 0.5f, Rainbow = 1, Texture = 1,
             },
+            Sky = new EnhancementsSky { Physical = 0, Haze = 0.1f },
         };
     }
 
@@ -510,7 +520,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 29;
+        private const uint Version = 30;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
