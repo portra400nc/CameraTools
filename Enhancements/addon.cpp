@@ -833,8 +833,9 @@ namespace enhancements
                 live_sky_asked = live;
             }
             live_sky = live_sky_builder.latest();
+            // Without a sun's direction or light, the physical sky would be black: the scene keeps its own.
             const SceneLight *light = trace_gpu.light();
-            if (!light || light->sun.shade == Vec3 {})
+            if (!light || light->sun.shade == Vec3 {} || light->sun.color == Vec3 {})
                 return;
             SkyRequest traced = live;
             traced.toward_light = light->sun.shade;
