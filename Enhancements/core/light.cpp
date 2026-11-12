@@ -666,6 +666,8 @@ namespace enhancements
         return sky;
     }
 
+    void set_sky_harmonics(SkyMap &sky) { set_harmonics(sky); }
+
     AmbientFit fit_ambient(Size size, const std::vector<uint8_t> &irradiance, const std::vector<uint8_t> &normals, const std::vector<uint8_t> &stencil,
         const std::vector<float> &depth, const Vec3f &pushed)
     {

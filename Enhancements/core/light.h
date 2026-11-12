@@ -110,6 +110,9 @@ namespace enhancements
     // map's mip pyramid. With fewer than 5% real texels, or no face with an HDR copy, every texel is fallback.
     SkyMap build_sky_map(const std::vector<FaceImages> &faces, const Vec3f &fallback);
 
+    // Sets sky's harmonics from its texels, as build_sky_map does.
+    void set_sky_harmonics(SkyMap &sky);
+
     // harmonics' polynomial at a unit normal.
     Vec3f sky_irradiance(const SkyMap &sky, const Vec3f &normal);
 

@@ -23,7 +23,7 @@ ls *_test.cpp | sed 's/\.cpp$//' | xargs -P "$jobs" -I {} sh -c 'c++ $1 "$2.cpp"
 # The tools link only the code they reach, so a tool's binary changes only when that code does.
 strip=
 [ "$(uname)" = Darwin ] && strip=-Wl,-dead_strip
-for tool in render_dof render_flare trace_reference bake_light check_bvh frame_dng; do echo "$tool"; done \
+for tool in render_dof render_flare render_sky trace_reference bake_light check_bvh frame_dng; do echo "$tool"; done \
     | xargs -P "$jobs" -I {} sh -c 'c++ $1 $4 "$2.cpp" "$3"/core/*.o -o "$3/$2"' _ "$flags" {} "$out" "$strip"
 # A check that renders saved frames or a whole scene again runs only when its tool's binary, its arguments or its inputs
 # differ from those of its last pass, which ENHANCEMENTS_TEST_CACHE records. FULL=1 runs them all.
