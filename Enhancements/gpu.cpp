@@ -1721,6 +1721,17 @@ namespace enhancements
         return meters;
     }
 
+    std::optional<float> Gpu::read_auto_exposure()
+    {
+        std::vector<float> stops;
+        if (!exposure_read_pending_ || exposure_read_.read(context_.Get(), stops) == Readback::Read::not_ready)
+            return std::nullopt;
+        exposure_read_pending_ = false;
+        if (stops.empty())
+            return std::nullopt;
+        return stops[0];
+    }
+
     uint64_t Gpu::bound_pixel_shader() const
     {
         ComPtr<ID3D11PixelShader> shader;
@@ -1823,6 +1834,8 @@ namespace enhancements
             ID3D11ShaderResourceView *const adapt_in[] = { exposure_meter_.srv(), exposure_[exposure_at_ ^ 1].srv() };
             draw_fullscreen(exposure_adapt_ps_.Get(), adapt_in, 2, exposure_[exposure_at_].rtv(), { 1, 1 });
             c->OMSetRenderTargets(0, nullptr, nullptr);
+            if (!exposure_read_pending_)
+                exposure_read_pending_ = exposure_read_.copy_from(d, c, exposure_[exposure_at_].texture());
             exposure_at_ ^= 1;
             exposure_frame_ = frame + 1;
             exposure_kept_ = true;

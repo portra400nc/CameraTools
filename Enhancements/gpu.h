@@ -347,6 +347,8 @@ namespace enhancements
             float seconds, uint64_t frame);
         // The focus distance run_depth_of_field last copied, once the GPU has it, read without waiting.
         std::optional<float> read_dof_focus();
+        // The auto exposure's metered stops, read back a few frames late; empty until a new value is ready.
+        std::optional<float> read_auto_exposure();
         // The depth of field at the bloom step in the display place: the autofocus alone, from a mirror of the main depth that
         // run_depth_of_field_display reads later in the frame, its focus kept for it and copied for read_dof_focus. Empty
         // when the projection has no focal length or a texture of ours failed.
@@ -569,6 +571,8 @@ namespace enhancements
         uint32_t exposure_at_ = 0;  // the one this frame writes
         uint64_t exposure_frame_ = 0;   // the frame after the auto exposure last ran, 0 before it did
         bool exposure_kept_ = false;    // exposure_[exposure_at_ ^ 1] holds this frame's stops, for a DNG
+        Readback exposure_read_;        // the stops for the log
+        bool exposure_read_pending_ = false;
         Scratch dof_focus_[2];      // 1x1 R32G32_FLOAT: the focus distance in meters and the frame's mean luminance, this frame's and the last's in turn
         uint32_t dof_focus_at_ = 0; // the one this frame writes
         uint32_t dof_focus_kept_ = 0;   // the one the last bloom step wrote, which the display place reads

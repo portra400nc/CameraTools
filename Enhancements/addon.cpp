@@ -279,6 +279,10 @@ namespace enhancements
         std::chrono::steady_clock::time_point last_present;
         float frame_seconds = 0;
         float dof_focus = 0;
+        // The auto exposure's stops ReShade.log last named, and when; it names them again once they move half a stop, at
+        // most every 5 seconds.
+        std::optional<float> logged_exposure;
+        std::chrono::steady_clock::time_point logged_exposure_at;
         float flare_visibility = 0;
 
         // The depth of field's display place. Its bloom step leaves dof_display for the back buffer, which runs it within the
@@ -2217,6 +2221,15 @@ namespace enhancements
                     dof_focus = *focus;
                 if (const std::optional<float> visibility = gpu.read_flare_visibility())
                     flare_visibility = *visibility;
+                if (const std::optional<float> stops = gpu.read_auto_exposure())
+                    if (!logged_exposure || (std::fabs(*stops - *logged_exposure) >= 0.5f && now - logged_exposure_at >= std::chrono::seconds(5)))
+                    {
+                        char text[96];
+                        std::snprintf(text, sizeof text, "the auto exposure meters %+.2f stops from the game's exposure.", *stops);
+                        log(reshade::log::level::info, text);
+                        logged_exposure = *stops;
+                        logged_exposure_at = now;
+                    }
             }
             tick_dng();
             if (report.armed)
