@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 28
+#define ENHANCEMENTS_VERSION 29
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -485,6 +485,16 @@ typedef struct EnhancementsLensSoftness
                                 // height; 0 (the default) is off; clamped to 0..4
 } EnhancementsLensSoftness;
 
+// The tonemap pass's auto exposure, a block of its own because EnhancementsTonemap keeps its size: the HDR scene is metered
+// each frame by the mean of its log2 luminance, the sky left out, and the exposure moves toward the one that brings that mean
+// to middle gray (0.18) by strength's share of the way, at most 2 stops down and 3 up from the game's, then exposure_ev on
+// top. It eases there over about a second, and at once when the pass did not run the frame before. A DNG the pass's frame
+// develops takes the same exposure. Version 29 added it.
+typedef struct EnhancementsAutoExposure
+{
+    float strength;             // 0 (the default) keeps the game's exposure, 1 meters all the way; clamped to 0..1
+} EnhancementsAutoExposure;
+
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller
 // knows, and fields past it keep their defaults.
 typedef struct EnhancementsSettings
@@ -508,6 +518,7 @@ typedef struct EnhancementsSettings
     EnhancementsAmbientColor ambient_color;
     EnhancementsTones tones;
     EnhancementsLensSoftness lens_softness;
+    EnhancementsAutoExposure auto_exposure;
 } EnhancementsSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and

@@ -478,7 +478,7 @@ namespace enhancements
     {
         if (!ours)
             return {};
-        return { settings.bloom_strength, std::exp2(settings.exposure_ev) };
+        return { settings.bloom_strength, std::exp2(settings.exposure_ev), settings.auto_exposure > 0 };
     }
 
     static_assert(uint32_t(DngState::failed) == ENHANCEMENTS_DNG_FAILED && uint32_t(DngFailure::dropped) == ENHANCEMENTS_DNG_FAILED_DROPPED,

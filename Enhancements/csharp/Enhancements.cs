@@ -235,6 +235,13 @@ namespace CameraToolsEnhancements
         public float Radius;                // a Gaussian's sigma in pixels of a picture 2160 pixels tall; 0 is off
     }
 
+    // EnhancementsAutoExposure in enhancements.h, field for field.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct EnhancementsAutoExposure
+    {
+        public float Strength;              // 0 the game's exposure, 1 metered all the way to middle gray
+    }
+
     // EnhancementsSettings in enhancements.h, field for field.
     [StructLayout(LayoutKind.Sequential)]
     internal struct EnhancementsSettings
@@ -257,6 +264,7 @@ namespace CameraToolsEnhancements
         public EnhancementsAmbientColor AmbientColor;
         public EnhancementsTones Tones;
         public EnhancementsLensSoftness LensSoftness;
+        public EnhancementsAutoExposure AutoExposure;
 
         // The add-on's defaults: everything off, game targets upside down, and when switched on ambient level 0.6, AO
         // strength 0.5 at a 1 m radius, half that strength on grass, vegetation and foliage, full-strength contact
@@ -502,7 +510,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 28;
+        private const uint Version = 29;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

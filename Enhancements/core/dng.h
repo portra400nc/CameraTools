@@ -59,12 +59,13 @@ namespace enhancements
     // decoder.
     std::vector<uint8_t> dng_lossless_jpeg(const uint16_t *samples, uint32_t width, uint32_t height);
 
-    // The tone map's weights the DNG takes: bloom_strength and 2^exposure_ev while our tonemap pass draws the frame, and 1
-    // and 1 while the game's own tone map does.
+    // The tone map's weights the DNG takes: bloom_strength, 2^exposure_ev and the auto exposure's metered stops while our
+    // tonemap pass draws the frame, and 1, 1 and none while the game's own tone map does.
     struct DngGrade
     {
         float bloom_strength = 1;
         float exposure_scale = 1;
+        bool auto_exposure = false;     // the auto exposure's 1x1 target multiplies in by 2 to its power
     };
     DngGrade dng_grade(const TonemapSettings &settings, bool ours);
 

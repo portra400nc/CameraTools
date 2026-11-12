@@ -32,7 +32,7 @@ cbuffer Constants : register(b0)
     float bloom_strength;       // multiplies the game's bloom intensity
     float saturation;
     float contrast;
-    float padding2;
+    float auto_exposure;        // EnhancementsAutoExposure.strength, for exposure_adapt_ps.hlsl
     uint sun_cascades;          // the cascades the game uses, from SunShadowConstants in core/sun.h
     uint sun_columns;           // the atlas's grid of cascade tiles
     uint sun_rows;
@@ -62,7 +62,7 @@ cbuffer Constants : register(b0)
     float tone_shadows;         // EnhancementsTones.shadows
     float tone_highlights;      // EnhancementsTones.highlights
     float accum_gain;           // EnhancementsAccumulate.gain, for present_ps.hlsl
-    float padding3;
+    float auto_ease;            // the share of the way the auto exposure moves in this frame, 1 to jump
 };
 
 SamplerState point_clamp : register(s0);

@@ -1,11 +1,13 @@
 // The tonemap pass, drawn into a mirror of the game's tone map output in place of the game's draw, which the add-on
-// skips: the HDR scene plus the game's final bloom through the game's color matrix and exposure, then a curve, encoded as
-// the game encodes it, with luma in alpha and the game's dither. The pass after the tone map reads it as is.
+// skips: the HDR scene plus the game's final bloom through the game's color matrix and exposure, times the auto exposure's
+// metered stops when it runs, then a curve, encoded as the game encodes it, with luma in alpha and the game's dither. The
+// pass after the tone map reads it as is.
 #include "common.hlsli"
 
 Texture2D<float3> scene : register(t0);     // mirror of the game's HDR scene
 Texture2D<float3> bloom : register(t1);     // mirror of the game's final bloom, a quarter of the render size; unbound
                                             // when the tone map draw had none, so it adds nothing
+Texture2D<float> auto_ev : register(t2);    // exposure_adapt_ps.hlsl's stops; unbound, 0, while the auto exposure is off
 
 #include "grade.hlsli"
 
@@ -61,7 +63,7 @@ float4 main(float4 position : SV_Position, float2 uv : TEXCOORD0) : SV_Target0
 {
     Grade g = game_grade();
     float3 hdr = scene.Load(int3(position.xy, 0)) + bloom.SampleLevel(linear_clamp, uv, 0) * (g.bloom * bloom_strength);
-    float3 x = mul(hdr, g.color) * (g.exposure * exposure_scale);
+    float3 x = mul(hdr, g.color) * (g.exposure * exposure_scale * exp2(auto_ev.Load(int3(0, 0, 0))));
     x = max(lerp(dot(x, kLuma), x, saturation), 0);
     x = 0.18 * pow(x / 0.18, contrast);
     x *= tone_gain(dot(x, kLuma));

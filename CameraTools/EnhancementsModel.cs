@@ -16,7 +16,7 @@ namespace CameraTools
         LightShafts, LightShaftStrength, MistDensity, MistHeight, LightShaftGlowTowardSun, LightShaftDistance, MistPatchiness, MistPatchSize,
         MistSkyLight, LightShaftQuality,
         WetSurfaces, Wetness, WetDarkening, Puddles,
-        ToneMap, ToneMapCurve, ToneMapExposure, ToneMapBloom, ToneMapSaturation, ToneMapContrast, ToneMapShadows, ToneMapHighlights,
+        ToneMap, ToneMapCurve, ToneMapExposure, ToneMapAutoExposure, ToneMapBloom, ToneMapSaturation, ToneMapContrast, ToneMapShadows, ToneMapHighlights,
         LensFlare, LensFlareSource, LensFlareX, LensFlareY, LensFlareStrength, LensFlareArcs, LensFlareRainbow, LensFlareFilledArcs, LensFlareGhosts, LensFlareStreaks,
         LensFlareGlare, LensFlareSize, LensFlareWarmth, LensFlareRedFringe, LensFlareTexture,
         DepthOfField, DepthOfFieldFocusMode, DepthOfFieldFocusSpeed, DepthOfFieldFocusDistance, DepthOfFieldAperture, DepthOfFieldFocusX, DepthOfFieldFocusY, DepthOfFieldMaxBlur,
@@ -216,6 +216,7 @@ namespace CameraTools
             Switch(Enhancement.ToneMap, "Tone map"),
             Choice(Enhancement.ToneMapCurve, Enhancement.ToneMap, "Curve", 1, "Game", "AgX", "Neutral"),
             Slider(Enhancement.ToneMapExposure, Enhancement.ToneMap, "Exposure", -3f, 3f, 0f, 0.1f, 1, " EV"),
+            Slider(Enhancement.ToneMapAutoExposure, Enhancement.ToneMap, "Auto exposure", 0f, 100f, 0f, 10f, 0, "%"),
             Slider(Enhancement.ToneMapBloom, Enhancement.ToneMap, "Bloom", 0f, 2f, 1f, 0.05f, 2),
             Slider(Enhancement.ToneMapSaturation, Enhancement.ToneMap, "Saturation", 0f, 2f, 1f, 0.05f, 2),
             Slider(Enhancement.ToneMapContrast, Enhancement.ToneMap, "Contrast", 0.5f, 2f, 1f, 0.05f, 2),
@@ -306,6 +307,7 @@ namespace CameraTools
             settings.Tonemap.Enabled = Bit(Enhancement.ToneMap);
             settings.Tonemap.Curve = (EnhancementsCurve)(uint)values[Enhancement.ToneMapCurve];
             settings.Tonemap.ExposureEv = values[Enhancement.ToneMapExposure];
+            settings.AutoExposure.Strength = values[Enhancement.ToneMapAutoExposure] / 100f;
             settings.Tonemap.BloomStrength = values[Enhancement.ToneMapBloom];
             settings.Tonemap.Saturation = values[Enhancement.ToneMapSaturation];
             settings.Tonemap.Contrast = values[Enhancement.ToneMapContrast];

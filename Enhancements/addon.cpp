@@ -954,7 +954,7 @@ namespace enhancements
                             report.view == View::light_shafts);
                         break;
                     case PassId::tonemap:
-                        call = gpu.run_tonemap(map, settings.tonemap, grade.copied, grade.bloom);
+                        call = gpu.run_tonemap(map, settings.tonemap, grade.copied, grade.bloom, frame_seconds, frames);
                         break;
                     case PassId::depth_of_field:
                         switch (dof_at_bloom(settings.depth_of_field.place, accumulate.mode))

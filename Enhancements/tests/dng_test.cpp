@@ -332,6 +332,9 @@ int main(int argc, char **argv)
         const DngGrade game = dng_grade(ours, false), drawn = dng_grade(ours, true);
         check("the DNG takes the tone map's bloom strength and exposure while our tonemap pass draws, and 1 and 1 while the game's does",
             game.bloom_strength == 1 && game.exposure_scale == 1 && drawn.bloom_strength == 0.5f && drawn.exposure_scale == 0.25f);
+        check("and the auto exposure's metered stops only while our tonemap pass meters", !drawn.auto_exposure);
+        ours.auto_exposure = 0.6f;
+        check("which the game's tone map never does", dng_grade(ours, true).auto_exposure && !dng_grade(ours, false).auto_exposure);
     }
     {
         DngJob job;

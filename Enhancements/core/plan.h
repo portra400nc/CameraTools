@@ -71,6 +71,7 @@ namespace enhancements
         float contrast = 1.0f;
         float shadows = 0.0f;       // EnhancementsTones'
         float highlights = 0.0f;
+        float auto_exposure = 0.0f; // EnhancementsAutoExposure.strength
     };
 
     struct SunShadowSettings

@@ -402,8 +402,11 @@ namespace enhancements
         // The tonemap pass, at the game's tone map draw: mirror in the HDR scene and the final bloom; draw the tone mapped,
         // encoded image into a mirror of the game's output; copy it over the output, and skip the game's draw. grade says
         // whether copy_game_grade copied this draw's grade; without it the shader uses its own. bloom says whether the
-        // draw's shader adds the bloom. Empty when a texture of ours failed, and the game's draw then runs.
-        std::optional<GameCall> run_tonemap(const FrameMap &map, const TonemapSettings &settings, bool grade, bool bloom);
+        // draw's shader adds the bloom. With the auto exposure on, it first meters the scene, the main depth's sky left out,
+        // and eases the exposure's 1x1 target by frame_seconds' share, at once when frame is not the one after its last run.
+        // Empty when a texture of ours failed, and the game's draw then runs.
+        std::optional<GameCall> run_tonemap(const FrameMap &map, const TonemapSettings &settings, bool grade, bool bloom, float frame_seconds,
+            uint64_t frame);
 
         // The accumulator at the bloom step, in tick's order: clear empties sum_; add mirrors in the HDR scene and draws it
         // times the cat's-eye weight of lens, with the weight in alpha, additively into sum_; present draws sum.rgb / sum.a
@@ -506,7 +509,7 @@ namespace enhancements
             tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, character_light_ps_, character_shadow_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
             apply_gather_ps_, reflect_apply_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_, dof_soften_ps_, dof_behind_ps_,
             dof_sprite_ps_, dof_lift_ps_, dof_display_in_ps_, dof_display_out_ps_, dof_near_ps_, dof_near_mask_ps_, dof_near_fill_ps_, flare_visibility_ps_, flare_ps_,
-            dng_ps_, dng_flare_ps_;
+            dng_ps_, dng_flare_ps_, exposure_meter_ps_, exposure_adapt_ps_;
         ComPtr<ID3D11SamplerState> point_, linear_, lit_compare_, wrap_;
         ComPtr<ID3D11Texture3D> lattice_;                   // noise_lattice(), R8_UNORM
         ComPtr<ID3D11ShaderResourceView> lattice_srv_;
@@ -561,6 +564,11 @@ namespace enhancements
         ComPtr<ID3D11Texture2D> depth_texel_;   // 1x1 R32G8X24_TYPELESS, CPU-readable
         bool depth_texel_pending_ = false;      // copied and not yet read
         Snapshot pending_, shown_;
+        Scratch exposure_meter_;    // 64x32 R32G32_FLOAT with mips: the auto exposure's log2 luminance sums and counts
+        Scratch exposure_[2];       // 1x1 R32_FLOAT: the auto exposure's stops, this frame's and the last's in turn
+        uint32_t exposure_at_ = 0;  // the one this frame writes
+        uint64_t exposure_frame_ = 0;   // the frame after the auto exposure last ran, 0 before it did
+        bool exposure_kept_ = false;    // exposure_[exposure_at_ ^ 1] holds this frame's stops, for a DNG
         Scratch dof_focus_[2];      // 1x1 R32G32_FLOAT: the focus distance in meters and the frame's mean luminance, this frame's and the last's in turn
         uint32_t dof_focus_at_ = 0; // the one this frame writes
         uint32_t dof_focus_kept_ = 0;   // the one the last bloom step wrote, which the display place reads
