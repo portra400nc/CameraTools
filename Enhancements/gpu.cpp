@@ -1338,8 +1338,16 @@ namespace enhancements
             settings.detail, settings.sun, settings.ambient, settings.wind_direction, settings.steps, static_cast<uint32_t>(settings.shape), cloud_history_[0].texture() };
         const bool continues = cloud_frame_ + 1 == frame && look == cloud_look_;
         constants.cloud_phase = static_cast<float>(std::fmod(static_cast<double>(frame) * 0.6180339887, 1.0));
-        // Each frame marches one pixel of every 2x2 block of the half-size history, in turn, at a quarter of the size.
-        constants.cloud_blend = continues ? 0.3f : 1.0f;
+        // Each frame marches one pixel of every 2x2 block of the half-size history, in turn, at a quarter of the size. While
+        // the camera and the clouds hold still, as for a shot, the history averages ever more frames, down to 3% each, so
+        // edges that a march finds or misses by its offset settle; any movement takes it back to 30%.
+        const bool still = continues && std::memcmp(cloud_prev_world_to_view_, camera.world_to_view, sizeof cloud_prev_world_to_view_) == 0
+            && std::memcmp(cloud_prev_view_to_clip_, camera.view_to_clip, sizeof cloud_prev_view_to_clip_) == 0
+            && cloud_prev_wind_[0] == wind[0] && cloud_prev_wind_[1] == wind[1];
+        cloud_still_ = still ? cloud_still_ + 1 : 0;
+        cloud_prev_wind_[0] = wind[0];
+        cloud_prev_wind_[1] = wind[1];
+        constants.cloud_blend = !continues ? 1.0f : std::max(0.3f / (1.0f + static_cast<float>(cloud_still_) / 16.0f), 0.03f);
         constants.cloud_block = static_cast<float>(frame & 3);
         std::memcpy(constants.cloud_prev_world_to_view, continues ? cloud_prev_world_to_view_ : camera.world_to_view, sizeof constants.cloud_prev_world_to_view);
         std::memcpy(constants.cloud_prev_view_to_clip, continues ? cloud_prev_view_to_clip_ : camera.view_to_clip, sizeof constants.cloud_prev_view_to_clip);

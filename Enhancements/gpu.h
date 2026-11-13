@@ -588,6 +588,8 @@ namespace enhancements
         Scratch cloud_history_[2];  // the same averaged over frames, last frame's and this frame's in turn
         uint32_t cloud_history_at_ = 0;     // the one holding last frame's
         uint64_t cloud_frame_ = 0;          // the frame the history was last written
+        uint32_t cloud_still_ = 0;          // frames in a row that the camera and the clouds held still
+        float cloud_prev_wind_[2] = {};
         float cloud_prev_world_to_view_[16] = {}, cloud_prev_view_to_clip_[16] = {};
         // What the clouds look like, apart from the drift: a change starts the history again.
         struct CloudLook

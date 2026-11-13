@@ -177,7 +177,10 @@ float4 main(float4 position : SV_Position) : SV_Target0
     float budget = (t1 - t0) / (cloud_steps * 0.5);
     float fine = clamp(budget * 0.12, 10, 60);
     detail_weight = saturate(3 * cloud_size * kDetailTile / 32 / fine);
-    float jitter = frac(52.9829189 * frac(dot(pixel, float2(0.06711056, 0.00583715))) + cloud_phase);
+    // A random offset for each pixel and frame: a patterned one left its pattern, diagonal stripes, wherever the march
+    // found or missed an edge by it.
+    int seed = int(cloud_phase * 65536);
+    float jitter = (cloud_hash(int2(pixel) + int2(seed * 7919, seed * 104729)).x & 0xffffu) / 65535.0;
 
     float3 l = cloud_toward_sun;
     float c = dot(dir, l);
