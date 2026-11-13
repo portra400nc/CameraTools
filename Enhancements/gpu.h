@@ -577,11 +577,11 @@ namespace enhancements
         {
             ID3D11Texture2D *texture = nullptr;
             float center[2] = {};
-            float extent = 0, coverage = 0, size = 0, stretch = 0, wind_direction = 0;
+            float extent = 0, coverage = 0, size = 0, stretch = 0, wind_direction = 0, shape = 0;
             bool operator==(const CloudMapKey &o) const
             {
                 return texture == o.texture && center[0] == o.center[0] && center[1] == o.center[1] && extent == o.extent && coverage == o.coverage
-                    && size == o.size && stretch == o.stretch && wind_direction == o.wind_direction;
+                    && size == o.size && stretch == o.stretch && wind_direction == o.wind_direction && shape == o.shape;
             }
         } cloud_map_key_;
         Scratch cloud_rays_;        // half size, R16G16B16A16_FLOAT: rgb the clouds' in-scatter, a their transmittance

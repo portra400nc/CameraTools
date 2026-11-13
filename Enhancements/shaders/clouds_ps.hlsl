@@ -17,17 +17,9 @@ static const float kDetailTile = 0.8;
 
 float remap(float x, float a, float b, float c, float d) { return c + (x - a) / (b - a) * (d - c); }
 
-static const float kStreak = 8;       // how far a streak's noise is drawn out along the wind
+static const float kFiber = 48;       // how far a cirrus fiber is drawn out along the wind
 static float2 skew_direction;
 static float detail_weight = 1;
-
-// Where the 3D noise is read for a point of cloud space at height y: streaks read it drawn out along the wind.
-float3 noise_point(float2 c, float y)
-{
-    if (cloud_shape < 0.5)
-        return float3(c.x, y, c.y);
-    return float3(dot(c, skew_direction) / kStreak, y, dot(c, float2(-skew_direction.y, skew_direction.x)));
-}
 
 // Without the detail: the cloud body at p, 0 to 1, and the height in the layer and the weather there.
 float cloud_body(float3 p, out float h, out float weather)
@@ -41,17 +33,15 @@ float cloud_body(float3 p, out float h, out float weather)
     weather = cloud_map.SampleLevel(linear_clamp, (c - cloud_map_center) / cloud_map_extent + 0.5, 0);
     if (weather <= 0.01)
         return 0;
-    float4 n = shape_noise.SampleLevel(linear_wrap, noise_point(c, p.y) / (cloud_size * kShapeTile), 0);
+    // Cirrus is its strokes, thinning out above and below; the fibers come with the detail.
+    if (cloud_shape >= 0.5)
+        return weather * smoothstep(0, 0.3, h) * smoothstep(1, 0.6, h);
+    float4 n = shape_noise.SampleLevel(linear_wrap, float3(c.x, p.y, c.y) / (cloud_size * kShapeTile), 0);
     float erosion = n.g * 0.625 + n.b * 0.25 + n.a * 0.125;
     float body = saturate(remap(n.r, erosion - 1, 1, 0, 1));
-    // Heaps have flat bases and tops that reach higher where the weather is heavier; streaks thin out above and below.
-    if (cloud_shape < 0.5)
-    {
-        float top = lerp(0.3, 1, weather);
-        body *= smoothstep(0, 0.07, h) * smoothstep(top, top * 0.45, h);
-    }
-    else
-        body *= smoothstep(0, 0.3, h) * smoothstep(1, 0.6, h);
+    // Flat bases, and tops that reach higher where the weather is heavier.
+    float top = lerp(0.3, 1, weather);
+    body *= smoothstep(0, 0.07, h) * smoothstep(top, top * 0.45, h);
     // Even under full weather the noise must carve the body, or the clouds turn into extruded slabs of the map.
     float coverage = weather * lerp(0.3, 0.8, cloud_coverage);
     return saturate(remap(body, 1 - coverage, 1, 0, 1));
@@ -64,7 +54,17 @@ float cloud_extinction(float3 p, out float h)
     if (body <= 0)
         return 0;
     float2 c = p.xz + cloud_wind + skew_direction * h * cloud_thickness * 0.5;
-    float3 d = detail_noise.SampleLevel(linear_wrap, noise_point(c, p.y) / (cloud_size * kDetailTile), 0).rgb;
+    if (cloud_shape >= 0.5)
+    {
+        // Fine fibers along the strokes' bent lines; Edge detail sets how clear they stand out, and where a step is
+        // longer than they are wide they average out.
+        float2 uv = cloud_wind_space(c);
+        float3 f = detail_noise.SampleLevel(linear_wrap, float3(uv.x / kFiber, p.y, cirrus_bent(uv)) / (cloud_size * kDetailTile), 0).rgb;
+        float fibers = pow(saturate((f.r * 0.625 + f.g * 0.25 + f.b * 0.125 - 0.4) / 0.22), 1.5);
+        fibers = lerp(0.45, fibers, detail_weight);
+        return body * lerp(lerp(0.6, 0.12, cloud_detail), 1, fibers) * cloud_density;
+    }
+    float3 d = detail_noise.SampleLevel(linear_wrap, float3(c.x, p.y, c.y) / (cloud_size * kDetailTile), 0).rgb;
     float fine = d.r * 0.625 + d.g * 0.25 + d.b * 0.125;
     // Wispy at the base, billowing toward the top.
     fine = lerp(fine, 1 - fine, saturate(h * 4));
@@ -82,6 +82,9 @@ float cloud_extinction_coarse(float3 p)
 // nearest sees the detail.
 float depth_toward_light(float3 p, float3 l)
 {
+    // Cirrus is too thin to shade itself much: one sample across half the layer stands in for the five.
+    if (cloud_shape >= 0.5)
+        return cloud_extinction_coarse(p) * cloud_thickness * 0.5 / max(l.y, 0.2);
     float depth = 0, from = 0, at = cloud_thickness * 0.05;
     [unroll] for (int j = 0; j < 5; j++)
     {

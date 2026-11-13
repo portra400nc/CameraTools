@@ -214,16 +214,16 @@ Check("the table holds 94 fields, each at its own id's place, with the master sw
     var cloudOn = EnhancementsModel.Edit(EnhancementsModel.Edit(cloudFresh, Enhancement.Enabled, 1f), Enhancement.Clouds, 1f);
     var cloudCirrus = EnhancementsModel.Edit(cloudOn, Enhancement.CloudType, 5f);
     var cloudStreaks = EnhancementsModel.Settings(cloudCirrus, cloudLens).Clouds;
-    Check("Cirrus sets the shape rows and runs streaks 8000 m up, stretched 6 times along the wind",
-        cloudStreaks is { Enabled: 1, Coverage: 0.4f, Base: 8000f, Thickness: 300f, Size: 800f, Density: 0.01f, Detail: 1f, Stretch: 6f, Shape: EnhancementsCloudShape.Streaks }
+    Check("Cirrus sets the shape rows and runs streaks 8000 m up, stretched 4 times along the wind",
+        cloudStreaks is { Enabled: 1, Coverage: 0.65f, Base: 8000f, Thickness: 300f, Size: 800f, Density: 0.004f, Detail: 1f, Stretch: 4f, Shape: EnhancementsCloudShape.Streaks }
         && EnhancementsModel.CloudsRun(cloudCirrus) && !EnhancementsModel.CloudsRun(EnhancementsModel.Edit(cloudCirrus, Enhancement.Enabled, 0f)));
     var cloudCustom = EnhancementsModel.Edit(cloudCirrus, Enhancement.CloudHeight, 9000f);
     Check("moving a shape row makes Type Custom and keeps the last type's streaks",
-        (int)cloudCustom[Enhancement.CloudType] == EnhancementsModel.CustomClouds && EnhancementsModel.Settings(cloudCustom, cloudLens).Clouds is { Base: 9000f, Stretch: 6f, Shape: EnhancementsCloudShape.Streaks }
+        (int)cloudCustom[Enhancement.CloudType] == EnhancementsModel.CustomClouds && EnhancementsModel.Settings(cloudCustom, cloudLens).Clouds is { Base: 9000f, Stretch: 4f, Shape: EnhancementsCloudShape.Streaks }
         && EnhancementsModel.Detail(EnhancementsModel.Field(Enhancement.CloudType), cloudCustom) == "Your own shape");
     var cloudStratus = EnhancementsModel.Edit(cloudCustom, Enhancement.CloudType, 2f);
     Check("Stratus after Custom sets its own rows and heaps again",
-        EnhancementsModel.Settings(cloudStratus, cloudLens).Clouds is { Coverage: 0.95f, Base: 1000f, Size: 1000f, Detail: 0.3f, Shape: EnhancementsCloudShape.Heaps }
+        EnhancementsModel.Settings(cloudStratus, cloudLens).Clouds is { Coverage: 0.88f, Base: 1000f, Size: 1000f, Detail: 0.5f, Shape: EnhancementsCloudShape.Heaps }
         && (int)cloudStratus[Enhancement.CloudType] == 2);
     Check("moving Sunlight or Wind leaves Type as it is",
         (int)EnhancementsModel.Edit(cloudStratus, Enhancement.CloudSunlight, 3f)[Enhancement.CloudType] == 2 && (int)EnhancementsModel.Edit(cloudStratus, Enhancement.CloudWind, 20f)[Enhancement.CloudType] == 2);

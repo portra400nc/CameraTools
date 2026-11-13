@@ -183,10 +183,10 @@ namespace CameraTools
         {
             new("Altocumulus", "Small puffs in high rows", 55f, 3000f, 600f, 250f, 0.04f, 0.8f, 1.5f, EnhancementsCloudShape.Heaps),
             new("Stratocumulus", "A low sheet with blue gaps", 75f, 1800f, 700f, 500f, 0.04f, 0.8f, 1.3f, EnhancementsCloudShape.Heaps),
-            new("Stratus", "A flat grey layer over the whole sky", 95f, 1000f, 400f, 1000f, 0.06f, 0.3f, 1.3f, EnhancementsCloudShape.Heaps),
+            new("Stratus", "A flat grey layer over the whole sky", 88f, 1000f, 400f, 1000f, 0.08f, 0.5f, 1.3f, EnhancementsCloudShape.Heaps),
             new("Cumulus", "Tall heaps on a clear day", 50f, 1500f, 1500f, 400f, 0.04f, 0.8f, 1f, EnhancementsCloudShape.Heaps),
             new("High patches", "Thin patches far up", 45f, 4500f, 400f, 200f, 0.03f, 0.9f, 2.5f, EnhancementsCloudShape.Heaps),
-            new("Cirrus", "Thin streaks of ice very high up", 40f, 8000f, 300f, 800f, 0.01f, 1f, 6f, EnhancementsCloudShape.Streaks),
+            new("Cirrus", "Thin streaks of ice very high up", 65f, 8000f, 300f, 800f, 0.004f, 1f, 4f, EnhancementsCloudShape.Streaks),
         };
         // Type's last option, the user's own shape.
         public static readonly int CustomClouds = CloudKinds.Length;
@@ -238,7 +238,7 @@ namespace CameraTools
             Slider(Enhancement.CloudHeight, Enhancement.Clouds, "Height", 500f, 10000f, CloudKinds[0].Height, 100f, 0, " m"),
             Slider(Enhancement.CloudThickness, Enhancement.Clouds, "Thickness", 100f, 3000f, CloudKinds[0].Thickness, 50f, 0, " m"),
             Slider(Enhancement.CloudSize, Enhancement.Clouds, "Cloud size", 100f, 1000f, CloudKinds[0].Size, 10f, 0, " m"),
-            Slider(Enhancement.CloudDensity, Enhancement.Clouds, "Density", 0.01f, 0.15f, CloudKinds[0].Density, 0.01f, 2),
+            Slider(Enhancement.CloudDensity, Enhancement.Clouds, "Density", 0.002f, 0.15f, CloudKinds[0].Density, 0.002f, 3),
             Slider(Enhancement.CloudEdgeDetail, Enhancement.Clouds, "Edge detail", 0f, 1f, CloudKinds[0].EdgeDetail, 0.05f, 2),
             Slider(Enhancement.CloudSunlight, Enhancement.Clouds, "Sunlight", 0f, 8f, 4f, 0.05f, 2),
             Slider(Enhancement.CloudSkyLight, Enhancement.Clouds, "Sky light", 0f, 2f, 1f, 0.05f, 2),
