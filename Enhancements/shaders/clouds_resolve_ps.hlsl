@@ -33,6 +33,10 @@ float4 main(float4 position : SV_Position) : SV_Target0
 
     float3 view = view_position(uv, 1);
     float3 world = mul(normalize(view), (float3x3)world_to_view);
+    // The clouds drifted: last frame, what lies in this direction lay upwind, at the layer's middle.
+    float mid = cloud_base + cloud_thickness * 0.5 - cloud_camera_height;
+    float reach = abs(world.y) > 0.01 && mid * world.y > 0 ? min(mid / world.y, cloud_map_extent * 0.35) : cloud_map_extent * 0.35;
+    world = normalize(world * reach + float3(cloud_wind_step.x, 0, cloud_wind_step.y));
     float3 before = mul((float3x3)cloud_prev_world_to_view, world);
     float4 clip = mul(cloud_prev_view_to_clip, float4(before * 1000, 1));
     if (clip.w <= 0)

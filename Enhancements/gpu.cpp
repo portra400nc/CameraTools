@@ -100,8 +100,11 @@ namespace enhancements
         float cloud_blend;
         float cloud_block;
         float cloud_shape;          // CloudShape as a number
+        float cloud_wind_step[2];   // meters the clouds drifted since last frame
+        float cloud_camera_height;
+        float cloud_pad4;
     };
-    static_assert(sizeof(Constants) == 720 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
+    static_assert(sizeof(Constants) == 736 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
         && offsetof(Constants, cloud_toward_sun) == 560 && offsetof(Constants, tone_shadows) == 480 && offsetof(Constants, accum_gain) == 488 && offsetof(Constants, flare_sun_uv) == 456 && offsetof(Constants, wetness) == 408 && offsetof(Constants, shafts_anisotropy) == 432 && offsetof(Constants, label) == 272 && offsetof(Constants, sun_color) == 304
         && offsetof(Constants, sky_color) == 320 && offsetof(Constants, bloom_strength) == 352 && offsetof(Constants, sun_cascades) == 368
@@ -1339,12 +1342,15 @@ namespace enhancements
         const bool continues = cloud_frame_ + 1 == frame && look == cloud_look_;
         constants.cloud_phase = static_cast<float>(std::fmod(static_cast<double>(frame) * 0.6180339887, 1.0));
         // Each frame marches one pixel of every 2x2 block of the half-size history, in turn, at a quarter of the size. While
-        // the camera and the clouds hold still, as for a shot, the history averages ever more frames, down to 3% each, so
-        // edges that a march finds or misses by its offset settle; any movement takes it back to 30%.
+        // the camera holds still, as for a shot, the history averages ever more frames, down to 3% each, so edges that a
+        // march finds or misses by its offset settle; a camera move takes it back to 30%. The resolve follows the clouds'
+        // drift, so the wind needs no reset.
         const bool still = continues && std::memcmp(cloud_prev_world_to_view_, camera.world_to_view, sizeof cloud_prev_world_to_view_) == 0
-            && std::memcmp(cloud_prev_view_to_clip_, camera.view_to_clip, sizeof cloud_prev_view_to_clip_) == 0
-            && cloud_prev_wind_[0] == wind[0] && cloud_prev_wind_[1] == wind[1];
+            && std::memcmp(cloud_prev_view_to_clip_, camera.view_to_clip, sizeof cloud_prev_view_to_clip_) == 0;
         cloud_still_ = still ? cloud_still_ + 1 : 0;
+        constants.cloud_wind_step[0] = continues ? wind[0] - cloud_prev_wind_[0] : 0.0f;
+        constants.cloud_wind_step[1] = continues ? wind[1] - cloud_prev_wind_[1] : 0.0f;
+        constants.cloud_camera_height = sun.camera[1];
         cloud_prev_wind_[0] = wind[0];
         cloud_prev_wind_[1] = wind[1];
         constants.cloud_blend = !continues ? 1.0f : std::max(0.3f / (1.0f + static_cast<float>(cloud_still_) / 16.0f), 0.03f);
