@@ -7,12 +7,15 @@
 
 Texture2D<float> cloud_map : register(t5);
 
+// How fast a cloud's edge goes from clear to its full density: steeper gives crisper outlines.
+static const float kEdge = 2.5;
+
 float cloud_shape(float3 p, out float h)
 {
     h = saturate((p.y - cloud_base) / cloud_thickness);
     float2 uv = (p.xz + cloud_wind - cloud_map_center) / cloud_map_extent + 0.5;
     float d = cloud_map.SampleLevel(linear_clamp, uv, 0);
-    return d - (2 * h - 1) * (2 * h - 1) * 0.6;
+    return d - (2 * h - 1) * (2 * h - 1) * 0.3;
 }
 
 // Extinction per meter at p, with the fine noise eroding the edges.
@@ -21,10 +24,10 @@ float cloud_extinction(float3 p, out float h)
     float dome = cloud_shape(p, h);
     if (dome <= 0 || p.y < cloud_base || p.y > cloud_base + cloud_thickness)
         return 0;
-    float f = cloud_size * 0.12;
-    float detail = cloud_fbm(float3(p.x + cloud_wind.x, p.y, p.z + cloud_wind.y) / f, 2);
-    dome -= cloud_detail * (1 - detail) * (1 - saturate(dome)) * 0.6;
-    return pow(saturate(dome), 1.2) * cloud_density;
+    float f = cloud_size * 0.07;
+    float detail = cloud_fbm(float3(p.x + cloud_wind.x, p.y, p.z + cloud_wind.y) / f, 3);
+    dome -= cloud_detail * (1 - detail) * (1 - saturate(dome)) * 0.9;
+    return pow(saturate(dome * kEdge), 1.2) * cloud_density;
 }
 
 // The same without the fine noise, for the march toward the light.
@@ -34,7 +37,7 @@ float cloud_extinction_coarse(float3 p)
     float dome = cloud_shape(p, h);
     if (p.y < cloud_base || p.y > cloud_base + cloud_thickness)
         return 0;
-    return pow(saturate(dome), 1.2) * cloud_density;
+    return pow(saturate(dome * kEdge), 1.2) * cloud_density;
 }
 
 float4 main(float4 position : SV_Position) : SV_Target0
@@ -70,15 +73,14 @@ float4 main(float4 position : SV_Position) : SV_Target0
             depth_to_light += cloud_extinction_coarse(p + l * (light_length * (j + 0.5) / 4)) * light_length / 4;
         // Multiple scattering after Wrenninge: each octave lets more light through, scatters less and more evenly.
         float lit = 0, a = 1, b = 1, g = 1;
-        [unroll] for (int k = 0; k < 3; k++)
+        [unroll] for (int k = 0; k < 4; k++)
         {
-            lit += b * (0.6 * henyey_greenstein(c, 0.7 * g) + 0.4 * henyey_greenstein(c, -0.2 * g)) * exp(-depth_to_light * a);
-            a *= 0.3;
-            b *= 0.45;
-            g *= 0.5;
+            lit += b * (0.5 * henyey_greenstein(c, 0.8 * g) + 0.5 * henyey_greenstein(c, -0.15 * g)) * exp(-depth_to_light * a);
+            a *= 0.25;
+            b *= 0.55;
+            g *= 0.6;
         }
-        float powder = 1 - exp(-sigma * 2 * dt);
-        float3 light = sun * lit * (0.5 + 0.5 * powder) + sky * (0.12 + 0.88 * pow(h, 0.7));
+        float3 light = sun * lit + sky * (0.2 + 0.8 * pow(h, 0.7));
         float through = exp(-sigma * dt);
         inscatter += transmittance * (1 - through) * light;
         transmittance *= through;

@@ -48,7 +48,7 @@ namespace enhancements
         float thickness = 400.0f;
         float size = 380.0f;
         float stretch = 1.5f;
-        float density = 0.035f;
+        float density = 0.06f;
         float detail = 0.8f;
         float wind_speed = 8.0f;
         float wind_direction = 30.0f;

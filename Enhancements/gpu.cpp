@@ -1255,7 +1255,7 @@ namespace enhancements
     std::optional<GameCall> Gpu::run_clouds(const FrameMap &map, const CloudSettings &settings, const Camera &camera, const SunShadowConstants &sun,
         const float wind[2], bool flip)
     {
-        constexpr uint32_t kCloudMapSize = 1024;    // kCloudMapSize in shaders/clouds.hlsli
+        constexpr uint32_t kCloudMapSize = 2048;    // kCloudMapSize in shaders/clouds.hlsli
         const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
         const auto scene_format = static_cast<DXGI_FORMAT>(scene.format);
         const Size half = { (map.render.width + 1) / 2, (map.render.height + 1) / 2 };
@@ -1279,14 +1279,17 @@ namespace enhancements
         constants.cloud_pad = settings.wind_direction;
         constants.cloud_wind[0] = wind[0];
         constants.cloud_wind[1] = wind[1];
-        // Eight texels a cell, centered on the camera in cloud space and snapped to whole texels so the map's texels do
-        // not swim as the camera moves.
-        constants.cloud_map_extent = settings.size * kCloudMapSize / 8;
-        constants.cloud_fade = constants.cloud_map_extent * 0.2f;
-        const float texel = constants.cloud_map_extent / kCloudMapSize;
+        // The map reaches the rays that leave the layer's base about 3 degrees above the horizon, at 8 to 16 texels a cell,
+        // in quarter octaves so the map is baked again only when the layer or the camera's height moves it far. Its center
+        // moves in steps of 64 texels, and the fade has fallen to e^-2.8 at its edge.
+        const float above = std::max(settings.base - sun.camera[1], settings.thickness);
+        const float wanted = std::clamp(40.0f * above, settings.size * kCloudMapSize / 16, settings.size * kCloudMapSize / 8);
+        constants.cloud_map_extent = std::exp2(std::round(std::log2(wanted) * 4) / 4);
+        constants.cloud_fade = constants.cloud_map_extent * 0.18f;
+        const float step = constants.cloud_map_extent / kCloudMapSize * 64;
         const float camera_x = sun.camera[0], camera_z = sun.camera[2];
-        constants.cloud_map_center[0] = std::floor((camera_x + wind[0]) / texel) * texel;
-        constants.cloud_map_center[1] = std::floor((camera_z + wind[1]) / texel) * texel;
+        constants.cloud_map_center[0] = std::round((camera_x + wind[0]) / step) * step;
+        constants.cloud_map_center[1] = std::round((camera_z + wind[1]) / step) * step;
         const bool sky_sun_up = camera.toward_sky_sun[1] > 0;
         for (int k = 0; k < 3; k++)
             constants.cloud_toward_sun[k] = sky_sun_up ? camera.toward_sky_sun[k] : camera.toward_sun[k];
@@ -1295,8 +1298,14 @@ namespace enhancements
         ID3D11DeviceContext1 *c = context_.Get();
         scene_in_.copy_from(c, native(scene));
         depth_.copy_from(c, native(depth));
-        ID3D11ShaderResourceView *const bake[] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, lattice_srv_.Get() };
-        draw_fullscreen(cloud_map_ps_.Get(), bake, 7, cloud_map_.rtv(), { kCloudMapSize, kCloudMapSize });
+        const CloudMapKey key = { cloud_map_.texture(), { constants.cloud_map_center[0], constants.cloud_map_center[1] }, constants.cloud_map_extent,
+            settings.coverage, settings.size, settings.stretch, settings.wind_direction };
+        if (!(key == cloud_map_key_))
+        {
+            ID3D11ShaderResourceView *const bake[] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, lattice_srv_.Get() };
+            draw_fullscreen(cloud_map_ps_.Get(), bake, 7, cloud_map_.rtv(), { kCloudMapSize, kCloudMapSize });
+            cloud_map_key_ = key;
+        }
         ID3D11Buffer *const game[] = { game_sun_[0].Get(), game_sun_[1].Get(), game_sun_[2].Get(), game_sun_[3].Get() };
         c->PSSetConstantBuffers(1, 4, game);
         ID3D11ShaderResourceView *const march[] = { nullptr, nullptr, depth_.srv(), nullptr, nullptr, cloud_map_.srv(), lattice_srv_.Get() };

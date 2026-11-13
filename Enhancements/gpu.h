@@ -567,6 +567,18 @@ namespace enhancements
         Scratch shafts_meters_;     // half size, R16_FLOAT: the meters each ray marched
         Scratch shafts_view_;       // R16G16B16A16_FLOAT: the mist's in-scatter at full size, for the light-shafts view
         Scratch cloud_map_;         // kCloudMapSize square, R16_FLOAT: the cloud cells around the camera
+        // What cloud_map_ was last baked for; the bake runs again only when any of it changes.
+        struct CloudMapKey
+        {
+            ID3D11Texture2D *texture = nullptr;
+            float center[2] = {};
+            float extent = 0, coverage = 0, size = 0, stretch = 0, wind_direction = 0;
+            bool operator==(const CloudMapKey &o) const
+            {
+                return texture == o.texture && center[0] == o.center[0] && center[1] == o.center[1] && extent == o.extent && coverage == o.coverage
+                    && size == o.size && stretch == o.stretch && wind_direction == o.wind_direction;
+            }
+        } cloud_map_key_;
         Scratch cloud_rays_;        // half size, R16G16B16A16_FLOAT: rgb the clouds' in-scatter, a their transmittance
         Scratch trace_view_;        // R8G8B8A8_UNORM: the trace's averages, for the trace view
         // R16G16B16A16_FLOAT: the gather's averages (the bounce and the far term; the sky met and the occlusion), the

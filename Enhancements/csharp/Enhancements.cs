@@ -346,7 +346,7 @@ namespace CameraToolsEnhancements
             Sky = new EnhancementsSky { Physical = 0, Haze = 0.1f },
             Clouds = new EnhancementsClouds
             {
-                Enabled = 0, Coverage = 0.5f, Base = 2500, Thickness = 400, Size = 380, Stretch = 1.5f, Density = 0.035f, Detail = 0.8f,
+                Enabled = 0, Coverage = 0.5f, Base = 2500, Thickness = 400, Size = 380, Stretch = 1.5f, Density = 0.06f, Detail = 0.8f,
                 WindSpeed = 8, WindDirection = 30, Sun = 1, Ambient = 1, Steps = 16,
             },
         };
