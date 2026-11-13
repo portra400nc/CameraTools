@@ -334,7 +334,7 @@ namespace enhancements
         // with the game's camera constants gather_sun copied, and lay the result over the sky's pixels. wind is the meters
         // the clouds drifted. Empty when gather_sun copied nothing this frame or a texture of ours failed.
         std::optional<GameCall> run_clouds(const FrameMap &map, const CloudSettings &settings, const Camera &camera, const SunShadowConstants &sun,
-            const float wind[2], bool flip);
+            const float wind[2], uint64_t frame, bool flip);
         // A traced shot's lights added to the HDR scene behind their traced visibility; run_trace mirrored what it reads this frame.
         std::optional<GameCall> run_traced_lights(const FrameMap &map, const Camera &camera, bool flip, TraceGpu &trace);
         // The normals, albedo and material ids the character light pass reads at bloom, copied at the combine step while they
@@ -514,7 +514,7 @@ namespace enhancements
         ComPtr<ID3D11DeviceContext1> context_;
         ComPtr<ID3D11VertexShader> fullscreen_vs_, dof_sprite_vs_;
         ComPtr<ID3D11ComputeShader> dof_scatter_cs_;
-        ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_, cloud_map_ps_, clouds_ps_, clouds_apply_ps_,
+        ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_, cloud_map_ps_, clouds_ps_, clouds_apply_ps_, clouds_resolve_ps_,
             tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, character_light_ps_, character_shadow_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
             apply_gather_ps_, reflect_apply_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_, dof_soften_ps_, dof_behind_ps_,
             dof_sprite_ps_, dof_lift_ps_, dof_display_in_ps_, dof_display_out_ps_, dof_near_ps_, dof_near_mask_ps_, dof_near_fill_ps_, flare_visibility_ps_, flare_ps_,
@@ -580,6 +580,22 @@ namespace enhancements
             }
         } cloud_map_key_;
         Scratch cloud_rays_;        // half size, R16G16B16A16_FLOAT: rgb the clouds' in-scatter, a their transmittance
+        Scratch cloud_history_[2];  // the same averaged over frames, last frame's and this frame's in turn
+        uint32_t cloud_history_at_ = 0;     // the one holding last frame's
+        uint64_t cloud_frame_ = 0;          // the frame the history was last written
+        float cloud_prev_world_to_view_[16] = {}, cloud_prev_view_to_clip_[16] = {};
+        // What the clouds look like, apart from the drift: a change starts the history again.
+        struct CloudLook
+        {
+            float coverage = 0, base = 0, thickness = 0, size = 0, stretch = 0, density = 0, detail = 0, sun = 0, ambient = 0, wind_direction = 0;
+            uint32_t steps = 0;
+            ID3D11Texture2D *texture = nullptr;
+            bool operator==(const CloudLook &o) const
+            {
+                return coverage == o.coverage && base == o.base && thickness == o.thickness && size == o.size && stretch == o.stretch && density == o.density
+                    && detail == o.detail && sun == o.sun && ambient == o.ambient && wind_direction == o.wind_direction && steps == o.steps && texture == o.texture;
+            }
+        } cloud_look_;
         Scratch trace_view_;        // R8G8B8A8_UNORM: the trace's averages, for the trace view
         // R16G16B16A16_FLOAT: the gather's averages (the bounce and the far term; the sky met and the occlusion), the
         // filter's other pair, and the gather views' picture.

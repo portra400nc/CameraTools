@@ -94,8 +94,14 @@ namespace enhancements
         uint32_t cloud_steps;
         float cloud_toward_sun[3];
         float cloud_pad;
+        float cloud_prev_world_to_view[16];
+        float cloud_prev_view_to_clip[16];
+        float cloud_phase;
+        float cloud_blend;
+        float cloud_pad2[2];
     };
-    static_assert(sizeof(Constants) == 576 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
+    static_assert(sizeof(Constants) == 720 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
+        && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
         && offsetof(Constants, cloud_toward_sun) == 560 && offsetof(Constants, tone_shadows) == 480 && offsetof(Constants, accum_gain) == 488 && offsetof(Constants, flare_sun_uv) == 456 && offsetof(Constants, wetness) == 408 && offsetof(Constants, shafts_anisotropy) == 432 && offsetof(Constants, label) == 272 && offsetof(Constants, sun_color) == 304
         && offsetof(Constants, sky_color) == 320 && offsetof(Constants, bloom_strength) == 352 && offsetof(Constants, sun_cascades) == 368
         && offsetof(Constants, lens_sample) == 392, "Constants must match common.hlsli");
@@ -659,6 +665,7 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kCloudMapPs, sizeof kCloudMapPs, nullptr, &made.cloud_map_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCloudsPs, sizeof kCloudsPs, nullptr, &made.clouds_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCloudsApplyPs, sizeof kCloudsApplyPs, nullptr, &made.clouds_apply_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kCloudsResolvePs, sizeof kCloudsResolvePs, nullptr, &made.clouds_resolve_ps_))
             && SUCCEEDED(device->CreatePixelShader(kTonemapPs, sizeof kTonemapPs, nullptr, &made.tonemap_ps_))
             && SUCCEEDED(device->CreatePixelShader(kExposureMeterPs, sizeof kExposureMeterPs, nullptr, &made.exposure_meter_ps_))
             && SUCCEEDED(device->CreatePixelShader(kExposureAdaptPs, sizeof kExposureAdaptPs, nullptr, &made.exposure_adapt_ps_))
@@ -1253,7 +1260,7 @@ namespace enhancements
     }
 
     std::optional<GameCall> Gpu::run_clouds(const FrameMap &map, const CloudSettings &settings, const Camera &camera, const SunShadowConstants &sun,
-        const float wind[2], bool flip)
+        const float wind[2], uint64_t frame, bool flip)
     {
         constexpr uint32_t kCloudMapSize = 2048;    // kCloudMapSize in shaders/clouds.hlsli
         const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
@@ -1264,6 +1271,7 @@ namespace enhancements
         if (!sun_ready_ || !scene_in_.sync(d, native(scene), scene_format, false) || !scene_out_.sync(d, native(scene), scene_format, true)
             || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false)
             || !cloud_map_.sync(d, { kCloudMapSize, kCloudMapSize }, DXGI_FORMAT_R16_FLOAT) || !cloud_rays_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT)
+            || !cloud_history_[0].sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT) || !cloud_history_[1].sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT)
             || !pass_constants(camera, map.render, flip, constants))
             return std::nullopt;
         constants.cloud_coverage = settings.coverage;
@@ -1290,6 +1298,20 @@ namespace enhancements
         const float camera_x = sun.camera[0], camera_z = sun.camera[2];
         constants.cloud_map_center[0] = std::round((camera_x + wind[0]) / step) * step;
         constants.cloud_map_center[1] = std::round((camera_z + wind[1]) / step) * step;
+        // The march's sample offsets turn by the golden ratio each frame, and the history follows the camera's turn and keeps
+        // 90% of what it had, so the offsets' pattern averages away within a few dozen frames. It starts again whenever the
+        // clouds' look changed or a frame was missed.
+        const CloudLook look = { settings.coverage, settings.base, settings.thickness, settings.size, settings.stretch, settings.density,
+            settings.detail, settings.sun, settings.ambient, settings.wind_direction, settings.steps, cloud_history_[0].texture() };
+        const bool continues = cloud_frame_ + 1 == frame && look == cloud_look_;
+        constants.cloud_phase = static_cast<float>(std::fmod(static_cast<double>(frame) * 0.6180339887, 1.0));
+        constants.cloud_blend = continues ? 0.1f : 1.0f;
+        std::memcpy(constants.cloud_prev_world_to_view, continues ? cloud_prev_world_to_view_ : camera.world_to_view, sizeof constants.cloud_prev_world_to_view);
+        std::memcpy(constants.cloud_prev_view_to_clip, continues ? cloud_prev_view_to_clip_ : camera.view_to_clip, sizeof constants.cloud_prev_view_to_clip);
+        std::memcpy(cloud_prev_world_to_view_, camera.world_to_view, sizeof cloud_prev_world_to_view_);
+        std::memcpy(cloud_prev_view_to_clip_, camera.view_to_clip, sizeof cloud_prev_view_to_clip_);
+        cloud_frame_ = frame;
+        cloud_look_ = look;
         const bool sky_sun_up = camera.toward_sky_sun[1] > 0;
         for (int k = 0; k < 3; k++)
             constants.cloud_toward_sun[k] = sky_sun_up ? camera.toward_sky_sun[k] : camera.toward_sun[k];
@@ -1310,7 +1332,11 @@ namespace enhancements
         c->PSSetConstantBuffers(1, 4, game);
         ID3D11ShaderResourceView *const march[] = { nullptr, nullptr, depth_.srv(), nullptr, nullptr, cloud_map_.srv(), lattice_srv_.Get() };
         draw_fullscreen(clouds_ps_.Get(), march, 7, cloud_rays_.rtv(), half);
-        ID3D11ShaderResourceView *const apply[] = { scene_in_.srv(), nullptr, depth_.srv(), nullptr, nullptr, cloud_rays_.srv() };
+        Scratch &old = cloud_history_[cloud_history_at_], &now = cloud_history_[cloud_history_at_ ^ 1];
+        cloud_history_at_ ^= 1;
+        ID3D11ShaderResourceView *const resolve[] = { nullptr, nullptr, nullptr, nullptr, nullptr, cloud_rays_.srv(), old.srv() };
+        draw_fullscreen(clouds_resolve_ps_.Get(), resolve, 7, now.rtv(), half);
+        ID3D11ShaderResourceView *const apply[] = { scene_in_.srv(), nullptr, depth_.srv(), nullptr, nullptr, now.srv() };
         draw_fullscreen(clouds_apply_ps_.Get(), apply, 6, scene_out_.rtv(), map.render);
         scene_out_.copy_to(c, native(scene));
         return GameCall::keep;

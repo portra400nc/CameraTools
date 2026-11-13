@@ -18,6 +18,9 @@ float cloud_shape(float3 p, out float h)
     return d - (2 * h - 1) * (2 * h - 1) * 0.3;
 }
 
+// The fine noise's weight: it fades where the march's samples lie too far apart to resolve it, at low angles.
+static float detail_weight = 1;
+
 // Extinction per meter at p, with the fine noise eroding the edges.
 float cloud_extinction(float3 p, out float h)
 {
@@ -26,7 +29,7 @@ float cloud_extinction(float3 p, out float h)
         return 0;
     float f = cloud_size * 0.07;
     float detail = cloud_fbm(float3(p.x + cloud_wind.x, p.y, p.z + cloud_wind.y) / f, 3);
-    dome -= cloud_detail * (1 - detail) * (1 - saturate(dome)) * 0.9;
+    dome -= cloud_detail * detail_weight * (1 - detail) * (1 - saturate(dome)) * 0.9;
     return pow(saturate(dome * kEdge), 1.2) * cloud_density;
 }
 
@@ -51,7 +54,8 @@ float4 main(float4 position : SV_Position) : SV_Target0
     float t0 = max((cloud_base - origin.y) / dir.y, 0);
     float t1 = min((top - origin.y) / dir.y, t0 + cloud_thickness * 6);
     float dt = (t1 - t0) / cloud_steps;
-    float jitter = frac(52.9829189 * frac(dot(position.xy, float2(0.06711056, 0.00583715))));
+    detail_weight = saturate(3 * cloud_size * 0.07 / dt);
+    float jitter = frac(52.9829189 * frac(dot(position.xy, float2(0.06711056, 0.00583715))) + cloud_phase);
 
     float3 l = cloud_toward_sun;
     float c = dot(dir, l);

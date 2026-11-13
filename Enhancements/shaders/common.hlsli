@@ -79,6 +79,11 @@ cbuffer Constants : register(b0)
     uint cloud_steps;
     float3 cloud_toward_sun;    // the sky's sun while it is up, the main light otherwise
     float cloud_pad;
+    float4x4 cloud_prev_world_to_view;  // last frame's camera, for the cloud history's reprojection
+    float4x4 cloud_prev_view_to_clip;
+    float cloud_phase;          // 0 to 1, the march's sample offset this frame
+    float cloud_blend;          // the share of this frame in the cloud history, 1 to start it again
+    float2 cloud_pad2;
 };
 
 SamplerState point_clamp : register(s0);

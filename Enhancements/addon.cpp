@@ -1042,7 +1042,7 @@ namespace enhancements
                         const float radians = settings.clouds.wind_direction * 0.01745329f, step = settings.clouds.wind_speed * frame_seconds;
                         cloud_wind[0] = std::fmod(cloud_wind[0] + std::cos(radians) * step, 1.0e5f);
                         cloud_wind[1] = std::fmod(cloud_wind[1] + std::sin(radians) * step, 1.0e5f);
-                        call = gpu.run_clouds(map, settings.clouds, sky_camera(), sun_parse.constants, cloud_wind, settings.flip);
+                        call = gpu.run_clouds(map, settings.clouds, sky_camera(), sun_parse.constants, cloud_wind, frames, settings.flip);
                         break;
                     }
                     case PassId::traced_lights:
