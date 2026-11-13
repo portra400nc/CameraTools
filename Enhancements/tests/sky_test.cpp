@@ -132,12 +132,17 @@ int main()
     check("a caller built before the block keeps the game's sky", !parse_settings(raw).sky.enabled && parse_settings(raw).gather.sky != GatherSky::map);
 
     raw.size = sizeof raw;
-    raw.clouds = { 1, 2.0f, 3000, 1, 5, 9, -1, 0.5f, 10, 45, 2, 0.5f, 200 };
+    raw.clouds = { 1, 2.0f, 3000, 1, 5, 9, -1, 0.5f, 10, 45, 2, 0.5f, 200, 1 };
     const CloudSettings clouds = parse_settings(raw).clouds;
-    check("the clouds read their block and clamp it: coverage to 1, thickness to 10 m, size to 20 m, stretch to 6, density to 0, steps to 64",
+    check("the clouds read their block and clamp it: coverage to 1, thickness to 10 m, size to 20 m, stretch to 6, density to 0, steps to 64, streaks kept",
         clouds.enabled && clouds.coverage == 1 && clouds.base == 3000 && clouds.thickness == 10 && clouds.size == 20 && clouds.stretch == 6
             && clouds.density == 0 && clouds.detail == 0.5f && clouds.wind_speed == 10 && clouds.wind_direction == 45 && clouds.sun == 2
-            && clouds.ambient == 0.5f && clouds.steps == 64 && kPasses[7].id == PassId::clouds && kPasses[7].wanted(parse_settings(raw)));
+            && clouds.ambient == 0.5f && clouds.steps == 64 && clouds.shape == CloudShape::streaks && kPasses[7].id == PassId::clouds && kPasses[7].wanted(parse_settings(raw)));
+    raw.clouds.shape = 7;
+    check("an unknown shape reads as heaps", parse_settings(raw).clouds.shape == CloudShape::heaps);
+    raw.clouds.shape = 1;
+    raw.size = offsetof(EnhancementsSettings, clouds) + offsetof(EnhancementsClouds, shape);
+    check("a caller built before the shape draws heaps", parse_settings(raw).clouds.enabled && parse_settings(raw).clouds.shape == CloudShape::heaps);
     raw.size = offsetof(EnhancementsSettings, clouds);
     check("a caller built before the clouds draws none", !parse_settings(raw).clouds.enabled && parse_settings(raw).clouds.coverage == 0.5f);
     return failures == 0 ? 0 : 1;

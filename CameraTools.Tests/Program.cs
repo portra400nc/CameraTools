@@ -48,7 +48,7 @@ Check("the binding's shot is 40 bytes with its strength at 16, its outputs at 20
     && Marshal.SizeOf<EnhancementsCharacterLights>() == 296 && Offset<EnhancementsCharacterLights>(nameof(EnhancementsCharacterLights.Count)) == 36
     && Offset<EnhancementsCharacterLights>(nameof(EnhancementsCharacterLights.Lights)) == 40
     && Offset<EnhancementsShot>(nameof(EnhancementsShot.BudgetMs)) == 12 && Offset<EnhancementsShot>(nameof(EnhancementsShot.Outputs)) == 20
-    && Offset<EnhancementsShot>(nameof(EnhancementsShot.Strength)) == 16 && Marshal.SizeOf<EnhancementsSettings>() == 480
+    && Offset<EnhancementsShot>(nameof(EnhancementsShot.Strength)) == 16 && Marshal.SizeOf<EnhancementsSettings>() == 484
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.AmbientColor)) == 400 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Tones)) == 404
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.LensSoftness)) == 412 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.AutoExposure)) == 416 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Sky)) == 420
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.LensFlare)) == 332 && Marshal.SizeOf<EnhancementsLensFlare>() == 68

@@ -51,8 +51,8 @@ namespace enhancements
         static_assert(ENHANCEMENTS_ERROR_STATE == 4);
         // Callers built before foliage_ao_strength send 32 bytes, those before contact shadows 36, those before their
         // foliage_strength 52, those before atmosphere 56, those before tonemap 76, those before sun shadows 100, those
-        // before light shafts 132, those before the trace 172, those before the gather 212, those before the depth of field 236, those before its highlights 304, those before its scatter 312, those before its bokeh contrast 316, those before its place 320, those before its eye 324, those before the lens flare 332, those before the ambient color 400, those before the tones 404, those before the lens softness 412, those before the auto exposure 416, those before the sky 420, those before the clouds 428. Version 6 dropped the leaves blocks, which moved wetness from 128 to 116, so a binding of
-        // version 5 must not call EnhancementsApply; csharp/Enhancements.cs checks the version and marshals 480.
+        // before light shafts 132, those before the trace 172, those before the gather 212, those before the depth of field 236, those before its highlights 304, those before its scatter 312, those before its bokeh contrast 316, those before its place 320, those before its eye 324, those before the lens flare 332, those before the ambient color 400, those before the tones 404, those before the lens softness 412, those before the auto exposure 416, those before the sky 420, those before the clouds 428, those before their shape 480. Version 6 dropped the leaves blocks, which moved wetness from 128 to 116, so a binding of
+        // version 5 must not call EnhancementsApply; csharp/Enhancements.cs checks the version and marshals 484.
         static_assert(offsetof(EnhancementsSettings, ambient) + offsetof(EnhancementsAmbient, foliage_ao_strength) == 32
             && offsetof(EnhancementsSettings, contact_shadows) == 36
             && offsetof(EnhancementsSettings, contact_shadows) + offsetof(EnhancementsContactShadows, foliage_strength) == 52
@@ -65,7 +65,9 @@ namespace enhancements
             && offsetof(EnhancementsSettings, lens_flare) == 332
             && offsetof(EnhancementsSettings, ambient_color) == 400 && offsetof(EnhancementsSettings, tones) == 404
             && offsetof(EnhancementsSettings, lens_softness) == 412 && offsetof(EnhancementsSettings, auto_exposure) == 416
-            && offsetof(EnhancementsSettings, sky) == 420 && offsetof(EnhancementsSettings, clouds) == 428 && sizeof(EnhancementsSettings) == 480);
+            && offsetof(EnhancementsSettings, sky) == 420 && offsetof(EnhancementsSettings, clouds) == 428 && sizeof(EnhancementsSettings) == 484);
+        static_assert(ENHANCEMENTS_CLOUD_SHAPE_STREAKS == static_cast<int>(CloudShape::streaks)
+            && ENHANCEMENTS_CLOUD_SHAPE_COUNT == static_cast<int>(CloudShape::count));
         static_assert(ENHANCEMENTS_FLARE_SOURCE_MANUAL == static_cast<int>(FlareSource::manual)
             && ENHANCEMENTS_FLARE_SOURCE_COUNT == static_cast<int>(FlareSource::count));
         static_assert(ENHANCEMENTS_FLARE_PLACE_DISPLAY == static_cast<int>(FlarePlace::display)
@@ -468,7 +470,7 @@ namespace enhancements
             if (s.sky.enabled)
                 s.gather.sky = GatherSky::map;
         }
-        if (knows(offsetof(EnhancementsSettings, clouds), sizeof raw.clouds))
+        if (knows(offsetof(EnhancementsSettings, clouds), offsetof(EnhancementsClouds, shape)))
         {
             const CloudSettings d;
             const EnhancementsClouds &c = raw.clouds;
@@ -485,6 +487,8 @@ namespace enhancements
             s.clouds.sun = finite_or(c.sun, d.sun, 0.0f, 20.0f);
             s.clouds.ambient = finite_or(c.ambient, d.ambient, 0.0f, 20.0f);
             s.clouds.steps = std::clamp<uint32_t>(c.steps, 8, 64);
+            if (knows(offsetof(EnhancementsSettings, clouds) + offsetof(EnhancementsClouds, shape), sizeof c.shape))
+                s.clouds.shape = c.shape < static_cast<uint32_t>(CloudShape::count) ? static_cast<CloudShape>(c.shape) : CloudShape::heaps;
         }
         return s;
     }

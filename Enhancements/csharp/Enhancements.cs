@@ -267,7 +267,11 @@ namespace CameraToolsEnhancements
         public float Sun;                   // multiplies the main light on the clouds
         public float Ambient;               // multiplies the sky light on the clouds
         public uint Steps;                  // march samples per ray, 8 to 64
+        public EnhancementsCloudShape Shape;
     }
+
+    // ENHANCEMENTS_CLOUD_SHAPE_* in enhancements.h, in order.
+    internal enum EnhancementsCloudShape : uint { Heaps, Streaks }
 
     // EnhancementsSettings in enhancements.h, field for field.
     [StructLayout(LayoutKind.Sequential)]

@@ -99,7 +99,7 @@ namespace enhancements
         float cloud_phase;
         float cloud_blend;
         float cloud_block;
-        float cloud_pad3;
+        float cloud_shape;          // CloudShape as a number
     };
     static_assert(sizeof(Constants) == 720 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
@@ -1317,6 +1317,7 @@ namespace enhancements
         constants.cloud_ambient = settings.ambient;
         constants.cloud_steps = settings.steps;
         constants.cloud_pad = settings.wind_direction;
+        constants.cloud_shape = static_cast<float>(settings.shape);
         constants.cloud_wind[0] = wind[0];
         constants.cloud_wind[1] = wind[1];
         // The map reaches the rays that leave the layer's base about 3 degrees above the horizon, at 8 to 16 texels a cell,
@@ -1334,7 +1335,7 @@ namespace enhancements
         // 90% of what it had, so the offsets' pattern averages away within a few dozen frames. It starts again whenever the
         // clouds' look changed or a frame was missed.
         const CloudLook look = { settings.coverage, settings.base, settings.thickness, settings.size, settings.stretch, settings.density,
-            settings.detail, settings.sun, settings.ambient, settings.wind_direction, settings.steps, cloud_history_[0].texture() };
+            settings.detail, settings.sun, settings.ambient, settings.wind_direction, settings.steps, static_cast<uint32_t>(settings.shape), cloud_history_[0].texture() };
         const bool continues = cloud_frame_ + 1 == frame && look == cloud_look_;
         constants.cloud_phase = static_cast<float>(std::fmod(static_cast<double>(frame) * 0.6180339887, 1.0));
         // Each frame marches one pixel of every 2x2 block of the half-size history, in turn, at a quarter of the size.

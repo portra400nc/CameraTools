@@ -510,6 +510,14 @@ typedef struct EnhancementsSky
     float haze;                 // the aerosols' optical depth straight up: 0.1 (the default) a clear day; clamped to 0..0.5
 } EnhancementsSky;
 
+// The clouds' shape, values of EnhancementsClouds.shape.
+enum
+{
+    ENHANCEMENTS_CLOUD_SHAPE_HEAPS = 0,    // puffs, sheets and heaps with flat bases
+    ENHANCEMENTS_CLOUD_SHAPE_STREAKS,      // thin fibers drawn out along the wind, as cirrus
+    ENHANCEMENTS_CLOUD_SHAPE_COUNT,
+};
+
 // Clouds: a layer of our own over the sky's pixels (depth 0), marched through a slab between two world heights and lit
 // by the main light and the sky color. The caller hides the game's own clouds. Version 31 added it.
 typedef struct EnhancementsClouds
@@ -527,6 +535,7 @@ typedef struct EnhancementsClouds
     float sun;                  // multiplies the main light on the clouds (default 1)
     float ambient;              // multiplies the sky light on the clouds (default 1)
     uint32_t steps;             // march samples per ray, 8 to 64 (default 16)
+    uint32_t shape;             // ENHANCEMENTS_CLOUD_SHAPE_*; unknown values read as HEAPS, the default
 } EnhancementsClouds;
 
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller

@@ -593,12 +593,12 @@ namespace enhancements
         struct CloudLook
         {
             float coverage = 0, base = 0, thickness = 0, size = 0, stretch = 0, density = 0, detail = 0, sun = 0, ambient = 0, wind_direction = 0;
-            uint32_t steps = 0;
+            uint32_t steps = 0, shape = 0;
             ID3D11Texture2D *texture = nullptr;
             bool operator==(const CloudLook &o) const
             {
                 return coverage == o.coverage && base == o.base && thickness == o.thickness && size == o.size && stretch == o.stretch && density == o.density
-                    && detail == o.detail && sun == o.sun && ambient == o.ambient && wind_direction == o.wind_direction && steps == o.steps && texture == o.texture;
+                    && detail == o.detail && sun == o.sun && ambient == o.ambient && wind_direction == o.wind_direction && steps == o.steps && shape == o.shape && texture == o.texture;
             }
         } cloud_look_;
         Scratch trace_view_;        // R8G8B8A8_UNORM: the trace's averages, for the trace view
