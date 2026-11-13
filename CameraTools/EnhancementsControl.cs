@@ -105,6 +105,7 @@ namespace CameraTools
         public static void Update()
         {
             GameFlare.Update(Enhancements.Connected && EnhancementsModel.FlareRuns(Running));
+            GameClouds.Update(Enhancements.Connected && EnhancementsModel.CloudsRun(Running));
             var now = DepthOfField.Frame;
             if (connections != Enhancements.Connections)
             {
@@ -143,7 +144,7 @@ namespace CameraTools
             return true;
         }
 
-        private static void Change(Enhancement id, float value) => Set(Values.With(id, value));
+        private static void Change(Enhancement id, float value) => Set(EnhancementsModel.Edit(Values, id, value));
 
         // Every switch and value of the category back to its default: everything off. The depth of field has no row here
         // and stays.

@@ -472,13 +472,13 @@ namespace CameraTools
 
         // What the add-on's depth of field block is made for: it runs in the free camera, its sensor follows the
         // picture's shape and the miniature scale, a screenshot gathers more samples and, past its countdown, blurs after
-        // ReShade's effects, and Eyes focuses on the iris it found.
+        // ReShade's effects, and Eyes focuses on the iris it found. The clouds' wind follows the game's speed.
         public static LensView Frame => new(freecamActive, Aspect, Miniature, Screenshot.State switch
         {
             ShotState.Idle => ShotStage.None,
             ShotState.Countdown => ShotStage.Countdown,
             _ => ShotStage.Capture,
-        }, FocusEyes.Target);
+        }, FocusEyes.Target, Time.timeScale);
 
         private static string Problem => Ours ? Enhancements.Missing
             : !ReShade.Connected ? ReShade.Missing

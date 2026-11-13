@@ -199,10 +199,44 @@ var fresh = EnhancementValues.Defaults;
 var outside = new LensView(false, 1.6f, 1, ShotStage.None);
 var inside = new LensView(true, 1.6f, 1, ShotStage.None);
 EnhancementsSettings Settings(EnhancementValues values) => EnhancementsModel.Settings(values, outside);
-Check("the table holds 80 fields, each at its own id's place, with the master switch and eight effects' switches, and 21 of the depth of field",
-    EnhancementsModel.Fields.Length == 80 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
+Check("the table holds 94 fields, each at its own id's place, with the master switch and nine effects' switches, and 21 of the depth of field",
+    EnhancementsModel.Fields.Length == 94 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
     && EnhancementsModel.Fields.Count(field => field.Lens) == 21
-    && string.Join(",", EnhancementsModel.Effects.Select(field => field.Label)) == "Ambient light,Contact shadows,Soft sun shadows,Haze,Light shafts,Wet surfaces,Tone map,Lens flare");
+    && string.Join(",", EnhancementsModel.Effects.Select(field => field.Label)) == "Ambient light,Contact shadows,Soft sun shadows,Haze,Clouds,Light shafts,Wet surfaces,Tone map,Lens flare");
+{
+    var cloudLens = new LensView(false, 1.6f, 1, ShotStage.None);
+    var cloudFresh = EnhancementValues.Defaults;
+    var cloudOff = EnhancementsModel.Settings(cloudFresh, cloudLens).Clouds;
+    Check("the clouds are off by default, as Altocumulus at sunlight 2, sky light 1, wind 8 m/s toward 30 degrees and 48 steps",
+        cloudOff is { Enabled: 0, Coverage: 0.55f, Base: 3000f, Thickness: 600f, Size: 250f, Stretch: 1.5f, Density: 0.04f, Detail: 0.8f, Sun: 2f, Ambient: 1f,
+            WindSpeed: 8f, WindDirection: 30f, Steps: 48, Shape: EnhancementsCloudShape.Heaps }
+        && EnhancementsModel.Detail(EnhancementsModel.Field(Enhancement.CloudType), cloudFresh) == "Small puffs in high rows");
+    var cloudOn = EnhancementsModel.Edit(EnhancementsModel.Edit(cloudFresh, Enhancement.Enabled, 1f), Enhancement.Clouds, 1f);
+    var cloudCirrus = EnhancementsModel.Edit(cloudOn, Enhancement.CloudType, 5f);
+    var cloudStreaks = EnhancementsModel.Settings(cloudCirrus, cloudLens).Clouds;
+    Check("Cirrus sets the shape rows and runs streaks 8000 m up, stretched 6 times along the wind",
+        cloudStreaks is { Enabled: 1, Coverage: 0.4f, Base: 8000f, Thickness: 300f, Size: 800f, Density: 0.01f, Detail: 1f, Stretch: 6f, Shape: EnhancementsCloudShape.Streaks }
+        && EnhancementsModel.CloudsRun(cloudCirrus) && !EnhancementsModel.CloudsRun(EnhancementsModel.Edit(cloudCirrus, Enhancement.Enabled, 0f)));
+    var cloudCustom = EnhancementsModel.Edit(cloudCirrus, Enhancement.CloudHeight, 9000f);
+    Check("moving a shape row makes Type Custom and keeps the last type's streaks",
+        (int)cloudCustom[Enhancement.CloudType] == EnhancementsModel.CustomClouds && EnhancementsModel.Settings(cloudCustom, cloudLens).Clouds is { Base: 9000f, Stretch: 6f, Shape: EnhancementsCloudShape.Streaks }
+        && EnhancementsModel.Detail(EnhancementsModel.Field(Enhancement.CloudType), cloudCustom) == "Your own shape");
+    var cloudStratus = EnhancementsModel.Edit(cloudCustom, Enhancement.CloudType, 2f);
+    Check("Stratus after Custom sets its own rows and heaps again",
+        EnhancementsModel.Settings(cloudStratus, cloudLens).Clouds is { Coverage: 0.95f, Base: 1000f, Size: 1000f, Detail: 0.3f, Shape: EnhancementsCloudShape.Heaps }
+        && (int)cloudStratus[Enhancement.CloudType] == 2);
+    Check("moving Sunlight or Wind leaves Type as it is",
+        (int)EnhancementsModel.Edit(cloudStratus, Enhancement.CloudSunlight, 3f)[Enhancement.CloudType] == 2 && (int)EnhancementsModel.Edit(cloudStratus, Enhancement.CloudWind, 20f)[Enhancement.CloudType] == 2);
+    Check("the wind stops while the game is paused and halves at half speed",
+        EnhancementsModel.Settings(cloudOn, cloudLens with { GameSpeed = 0f }).Clouds.WindSpeed == 0f && EnhancementsModel.Settings(cloudOn, cloudLens with { GameSpeed = 0.5f }).Clouds.WindSpeed == 4f);
+    Check("Quality Low and High march 32 and 64 steps",
+        EnhancementsModel.Settings(cloudOn.With(Enhancement.CloudQuality, 0f), cloudLens).Clouds.Steps == 32 && EnhancementsModel.Settings(cloudOn.With(Enhancement.CloudQuality, 2f), cloudLens).Clouds.Steps == 64);
+    Check("the clouds' rows show under their switch, and the last type never shows",
+        EnhancementsModel.Shown(EnhancementsModel.Field(Enhancement.CloudCoverage), cloudOn, false) && !EnhancementsModel.Shown(EnhancementsModel.Field(Enhancement.CloudCoverage), cloudFresh, false)
+        && !EnhancementsModel.Shown(EnhancementsModel.Field(Enhancement.CloudKind), cloudOn, false));
+    Check("the depth of field alone draws no clouds",
+        EnhancementsModel.Settings(cloudOn.With(Enhancement.Enabled, 0f).With(Enhancement.DepthOfField, 1f), cloudLens with { FreeCamera = true }).Clouds.Enabled == 0);
+}
 {
     var off = Settings(fresh);
     Check("everything is off by default, the add-on's master switch too, and the path tracer has no part",

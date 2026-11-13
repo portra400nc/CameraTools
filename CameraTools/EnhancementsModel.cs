@@ -13,6 +13,8 @@ namespace CameraTools
         ContactShadows, ContactShadowLength, ContactShadowStrength, ContactShadowFoliage,
         SoftSunShadows, SunShadowSoftness, SunShadowStrength,
         Haze, HazeDensity, HazeHeightFalloff, HazeSunGlow, HazeGlowTowardSun,
+        Clouds, CloudType, CloudCoverage, CloudHeight, CloudThickness, CloudSize, CloudDensity, CloudEdgeDetail, CloudSunlight, CloudSkyLight,
+        CloudWind, CloudWindDirection, CloudQuality, CloudKind,
         LightShafts, LightShaftStrength, MistDensity, MistHeight, LightShaftGlowTowardSun, LightShaftDistance, MistPatchiness, MistPatchSize,
         MistSkyLight, LightShaftQuality,
         WetSurfaces, Wetness, WetDarkening, Puddles,
@@ -36,7 +38,7 @@ namespace CameraTools
     {
         public string Name => Id.ToString();
 
-        // One of the eight effects' switches.
+        // One of the nine effects' switches.
         public bool IsEffect => Kind == EnhancementKind.Switch && Effect == Enhancement.Enabled && Id != Enhancement.Enabled;
 
         // One of the depth of field's, whose rows are in the ReShade tab.
@@ -150,8 +152,14 @@ namespace CameraTools
     // picture's width over its height, which gives the sensor; the miniature scale's N, which makes the sensor N times
     // taller; the screenshot's stage: a screenshot gathers more samples, and while it captures, the add-on blurs after
     // the ReShade effects that read the depth buffer, so RTGI and the like light the sharp frame and the shot has the blur;
-    // and the iris that Eyes focuses on, null while the focus point stands in for it.
-    internal readonly record struct LensView(bool FreeCamera, float Aspect, int Miniature, ShotStage Shot, EyeSight? Eye = null);
+    // the iris that Eyes focuses on, null while the focus point stands in for it; and the game's speed, which the clouds'
+    // wind follows, so they stand still while the game is paused.
+    internal readonly record struct LensView(bool FreeCamera, float Aspect, int Miniature, ShotStage Shot, EyeSight? Eye = null, float GameSpeed = 1f);
+
+    // One of Clouds' Types: its row's name and line, the shape rows it sets, and the stretch and shape it gives the add-on,
+    // which have no rows. Custom keeps the stretch and shape of the last type picked.
+    internal readonly record struct CloudKind(string Name, string Detail, float Coverage, float Height, float Thickness, float Size, float Density,
+        float EdgeDetail, float Stretch, EnhancementsCloudShape Shape);
 
     // The Enhancements category's rules, apart from the game, the preferences and the add-on, so tests run them.
     internal static class EnhancementsModel
@@ -170,6 +178,26 @@ namespace CameraTools
         private const uint FewestBlades = 5;
         // Light shafts' Quality: Low, Medium and High as samples along each ray.
         private static readonly uint[] ShaftSteps = { 24, 48, 96 };
+        // Clouds' Types, in the row's order before Custom.
+        public static readonly CloudKind[] CloudKinds =
+        {
+            new("Altocumulus", "Small puffs in high rows", 55f, 3000f, 600f, 250f, 0.04f, 0.8f, 1.5f, EnhancementsCloudShape.Heaps),
+            new("Stratocumulus", "A low sheet with blue gaps", 75f, 1800f, 700f, 500f, 0.04f, 0.8f, 1.3f, EnhancementsCloudShape.Heaps),
+            new("Stratus", "A flat grey layer over the whole sky", 95f, 1000f, 400f, 1000f, 0.06f, 0.3f, 1.3f, EnhancementsCloudShape.Heaps),
+            new("Cumulus", "Tall heaps on a clear day", 50f, 1500f, 1500f, 400f, 0.04f, 0.8f, 1f, EnhancementsCloudShape.Heaps),
+            new("High patches", "Thin patches far up", 45f, 4500f, 400f, 200f, 0.03f, 0.9f, 2.5f, EnhancementsCloudShape.Heaps),
+            new("Cirrus", "Thin streaks of ice very high up", 40f, 8000f, 300f, 800f, 0.01f, 1f, 6f, EnhancementsCloudShape.Streaks),
+        };
+        // Type's last option, the user's own shape.
+        public static readonly int CustomClouds = CloudKinds.Length;
+        // The rows a Type sets, and that make it Custom when moved.
+        private static readonly Enhancement[] CloudShapeRows =
+        {
+            Enhancement.CloudCoverage, Enhancement.CloudHeight, Enhancement.CloudThickness, Enhancement.CloudSize, Enhancement.CloudDensity, Enhancement.CloudEdgeDetail,
+        };
+        // Clouds' Quality: Low, Medium and High as march samples along each ray.
+        private static readonly uint[] CloudSteps = { 32, 48, 64 };
+        private static readonly string[] CloudTypeOptions = CloudKinds.Select(kind => kind.Name).Append("Custom").ToArray();
         // Wet surfaces' Wetness: 0 follows the weather, and 1 is soaked.
         private static readonly float[] WetnessLevels = { 0f, 0.25f, 0.5f, 0.75f, 1f };
         // The lens flare's Source: the sun disc the sky draws, or a light at Position X and Y.
@@ -204,6 +232,20 @@ namespace CameraTools
             Slider(Enhancement.HazeHeightFalloff, Enhancement.Haze, "Thins with height", 0f, 0.2f, 0.02f, 0.005f, 3),
             Slider(Enhancement.HazeSunGlow, Enhancement.Haze, "Sun glow", 0f, 10f, 1f, 0.1f, 1),
             Slider(Enhancement.HazeGlowTowardSun, Enhancement.Haze, "Glow toward the sun", 0f, 0.95f, 0.7f, 0.05f, 2),
+            Switch(Enhancement.Clouds, "Clouds"),
+            Choice(Enhancement.CloudType, Enhancement.Clouds, "Type", 0, CloudTypeOptions),
+            Slider(Enhancement.CloudCoverage, Enhancement.Clouds, "Coverage", 0f, 100f, CloudKinds[0].Coverage, 5f, 0, "%"),
+            Slider(Enhancement.CloudHeight, Enhancement.Clouds, "Height", 500f, 10000f, CloudKinds[0].Height, 100f, 0, " m"),
+            Slider(Enhancement.CloudThickness, Enhancement.Clouds, "Thickness", 100f, 3000f, CloudKinds[0].Thickness, 50f, 0, " m"),
+            Slider(Enhancement.CloudSize, Enhancement.Clouds, "Cloud size", 100f, 1000f, CloudKinds[0].Size, 10f, 0, " m"),
+            Slider(Enhancement.CloudDensity, Enhancement.Clouds, "Density", 0.01f, 0.15f, CloudKinds[0].Density, 0.01f, 2),
+            Slider(Enhancement.CloudEdgeDetail, Enhancement.Clouds, "Edge detail", 0f, 1f, CloudKinds[0].EdgeDetail, 0.05f, 2),
+            Slider(Enhancement.CloudSunlight, Enhancement.Clouds, "Sunlight", 0f, 4f, 2f, 0.05f, 2),
+            Slider(Enhancement.CloudSkyLight, Enhancement.Clouds, "Sky light", 0f, 2f, 1f, 0.05f, 2),
+            Slider(Enhancement.CloudWind, Enhancement.Clouds, "Wind", 0f, 30f, 8f, 1f, 0, " m/s"),
+            Slider(Enhancement.CloudWindDirection, Enhancement.Clouds, "Wind direction", 0f, 355f, 30f, 5f, 0, "°"),
+            Choice(Enhancement.CloudQuality, Enhancement.Clouds, "Quality", 1, "Low", "Medium", "High"),
+            Choice(Enhancement.CloudKind, Enhancement.Clouds, "Last type", 0, CloudKinds.Select(kind => kind.Name).ToArray()),
             Switch(Enhancement.LightShafts, "Light shafts"),
             Slider(Enhancement.LightShaftStrength, Enhancement.LightShafts, "Strength", 0f, 10f, 3f, 0.1f, 1),
             Slider(Enhancement.MistDensity, Enhancement.LightShafts, "Mist density", 0f, 0.05f, 0.006f, 0.001f, 3),
@@ -297,6 +339,7 @@ namespace CameraTools
             settings.Atmosphere.HeightFalloff = values[Enhancement.HazeHeightFalloff];
             settings.Atmosphere.SunScatter = values[Enhancement.HazeSunGlow];
             settings.Atmosphere.Anisotropy = values[Enhancement.HazeGlowTowardSun];
+            settings.Clouds = Clouds(values, lens.GameSpeed);
             settings.LightShafts.Enabled = Bit(Enhancement.LightShafts);
             settings.LightShafts.Strength = values[Enhancement.LightShaftStrength];
             settings.LightShafts.Density = values[Enhancement.MistDensity];
@@ -334,12 +377,54 @@ namespace CameraTools
                 settings.ContactShadows.Enabled = 0;
                 settings.SunShadows.Enabled = 0;
                 settings.Atmosphere.Enabled = 0;
+                settings.Clouds.Enabled = 0;
                 settings.LightShafts.Enabled = 0;
                 settings.Wetness.Enabled = 0;
                 settings.Tonemap.Enabled = 0;
                 settings.LensFlare.Enabled = 0;
             }
             return settings;
+        }
+
+        // The clouds' block. Coverage is a percentage, and the wind blows at the game's speed.
+        public static EnhancementsClouds Clouds(EnhancementValues values, float gameSpeed)
+        {
+            var kind = CloudKinds[(int)values[Enhancement.CloudKind]];
+            var clouds = EnhancementsSettings.Defaults.Clouds;
+            clouds.Enabled = values.On(Enhancement.Clouds) ? 1u : 0u;
+            clouds.Coverage = values[Enhancement.CloudCoverage] / 100f;
+            clouds.Base = values[Enhancement.CloudHeight];
+            clouds.Thickness = values[Enhancement.CloudThickness];
+            clouds.Size = values[Enhancement.CloudSize];
+            clouds.Stretch = kind.Stretch;
+            clouds.Density = values[Enhancement.CloudDensity];
+            clouds.Detail = values[Enhancement.CloudEdgeDetail];
+            clouds.WindSpeed = values[Enhancement.CloudWind] * Math.Max(gameSpeed, 0f);
+            clouds.WindDirection = values[Enhancement.CloudWindDirection];
+            clouds.Sun = values[Enhancement.CloudSunlight];
+            clouds.Ambient = values[Enhancement.CloudSkyLight];
+            clouds.Steps = CloudSteps[(int)values[Enhancement.CloudQuality]];
+            clouds.Shape = kind.Shape;
+            return clouds;
+        }
+
+        // Whether the add-on draws the clouds for these values, and the game's own clouds are to stay hidden.
+        public static bool CloudsRun(EnhancementValues values) => values.On(Enhancement.Enabled) && values.On(Enhancement.Clouds);
+
+        // The values after a row's change. A Type but Custom sets the shape rows, and moving a shape row makes Type Custom.
+        public static EnhancementValues Edit(EnhancementValues values, Enhancement id, float value)
+        {
+            var next = values.With(id, value);
+            if (ReferenceEquals(next, values))
+                return values;
+            if (id == Enhancement.CloudType && (int)next[id] < CustomClouds)
+            {
+                var kind = CloudKinds[(int)next[id]];
+                return next.With(Enhancement.CloudKind, next[id]).With(Enhancement.CloudCoverage, kind.Coverage).With(Enhancement.CloudHeight, kind.Height)
+                    .With(Enhancement.CloudThickness, kind.Thickness).With(Enhancement.CloudSize, kind.Size).With(Enhancement.CloudDensity, kind.Density)
+                    .With(Enhancement.CloudEdgeDetail, kind.EdgeDetail);
+            }
+            return Array.IndexOf(CloudShapeRows, id) >= 0 ? next.With(Enhancement.CloudType, CustomClouds) : next;
         }
 
         // The lens flare's block. Position X and Y run from -1 at the left and top edges to 1 at the right and bottom, as the
@@ -416,14 +501,18 @@ namespace CameraTools
         public static bool Shown(EnhancementField field, EnhancementValues values, bool folded)
             => !folded && (field.Kind == EnhancementKind.Switch || values.On(field.Effect))
             && (field.Id is not (Enhancement.LensFlareX or Enhancement.LensFlareY) || (int)values[Enhancement.LensFlareSource] == FlareManual)
+            && field.Id != Enhancement.CloudKind
             && (field.Id != Enhancement.AmbientHaze || (int)values[Enhancement.AmbientSky] == SkyPhysical)
             && (field.Id != Enhancement.AmbientColor || (int)values[Enhancement.AmbientSky] == SkyGame);
 
-        // The line under a row's label, or null for none: Sky says where its light comes from.
-        public static string Detail(EnhancementField field, EnhancementValues values)
-            => field.Id == Enhancement.AmbientSky
-                ? (int)values[Enhancement.AmbientSky] == SkyPhysical ? "Light from a real sky that follows the sun" : "The game's own sky light"
-                : null;
+        // The line under a row's label, or null for none: Sky says where its light comes from, and the clouds' Type what
+        // they look like.
+        public static string Detail(EnhancementField field, EnhancementValues values) => field.Id switch
+        {
+            Enhancement.AmbientSky => (int)values[Enhancement.AmbientSky] == SkyPhysical ? "Light from a real sky that follows the sun" : "The game's own sky light",
+            Enhancement.CloudType => (int)values[Enhancement.CloudType] < CustomClouds ? CloudKinds[(int)values[Enhancement.CloudType]].Detail : "Your own shape",
+            _ => null,
+        };
 
         // While the master switch is off, every row but the master switch is greyed and ignores input.
         public static bool Usable(EnhancementField field, EnhancementValues values)
