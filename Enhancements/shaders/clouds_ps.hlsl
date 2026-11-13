@@ -1,7 +1,7 @@
 // The volume clouds' march, at half size: each ray from the game's camera crosses the layer between cloud_base and
 // cloud_base + cloud_thickness in cloud_steps samples. The weather map says where clouds stand and how tall they grow, the
 // shape noise gives them bodies and the detail noise eats their edges. Each sample inside a cloud looks toward the light
-// through six samples spaced wider and wider, and is lit by the light through them with multiple scattering and by the sky.
+// through five samples spaced wider and wider, and is lit by the light through them with multiple scattering and by the sky.
 // The result depends on the ray's direction alone, so clouds_resolve_ps.hlsl averages it over frames and
 // clouds_apply_ps.hlsl filters it to full size.
 #include "sun.hlsli"
@@ -13,7 +13,7 @@ Texture3D<float4> shape_noise : register(t7);   // cloud_shape_cs.hlsl's
 Texture3D<float4> detail_noise : register(t8);  // cloud_detail_cs.hlsl's
 
 static const float kShapeTile = 6;     // cloud sizes the shape noise spans before it repeats
-static const float kDetailTile = 1.2;
+static const float kDetailTile = 0.8;
 
 float remap(float x, float a, float b, float c, float d) { return c + (x - a) / (b - a) * (d - c); }
 
@@ -54,7 +54,7 @@ float cloud_extinction(float3 p, out float h)
     float fine = d.r * 0.625 + d.g * 0.25 + d.b * 0.125;
     // Wispy at the base, billowing toward the top.
     fine = lerp(fine, 1 - fine, saturate(h * 4));
-    body = saturate(remap(body, fine * 0.6 * cloud_detail * detail_weight, 1, 0, 1));
+    body = saturate(remap(body, fine * 0.75 * cloud_detail * detail_weight, 1, 0, 1));
     return body * cloud_density;
 }
 
@@ -64,17 +64,18 @@ float cloud_extinction_coarse(float3 p)
     return cloud_body(p, h, weather) * cloud_density;
 }
 
-// Optical depth from p toward the light, through samples at 5% to 94% of the layer's thickness along the light.
+// Optical depth from p toward the light, through samples at 5% to 94% of the layer's thickness along the light; only the
+// nearest sees the detail.
 float depth_toward_light(float3 p, float3 l)
 {
     float depth = 0, from = 0, at = cloud_thickness * 0.05;
-    [unroll] for (int j = 0; j < 6; j++)
+    [unroll] for (int j = 0; j < 5; j++)
     {
         float h;
-        float sigma = j < 2 ? cloud_extinction(p + l * at, h) : cloud_extinction_coarse(p + l * at);
+        float sigma = j < 1 ? cloud_extinction(p + l * at, h) : cloud_extinction_coarse(p + l * at);
         depth += sigma * (at - from);
         from = at;
-        at *= 1.8;
+        at *= 2.1;
     }
     return depth;
 }
@@ -85,10 +86,6 @@ float4 main(float4 position : SV_Position) : SV_Target0
     uint block = (uint)cloud_block;
     float2 pixel = floor(position.xy) * 2 + float2(block & 1, block >> 1) + 0.5;
     float2 uv = pixel * 2 * render_size.zw;
-    // Probe only: 9 steps shows a slice of the shape noise (left) and the detail noise (right).
-    if (cloud_steps == 9)
-        return float4(uv.x < 0.5 ? shape_noise.SampleLevel(linear_wrap, float3(uv * float2(2, 1), 0.5), 0).rgb
-            : detail_noise.SampleLevel(linear_wrap, float3(uv * float2(2, 1), 0.5), 0).rgb, 0);
     float3 origin = game_b1[5].xyz;
     float3 dir = normalize(game_world(game_view_at(uv, 1)) - origin);
     float top = cloud_base + cloud_thickness;
@@ -115,7 +112,7 @@ float4 main(float4 position : SV_Position) : SV_Target0
     }
     t1 = min(t1, t0 + cloud_map_extent * 0.35);
     // Large steps through clear air; at the first body met, a step back and small steps, which resolve the cloud's skin
-    // and its detail; back to large steps after a run of empty small ones. At most three times cloud_steps samples.
+    // and its detail; back to large steps after a run of empty small ones. At most twice cloud_steps samples.
     float coarse = (t1 - t0) / (cloud_steps * 0.5);
     float fine = clamp(coarse * 0.12, 10, 60);
     detail_weight = saturate(3 * cloud_size * kDetailTile / 32 / fine);
@@ -131,7 +128,7 @@ float4 main(float4 position : SV_Position) : SV_Target0
     float t = t0 + jitter * coarse;
     bool inside = false;
     uint empty = 0;
-    for (uint i = 0; i < cloud_steps * 3 && t < t1 && transmittance > 0.01; i++)
+    for (uint i = 0; i < cloud_steps * 2 && t < t1 && transmittance > 0.01; i++)
     {
         float3 p = origin + dir * t;
         if (!inside)
@@ -161,14 +158,14 @@ float4 main(float4 position : SV_Position) : SV_Target0
         float lit = 0, a = 1, b = 1, g = 1;
         [unroll] for (int k = 0; k < 4; k++)
         {
-            lit += b * (0.5 * henyey_greenstein(c, 0.8 * g) + 0.5 * henyey_greenstein(c, -0.15 * g)) * exp(-od * a);
+            lit += b * (0.6 * henyey_greenstein(c, 0.8 * g) + 0.4 * henyey_greenstein(c, -0.15 * g)) * exp(-od * a);
             a *= 0.25;
-            b *= 0.55;
+            b *= 0.45;
             g *= 0.6;
         }
         // Light reaching a cloud's sunlit skin has not yet scattered toward the eye: the powder term darkens it a little.
         lit *= lerp(1, 1 - exp(-od * 2), 0.4);
-        float3 light = sun * lit + sky * (0.25 + 0.75 * h);
+        float3 light = sun * lit + sky * (0.2 + 0.8 * h);
         float through = exp(-sigma * fine);
         float fade = exp(-t / cloud_fade);
         float taken = transmittance * (1 - through);
