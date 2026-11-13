@@ -240,7 +240,7 @@ namespace CameraTools
             Slider(Enhancement.CloudSize, Enhancement.Clouds, "Cloud size", 100f, 1000f, CloudKinds[0].Size, 10f, 0, " m"),
             Slider(Enhancement.CloudDensity, Enhancement.Clouds, "Density", 0.01f, 0.15f, CloudKinds[0].Density, 0.01f, 2),
             Slider(Enhancement.CloudEdgeDetail, Enhancement.Clouds, "Edge detail", 0f, 1f, CloudKinds[0].EdgeDetail, 0.05f, 2),
-            Slider(Enhancement.CloudSunlight, Enhancement.Clouds, "Sunlight", 0f, 4f, 2f, 0.05f, 2),
+            Slider(Enhancement.CloudSunlight, Enhancement.Clouds, "Sunlight", 0f, 8f, 4f, 0.05f, 2),
             Slider(Enhancement.CloudSkyLight, Enhancement.Clouds, "Sky light", 0f, 2f, 1f, 0.05f, 2),
             Slider(Enhancement.CloudWind, Enhancement.Clouds, "Wind", 0f, 30f, 8f, 1f, 0, " m/s"),
             Slider(Enhancement.CloudWindDirection, Enhancement.Clouds, "Wind direction", 0f, 355f, 30f, 5f, 0, "°"),

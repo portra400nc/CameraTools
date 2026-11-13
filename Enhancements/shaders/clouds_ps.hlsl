@@ -157,13 +157,16 @@ float4 main(float4 position : SV_Position) : SV_Target0
             t = max(t - coarse, t0) + jitter * fine;
             continue;
         }
+        // Deeper in, less of what a sample adds reaches the eye: the steps grow to four times as the light through falls,
+        // so a whole overcast costs little more than broken clouds.
+        float step = fine * min(rcp(max(transmittance, 0.25)), 4);
         float h;
         float sigma = cloud_extinction(p, h);
         if (sigma <= 0)
         {
             if (++empty > 8)
                 inside = false;
-            t += fine;
+            t += step;
             continue;
         }
         empty = 0;
@@ -180,13 +183,13 @@ float4 main(float4 position : SV_Position) : SV_Target0
         // Light reaching a cloud's sunlit skin has not yet scattered toward the eye: the powder term darkens it a little.
         lit *= lerp(1, 1 - exp(-od * 2), 0.4);
         float3 light = sun * lit + sky * (0.2 + 0.8 * h);
-        float through = exp(-sigma * fine);
+        float through = exp(-sigma * step);
         float fade = exp(-t / cloud_fade);
         float taken = transmittance * (1 - through);
         inscatter += taken * light * fade;
         opacity += taken * fade;
         transmittance *= through;
-        t += fine;
+        t += step;
     }
     return float4(inscatter, 1 - opacity);
 }

@@ -207,8 +207,8 @@ Check("the table holds 94 fields, each at its own id's place, with the master sw
     var cloudLens = new LensView(false, 1.6f, 1, ShotStage.None);
     var cloudFresh = EnhancementValues.Defaults;
     var cloudOff = EnhancementsModel.Settings(cloudFresh, cloudLens).Clouds;
-    Check("the clouds are off by default, as Altocumulus at sunlight 2, sky light 1, wind 8 m/s toward 30 degrees and 48 steps",
-        cloudOff is { Enabled: 0, Coverage: 0.55f, Base: 3000f, Thickness: 600f, Size: 250f, Stretch: 1.5f, Density: 0.04f, Detail: 0.8f, Sun: 2f, Ambient: 1f,
+    Check("the clouds are off by default, as Altocumulus at sunlight 4, sky light 1, wind 8 m/s toward 30 degrees and 48 steps",
+        cloudOff is { Enabled: 0, Coverage: 0.55f, Base: 3000f, Thickness: 600f, Size: 250f, Stretch: 1.5f, Density: 0.04f, Detail: 0.8f, Sun: 4f, Ambient: 1f,
             WindSpeed: 8f, WindDirection: 30f, Steps: 48, Shape: EnhancementsCloudShape.Heaps }
         && EnhancementsModel.Detail(EnhancementsModel.Field(Enhancement.CloudType), cloudFresh) == "Small puffs in high rows");
     var cloudOn = EnhancementsModel.Edit(EnhancementsModel.Edit(cloudFresh, Enhancement.Enabled, 1f), Enhancement.Clouds, 1f);
