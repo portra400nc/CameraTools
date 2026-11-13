@@ -17,7 +17,6 @@ static const float kDetailTile = 0.8;
 
 float remap(float x, float a, float b, float c, float d) { return c + (x - a) / (b - a) * (d - c); }
 
-static const float kFiber = 48;       // how far a cirrus fiber is drawn out along the wind
 static float2 skew_direction;
 static float detail_weight = 1;
 
@@ -33,7 +32,7 @@ float cloud_body(float3 p, out float h, out float weather)
     weather = cloud_map.SampleLevel(linear_clamp, (c - cloud_map_center) / cloud_map_extent + 0.5, 0);
     if (weather <= 0.01)
         return 0;
-    // Cirrus is its strokes, thinning out above and below; the fibers come with the detail.
+    // Cirrus is its weather, thinning out above and below; the tufts come with the detail.
     if (cloud_shape >= 0.5)
         return weather * smoothstep(0, 0.3, h) * smoothstep(1, 0.6, h);
     float4 n = shape_noise.SampleLevel(linear_wrap, float3(c.x, p.y, c.y) / (cloud_size * kShapeTile), 0);
@@ -55,15 +54,7 @@ float cloud_extinction(float3 p, out float h)
         return 0;
     float2 c = p.xz + cloud_wind + skew_direction * h * cloud_thickness * 0.5;
     if (cloud_shape >= 0.5)
-    {
-        // Fine fibers along the strokes' bent lines; Edge detail sets how clear they stand out, and where a step is
-        // longer than they are wide they average out.
-        float2 uv = cloud_wind_space(c);
-        float3 f = detail_noise.SampleLevel(linear_wrap, float3(uv.x / kFiber, p.y, cirrus_bent(uv)) / (cloud_size * kDetailTile), 0).rgb;
-        float fibers = pow(saturate((f.r * 0.625 + f.g * 0.25 + f.b * 0.125 - 0.4) / 0.22), 1.5);
-        fibers = lerp(0.45, fibers, detail_weight);
-        return body * lerp(lerp(0.6, 0.12, cloud_detail), 1, fibers) * cloud_density;
-    }
+        return cirrus_body(c, body, length(p - game_b1[5].xyz)) * cloud_density;
     float3 d = detail_noise.SampleLevel(linear_wrap, float3(c.x, p.y, c.y) / (cloud_size * kDetailTile), 0).rgb;
     float fine = d.r * 0.625 + d.g * 0.25 + d.b * 0.125;
     // Wispy at the base, billowing toward the top.

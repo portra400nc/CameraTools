@@ -63,26 +63,60 @@ float2 cloud_wind_space(float2 c)
     return float2(dot(c, wind), dot(c, float2(-wind.y, wind.x)));
 }
 
-// Cirrus strokes and their fibers run along gently bent lines: the across coordinate after a broad bend.
-float cirrus_bent(float2 uv)
-{
-    return uv.y + (cloud_fbm(float3(uv / (cloud_size * 8), 4.4), 2) - 0.5) * cloud_size * 1.6;
-}
-
-// Cirrus weather: warped fields drawn out along the wind and filled with bent strokes; the march adds the fibers.
+// Cirrus weather: broad warped fields drawn out along the wind, where the march draws its tufts.
 float cirrus_cells(float2 c)
 {
     float2 uv = cloud_wind_space(c);
-    float s = cloud_size;
-    float2 p = float2(uv.x / (s * 8 * cloud_stretch), uv.y / (s * 8));
+    float2 p = float2(uv.x / (cloud_size * 10 * cloud_stretch), uv.y / (cloud_size * 10));
     float wx = cloud_fbm(float3(p * 0.7, 0.5), 2) - 0.5;
     float wz = cloud_fbm(float3(p * 0.7 + float2(5.2, 7.1), 1.8), 2) - 0.5;
     float field = cloud_fbm(float3(p + float2(wx, wz), 2.5), 4);
     float low = 0.5 + (0.5 - cloud_coverage) * 0.45 - 0.12;
-    // The strokes also bend on a smaller scale, which the fibers inside them do not follow.
-    float bent = cirrus_bent(uv) + (cloud_fbm(float3(uv / (s * 2), 6.1), 2) - 0.5) * s * 0.6;
-    float strokes = cloud_fbm(float3(uv.x / (s * 3), bent / (s * 1.5), 8.2), 3);
-    return smoothstep(low, low + 0.35, field) * smoothstep(0.35, 0.65, strokes);
+    return smoothstep(low, low + 0.4, field);
+}
+
+// One layer of cirrus tufts, at scale times cloud_size. Each cell, 10 by 2 sizes, may hold a head that trails a tail
+// downwind: it widens, fades, curls across the wind and sways, and its strands run along it. A tail stays within the
+// next cell downwind and one cell either side, so six cells cover every point. contrast is how clear the strands stand.
+float cirrus_layer(float2 uv, float scale, int salt, float contrast)
+{
+    float s = cloud_size * scale;
+    float2 cell_size = s * float2(10, 2);
+    int2 at = int2(floor(uv / cell_size));
+    float total = 0;
+    [unroll] for (int di = -1; di <= 0; di++)
+        [unroll] for (int dj = -1; dj <= 1; dj++)
+        {
+            int2 cell = at + int2(di, dj);
+            uint2 a = cloud_hash(cell + salt * int2(1013, 7919));
+            uint2 b = cloud_hash(int2(a.yx));
+            float4 r = float4(a.x & 0xffffu, a.x >> 16, a.y & 0xffffu, a.y >> 16) / 65535.0;
+            float4 q = float4(b.x & 0xffffu, b.x >> 16, b.y & 0xffffu, b.y >> 16) / 65535.0;
+            float2 head = (cell + float2(r.x, 0.25 + 0.5 * r.y)) * cell_size;
+            float d = uv.x - head.x;
+            float t = d / (cell_size.x * lerp(0.4, 1, r.z));
+            if (q.z >= 0.95 || t <= 0 || t >= 1)
+                continue;
+            float across = head.y + lerp(-0.3, 0.3, r.w) * cell_size.y * t * t + 0.15 * cell_size.y * sin(t * 5 + q.w * 6.28) * t;
+            float e = (uv.y - across) / (cell_size.y * lerp(0.06, 0.18, q.x) * (0.35 + 2.5 * t));
+            float spread = exp(-e * e);
+            if (spread < 0.01)
+                continue;
+            float along = smoothstep(0, 0.06, t) * pow(1 - t, 1.3) * (1.6 - 0.6 * t);
+            float strands = cloud_fbm(float3(d / (s * 4) + q.w * 50, (uv.y - across) / (s * 0.035) + q.z * 50, 3.3), 2);
+            strands = lerp(1, pow(saturate((strands - 0.35) / 0.35), 1.5), contrast);
+            total += lerp(0.3, 1, q.y) * along * spread * strands;
+        }
+    return total;
+}
+
+// Cirrus where its weather is: two layers of tufts over a faint veil. Far off, the strands average out.
+float cirrus_body(float2 c, float weather, float distance)
+{
+    float2 uv = cloud_wind_space(c);
+    float contrast = 0.7 * cloud_detail * saturate(40000 / distance);
+    float tufts = cirrus_layer(uv, 1, 0, contrast) + 0.7 * cirrus_layer(uv, 0.45, 1, contrast);
+    return weather * (1 - exp(-1.5 * tufts) + 0.3 * weather);
 }
 
 // The weather map's value at a point of cloud space (world x and z plus the drift): 0 clear sky to 1 where the clouds are
