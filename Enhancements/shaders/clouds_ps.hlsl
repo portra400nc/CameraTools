@@ -171,9 +171,11 @@ float4 main(float4 position : SV_Position) : SV_Target0
     }
     t1 = min(t1, t0 + cloud_map_extent * 0.35);
     // Large steps through clear air; at the first body met, a step back and small steps, which resolve the cloud's skin
-    // and its detail; back to large steps after a run of empty small ones. At most twice cloud_steps samples.
-    float coarse = (t1 - t0) / (cloud_steps * 0.5);
-    float fine = clamp(coarse * 0.12, 10, 60);
+    // and its detail; back to large steps after a run of empty small ones. At most twice cloud_steps samples. A large
+    // step is a twentieth of the distance, at least a fifth of a cloud and at most an even share of the slab: one that
+    // spanned whole clouds near the camera found or missed their edges by the pixel's offset, which drew stripes.
+    float budget = (t1 - t0) / (cloud_steps * 0.5);
+    float fine = clamp(budget * 0.12, 10, 60);
     detail_weight = saturate(3 * cloud_size * kDetailTile / 32 / fine);
     float jitter = frac(52.9829189 * frac(dot(pixel, float2(0.06711056, 0.00583715))) + cloud_phase);
 
@@ -186,12 +188,15 @@ float4 main(float4 position : SV_Position) : SV_Target0
 
     float3 inscatter = 0;
     float transmittance = 1, opacity = 0;
+    float least = cloud_size * 0.2;
+    float coarse = min(max(t0 * 0.05, least), max(budget, least));
     float t = t0 + jitter * coarse;
     bool inside = false;
     uint empty = 0;
     for (uint i = 0; i < cloud_steps * 2 && t < t1 && transmittance > 0.01; i++)
     {
         float3 p = origin + dir * t;
+        coarse = min(max(t * 0.05, least), max(budget, least));
         if (!inside)
         {
             if (cloud_extinction_coarse(p) <= 0)
