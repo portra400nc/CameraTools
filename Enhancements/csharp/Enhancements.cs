@@ -271,7 +271,7 @@ namespace CameraToolsEnhancements
     }
 
     // ENHANCEMENTS_CLOUD_SHAPE_* in enhancements.h, in order.
-    internal enum EnhancementsCloudShape : uint { Heaps, Streaks }
+    internal enum EnhancementsCloudShape : uint { Heaps, Streaks, Sheet }
 
     // EnhancementsSettings in enhancements.h, field for field.
     [StructLayout(LayoutKind.Sequential)]

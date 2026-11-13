@@ -138,6 +138,8 @@ int main()
         clouds.enabled && clouds.coverage == 1 && clouds.base == 3000 && clouds.thickness == 10 && clouds.size == 20 && clouds.stretch == 6
             && clouds.density == 0 && clouds.detail == 0.5f && clouds.wind_speed == 10 && clouds.wind_direction == 45 && clouds.sun == 2
             && clouds.ambient == 0.5f && clouds.steps == 64 && clouds.shape == CloudShape::streaks && kPasses[7].id == PassId::clouds && kPasses[7].wanted(parse_settings(raw)));
+    raw.clouds.shape = 2;
+    check("shape 2 reads as a sheet", parse_settings(raw).clouds.shape == CloudShape::sheet);
     raw.clouds.shape = 7;
     check("an unknown shape reads as heaps", parse_settings(raw).clouds.shape == CloudShape::heaps);
     raw.clouds.shape = 1;

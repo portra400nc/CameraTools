@@ -112,6 +112,31 @@ float4 cirrus_ray(float3 origin, float3 dir, float t0, float t1, float3 l, float
     return float4(taken * (sun * lit + sky * 0.6), 1 - taken);
 }
 
+// Stratus is a sheet too: its optical thickness where the ray crosses the layer's middle, lit by the light that diffuses
+// through it (two-stream, asymmetry 0.85), so thicker parts are darker, and by sun light scattered once through its
+// thin parts, and by the gray sky light, which also gets through thin parts better. The light through a thick sheet is mostly gray, and the sheet about as bright as the clear sky it hides. Far off it fades into a gray haze rather than the sky,
+// and it reaches the horizon.
+float4 sheet_ray(float3 origin, float3 dir, float3 l, float c, float3 sun, float3 sky)
+{
+    float mid = cloud_base + cloud_thickness * 0.5;
+    float t = (mid - origin.y) / (origin.y < mid ? max(dir.y, 0.01) : min(dir.y, -0.01));
+    float2 at = origin.xz + dir.xz * t + cloud_wind;
+    float weather = cloud_map.SampleLevel(linear_clamp, (at - cloud_map_center) / cloud_map_extent + 0.5, 0);
+    if (weather <= 0.01)
+        return float4(0, 0, 0, 1);
+    float tau = stratus_thickness(at) * weather * cloud_density * cloud_thickness;
+    float through = exp(-tau / max(abs(dir.y), 0.03));
+    float mu = max(l.y, 0.05);
+    float diffuse = mu / (1 + 0.75 * 0.15 * tau * (0.5 + 0.5 / mu));
+    float lit = origin.y < mid ? diffuse : mu - diffuse;
+    float single = henyey_greenstein(c, 0.8) * exp(-tau) * (1 - exp(-tau)) * 2;
+    float3 gray = lerp(sky, dot(sky, float3(0.2126, 0.7152, 0.0722)), 0.8) * 0.15;
+    float3 light = lerp(sun, dot(sun, float3(0.2126, 0.7152, 0.0722)), 0.6) * 0.04 * (lit + single * 0.5)
+        + gray * lerp(1.5, 0.5, saturate(tau / 60));
+    light = lerp(gray * 2.5, light, exp(-t / cloud_fade));
+    return float4((1 - through) * light, through);
+}
+
 float4 main(float4 position : SV_Position) : SV_Target0
 {
     // This frame's pixel of the 2x2 block of the half-size history that this quarter-size pixel covers.
@@ -122,6 +147,8 @@ float4 main(float4 position : SV_Position) : SV_Target0
     float3 dir = normalize(game_world(game_view_at(uv, 1)) - origin);
     float top = cloud_base + cloud_thickness;
     skew_direction = float2(cos(radians(cloud_pad)), sin(radians(cloud_pad)));
+    if (cloud_shape >= 1.5)
+        return sheet_ray(origin, dir, cloud_toward_sun, dot(dir, cloud_toward_sun), kPi * sun_color * cloud_sun, sky_color * cloud_ambient);
     float t0, t1;
     if (origin.y < cloud_base)
     {

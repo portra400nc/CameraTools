@@ -183,7 +183,7 @@ namespace CameraTools
         {
             new("Altocumulus", "Small puffs in high rows", 55f, 3000f, 600f, 250f, 0.04f, 0.8f, 1.5f, EnhancementsCloudShape.Heaps),
             new("Stratocumulus", "A low sheet with blue gaps", 75f, 1800f, 700f, 500f, 0.04f, 0.8f, 1.3f, EnhancementsCloudShape.Heaps),
-            new("Stratus", "A flat grey layer over the whole sky", 88f, 1000f, 400f, 1000f, 0.08f, 0.5f, 1.3f, EnhancementsCloudShape.Heaps),
+            new("Stratus", "A flat grey layer over the whole sky", 88f, 1000f, 400f, 1000f, 0.08f, 0.5f, 1.3f, EnhancementsCloudShape.Sheet),
             new("Cumulus", "Tall heaps on a clear day", 50f, 1500f, 1500f, 400f, 0.04f, 0.8f, 1f, EnhancementsCloudShape.Heaps),
             new("High patches", "Thin patches far up", 45f, 4500f, 400f, 200f, 0.03f, 0.9f, 2.5f, EnhancementsCloudShape.Heaps),
             new("Cirrus", "Thin streaks of ice very high up", 55f, 8000f, 300f, 800f, 0.002f, 1f, 3f, EnhancementsCloudShape.Streaks),

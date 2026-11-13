@@ -141,10 +141,35 @@ float cirrus_body(float2 c, float weather, float distance)
     return weather * total / norm * 2 * (1 - contrast + contrast * 2 * fibers);
 }
 
+// Stratus weather: where the sheet is, with soft-edged breaks that open up as coverage falls.
+float stratus_cells(float2 c)
+{
+    float2 uv = cloud_wind_space(c) / cloud_size;
+    float breaks = cloud_fbm(float3(uv / 5, 3.3), 4);
+    float mottle = cloud_fbm(float3(uv / 3, 1.1), 4);
+    float low = 0.5 - (cloud_coverage - 0.5) * 0.9;
+    return smoothstep(low - 0.08, low + 0.08, breaks + (mottle - 0.5) * 0.3);
+}
+
+// The stratus sheet's optical thickness over its mean: log-normal mottling some three sizes across, fine lumps, and rolls
+// across the wind in patches. Edge detail sets how strong the lumps and rolls are.
+float stratus_thickness(float2 c)
+{
+    float2 uv = cloud_wind_space(c) / cloud_size;
+    float mottle = cloud_fbm(float3(uv / 3, 1.1), 4);
+    float fine = cloud_fbm(float3(uv * 4, 7.7), 3);
+    float warp = (cloud_fbm(float3(uv / 2, 2.2), 2) - 0.5) * 0.8;
+    float roll = 0.5 + 0.5 * sin(6.2831853 * (uv.x + warp) / 0.8);
+    float rolls = smoothstep(0.45, 0.7, cloud_fbm(float3(uv / 4, 5.5), 2));
+    return exp(2.5 * (mottle - 0.5) * 2 + 2 * cloud_detail * (fine - 0.5) * 2) * (1 - cloud_detail * roll * rolls);
+}
+
 // The weather map's value at a point of cloud space (world x and z plus the drift): 0 clear sky to 1 where the clouds are
 // thickest and tallest. Broad warped patches some six cells across; the 3D noise gives the clouds inside them their shape.
 float cloud_cells(float2 c)
 {
+    if (cloud_shape >= 1.5)
+        return stratus_cells(c);
     if (cloud_shape >= 0.5)
         return cirrus_cells(c);
     float2 wind = float2(cos(radians(cloud_pad)), sin(radians(cloud_pad)));

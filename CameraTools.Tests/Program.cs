@@ -222,8 +222,8 @@ Check("the table holds 94 fields, each at its own id's place, with the master sw
         (int)cloudCustom[Enhancement.CloudType] == EnhancementsModel.CustomClouds && EnhancementsModel.Settings(cloudCustom, cloudLens).Clouds is { Base: 9000f, Stretch: 3f, Shape: EnhancementsCloudShape.Streaks }
         && EnhancementsModel.Detail(EnhancementsModel.Field(Enhancement.CloudType), cloudCustom) == "Your own shape");
     var cloudStratus = EnhancementsModel.Edit(cloudCustom, Enhancement.CloudType, 2f);
-    Check("Stratus after Custom sets its own rows and heaps again",
-        EnhancementsModel.Settings(cloudStratus, cloudLens).Clouds is { Coverage: 0.88f, Base: 1000f, Size: 1000f, Detail: 0.5f, Shape: EnhancementsCloudShape.Heaps }
+    Check("Stratus after Custom sets its own rows and draws a sheet",
+        EnhancementsModel.Settings(cloudStratus, cloudLens).Clouds is { Coverage: 0.88f, Base: 1000f, Size: 1000f, Detail: 0.5f, Shape: EnhancementsCloudShape.Sheet }
         && (int)cloudStratus[Enhancement.CloudType] == 2);
     Check("moving Sunlight or Wind leaves Type as it is",
         (int)EnhancementsModel.Edit(cloudStratus, Enhancement.CloudSunlight, 3f)[Enhancement.CloudType] == 2 && (int)EnhancementsModel.Edit(cloudStratus, Enhancement.CloudWind, 20f)[Enhancement.CloudType] == 2);

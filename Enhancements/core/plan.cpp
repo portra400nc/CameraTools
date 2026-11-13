@@ -66,7 +66,7 @@ namespace enhancements
             && offsetof(EnhancementsSettings, ambient_color) == 400 && offsetof(EnhancementsSettings, tones) == 404
             && offsetof(EnhancementsSettings, lens_softness) == 412 && offsetof(EnhancementsSettings, auto_exposure) == 416
             && offsetof(EnhancementsSettings, sky) == 420 && offsetof(EnhancementsSettings, clouds) == 428 && sizeof(EnhancementsSettings) == 484);
-        static_assert(ENHANCEMENTS_CLOUD_SHAPE_STREAKS == static_cast<int>(CloudShape::streaks)
+        static_assert(ENHANCEMENTS_CLOUD_SHAPE_STREAKS == static_cast<int>(CloudShape::streaks) && ENHANCEMENTS_CLOUD_SHAPE_SHEET == static_cast<int>(CloudShape::sheet)
             && ENHANCEMENTS_CLOUD_SHAPE_COUNT == static_cast<int>(CloudShape::count));
         static_assert(ENHANCEMENTS_FLARE_SOURCE_MANUAL == static_cast<int>(FlareSource::manual)
             && ENHANCEMENTS_FLARE_SOURCE_COUNT == static_cast<int>(FlareSource::count));

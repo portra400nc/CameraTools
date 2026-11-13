@@ -40,7 +40,7 @@ namespace enhancements
     };
 
     // EnhancementsSky's.
-    enum class CloudShape : uint8_t { heaps, streaks, count };  // ENHANCEMENTS_CLOUD_SHAPE_*
+    enum class CloudShape : uint8_t { heaps, streaks, sheet, count };  // ENHANCEMENTS_CLOUD_SHAPE_*
 
     struct CloudSettings
     {

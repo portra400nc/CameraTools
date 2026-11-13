@@ -219,7 +219,7 @@ namespace enhancements
                 + number(a.neutral) + '\t' + number(t.shadows) + '\t' + number(t.highlights) + '\t' + number(d.softness) + '\t' + number(t.auto_exposure) + '\t' + (s.sky.enabled ? "1" : "0") + '\t' + number(s.sky.haze) + '\t'
                 + (k.enabled ? "1" : "0") + '\t' + number(k.coverage) + '\t' + number(k.base) + '\t' + number(k.thickness) + '\t' + number(k.size) + '\t'
                 + number(k.stretch) + '\t' + number(k.density) + '\t' + number(k.detail) + '\t' + number(k.wind_speed) + '\t' + number(k.wind_direction) + '\t'
-                + number(k.sun) + '\t' + number(k.ambient) + '\t' + std::to_string(k.steps) + '\t' + (k.shape == CloudShape::streaks ? "streaks" : "heaps") + '\n';
+                + number(k.sun) + '\t' + number(k.ambient) + '\t' + std::to_string(k.steps) + '\t' + (k.shape == CloudShape::streaks ? "streaks" : k.shape == CloudShape::sheet ? "sheet" : "heaps") + '\n';
         }
         return out;
     }

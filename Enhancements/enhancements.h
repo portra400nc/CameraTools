@@ -515,6 +515,7 @@ enum
 {
     ENHANCEMENTS_CLOUD_SHAPE_HEAPS = 0,    // puffs, sheets and heaps with flat bases
     ENHANCEMENTS_CLOUD_SHAPE_STREAKS,      // thin fibers drawn out along the wind, as cirrus
+    ENHANCEMENTS_CLOUD_SHAPE_SHEET,        // an overcast sheet, thicker and darker in patches, as stratus
     ENHANCEMENTS_CLOUD_SHAPE_COUNT,
 };
 
