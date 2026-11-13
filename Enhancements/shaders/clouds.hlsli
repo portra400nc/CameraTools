@@ -75,48 +75,70 @@ float cirrus_cells(float2 c)
     return smoothstep(low, low + 0.4, field);
 }
 
-// One layer of cirrus tufts, at scale times cloud_size. Each cell, 10 by 3 sizes, may hold a head that trails a tail
-// downwind: it widens, fades, curls across the wind and sways, and its strands run along it. A tail stays within the
-// next cell downwind and one cell either side, so six cells cover every point. contrast is how clear the strands stand.
-float cirrus_layer(float2 uv, float scale, int salt, float contrast)
+// The lattice repeats every kCloudNoiseSize; read along a tilted plane through it, a 2D pattern never repeats.
+float cirrus_noise(float2 p, int octaves)
 {
-    float s = cloud_size * scale;
-    float2 cell_size = s * float2(10, 3);
-    int2 at = int2(floor(uv / cell_size));
-    float total = 0;
-    [unroll] for (int di = -1; di <= 0; di++)
-        [unroll] for (int dj = -1; dj <= 1; dj++)
-        {
-            int2 cell = at + int2(di, dj);
-            uint2 a = cloud_hash(cell + salt * int2(1013, 7919));
-            uint2 b = cloud_hash(int2(a.yx));
-            float4 r = float4(a.x & 0xffffu, a.x >> 16, a.y & 0xffffu, a.y >> 16) / 65535.0;
-            float4 q = float4(b.x & 0xffffu, b.x >> 16, b.y & 0xffffu, b.y >> 16) / 65535.0;
-            float2 head = (cell + float2(r.x, 0.25 + 0.5 * r.y)) * cell_size;
-            float d = uv.x - head.x;
-            float t = d / (cell_size.x * lerp(0.4, 1, r.z));
-            if (q.z >= 0.95 || t <= 0 || t >= 1)
-                continue;
-            float across = head.y + lerp(-0.3, 0.3, r.w) * cell_size.y * t * t + 0.15 * cell_size.y * sin(t * 5 + q.w * 6.28) * t;
-            float e = (uv.y - across) / (cell_size.y * lerp(0.05, 0.12, q.x) * (0.35 + 4 * t));
-            float spread = exp(-e * e);
-            if (spread < 0.01)
-                continue;
-            float along = smoothstep(0, 0.15, t) * pow(1 - t, 0.6);
-            float strands = cloud_fbm(float3(d / (s * 4) + q.w * 50, (uv.y - across) / (s * 0.035) + q.z * 50, 3.3), 2);
-            strands = lerp(1, pow(saturate((strands - 0.35) / 0.35), 1.5), contrast);
-            total += lerp(0.4, 1, q.y) * along * spread * strands;
-        }
-    return total;
+    return cloud_fbm(float3(p, dot(p, float2(0.137, 0.291)) + 3.3), octaves);
 }
 
-// Cirrus where its weather is: two layers of tufts over a faint veil. Far off, the strands average out.
+// The direction cirrus is drawn out in, in wind space: along the wind, with a broad bend and a smaller curl across it.
+float2 cirrus_flow(float2 uv)
+{
+    float s = cloud_size;
+    float k = (cloud_fbm(float3(uv / (s * 8), 4.4), 2) - 0.5) * 0.7 + (cloud_fbm(float3(uv / (s * 1.5), 6.1), 2) - 0.5) * 0.8;
+    return float2(1, k) * rsqrt(1 + k * k);
+}
+
+// Where cirrus starts: warped patches drawn out along the wind, more of them with more coverage.
+float cirrus_source(float2 uv)
+{
+    float2 w = uv / (cloud_size * float2(4, 1.5));
+    float warp = cloud_fbm(float3(w * 0.5, 9.9), 2) - 0.5;
+    float patch = cloud_fbm(float3(w + warp * float2(1, 0.5), 8.2), 3);
+    float low = 0.5 - (cloud_coverage - 0.5) * 0.4;
+    return smoothstep(low, low + 0.25, patch);
+}
+
+// Fine noise averaged along the local flow over some 700 m: irregular silky fibers. keep fades them out far off, where
+// they are finer than a pixel.
+float cirrus_fibers(float2 uv, float keep)
+{
+    float fiber = cloud_size * 0.03;
+    float2 step = cirrus_flow(uv) * fiber;
+    float total = 0;
+    [loop] for (int k = 0; k < 24; k++)
+        total += cirrus_noise((uv + step * (k - 11.5)) / fiber, 2);
+    float x = saturate(0.5 + (total / 24 - 0.5) * 3.5);
+    return 0.5 + (x - 0.5) * keep;
+}
+
+// Cirrus where its weather is: the patches gathered along the flow, far upstream and a little downstream, so each trails
+// a tail downwind, times the fibers. Edge detail sets how clear the fibers stand out.
 float cirrus_body(float2 c, float weather, float distance)
 {
     float2 uv = cloud_wind_space(c);
-    float contrast = 0.7 * cloud_detail * saturate(40000 / distance);
-    float tufts = cirrus_layer(uv, 1, 0, contrast) + 0.6 * cirrus_layer(uv, 0.45, 1, contrast);
-    return weather * (1 - exp(-2 * tufts) + 0.25 * weather);
+    float step = cloud_size * 0.25;
+    float total = 0, norm = 0;
+    float2 at = uv;
+    [loop] for (int k = 0; k < 32; k++)
+    {
+        if (k > 0)
+            at -= cirrus_flow(at) * step;
+        float w = exp(-k / 16.0);
+        total += w * cirrus_source(at);
+        norm += w;
+    }
+    at = uv;
+    [loop] for (int j = 0; j < 4; j++)
+    {
+        at += cirrus_flow(at) * step;
+        float w = exp(-j / 1.5);
+        total += w * cirrus_source(at);
+        norm += w;
+    }
+    float contrast = 0.7 * cloud_detail;
+    float fibers = cirrus_fibers(uv, saturate(40000 / distance));
+    return weather * total / norm * 2 * (1 - contrast + contrast * 2 * fibers);
 }
 
 // The weather map's value at a point of cloud space (world x and z plus the drift): 0 clear sky to 1 where the clouds are
