@@ -250,6 +250,25 @@ namespace CameraToolsEnhancements
         public float Haze;                  // the aerosols' optical depth straight up, 0.1 a clear day
     }
 
+    // EnhancementsClouds in enhancements.h, field for field.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct EnhancementsClouds
+    {
+        public uint Enabled;
+        public float Coverage;              // share of the sky covered, 0 to 1
+        public float Base;                  // world height of the base in meters
+        public float Thickness;             // meters
+        public float Size;                  // meters across one cloud cell
+        public float Stretch;               // the cells' length along the wind over their width, 1 to 6
+        public float Density;               // extinction per meter inside a cloud
+        public float Detail;                // edge erosion, 0 to 1
+        public float WindSpeed;             // meters per second
+        public float WindDirection;         // degrees from world +x toward +z
+        public float Sun;                   // multiplies the main light on the clouds
+        public float Ambient;               // multiplies the sky light on the clouds
+        public uint Steps;                  // march samples per ray, 8 to 64
+    }
+
     // EnhancementsSettings in enhancements.h, field for field.
     [StructLayout(LayoutKind.Sequential)]
     internal struct EnhancementsSettings
@@ -274,6 +293,7 @@ namespace CameraToolsEnhancements
         public EnhancementsLensSoftness LensSoftness;
         public EnhancementsAutoExposure AutoExposure;
         public EnhancementsSky Sky;
+        public EnhancementsClouds Clouds;
 
         // The add-on's defaults: everything off, game targets upside down, and when switched on ambient level 0.6, AO
         // strength 0.5 at a 1 m radius, half that strength on grass, vegetation and foliage, full-strength contact
@@ -324,6 +344,11 @@ namespace CameraToolsEnhancements
                 Chromatic = 1, VisibilitySeconds = 0.15f, FilledArcs = 0.5f, Rainbow = 1, Texture = 1,
             },
             Sky = new EnhancementsSky { Physical = 0, Haze = 0.1f },
+            Clouds = new EnhancementsClouds
+            {
+                Enabled = 0, Coverage = 0.5f, Base = 2500, Thickness = 400, Size = 380, Stretch = 1.5f, Density = 0.035f, Detail = 0.8f,
+                WindSpeed = 8, WindDirection = 30, Sun = 1, Ambient = 1, Steps = 16,
+            },
         };
     }
 
@@ -520,7 +545,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 30;
+        private const uint Version = 31;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

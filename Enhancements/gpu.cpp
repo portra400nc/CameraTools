@@ -78,8 +78,25 @@ namespace enhancements
         float tone_highlights;
         float accum_gain;
         float auto_ease;
+        float cloud_coverage;
+        float cloud_base;
+        float cloud_thickness;
+        float cloud_size;
+        float cloud_stretch;
+        float cloud_density;
+        float cloud_detail;
+        float cloud_sun;
+        float cloud_map_center[2];
+        float cloud_map_extent;
+        float cloud_ambient;
+        float cloud_wind[2];
+        float cloud_fade;
+        uint32_t cloud_steps;
+        float cloud_toward_sun[3];
+        float cloud_pad;
     };
-    static_assert(sizeof(Constants) == 496 && offsetof(Constants, tone_shadows) == 480 && offsetof(Constants, accum_gain) == 488 && offsetof(Constants, flare_sun_uv) == 456 && offsetof(Constants, wetness) == 408 && offsetof(Constants, shafts_anisotropy) == 432 && offsetof(Constants, label) == 272 && offsetof(Constants, sun_color) == 304
+    static_assert(sizeof(Constants) == 576 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
+        && offsetof(Constants, cloud_toward_sun) == 560 && offsetof(Constants, tone_shadows) == 480 && offsetof(Constants, accum_gain) == 488 && offsetof(Constants, flare_sun_uv) == 456 && offsetof(Constants, wetness) == 408 && offsetof(Constants, shafts_anisotropy) == 432 && offsetof(Constants, label) == 272 && offsetof(Constants, sun_color) == 304
         && offsetof(Constants, sky_color) == 320 && offsetof(Constants, bloom_strength) == 352 && offsetof(Constants, sun_cascades) == 368
         && offsetof(Constants, lens_sample) == 392, "Constants must match common.hlsli");
 
@@ -639,6 +656,9 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kSunPs, sizeof kSunPs, nullptr, &made.sun_ps_))
             && SUCCEEDED(device->CreatePixelShader(kSunShadowsPs, sizeof kSunShadowsPs, nullptr, &made.sun_shadows_ps_))
             && SUCCEEDED(device->CreatePixelShader(kAtmospherePs, sizeof kAtmospherePs, nullptr, &made.atmosphere_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kCloudMapPs, sizeof kCloudMapPs, nullptr, &made.cloud_map_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kCloudsPs, sizeof kCloudsPs, nullptr, &made.clouds_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kCloudsApplyPs, sizeof kCloudsApplyPs, nullptr, &made.clouds_apply_ps_))
             && SUCCEEDED(device->CreatePixelShader(kTonemapPs, sizeof kTonemapPs, nullptr, &made.tonemap_ps_))
             && SUCCEEDED(device->CreatePixelShader(kExposureMeterPs, sizeof kExposureMeterPs, nullptr, &made.exposure_meter_ps_))
             && SUCCEEDED(device->CreatePixelShader(kExposureAdaptPs, sizeof kExposureAdaptPs, nullptr, &made.exposure_adapt_ps_))
@@ -1228,6 +1248,61 @@ namespace enhancements
         depth_.copy_from(c, native(depth));
         ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), nullptr, depth_.srv() };
         draw_fullscreen(atmosphere_ps_.Get(), srvs, 3, scene_out_.rtv(), map.render);
+        scene_out_.copy_to(c, native(scene));
+        return GameCall::keep;
+    }
+
+    std::optional<GameCall> Gpu::run_clouds(const FrameMap &map, const CloudSettings &settings, const Camera &camera, const SunShadowConstants &sun,
+        const float wind[2], bool flip)
+    {
+        constexpr uint32_t kCloudMapSize = 1024;    // kCloudMapSize in shaders/clouds.hlsli
+        const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
+        const auto scene_format = static_cast<DXGI_FORMAT>(scene.format);
+        const Size half = { (map.render.width + 1) / 2, (map.render.height + 1) / 2 };
+        ID3D11Device *d = device_.Get();
+        Constants constants;
+        if (!sun_ready_ || !scene_in_.sync(d, native(scene), scene_format, false) || !scene_out_.sync(d, native(scene), scene_format, true)
+            || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false)
+            || !cloud_map_.sync(d, { kCloudMapSize, kCloudMapSize }, DXGI_FORMAT_R16_FLOAT) || !cloud_rays_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT)
+            || !pass_constants(camera, map.render, flip, constants))
+            return std::nullopt;
+        constants.cloud_coverage = settings.coverage;
+        constants.cloud_base = settings.base;
+        constants.cloud_thickness = settings.thickness;
+        constants.cloud_size = settings.size;
+        constants.cloud_stretch = settings.stretch;
+        constants.cloud_density = settings.density;
+        constants.cloud_detail = settings.detail;
+        constants.cloud_sun = settings.sun;
+        constants.cloud_ambient = settings.ambient;
+        constants.cloud_steps = settings.steps;
+        constants.cloud_pad = settings.wind_direction;
+        constants.cloud_wind[0] = wind[0];
+        constants.cloud_wind[1] = wind[1];
+        // Eight texels a cell, centered on the camera in cloud space and snapped to whole texels so the map's texels do
+        // not swim as the camera moves.
+        constants.cloud_map_extent = settings.size * kCloudMapSize / 8;
+        constants.cloud_fade = constants.cloud_map_extent * 0.2f;
+        const float texel = constants.cloud_map_extent / kCloudMapSize;
+        const float camera_x = sun.camera[0], camera_z = sun.camera[2];
+        constants.cloud_map_center[0] = std::floor((camera_x + wind[0]) / texel) * texel;
+        constants.cloud_map_center[1] = std::floor((camera_z + wind[1]) / texel) * texel;
+        const bool sky_sun_up = camera.toward_sky_sun[1] > 0;
+        for (int k = 0; k < 3; k++)
+            constants.cloud_toward_sun[k] = sky_sun_up ? camera.toward_sky_sun[k] : camera.toward_sun[k];
+        upload(constants);
+
+        ID3D11DeviceContext1 *c = context_.Get();
+        scene_in_.copy_from(c, native(scene));
+        depth_.copy_from(c, native(depth));
+        ID3D11ShaderResourceView *const bake[] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, lattice_srv_.Get() };
+        draw_fullscreen(cloud_map_ps_.Get(), bake, 7, cloud_map_.rtv(), { kCloudMapSize, kCloudMapSize });
+        ID3D11Buffer *const game[] = { game_sun_[0].Get(), game_sun_[1].Get(), game_sun_[2].Get(), game_sun_[3].Get() };
+        c->PSSetConstantBuffers(1, 4, game);
+        ID3D11ShaderResourceView *const march[] = { nullptr, nullptr, depth_.srv(), nullptr, nullptr, cloud_map_.srv(), lattice_srv_.Get() };
+        draw_fullscreen(clouds_ps_.Get(), march, 7, cloud_rays_.rtv(), half);
+        ID3D11ShaderResourceView *const apply[] = { scene_in_.srv(), nullptr, depth_.srv(), nullptr, nullptr, cloud_rays_.srv() };
+        draw_fullscreen(clouds_apply_ps_.Get(), apply, 6, scene_out_.rtv(), map.render);
         scene_out_.copy_to(c, native(scene));
         return GameCall::keep;
     }

@@ -287,6 +287,8 @@ namespace enhancements
         std::chrono::steady_clock::time_point last_present;
         float frame_seconds = 0;
         float dof_focus = 0;
+        // Meters the clouds drifted along world x and z, wrapped well inside float precision.
+        float cloud_wind[2] = { 0, 0 };
         // The auto exposure's stops ReShade.log last named, and when; it names them again once they move half a stop, at
         // most every 5 seconds.
         std::optional<float> logged_exposure;
@@ -1035,6 +1037,14 @@ namespace enhancements
                     case PassId::atmosphere:
                         call = gpu.run_atmosphere(map, settings.atmosphere, sky_camera(), settings.flip);
                         break;
+                    case PassId::clouds:
+                    {
+                        const float radians = settings.clouds.wind_direction * 0.01745329f, step = settings.clouds.wind_speed * frame_seconds;
+                        cloud_wind[0] = std::fmod(cloud_wind[0] + std::cos(radians) * step, 1.0e5f);
+                        cloud_wind[1] = std::fmod(cloud_wind[1] + std::sin(radians) * step, 1.0e5f);
+                        call = gpu.run_clouds(map, settings.clouds, sky_camera(), sun_parse.constants, cloud_wind, settings.flip);
+                        break;
+                    }
                     case PassId::traced_lights:
                         // Nothing to add before the trace has a sample at every pixel.
                         call = trace_traced && trace_frame && trace_frame->lights.info[0] != 0 ? gpu.run_traced_lights(map, camera, settings.flip, trace_gpu)

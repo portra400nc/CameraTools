@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 30
+#define ENHANCEMENTS_VERSION 31
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -101,6 +101,7 @@ enum
     ENHANCEMENTS_PASS_LENS_FLARE = 1u << 9,
     ENHANCEMENTS_PASS_TRACED_LIGHTS = 1u << 10,
     ENHANCEMENTS_PASS_CHARACTER_LIGHT = 1u << 11,
+    ENHANCEMENTS_PASS_CLOUDS = 1u << 12,
 };
 
 // The tonemap pass's curves, values of EnhancementsTonemap.curve.
@@ -509,6 +510,25 @@ typedef struct EnhancementsSky
     float haze;                 // the aerosols' optical depth straight up: 0.1 (the default) a clear day; clamped to 0..0.5
 } EnhancementsSky;
 
+// Clouds: a layer of our own over the sky's pixels (depth 0), marched through a slab between two world heights and lit
+// by the main light and the sky color. The caller hides the game's own clouds. Version 31 added it.
+typedef struct EnhancementsClouds
+{
+    uint32_t enabled;           // default 0
+    float coverage;             // share of the sky the layer covers, 0 to 1 (default 0.5)
+    float base;                 // world height of the layer's base in meters (default 2500)
+    float thickness;            // meters (default 400)
+    float size;                 // meters across one cloud cell (default 380)
+    float stretch;              // the cells' length along the wind over their width, 1 to 6 (default 1.5)
+    float density;              // extinction per meter inside a cloud (default 0.035)
+    float detail;               // how much the fine noise erodes the edges, 0 to 1 (default 0.8)
+    float wind_speed;           // meters per second (default 8)
+    float wind_direction;       // degrees from world +x toward +z (default 30)
+    float sun;                  // multiplies the main light on the clouds (default 1)
+    float ambient;              // multiplies the sky light on the clouds (default 1)
+    uint32_t steps;             // march samples per ray, 8 to 64 (default 16)
+} EnhancementsClouds;
+
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller
 // knows, and fields past it keep their defaults.
 typedef struct EnhancementsSettings
@@ -534,6 +554,7 @@ typedef struct EnhancementsSettings
     EnhancementsLensSoftness lens_softness;
     EnhancementsAutoExposure auto_exposure;
     EnhancementsSky sky;
+    EnhancementsClouds clouds;
 } EnhancementsSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and

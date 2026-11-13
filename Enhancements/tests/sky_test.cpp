@@ -130,5 +130,15 @@ int main()
     check("and a haze that is no number reads as 0.1", parse_settings(raw).sky.haze == 0.1f);
     raw.size = offsetof(EnhancementsSettings, sky);
     check("a caller built before the block keeps the game's sky", !parse_settings(raw).sky.enabled && parse_settings(raw).gather.sky != GatherSky::map);
+
+    raw.size = sizeof raw;
+    raw.clouds = { 1, 2.0f, 3000, 1, 5, 9, -1, 0.5f, 10, 45, 2, 0.5f, 200 };
+    const CloudSettings clouds = parse_settings(raw).clouds;
+    check("the clouds read their block and clamp it: coverage to 1, thickness to 10 m, size to 20 m, stretch to 6, density to 0, steps to 64",
+        clouds.enabled && clouds.coverage == 1 && clouds.base == 3000 && clouds.thickness == 10 && clouds.size == 20 && clouds.stretch == 6
+            && clouds.density == 0 && clouds.detail == 0.5f && clouds.wind_speed == 10 && clouds.wind_direction == 45 && clouds.sun == 2
+            && clouds.ambient == 0.5f && clouds.steps == 64 && kPasses[7].id == PassId::clouds && kPasses[7].wanted(parse_settings(raw)));
+    raw.size = offsetof(EnhancementsSettings, clouds);
+    check("a caller built before the clouds draws none", !parse_settings(raw).clouds.enabled && parse_settings(raw).clouds.coverage == 0.5f);
     return failures == 0 ? 0 : 1;
 }

@@ -12,7 +12,7 @@ namespace enhancements
     namespace
     {
         static_assert(ENHANCEMENTS_COMPARE_MAX == kCompareMax && sizeof(EnhancementsVariant) == 32 + sizeof(EnhancementsSettings));
-        static_assert(sizeof(EnhancementsSettings) == 428, "settings_tsv writes every field: give a new one a column");
+        static_assert(sizeof(EnhancementsSettings) == 480, "settings_tsv writes every field: give a new one a column");
         // compare_remaining took the padding at the end, so a caller built before it still sends 72 bytes. The accumulator's
         // three fields follow, and the scene capture's three took the 4 bytes of padding after them and one more row, so a
         // caller of version 6 sends 88 and gets scene_face in its padding. The trace's five follow them, and the gather's four
@@ -173,7 +173,9 @@ namespace enhancements
                           "\tdepth_of_field.eye_distance\tdepth_of_field.eye_size\tlens_flare.enabled\tlens_flare.source\tlens_flare.x"
                           "\tlens_flare.y\tlens_flare.strength\tlens_flare.arcs\tlens_flare.ghosts\tlens_flare.streaks\tlens_flare.glare"
                           "\tlens_flare.size\tlens_flare.warmth\tlens_flare.chromatic\tlens_flare.visibility_seconds\tlens_flare.filled_arcs\tlens_flare.place\tlens_flare.rainbow\tlens_flare.texture"
-                          "\tambient.neutral\ttonemap.shadows\ttonemap.highlights\tlens_softness.radius\ttonemap.auto_exposure\tsky.physical\tsky.haze\n";
+                          "\tambient.neutral\ttonemap.shadows\ttonemap.highlights\tlens_softness.radius\ttonemap.auto_exposure\tsky.physical\tsky.haze"
+                          "\tclouds.enabled\tclouds.coverage\tclouds.base\tclouds.thickness\tclouds.size\tclouds.stretch\tclouds.density"
+                          "\tclouds.detail\tclouds.wind_speed\tclouds.wind_direction\tclouds.sun\tclouds.ambient\tclouds.steps\n";
         for (size_t i = 0; i < variants.size(); i++)
         {
             const Settings &s = variants[i].settings;
@@ -188,6 +190,7 @@ namespace enhancements
             const GatherSettings &g = s.gather;
             const DepthOfFieldSettings &d = s.depth_of_field;
             const FlareSettings &l = s.flare;
+            const CloudSettings &k = s.clouds;
             out += std::to_string(i) + '\t' + variants[i].name + '\t' + (s.enabled ? "1" : "0") + '\t' + kViews[static_cast<size_t>(s.view)].name
                 + '\t' + (s.flip ? "1" : "0") + '\t' + (a.enabled ? "1" : "0") + '\t' + number(a.level) + '\t' + number(a.ao_strength) + '\t'
                 + number(a.ao_radius) + '\t' + number(a.foliage_ao_strength) + '\t' + (c.enabled ? "1" : "0") + '\t' + number(c.length) + '\t'
@@ -213,7 +216,10 @@ namespace enhancements
                 + (l.enabled ? "1" : "0") + '\t' + (l.source == FlareSource::manual ? "manual" : "sun") + '\t' + number(l.position[0]) + '\t'
                 + number(l.position[1]) + '\t' + number(l.strength) + '\t' + number(l.arcs) + '\t' + number(l.ghosts) + '\t' + number(l.streaks) + '\t'
                 + number(l.glare) + '\t' + number(l.size) + '\t' + number(l.warmth) + '\t' + number(l.chromatic) + '\t' + number(l.visibility_seconds) + '\t' + number(l.filled_arcs) + '\t' + (l.place == FlarePlace::display ? "display" : "scene") + '\t' + number(l.rainbow) + '\t' + number(l.texture) + '\t'
-                + number(a.neutral) + '\t' + number(t.shadows) + '\t' + number(t.highlights) + '\t' + number(d.softness) + '\t' + number(t.auto_exposure) + '\t' + (s.sky.enabled ? "1" : "0") + '\t' + number(s.sky.haze) + '\n';
+                + number(a.neutral) + '\t' + number(t.shadows) + '\t' + number(t.highlights) + '\t' + number(d.softness) + '\t' + number(t.auto_exposure) + '\t' + (s.sky.enabled ? "1" : "0") + '\t' + number(s.sky.haze) + '\t'
+                + (k.enabled ? "1" : "0") + '\t' + number(k.coverage) + '\t' + number(k.base) + '\t' + number(k.thickness) + '\t' + number(k.size) + '\t'
+                + number(k.stretch) + '\t' + number(k.density) + '\t' + number(k.detail) + '\t' + number(k.wind_speed) + '\t' + number(k.wind_direction) + '\t'
+                + number(k.sun) + '\t' + number(k.ambient) + '\t' + std::to_string(k.steps) + '\n';
         }
         return out;
     }

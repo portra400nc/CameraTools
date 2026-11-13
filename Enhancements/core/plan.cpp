@@ -14,6 +14,7 @@ namespace enhancements
         bool ambient_wanted(const Settings &s) { return s.ambient.enabled; }
         bool contact_shadows_wanted(const Settings &s) { return s.contact_shadows.enabled; }
         bool atmosphere_wanted(const Settings &s) { return s.atmosphere.enabled; }
+        bool clouds_wanted(const Settings &s) { return s.clouds.enabled; }
         bool traced_lights_wanted(const Settings &s) { return s.traced_lights; }
         bool character_light_wanted(const Settings &s) { return s.character_light.enabled; }
         bool tonemap_wanted(const Settings &s) { return s.tonemap.enabled; }
@@ -37,7 +38,7 @@ namespace enhancements
             && ENHANCEMENTS_PASS_LIGHT_SHAFTS == bit(PassId::light_shafts) && ENHANCEMENTS_PASS_TRACE == bit(PassId::trace)
             && ENHANCEMENTS_PASS_DEPTH_OF_FIELD == bit(PassId::depth_of_field) && ENHANCEMENTS_PASS_LENS_FLARE == bit(PassId::lens_flare)
             && ENHANCEMENTS_PASS_TRACED_LIGHTS == bit(PassId::traced_lights) && ENHANCEMENTS_PASS_CHARACTER_LIGHT == bit(PassId::character_light)
-            && static_cast<int>(PassId::count) == 12);
+            && ENHANCEMENTS_PASS_CLOUDS == bit(PassId::clouds) && static_cast<int>(PassId::count) == 13);
         static_assert(ENHANCEMENTS_TRACE_STATE_FAILED == static_cast<int>(TraceState::failed) && static_cast<int>(TraceState::count) == 6);
         static_assert(ENHANCEMENTS_CURVE_AGX == static_cast<int>(Curve::agx) && ENHANCEMENTS_CURVE_COUNT == static_cast<int>(Curve::count));
         static_assert(ENHANCEMENTS_VIEW_COUNT == static_cast<int>(View::count) && ENHANCEMENTS_VIEW_STENCIL == static_cast<int>(View::stencil)
@@ -50,8 +51,8 @@ namespace enhancements
         static_assert(ENHANCEMENTS_ERROR_STATE == 4);
         // Callers built before foliage_ao_strength send 32 bytes, those before contact shadows 36, those before their
         // foliage_strength 52, those before atmosphere 56, those before tonemap 76, those before sun shadows 100, those
-        // before light shafts 132, those before the trace 172, those before the gather 212, those before the depth of field 236, those before its highlights 304, those before its scatter 312, those before its bokeh contrast 316, those before its place 320, those before its eye 324, those before the lens flare 332, those before the ambient color 400, those before the tones 404, those before the lens softness 412, those before the auto exposure 416, those before the sky 420. Version 6 dropped the leaves blocks, which moved wetness from 128 to 116, so a binding of
-        // version 5 must not call EnhancementsApply; csharp/Enhancements.cs checks the version and marshals 428.
+        // before light shafts 132, those before the trace 172, those before the gather 212, those before the depth of field 236, those before its highlights 304, those before its scatter 312, those before its bokeh contrast 316, those before its place 320, those before its eye 324, those before the lens flare 332, those before the ambient color 400, those before the tones 404, those before the lens softness 412, those before the auto exposure 416, those before the sky 420, those before the clouds 428. Version 6 dropped the leaves blocks, which moved wetness from 128 to 116, so a binding of
+        // version 5 must not call EnhancementsApply; csharp/Enhancements.cs checks the version and marshals 480.
         static_assert(offsetof(EnhancementsSettings, ambient) + offsetof(EnhancementsAmbient, foliage_ao_strength) == 32
             && offsetof(EnhancementsSettings, contact_shadows) == 36
             && offsetof(EnhancementsSettings, contact_shadows) + offsetof(EnhancementsContactShadows, foliage_strength) == 52
@@ -64,7 +65,7 @@ namespace enhancements
             && offsetof(EnhancementsSettings, lens_flare) == 332
             && offsetof(EnhancementsSettings, ambient_color) == 400 && offsetof(EnhancementsSettings, tones) == 404
             && offsetof(EnhancementsSettings, lens_softness) == 412 && offsetof(EnhancementsSettings, auto_exposure) == 416
-            && offsetof(EnhancementsSettings, sky) == 420 && sizeof(EnhancementsSettings) == 428);
+            && offsetof(EnhancementsSettings, sky) == 420 && offsetof(EnhancementsSettings, clouds) == 428 && sizeof(EnhancementsSettings) == 480);
         static_assert(ENHANCEMENTS_FLARE_SOURCE_MANUAL == static_cast<int>(FlareSource::manual)
             && ENHANCEMENTS_FLARE_SOURCE_COUNT == static_cast<int>(FlareSource::count));
         static_assert(ENHANCEMENTS_FLARE_PLACE_DISPLAY == static_cast<int>(FlarePlace::display)
@@ -121,6 +122,8 @@ namespace enhancements
           true, SunUse::none, character_light_wanted },
         { PassId::traced_lights, "traced-lights", Step::bloom, { Entry::depth, Entry::hdr_scene, Entry::albedo, Entry::normals }, true, SunUse::none,
           traced_lights_wanted },
+        // Before the haze and the mist, which lie in front of it. The game's camera constants place the camera in the world.
+        { PassId::clouds, "clouds", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::required, clouds_wanted },
         { PassId::atmosphere, "atmosphere", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::none, atmosphere_wanted },
         // After atmosphere, so the haze lies behind the mist. The atlas and the game's camera constants place every step of
         // the march, and the camera brings the sun's direction and the sun and sky colors.
@@ -465,6 +468,24 @@ namespace enhancements
             if (s.sky.enabled)
                 s.gather.sky = GatherSky::map;
         }
+        if (knows(offsetof(EnhancementsSettings, clouds), sizeof raw.clouds))
+        {
+            const CloudSettings d;
+            const EnhancementsClouds &c = raw.clouds;
+            s.clouds.enabled = c.enabled != 0;
+            s.clouds.coverage = finite_or(c.coverage, d.coverage, 0.0f, 1.0f);
+            s.clouds.base = finite_or(c.base, d.base, -2000.0f, 20000.0f);
+            s.clouds.thickness = finite_or(c.thickness, d.thickness, 10.0f, 5000.0f);
+            s.clouds.size = finite_or(c.size, d.size, 20.0f, 20000.0f);
+            s.clouds.stretch = finite_or(c.stretch, d.stretch, 1.0f, 6.0f);
+            s.clouds.density = finite_or(c.density, d.density, 0.0f, 1.0f);
+            s.clouds.detail = finite_or(c.detail, d.detail, 0.0f, 1.0f);
+            s.clouds.wind_speed = finite_or(c.wind_speed, d.wind_speed, 0.0f, 200.0f);
+            s.clouds.wind_direction = finite_or(c.wind_direction, d.wind_direction, -360.0f, 360.0f);
+            s.clouds.sun = finite_or(c.sun, d.sun, 0.0f, 20.0f);
+            s.clouds.ambient = finite_or(c.ambient, d.ambient, 0.0f, 20.0f);
+            s.clouds.steps = std::clamp<uint32_t>(c.steps, 8, 64);
+        }
         return s;
     }
 
@@ -611,7 +632,7 @@ namespace enhancements
             s.enabled = true;
             s.view = View::off;
             s.ambient.enabled = s.contact_shadows.enabled = s.atmosphere.enabled = s.tonemap.enabled = s.sun_shadows.enabled = s.wetness.enabled
-                = s.light_shafts.enabled = s.depth_of_field.enabled = s.flare.enabled = false;
+                = s.light_shafts.enabled = s.depth_of_field.enabled = s.flare.enabled = s.clouds.enabled = false;
         }
         s.trace.enabled = true;
         s.gather.enabled = true;
@@ -677,7 +698,7 @@ namespace enhancements
             s.enabled = true;
             s.view = View::off;
             s.ambient.enabled = s.contact_shadows.enabled = s.atmosphere.enabled = s.tonemap.enabled = s.sun_shadows.enabled = s.wetness.enabled
-                = s.light_shafts.enabled = s.trace.enabled = s.gather.enabled = s.depth_of_field.enabled = s.flare.enabled = false;
+                = s.light_shafts.enabled = s.trace.enabled = s.gather.enabled = s.depth_of_field.enabled = s.flare.enabled = s.clouds.enabled = false;
         }
         s.character_light = light;
         return s;

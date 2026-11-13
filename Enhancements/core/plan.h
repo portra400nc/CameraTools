@@ -40,6 +40,23 @@ namespace enhancements
     };
 
     // EnhancementsSky's.
+    struct CloudSettings
+    {
+        bool enabled = false;
+        float coverage = 0.5f;
+        float base = 2500.0f;
+        float thickness = 400.0f;
+        float size = 380.0f;
+        float stretch = 1.5f;
+        float density = 0.035f;
+        float detail = 0.8f;
+        float wind_speed = 8.0f;
+        float wind_direction = 30.0f;
+        float sun = 1.0f;
+        float ambient = 1.0f;
+        uint32_t steps = 16;
+    };
+
     struct PhysicalSkySettings
     {
         bool enabled = false;
@@ -246,6 +263,7 @@ namespace enhancements
         bool traced_lights = false;     // a traced shot has lights: the shell sets it, from EnhancementsSetShotLights
         AmbientSettings ambient;
         PhysicalSkySettings sky;
+        CloudSettings clouds;
         ContactShadowSettings contact_shadows;
         AtmosphereSettings atmosphere;
         TonemapSettings tonemap;
@@ -384,7 +402,7 @@ namespace enhancements
     enum class GameCall : bool { keep, skip };
 
     // The ENHANCEMENTS_PASS_* bit order, not the run order.
-    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, wetness, light_shafts, trace, depth_of_field, lens_flare, traced_lights, character_light, count };
+    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, wetness, light_shafts, trace, depth_of_field, lens_flare, traced_lights, character_light, clouds, count };
 
     // ENHANCEMENTS_TRACE_STATE_*: where the traced scene the trace pass needs is. The names follow in kTraceStateNames.
     enum class TraceState : uint8_t { none, building, uploading, ready, stale, failed, count };
@@ -411,7 +429,7 @@ namespace enhancements
     };
 
     // Table order is run order within a step: wetness at gbuffer-done; the trace, sun shadows, contact shadows, then ambient
-    // at combine; atmosphere, light shafts, depth of field, then the lens flare at bloom; tonemap at tonemap.
+    // at combine; clouds, atmosphere, light shafts, depth of field, then the lens flare at bloom; tonemap at tonemap.
     extern const std::array<PassSpec, static_cast<size_t>(PassId::count)> kPasses;
 
     struct ViewSpec

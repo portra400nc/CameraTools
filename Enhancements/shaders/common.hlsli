@@ -63,6 +63,22 @@ cbuffer Constants : register(b0)
     float tone_highlights;      // EnhancementsTones.highlights
     float accum_gain;           // EnhancementsAccumulate.gain, for present_ps.hlsl
     float auto_ease;            // the share of the way the auto exposure moves in this frame, 1 to jump
+    float cloud_coverage;       // EnhancementsClouds, and what run_clouds derives from it
+    float cloud_base;           // world meters
+    float cloud_thickness;
+    float cloud_size;
+    float cloud_stretch;
+    float cloud_density;        // extinction per meter
+    float cloud_detail;
+    float cloud_sun;
+    float2 cloud_map_center;    // the cloud map's center, in cloud space: world x and z plus the wind's drift
+    float cloud_map_extent;     // meters the map spans
+    float cloud_ambient;
+    float2 cloud_wind;          // meters the clouds drifted along world x and z
+    float cloud_fade;           // meters per e of fading into the sky behind
+    uint cloud_steps;
+    float3 cloud_toward_sun;    // the sky's sun while it is up, the main light otherwise
+    float cloud_pad;
 };
 
 SamplerState point_clamp : register(s0);
