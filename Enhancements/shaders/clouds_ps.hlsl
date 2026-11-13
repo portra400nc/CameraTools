@@ -19,6 +19,7 @@ float remap(float x, float a, float b, float c, float d) { return c + (x - a) / 
 
 static float2 skew_direction;
 static float detail_weight = 1;
+static float coverage_boost = 0;
 
 // Without the detail: the cloud body at p, 0 to 1, and the height in the layer and the weather there.
 float cloud_body(float3 p, out float h, out float weather)
@@ -39,7 +40,7 @@ float cloud_body(float3 p, out float h, out float weather)
     float top = lerp(0.3, 1, weather);
     body *= smoothstep(0, 0.07, h) * smoothstep(top, top * 0.45, h);
     // Even under full weather the noise must carve the body, or the clouds turn into extruded slabs of the map.
-    float coverage = weather * lerp(0.3, 0.8, cloud_coverage);
+    float coverage = weather * lerp(0.3, 0.8, cloud_coverage) + coverage_boost;
     return saturate(remap(body, 1 - coverage, 1, 0, 1));
 }
 
@@ -62,6 +63,16 @@ float cloud_extinction_coarse(float3 p)
 {
     float h, weather;
     return cloud_body(p, h, weather) * cloud_density;
+}
+
+// Whether a large step's sample may be in a cloud: the body grown a little, so a sample beside a thin part still finds it.
+bool cloud_near(float3 p)
+{
+    coverage_boost = 0.1;
+    float h, weather;
+    bool near = cloud_body(p, h, weather) > 0;
+    coverage_boost = 0;
+    return near;
 }
 
 // Optical depth from p toward the light, through samples at 5% to 94% of the layer's thickness along the light; only the
@@ -196,19 +207,21 @@ float4 main(float4 position : SV_Position) : SV_Target0
     float t = t0 + jitter * coarse;
     bool inside = false;
     uint empty = 0;
+    float found = 0;
     for (uint i = 0; i < cloud_steps * 2 && t < t1 && transmittance > 0.01; i++)
     {
         float3 p = origin + dir * t;
         coarse = min(max(t * 0.05, least), max(budget, least));
         if (!inside)
         {
-            if (cloud_extinction_coarse(p) <= 0)
+            if (!cloud_near(p))
             {
                 t += coarse;
                 continue;
             }
             inside = true;
             empty = 0;
+            found = t;
             t = max(t - coarse, t0) + jitter * fine;
             continue;
         }
@@ -219,7 +232,9 @@ float4 main(float4 position : SV_Position) : SV_Target0
         float sigma = cloud_extinction(p, h);
         if (sigma <= 0)
         {
-            if (++empty > 8)
+            // Small steps go on at least to where the large step found the cloud: giving up short of it skipped the cloud
+            // for some pixels' offsets, which left dark specks.
+            if (++empty > 8 && t > found)
                 inside = false;
             t += step;
             continue;
