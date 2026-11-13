@@ -32,9 +32,6 @@ float cloud_body(float3 p, out float h, out float weather)
     weather = cloud_map.SampleLevel(linear_clamp, (c - cloud_map_center) / cloud_map_extent + 0.5, 0);
     if (weather <= 0.01)
         return 0;
-    // Cirrus is its weather, thinning out above and below; the tufts come with the detail.
-    if (cloud_shape >= 0.5)
-        return weather * smoothstep(0, 0.3, h) * smoothstep(1, 0.6, h);
     float4 n = shape_noise.SampleLevel(linear_wrap, float3(c.x, p.y, c.y) / (cloud_size * kShapeTile), 0);
     float erosion = n.g * 0.625 + n.b * 0.25 + n.a * 0.125;
     float body = saturate(remap(n.r, erosion - 1, 1, 0, 1));
@@ -53,8 +50,6 @@ float cloud_extinction(float3 p, out float h)
     if (body <= 0)
         return 0;
     float2 c = p.xz + cloud_wind + skew_direction * h * cloud_thickness * 0.5;
-    if (cloud_shape >= 0.5)
-        return cirrus_body(c, body, length(p - game_b1[5].xyz)) * cloud_density;
     float3 d = detail_noise.SampleLevel(linear_wrap, float3(c.x, p.y, c.y) / (cloud_size * kDetailTile), 0).rgb;
     float fine = d.r * 0.625 + d.g * 0.25 + d.b * 0.125;
     // Wispy at the base, billowing toward the top.
@@ -73,9 +68,6 @@ float cloud_extinction_coarse(float3 p)
 // nearest sees the detail.
 float depth_toward_light(float3 p, float3 l)
 {
-    // Cirrus is too thin to shade itself much: one sample across half the layer stands in for the five.
-    if (cloud_shape >= 0.5)
-        return cloud_extinction_coarse(p) * cloud_thickness * 0.5 / max(l.y, 0.2);
     float depth = 0, from = 0, at = cloud_thickness * 0.05;
     [unroll] for (int j = 0; j < 5; j++)
     {
@@ -86,6 +78,38 @@ float depth_toward_light(float3 p, float3 l)
         at *= 2.1;
     }
     return depth;
+}
+
+// Multiple scattering after Wrenninge: each octave lets more light through, scatters less and more evenly.
+float scattered(float c, float od)
+{
+    float lit = 0, a = 1, b = 1, g = 1;
+    [unroll] for (int k = 0; k < 4; k++)
+    {
+        lit += b * (0.6 * henyey_greenstein(c, 0.8 * g) + 0.4 * henyey_greenstein(c, -0.15 * g)) * exp(-od * a);
+        a *= 0.25;
+        b *= 0.45;
+        g *= 0.6;
+    }
+    return lit;
+}
+
+// Cirrus is a sheet too thin to march: the ray's crossing of the layer's middle stands in for the whole layer, its
+// tufts thick by the ray's path through it, lit through half the layer toward the light.
+float4 cirrus_ray(float3 origin, float3 dir, float t0, float t1, float3 l, float c, float3 sun, float3 sky)
+{
+    float t = (cloud_base + cloud_thickness * 0.5 - origin.y) / dir.y;
+    if (t <= 0)
+        return float4(0, 0, 0, 1);
+    float3 p = origin + dir * t;
+    float2 at = p.xz + cloud_wind;
+    float weather = cloud_map.SampleLevel(linear_clamp, (at - cloud_map_center) / cloud_map_extent + 0.5, 0);
+    if (weather <= 0.01)
+        return float4(0, 0, 0, 1);
+    float od = cirrus_body(at, weather, t) * cloud_density * (t1 - t0) * 0.55;
+    float lit = scattered(c, weather * cloud_density * cloud_thickness * 0.5 / max(l.y, 0.2));
+    float taken = (1 - exp(-od)) * exp(-t / cloud_fade);
+    return float4(taken * (sun * lit + sky * 0.6), 1 - taken);
 }
 
 float4 main(float4 position : SV_Position) : SV_Target0
@@ -130,6 +154,8 @@ float4 main(float4 position : SV_Position) : SV_Target0
     float c = dot(dir, l);
     float3 sun = kPi * sun_color * cloud_sun;
     float3 sky = sky_color * cloud_ambient;
+    if (cloud_shape >= 0.5)
+        return cirrus_ray(origin, dir, t0, t1, l, c, sun, sky);
 
     float3 inscatter = 0;
     float transmittance = 1, opacity = 0;
@@ -165,15 +191,7 @@ float4 main(float4 position : SV_Position) : SV_Target0
         }
         empty = 0;
         float od = depth_toward_light(p, l);
-        // Multiple scattering after Wrenninge: each octave lets more light through, scatters less and more evenly.
-        float lit = 0, a = 1, b = 1, g = 1;
-        [unroll] for (int k = 0; k < 4; k++)
-        {
-            lit += b * (0.6 * henyey_greenstein(c, 0.8 * g) + 0.4 * henyey_greenstein(c, -0.15 * g)) * exp(-od * a);
-            a *= 0.25;
-            b *= 0.45;
-            g *= 0.6;
-        }
+        float lit = scattered(c, od);
         // Light reaching a cloud's sunlit skin has not yet scattered toward the eye: the powder term darkens it a little.
         lit *= lerp(1, 1 - exp(-od * 2), 0.4);
         float3 light = sun * lit + sky * (0.2 + 0.8 * h);

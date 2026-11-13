@@ -75,13 +75,13 @@ float cirrus_cells(float2 c)
     return smoothstep(low, low + 0.4, field);
 }
 
-// One layer of cirrus tufts, at scale times cloud_size. Each cell, 10 by 2 sizes, may hold a head that trails a tail
+// One layer of cirrus tufts, at scale times cloud_size. Each cell, 10 by 3 sizes, may hold a head that trails a tail
 // downwind: it widens, fades, curls across the wind and sways, and its strands run along it. A tail stays within the
 // next cell downwind and one cell either side, so six cells cover every point. contrast is how clear the strands stand.
 float cirrus_layer(float2 uv, float scale, int salt, float contrast)
 {
     float s = cloud_size * scale;
-    float2 cell_size = s * float2(10, 2);
+    float2 cell_size = s * float2(10, 3);
     int2 at = int2(floor(uv / cell_size));
     float total = 0;
     [unroll] for (int di = -1; di <= 0; di++)
@@ -98,14 +98,14 @@ float cirrus_layer(float2 uv, float scale, int salt, float contrast)
             if (q.z >= 0.95 || t <= 0 || t >= 1)
                 continue;
             float across = head.y + lerp(-0.3, 0.3, r.w) * cell_size.y * t * t + 0.15 * cell_size.y * sin(t * 5 + q.w * 6.28) * t;
-            float e = (uv.y - across) / (cell_size.y * lerp(0.06, 0.18, q.x) * (0.35 + 2.5 * t));
+            float e = (uv.y - across) / (cell_size.y * lerp(0.05, 0.12, q.x) * (0.35 + 4 * t));
             float spread = exp(-e * e);
             if (spread < 0.01)
                 continue;
-            float along = smoothstep(0, 0.06, t) * pow(1 - t, 1.3) * (1.6 - 0.6 * t);
+            float along = smoothstep(0, 0.15, t) * pow(1 - t, 0.6);
             float strands = cloud_fbm(float3(d / (s * 4) + q.w * 50, (uv.y - across) / (s * 0.035) + q.z * 50, 3.3), 2);
             strands = lerp(1, pow(saturate((strands - 0.35) / 0.35), 1.5), contrast);
-            total += lerp(0.3, 1, q.y) * along * spread * strands;
+            total += lerp(0.4, 1, q.y) * along * spread * strands;
         }
     return total;
 }
@@ -115,8 +115,8 @@ float cirrus_body(float2 c, float weather, float distance)
 {
     float2 uv = cloud_wind_space(c);
     float contrast = 0.7 * cloud_detail * saturate(40000 / distance);
-    float tufts = cirrus_layer(uv, 1, 0, contrast) + 0.7 * cirrus_layer(uv, 0.45, 1, contrast);
-    return weather * (1 - exp(-1.5 * tufts) + 0.3 * weather);
+    float tufts = cirrus_layer(uv, 1, 0, contrast) + 0.6 * cirrus_layer(uv, 0.45, 1, contrast);
+    return weather * (1 - exp(-2 * tufts) + 0.25 * weather);
 }
 
 // The weather map's value at a point of cloud space (world x and z plus the drift): 0 clear sky to 1 where the clouds are
