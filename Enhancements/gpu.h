@@ -333,6 +333,8 @@ namespace enhancements
         // The cloud layer: bake the cells around the camera into cloud_map_, march the slab at half size into cloud_rays_
         // with the game's camera constants gather_sun copied, and lay the result over the sky's pixels. wind is the meters
         // the clouds drifted. Empty when gather_sun copied nothing this frame or a texture of ours failed.
+        // The volume clouds' two noise textures, generated once on the GPU. false when one could not be made.
+        bool make_cloud_noise();
         std::optional<GameCall> run_clouds(const FrameMap &map, const CloudSettings &settings, const Camera &camera, const SunShadowConstants &sun,
             const float wind[2], uint64_t frame, bool flip);
         // A traced shot's lights added to the HDR scene behind their traced visibility; run_trace mirrored what it reads this frame.
@@ -513,7 +515,7 @@ namespace enhancements
         ComPtr<ID3D11Device> device_;
         ComPtr<ID3D11DeviceContext1> context_;
         ComPtr<ID3D11VertexShader> fullscreen_vs_, dof_sprite_vs_;
-        ComPtr<ID3D11ComputeShader> dof_scatter_cs_;
+        ComPtr<ID3D11ComputeShader> dof_scatter_cs_, cloud_shape_cs_, cloud_detail_cs_;
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_, cloud_map_ps_, clouds_ps_, clouds_apply_ps_, clouds_resolve_ps_,
             tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, character_light_ps_, character_shadow_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
             apply_gather_ps_, reflect_apply_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_, dof_soften_ps_, dof_behind_ps_,
@@ -566,6 +568,9 @@ namespace enhancements
         Scratch shafts_;            // half size, R16G16B16A16_FLOAT: rgb the mist's raw in-scatter, a its transmittance
         Scratch shafts_meters_;     // half size, R16_FLOAT: the meters each ray marched
         Scratch shafts_view_;       // R16G16B16A16_FLOAT: the mist's in-scatter at full size, for the light-shafts view
+        ComPtr<ID3D11Texture3D> cloud_shape_, cloud_detail_;     // 128 and 32 a side, R8G8B8A8_UNORM
+        ComPtr<ID3D11ShaderResourceView> cloud_shape_srv_, cloud_detail_srv_;
+        bool cloud_noise_ready_ = false;
         Scratch cloud_map_;         // kCloudMapSize square, R16_FLOAT: the cloud cells around the camera
         // What cloud_map_ was last baked for; the bake runs again only when any of it changes.
         struct CloudMapKey

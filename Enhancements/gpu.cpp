@@ -98,7 +98,8 @@ namespace enhancements
         float cloud_prev_view_to_clip[16];
         float cloud_phase;
         float cloud_blend;
-        float cloud_pad2[2];
+        float cloud_block;
+        float cloud_pad3;
     };
     static_assert(sizeof(Constants) == 720 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
@@ -666,6 +667,8 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kCloudsPs, sizeof kCloudsPs, nullptr, &made.clouds_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCloudsApplyPs, sizeof kCloudsApplyPs, nullptr, &made.clouds_apply_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCloudsResolvePs, sizeof kCloudsResolvePs, nullptr, &made.clouds_resolve_ps_))
+            && SUCCEEDED(device->CreateComputeShader(kCloudShapeCs, sizeof kCloudShapeCs, nullptr, &made.cloud_shape_cs_))
+            && SUCCEEDED(device->CreateComputeShader(kCloudDetailCs, sizeof kCloudDetailCs, nullptr, &made.cloud_detail_cs_))
             && SUCCEEDED(device->CreatePixelShader(kTonemapPs, sizeof kTonemapPs, nullptr, &made.tonemap_ps_))
             && SUCCEEDED(device->CreatePixelShader(kExposureMeterPs, sizeof kExposureMeterPs, nullptr, &made.exposure_meter_ps_))
             && SUCCEEDED(device->CreatePixelShader(kExposureAdaptPs, sizeof kExposureAdaptPs, nullptr, &made.exposure_adapt_ps_))
@@ -1259,18 +1262,47 @@ namespace enhancements
         return GameCall::keep;
     }
 
+    bool Gpu::make_cloud_noise()
+    {
+        ID3D11Device *d = device_.Get();
+        ID3D11DeviceContext1 *c = context_.Get();
+        const struct { UINT size; ComPtr<ID3D11Texture3D> &texture; ComPtr<ID3D11ShaderResourceView> &srv; ID3D11ComputeShader *shader; } noises[] = {
+            { 128, cloud_shape_, cloud_shape_srv_, cloud_shape_cs_.Get() }, { 32, cloud_detail_, cloud_detail_srv_, cloud_detail_cs_.Get() } };
+        for (const auto &n : noises)
+        {
+            D3D11_TEXTURE3D_DESC desc = {};
+            desc.Width = desc.Height = desc.Depth = n.size;
+            desc.MipLevels = 1;
+            desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            desc.Usage = D3D11_USAGE_DEFAULT;
+            desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
+            ComPtr<ID3D11UnorderedAccessView> uav;
+            if (FAILED(d->CreateTexture3D(&desc, nullptr, &n.texture)) || FAILED(d->CreateShaderResourceView(n.texture.Get(), nullptr, &n.srv))
+                || FAILED(d->CreateUnorderedAccessView(n.texture.Get(), nullptr, &uav)))
+                return false;
+            ID3D11UnorderedAccessView *const out[] = { uav.Get() };
+            c->CSSetShader(n.shader, nullptr, 0);
+            c->CSSetUnorderedAccessViews(0, 1, out, nullptr);
+            c->Dispatch(n.size / 4, n.size / 4, n.size / 4);
+            ID3D11UnorderedAccessView *const none[] = { nullptr };
+            c->CSSetUnorderedAccessViews(0, 1, none, nullptr);
+        }
+        cloud_noise_ready_ = true;
+        return true;
+    }
+
     std::optional<GameCall> Gpu::run_clouds(const FrameMap &map, const CloudSettings &settings, const Camera &camera, const SunShadowConstants &sun,
         const float wind[2], uint64_t frame, bool flip)
     {
         constexpr uint32_t kCloudMapSize = 2048;    // kCloudMapSize in shaders/clouds.hlsli
         const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
         const auto scene_format = static_cast<DXGI_FORMAT>(scene.format);
-        const Size half = { (map.render.width + 1) / 2, (map.render.height + 1) / 2 };
+        const Size half = { (map.render.width + 1) / 2, (map.render.height + 1) / 2 }, quarter = { (half.width + 1) / 2, (half.height + 1) / 2 };
         ID3D11Device *d = device_.Get();
         Constants constants;
         if (!sun_ready_ || !scene_in_.sync(d, native(scene), scene_format, false) || !scene_out_.sync(d, native(scene), scene_format, true)
             || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false)
-            || !cloud_map_.sync(d, { kCloudMapSize, kCloudMapSize }, DXGI_FORMAT_R16_FLOAT) || !cloud_rays_.sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT)
+            || !cloud_map_.sync(d, { kCloudMapSize, kCloudMapSize }, DXGI_FORMAT_R16_FLOAT) || !cloud_rays_.sync(d, quarter, DXGI_FORMAT_R16G16B16A16_FLOAT)
             || !cloud_history_[0].sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT) || !cloud_history_[1].sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT)
             || !pass_constants(camera, map.render, flip, constants))
             return std::nullopt;
@@ -1305,7 +1337,9 @@ namespace enhancements
             settings.detail, settings.sun, settings.ambient, settings.wind_direction, settings.steps, cloud_history_[0].texture() };
         const bool continues = cloud_frame_ + 1 == frame && look == cloud_look_;
         constants.cloud_phase = static_cast<float>(std::fmod(static_cast<double>(frame) * 0.6180339887, 1.0));
-        constants.cloud_blend = continues ? 0.1f : 1.0f;
+        // Each frame marches one pixel of every 2x2 block of the half-size history, in turn, at a quarter of the size.
+        constants.cloud_blend = continues ? 0.3f : 1.0f;
+        constants.cloud_block = static_cast<float>(frame & 3);
         std::memcpy(constants.cloud_prev_world_to_view, continues ? cloud_prev_world_to_view_ : camera.world_to_view, sizeof constants.cloud_prev_world_to_view);
         std::memcpy(constants.cloud_prev_view_to_clip, continues ? cloud_prev_view_to_clip_ : camera.view_to_clip, sizeof constants.cloud_prev_view_to_clip);
         std::memcpy(cloud_prev_world_to_view_, camera.world_to_view, sizeof cloud_prev_world_to_view_);
@@ -1318,6 +1352,8 @@ namespace enhancements
         upload(constants);
 
         ID3D11DeviceContext1 *c = context_.Get();
+        if (!cloud_noise_ready_ && !make_cloud_noise())
+            return std::nullopt;
         scene_in_.copy_from(c, native(scene));
         depth_.copy_from(c, native(depth));
         const CloudMapKey key = { cloud_map_.texture(), { constants.cloud_map_center[0], constants.cloud_map_center[1] }, constants.cloud_map_extent,
@@ -1330,8 +1366,9 @@ namespace enhancements
         }
         ID3D11Buffer *const game[] = { game_sun_[0].Get(), game_sun_[1].Get(), game_sun_[2].Get(), game_sun_[3].Get() };
         c->PSSetConstantBuffers(1, 4, game);
-        ID3D11ShaderResourceView *const march[] = { nullptr, nullptr, depth_.srv(), nullptr, nullptr, cloud_map_.srv(), lattice_srv_.Get() };
-        draw_fullscreen(clouds_ps_.Get(), march, 7, cloud_rays_.rtv(), half);
+        ID3D11ShaderResourceView *const march[] = { nullptr, nullptr, depth_.srv(), nullptr, nullptr, cloud_map_.srv(), lattice_srv_.Get(),
+            cloud_shape_srv_.Get(), cloud_detail_srv_.Get() };
+        draw_fullscreen(clouds_ps_.Get(), march, 9, cloud_rays_.rtv(), quarter);
         Scratch &old = cloud_history_[cloud_history_at_], &now = cloud_history_[cloud_history_at_ ^ 1];
         cloud_history_at_ ^= 1;
         ID3D11ShaderResourceView *const resolve[] = { nullptr, nullptr, nullptr, nullptr, nullptr, cloud_rays_.srv(), old.srv() };

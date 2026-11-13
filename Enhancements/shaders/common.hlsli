@@ -83,7 +83,8 @@ cbuffer Constants : register(b0)
     float4x4 cloud_prev_view_to_clip;
     float cloud_phase;          // 0 to 1, the march's sample offset this frame
     float cloud_blend;          // the share of this frame in the cloud history, 1 to start it again
-    float2 cloud_pad2;
+    float cloud_block;          // which pixel of each 2x2 block of the cloud history this frame marches, 0 to 3
+    float cloud_pad3;
 };
 
 SamplerState point_clamp : register(s0);

@@ -56,19 +56,16 @@ float cloud_worley(float2 p)
     return saturate(1 - sqrt(best));
 }
 
-// The map's value at a point of cloud space (world x and z plus the drift): how far into a cloud the point lies, 0 outside
-// every cloud. Continuous noise patches a few cells across, roughened by the cells, give sheets and bands rather than one
-// ball a cell.
+// The weather map's value at a point of cloud space (world x and z plus the drift): 0 clear sky to 1 where the clouds are
+// thickest and tallest. Broad warped patches some six cells across; the 3D noise gives the clouds inside them their shape.
 float cloud_cells(float2 c)
 {
     float2 wind = float2(cos(radians(cloud_pad)), sin(radians(cloud_pad)));
-    float2 p = float2(dot(c, wind) / (cloud_size * cloud_stretch), dot(c, float2(-wind.y, wind.x)) / cloud_size);
-    float wx = cloud_fbm(float3(p * 0.25, 0.5), 2) - 0.5;
-    float wz = cloud_fbm(float3(p * 0.25 + float2(5.2, 7.1), 1.8), 2) - 0.5;
-    p += float2(wx, wz) * 2;
-    float base = cloud_fbm(float3(p * 0.45, 2.5), 4);
-    float cells = cloud_worley(p) * 0.6 + cloud_worley(p * 2.3 + float2(3.1, 1.7)) * 0.4;
-    float large = cloud_fbm(float3(c / (cloud_size * 7), 4.5), 3);
-    float shape = base * (0.55 + 0.45 * cells) * (0.5 + 0.5 * smoothstep(0.2, 0.8, large));
-    return saturate((shape - (1 - cloud_coverage) * 0.62) / (cloud_coverage * 0.5));
+    float2 p = float2(dot(c, wind) / (cloud_size * cloud_stretch), dot(c, float2(-wind.y, wind.x)) / cloud_size) / 6;
+    float wx = cloud_fbm(float3(p * 0.5, 0.5), 2) - 0.5;
+    float wz = cloud_fbm(float3(p * 0.5 + float2(5.2, 7.1), 1.8), 2) - 0.5;
+    p += float2(wx, wz) * 1.5;
+    float f = cloud_fbm(float3(p, 2.5), 5);
+    float low = 0.5 + (0.5 - cloud_coverage) * 0.45 - 0.12;
+    return smoothstep(low, low + 0.35, f);
 }
