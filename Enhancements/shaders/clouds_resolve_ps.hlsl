@@ -3,6 +3,7 @@
 // keep the moved average. The clouds are far, so the camera's turn moves them on screen and its travel barely does. The
 // average is held within the range of the march's 3x3 neighborhood, widened, so it cannot keep a cloud that drifted away.
 #include "common.hlsli"
+#include "cloud_filter.hlsli"
 
 Texture2D<float4> current : register(t5);   // quarter size
 Texture2D<float4> history : register(t6);   // half size
@@ -40,7 +41,9 @@ float4 main(float4 position : SV_Position) : SV_Target0
     float2 back = stored_uv(float2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5));
     if (any(back < 0) || any(back > 1))
         return spread;
-    float4 kept = clamp(history.SampleLevel(linear_clamp, back, 0), low, high);
+    uint2 history_size;
+    history.GetDimensions(history_size.x, history_size.y);
+    float4 kept = clamp(sample_catmull_rom(history, back, float2(history_size)), low, high);
     bool fresh = all(uint2(q & 1) == uint2(block & 1, block >> 1));
     return fresh ? lerp(kept, current.Load(int3(cell, 0)), cloud_blend) : kept;
 }
