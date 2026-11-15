@@ -16,8 +16,8 @@ Texture2D<float4> view_rest : register(t21);
 SamplerState linear_wrap : register(s3);
 
 static const float kWaterF0 = 0.02;                 // Fresnel at normal incidence, water against air
-static const uint kWaves = 8;
-static const uint kReflectSteps = 32;
+static const uint kWaveLayers = 5;
+static const uint kReflectSteps = 48;
 
 float3 air_light(float3 view)
 {
@@ -28,19 +28,60 @@ float3 air_light(float3 view)
         + view_moon_rayleigh.SampleLevel(linear_wrap, uv, 0).rgb * sky_rayleigh_phase(cm) + view_moon_mie.SampleLevel(linear_wrap, uv, 0).rgb * sky_mie_phase(cm);
 }
 
-// The surface's slope at world (x, z): deep-water waves from a quarter meter to five meters long, spread over directions
-// by the golden angle, each as steep as its length allows, moving at its own speed.
-float2 wave_slope(float2 p)
+float hash3(float3 p)
 {
-    float2 slope = 0;
-    [unroll] for (uint i = 0; i < kWaves; i++)
+    p = frac(p * 0.1031);
+    p += dot(p, p.zyx + 31.32);
+    return frac((p.x + p.y) * p.z);
+}
+
+// Value noise over (x, z, time), smooth, from -1 to 1.
+float noise3(float3 p)
+{
+    float3 i = floor(p), f = p - i;
+    f = f * f * (3 - 2 * f);
+    float a = lerp(lerp(hash3(i), hash3(i + float3(1, 0, 0)), f.x), lerp(hash3(i + float3(0, 1, 0)), hash3(i + float3(1, 1, 0)), f.x), f.y);
+    float b = lerp(lerp(hash3(i + float3(0, 0, 1)), hash3(i + float3(1, 0, 1)), f.x), lerp(hash3(i + float3(0, 1, 1)), hash3(i + float3(1, 1, 1)), f.x), f.y);
+    return lerp(a, b, f.z) * 2 - 1;
+}
+
+// The water's height at world (x, z), in meters: five layers of noise from six meters long down to forty centimeters,
+// each turned its own way and carried down the wind at the speed deep water carries waves of its length, which also
+// sets how fast each one changes, and two long swells along the wind. water_waves scales it. A layer fades out where
+// its waves span fewer than four of pixel_m, the meters a pixel covers there, so far water does not shimmer; no layer
+// shorter than shortest counts.
+float wave_height(float2 p, float pixel_m, float shortest)
+{
+    float2 wind = float2(cos(water_wind), sin(water_wind));
+    float h = 0;
+    float length_m = 6, amplitude = 0.12;
+    [unroll] for (uint i = 0; i < kWaveLayers; i++)
     {
-        float angle = i * 2.39996323, length_m = 0.25 * pow(1.55, i);
-        float2 d = float2(cos(angle), sin(angle));
-        float k = 6.2831853 / length_m, speed = sqrt(9.81 * k);
-        slope += d * (0.012 * length_m * k) * cos(k * dot(d, p) - speed * water_time);
+        float angle = water_wind + (i * 2.39996323 - 1.2) * 0.35;
+        float2x2 turn = float2x2(cos(angle), -sin(angle), sin(angle), cos(angle));
+        float speed = sqrt(9.81 * length_m / 6.2831853);
+        float2 q = mul(turn, p - wind * speed * water_time) / length_m;
+        float seen = saturate(length_m / (4 * pixel_m) - 1) * (length_m >= shortest ? 1 : 0);
+        h += seen * amplitude * noise3(float3(q, water_time * speed / length_m * 0.5 + i * 17.13));
+        length_m *= 0.53;
+        amplitude *= 0.5;
     }
-    return slope * water_waves / kWaves;
+    [unroll] for (uint k = 0; k < 2; k++)
+    {
+        float angle = water_wind + (k == 0 ? 0.3 : -0.45), swell = k == 0 ? 11 : 7.3;
+        float2 d = float2(cos(angle), sin(angle));
+        float kw = 6.2831853 / swell;
+        h += 0.05 * sin(kw * dot(d, p) - sqrt(9.81 * kw) * water_time + k * 2.1);
+    }
+    return h * water_waves;
+}
+
+// The surface's slope at world (x, z), from the heights a few centimeters apart.
+float2 wave_slope(float2 p, float pixel_m, float shortest)
+{
+    const float e = 0.04;
+    float h = wave_height(p, pixel_m, shortest);
+    return float2(wave_height(p + float2(e, 0), pixel_m, shortest) - h, wave_height(p + float2(0, e), pixel_m, shortest) - h) / e;
 }
 
 // A light's glint off the waves: GGX with the roughness of the ripples too small to draw, Fresnel at the half vector.
@@ -56,33 +97,51 @@ float3 glint(float3 n, float3 v, float3 l, float3 light)
     return light * d * f * nl / (4 * nv);
 }
 
-// The scene the reflected ray meets in the frame, in view space from p along r, or a = 0 where it leaves the frame,
-// meets the sky or goes behind what it would have to pass.
+// How far behind the frame's surface view space point q lies, in meters, and that surface's pixel: below 0 in front of
+// it, and in front of nothing over the sky. off: q is off the frame or behind the camera.
+float behind_frame(float3 q, out int2 pixel, out bool off)
+{
+    float2 uv = stored_of(q);
+    pixel = int2(uv * render_size.xy);
+    off = q.z > -0.05 || any(uv < 0) || any(uv > 1);
+    float d = off ? 0 : game_depth.Load(int3(pixel, 0));
+    return d > 0 ? view_position(uv, d).z - q.z : -1e30;
+}
+
+// The scene the reflected ray meets in the frame, in view space from p along r, or a = 0 where it leaves the frame or
+// meets the sky. Where it crosses behind a surface, the crossing is found by halving the step, and taken when the ray
+// passed close to the surface there; where it went under something, as through a gap in leaves, it marches on.
 float4 reflected_scene(float3 p, float3 r)
 {
-    float t = 0.15;
+    float t = 0.1, last = 0;
+    int2 pixel;
+    bool off;
     [loop] for (uint i = 0; i < kReflectSteps; i++)
     {
-        t *= 1.18;
-        float3 q = p + r * t;
-        if (q.z > -0.05)
+        last = t;
+        t *= 1.13;
+        float behind = behind_frame(p + r * t, pixel, off);
+        if (off)
             return 0;
-        float2 uv = stored_of(q);
-        if (any(uv < 0) || any(uv > 1))
-            return 0;
-        int2 pixel = int2(uv * render_size.xy);
-        float d = game_depth.Load(int3(pixel, 0));
-        if (d <= 0)
+        if (behind <= 0)
             continue;
-        float surface = view_position(uv, d).z;
-        float behind = surface - q.z;
-        if (behind > 0)
+        float lo = last, hi = t;
+        [unroll] for (uint k = 0; k < 5; k++)
         {
-            // Within the step's own length the ray met the surface; farther behind, it passed under something.
-            if (behind > t * 0.25 + 0.5)
-                return 0;
+            float mid = 0.5 * (lo + hi);
+            if (behind_frame(p + r * mid, pixel, off) > 0)
+                hi = mid;
+            else
+                lo = mid;
+        }
+        // How sure the crossing is: fully where the ray met the surface within a tolerance, fading over a second one.
+        float tolerance = max(0.3, 0.04 * hi), miss = behind_frame(p + r * hi, pixel, off);
+        float sure = saturate(2 - miss / tolerance);
+        if (sure > 0)
+        {
+            float2 uv = stored_of(p + r * hi);
             float2 edge = saturate(min(uv, 1 - uv) * 12);
-            return float4(scene.Load(int3(pixel, 0)), edge.x * edge.y);
+            return float4(scene.Load(int3(pixel, 0)), edge.x * edge.y * sure);
         }
     }
     return 0;
@@ -96,16 +155,22 @@ float4 main(float4 position : SV_Position) : SV_Target0
     float3x3 to_view = (float3x3)world_to_view;
     float3 eye_offset = float3(world_to_view[0].w, world_to_view[1].w, world_to_view[2].w);
     float3 world = mul(transpose(to_view), at - eye_offset);
-    float2 slope = wave_slope(world.xz);
+    // The meters a pixel covers on the water here, along the view.
+    float pixel_m = length(at) / max(projection_scale, 1);
+    float2 slope = wave_slope(world.xz, pixel_m, 0);
     float3 n_world = normalize(float3(-slope.x, 1, -slope.y));
     float3 n = normalize(mul(to_view, n_world));
+    // The mirrored ray follows only the waves a meter and longer: the small ripples' reflections would change from
+    // pixel to pixel and frame to frame.
+    float2 swell = wave_slope(world.xz, pixel_m, 1);
+    float3 n_mirror = normalize(mul(to_view, normalize(float3(-swell.x, 1, -swell.y))));
     float3 v = -normalize(at);
     float3 v_world = mul(transpose(to_view), v);
     float nv = saturate(dot(n, v));
     float fresnel = kWaterF0 + (1 - kWaterF0) * pow(1 - nv, 5);
 
     // What the surface mirrors: the frame, else the sky.
-    float3 r = reflect(-v, n);
+    float3 r = reflect(-v, n_mirror);
     float3 r_world = mul(transpose(to_view), r);
     float3 sky = air_light(normalize(float3(r_world.x, max(r_world.y, 0.01), r_world.z))) * sky_scale;
     float4 met = reflected_scene(at, r);

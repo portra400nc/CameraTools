@@ -1025,6 +1025,10 @@ namespace enhancements
                 if (trace_save_wanted.load() && !trace_gpu.saving() && trace_gpu.state() == TraceState::stale && gpu.save_trace(map, trace_save_meta(), trace_gpu))
                     trace_save_wanted = false;
             }
+            // The lit opaque scene before the game draws anything see-through over it, which it sorts anew each frame: what
+            // physical water sees through and mirrors.
+            if (step == Step::forward && settings.enabled && settings.sky.enabled && settings.water.enabled)
+                gpu.copy_water_scene(map, frames);
             // The HDR scene before any pass of ours: a LIGHT capture's face's, and a trace save's.
             if (step == Step::bloom)
             {
@@ -1450,7 +1454,7 @@ namespace enhancements
                 return false;
             const float seconds = std::fmod(std::chrono::duration<float>(std::chrono::steady_clock::now() - water_epoch).count(), 3600.0f);
             return gpu.draw_water({ indexed, count, instances, first, vertex_offset, first_instance }, tracker.map(), *sky_draw, settings.water, camera,
-                settings.flip, frames, seconds);
+                settings.flip, frames, seconds, settings.clouds.wind_direction * 0.01745329f);
         }
 
         // The scene capture's checks cost one branch while it does not run. DrawAuto comes as a draw of 0 vertices, which

@@ -424,9 +424,11 @@ namespace enhancements
 
         // The pixel shader bound now, as the handle ReShade's pipeline events name it by, or 0.
         uint64_t bound_pixel_shader() const;
+        // The HDR scene physical water sees through and mirrors, copied at the forward step of frame.
+        void copy_water_scene(const FrameMap &map, uint64_t frame);
         // One of the game's water draws, with its own geometry and state, drawn with our water pixel shader in place of
-        // its own; the pixel shader's bindings are the game's again after. The first in a frame copies the HDR scene the
-        // water sees through and mirrors. false, and nothing drawn, when the scene or the sky's tables are not there.
+        // its own; the pixel shader's bindings are the game's again after. false, and nothing drawn, when this frame has
+        // no copy of the scene or the sky's tables are not there.
         struct WaterDraw
         {
             bool indexed = false;   // DrawIndexedInstanced's arguments, else DrawInstanced's
@@ -435,7 +437,7 @@ namespace enhancements
             uint32_t first_instance = 0;
         };
         bool draw_water(const WaterDraw &draw, const FrameMap &map, const SkyDraw &sky, const PhysicalWaterSettings &water, const Camera &camera,
-            bool flip, uint64_t frame, float seconds);
+            bool flip, uint64_t frame, float seconds, float wind_radians);
         // Copies the grade a tone map shader's layout names from the game's bound pixel shader constants at b0 into
         // game_grade_. Called at the game's tone map draw before any pass of ours draws, since a pass binds its own b0.
         // false when no constants are bound or they are too small for the layout.
@@ -603,8 +605,8 @@ namespace enhancements
         std::array<CombineStage, 3> combine_stages_;
         std::optional<CombineConstants> combine_;   // the newest read
         bool sun_ready_ = false;
-        uint64_t water_frame_ = ~0ull;          // the frame whose HDR scene draw_water copied
-        bool water_scene_ = false;              // and whether it did                // gather_sun copied the constants and the atlas this frame
+        uint64_t water_frame_ = ~0ull;          // the frame whose HDR scene copy_water_scene copied
+        Mirror water_scene_;                // gather_sun copied the constants and the atlas this frame
         ComPtr<ID3D11BlendState> opaque_, additive_, no_write_;
         ComPtr<ID3D11DepthStencilState> no_depth_;
         ComPtr<ID3D11RasterizerState> no_cull_;

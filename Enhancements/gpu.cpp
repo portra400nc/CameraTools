@@ -125,7 +125,7 @@ namespace enhancements
         float water_clarity;
         float water_waves;
         float water_time;
-        float water_pad;
+        float water_wind;
     };
     static_assert(sizeof(Constants) == 880 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
@@ -2182,25 +2182,27 @@ namespace enhancements
         return stops[0];
     }
 
+    void Gpu::copy_water_scene(const FrameMap &map, uint64_t frame)
+    {
+        const std::optional<Texture> &hdr = map[Entry::hdr_scene];
+        if (!hdr || !water_scene_.sync(device_.Get(), native(*hdr), static_cast<DXGI_FORMAT>(hdr->format), false))
+            return;
+        water_scene_.copy_from(context_.Get(), native(*hdr));
+        water_frame_ = frame;
+    }
+
     bool Gpu::draw_water(const WaterDraw &w, const FrameMap &map, const SkyDraw &sky, const PhysicalWaterSettings &water, const Camera &camera,
-        bool flip, uint64_t frame, float seconds)
+        bool flip, uint64_t frame, float seconds, float wind_radians)
     {
         ID3D11DeviceContext1 *c = context_.Get();
-        if (frame != water_frame_)
-        {
-            water_frame_ = frame;
-            const std::optional<Texture> &hdr = map[Entry::hdr_scene];
-            water_scene_ = hdr && scene_in_.sync(device_.Get(), native(*hdr), static_cast<DXGI_FORMAT>(hdr->format), false);
-            if (water_scene_)
-                scene_in_.copy_from(c, native(*hdr));
-        }
         Constants k;
-        if (!water_scene_ || !sky.atmosphere || !sync_sky_tables(sky.atmosphere) || !pass_constants(camera, map.render, flip, k))
+        if (frame != water_frame_ || !sky.atmosphere || !sync_sky_tables(sky.atmosphere) || !pass_constants(camera, map.render, flip, k))
             return false;
         put_sky(sky, k);
         k.water_clarity = water.clarity;
         k.water_waves = water.waves;
         k.water_time = seconds;
+        k.water_wind = wind_radians;
         upload(k);
 
         // The game's bindings, which its next draws still expect.
@@ -2221,7 +2223,7 @@ namespace enhancements
         ours[0] = game_srvs[0];
         ours[9] = sky_transmittance_srv_.Get();
         ours[10] = sky_multiple_srv_.Get();
-        ours[16] = scene_in_.srv();
+        ours[16] = water_scene_.srv();
         ours[17] = sky_view_[0].srv();
         ours[18] = sky_view_[1].srv();
         ours[19] = sky_view_[2].srv();

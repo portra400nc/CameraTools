@@ -109,7 +109,7 @@ cbuffer Constants : register(b0)
     float water_clarity;        // EnhancementsWater's
     float water_waves;
     float water_time;           // seconds, for the waves' motion
-    float water_pad;
+    float water_wind;           // radians from world +x toward +z, the way the wind blows the waves
 };
 
 SamplerState point_clamp : register(s0);
