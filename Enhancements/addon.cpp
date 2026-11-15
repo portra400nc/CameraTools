@@ -222,6 +222,7 @@ namespace enhancements
         uint64_t celestial_seen = 0;
         std::optional<SkyDraw> sky_draw;
         uint64_t dome_frame = UINT64_MAX;   // the frame whose dome draw drew the physical sky
+        bool after_dome = false;        // the dome drew the physical sky and no targets were bound since
         bool ambient_physical_said = false;     // the log said the ambient pass took the physical sky's color
 
         // The ambient pass's and the traced ambient's level: with the physical sky, at its share of a day's sky light.
@@ -1390,6 +1391,8 @@ namespace enhancements
 
         void on_bind_render_targets(command_list *cmd_list, uint32_t count, const resource_view *rtvs, resource_view dsv)
         {
+            if (cmd_list == immediate)
+                after_dome = false;
             if (!armed.load(std::memory_order_relaxed))
                 return;
             device *const dev = cmd_list->get_device();
@@ -1432,11 +1435,11 @@ namespace enhancements
         // The game's water pixel shaders, as a FrameCensus capture of 2026-11-15 found them drawing rivers and the sea after
         // the deferred lighting: each reads the scene's depth and a reflection cubemap.
         static constexpr uint64_t kWaterShaders[] = { 0xd0cbb44c71ad2188ull, 0x9a78a24d5649b66aull, 0xbf3f16de3240e952ull, 0xa90d4039bf47bcdeull };
-        // The game's sky dome, and the sky objects it draws right after it: the sun's quad by day and a draw at night. The
-        // see-through things it draws later, such as the giant tree over Snezhnaya, are drawn over the sky at depth 0.
+        // The game's sky dome. The sky objects, its sun, moon and stars, are the draws after it until the game binds other
+        // targets; the see-through things it draws later, such as the giant tree over Snezhnaya, are drawn over the sky at
+        // depth 0 too and stay.
         static constexpr uint64_t kSkyDome = 0x7b771d2354311b7bull;
-        static constexpr uint64_t kSkyObjects[] = { 0x2b14af01abf46964ull, 0xc23cb28a6829e0afull };
-        enum class GameShader : uint8_t { other, water, dome, sky_object };
+        enum class GameShader : uint8_t { other, water, dome };
         uint64_t shader_checked = 0;    // the pixel shader object last looked up, and what it draws
         GameShader shader_kind = GameShader::other;
 
@@ -1450,14 +1453,13 @@ namespace enhancements
                 const uint64_t hash = code ? code->hash : 0;
                 shader_kind = std::find(std::begin(kWaterShaders), std::end(kWaterShaders), hash) != std::end(kWaterShaders) ? GameShader::water
                     : hash == kSkyDome ? GameShader::dome
-                    : std::find(std::begin(kSkyObjects), std::end(kSkyObjects), hash) != std::end(kSkyObjects) ? GameShader::sky_object
                     : GameShader::other;
             }
             return shader_kind;
         }
 
         // A draw of the game's sky or water, past the combine step with the physical sky on: its dome drawn with the
-        // physical sky, its sun and moon left out after that, and with physical water on, its water drawn with ours. true
+        // physical sky, its sun, moon and stars left out after that, and with physical water on, its water drawn with ours. true
         // when the game's draw is to be skipped.
         bool draw_physical(command_list *cmd_list, bool indexed, uint32_t count, uint32_t instances, uint32_t first, int32_t vertex_offset,
             uint32_t first_instance)
@@ -1465,6 +1467,8 @@ namespace enhancements
             if (!armed.load(std::memory_order_relaxed) || cmd_list != immediate || !settings.enabled || !settings.sky.enabled
                 || !tracker.matched().has(Step::combine) || !gpu.ready() || !sky_draw)
                 return false;
+            if (after_dome)
+                return true;
             const Gpu::GameDraw draw { indexed, count, instances, first, vertex_offset, first_instance };
             switch (bound_shader())
             {
@@ -1472,9 +1476,8 @@ namespace enhancements
                 if (!gpu.draw_sky_dome(draw, tracker.map(), *sky_draw, camera, settings.flip))
                     return false;
                 dome_frame = frames;
+                after_dome = true;
                 return true;
-            case GameShader::sky_object:
-                return dome_frame == frames;
             case GameShader::water:
             {
                 if (!settings.water.enabled)

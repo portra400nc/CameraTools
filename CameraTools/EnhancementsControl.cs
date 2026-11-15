@@ -63,7 +63,7 @@ namespace CameraTools
             {
                 if (field.Id == Enhancement.PhysicalSky)
                     yield return new FoldRow("Experimental features", () => !ExperimentalFolded, () => SetFolded(experimentalFolded, !ExperimentalFolded),
-                        () => EnhancementsModel.ExperimentalSummary(Values)) { Shown = () => !Folded };
+                        () => EnhancementsModel.ExperimentalSummary(ExperimentalFolded)) { Shown = () => !Folded };
                 Func<bool> shown = () => EnhancementsModel.Shown(field, Values, Folded, ExperimentalFolded);
                 Func<bool> usable = field.Id == Enhancement.Enabled ? null : () => EnhancementsModel.Usable(field, Values);
                 if (field.Kind == EnhancementKind.Switch)

@@ -561,11 +561,14 @@ namespace CameraTools
             return $"On · {effects} effect{(effects == 1 ? "" : "s")}";
         }
 
-        // The right of the Experimental features heading: its switched-on sections by name, or Off.
-        public static string ExperimentalSummary(EnhancementValues values)
+        // The right of the Experimental features heading, as the mockup has it: nothing while it is open, and how many
+        // sections it holds while it is folded.
+        public static string ExperimentalSummary(bool folded)
         {
-            var on = Effects.Where(field => Experimental(field) && values.On(field.Id)).Select(field => field.Label).ToArray();
-            return on.Length > 0 ? string.Join(" · ", on) : "Off";
+            if (!folded)
+                return "";
+            int sections = Effects.Count(Experimental);
+            return $"{sections} section{(sections == 1 ? "" : "s")}";
         }
 
         // The effects that are switched on, by their rows' labels, for the log.

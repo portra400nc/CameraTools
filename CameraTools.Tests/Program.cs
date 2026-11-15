@@ -295,12 +295,12 @@ Check("Ambient light's Color is the game's at 1 and gray at 0, and the tone map'
         && EnhancementsModel.Shown(Field(Enhancement.AmbientColor), fresh.With(Enhancement.AmbientLight, 1), false, false)
         && EnhancementsModel.Detail(Field(Enhancement.PhysicalSky), fresh) == "Real sky, sun, moon and stars that light the world"
         && EnhancementsModel.Detail(Field(Enhancement.AmbientLevel), fresh) == null);
-    Check("the Experimental features group holds Physical sky and Clouds, folds them away, and names what is on",
+    Check("the Experimental features group holds Physical sky and Clouds, folds them away, and counts its sections while folded",
         EnhancementsModel.Experimental(Field(Enhancement.PhysicalSky)) && EnhancementsModel.Experimental(Field(Enhancement.CloudWind))
         && !EnhancementsModel.Experimental(Field(Enhancement.LensFlare)) && !EnhancementsModel.Experimental(Field(Enhancement.DepthOfField))
         && EnhancementsModel.Shown(Field(Enhancement.PhysicalSky), fresh, false, false) && !EnhancementsModel.Shown(Field(Enhancement.Clouds), fresh, false, true)
         && EnhancementsModel.Shown(Field(Enhancement.Haze), fresh, false, true) && EnhancementsModel.Shown(Field(Enhancement.NightBrightness), physical, false, false)
-        && EnhancementsModel.ExperimentalSummary(fresh) == "Off" && EnhancementsModel.ExperimentalSummary(physical.With(Enhancement.Clouds, 1)) == "Physical sky · Clouds");
+        && EnhancementsModel.ExperimentalSummary(false) == "" && EnhancementsModel.ExperimentalSummary(true) == "3 sections");
     Check("a preset saved with Ambient light's Sky and Haze reads them as Physical sky and Haziness",
         EnhancementsModel.Parse("AmbientSky=1;AmbientHaze=0.3", new List<string>()) is { } old && old.On(Enhancement.PhysicalSky) && old[Enhancement.SkyHaziness] == 0.3f);
 }
