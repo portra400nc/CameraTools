@@ -36,6 +36,11 @@ namespace CameraTools
         private static float dayLight = MeasuredDayLight;
         private static Vec3 nightLight = MeasuredNightLight;
 
+        // The sky whose fog we switched off: the game's distance and height fog take its painted time-of-day colors (gold at
+        // dawn, cyan at night) over the whole view, which the physical sky's light contradicts.
+        private static IntPtr fogOffIn;
+        private static readonly Il2CppSystem.Object FogOwner = new();
+
         // This frame's sky, null while the physical sky is off or the game has no sky.
         public static CelestialSky? Sky { get; private set; }
         public static SkyLightState? Light { get; private set; }
@@ -61,10 +66,22 @@ namespace CameraTools
             var sky = EnviroSky.Instance;
             if (!on || sky == null)
             {
+                if (sky != null && sky.Pointer == fogOffIn)
+                {
+                    sky.SetFogEnable(true, FogOwner);
+                    Log("the game's fog is back.");
+                }
+                fogOffIn = IntPtr.Zero;
                 Release();
                 Sky = null;
                 Light = null;
                 return;
+            }
+            if (sky.Pointer != fogOffIn)
+            {
+                sky.SetFogEnable(false, FogOwner);
+                fogOffIn = sky.Pointer;
+                Log("the game's fog is off.");
             }
             // The hour the sky shows, which trails a new lock by a moment, so the moon and the stars stay with its sun.
             float hour = sky.curTimeOfDay24;
