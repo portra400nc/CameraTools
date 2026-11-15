@@ -67,7 +67,7 @@ namespace enhancements
             && offsetof(EnhancementsSettings, ambient_color) == 400 && offsetof(EnhancementsSettings, tones) == 404
             && offsetof(EnhancementsSettings, lens_softness) == 412 && offsetof(EnhancementsSettings, auto_exposure) == 416
             && offsetof(EnhancementsSettings, sky) == 420 && offsetof(EnhancementsSettings, clouds) == 428 && offsetof(EnhancementsSettings, aerial) == 484
-            && sizeof(EnhancementsSettings) == 488);
+            && offsetof(EnhancementsSettings, water) == 488 && sizeof(EnhancementsSettings) == 500);
         static_assert(ENHANCEMENTS_CLOUD_SHAPE_STREAKS == static_cast<int>(CloudShape::streaks) && ENHANCEMENTS_CLOUD_SHAPE_SHEET == static_cast<int>(CloudShape::sheet)
             && ENHANCEMENTS_CLOUD_SHAPE_COUNT == static_cast<int>(CloudShape::count));
         static_assert(ENHANCEMENTS_FLARE_SOURCE_MANUAL == static_cast<int>(FlareSource::manual)
@@ -479,6 +479,13 @@ namespace enhancements
         }
         if (knows(offsetof(EnhancementsSettings, aerial), sizeof raw.aerial))
             s.sky.aerial = finite_or(raw.aerial.distance, 0.0f, 0.0f, 100.0f);
+        if (knows(offsetof(EnhancementsSettings, water), sizeof raw.water))
+        {
+            const PhysicalWaterSettings water_defaults;
+            s.water.enabled = raw.water.enabled != 0;
+            s.water.clarity = finite_or(raw.water.clarity, water_defaults.clarity, 0.5f, 20.0f);
+            s.water.waves = finite_or(raw.water.waves, water_defaults.waves, 0.0f, 2.0f);
+        }
         if (knows(offsetof(EnhancementsSettings, clouds), offsetof(EnhancementsClouds, shape)))
         {
             const CloudSettings d;

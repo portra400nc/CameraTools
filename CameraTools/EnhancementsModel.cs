@@ -20,6 +20,7 @@ namespace CameraTools
         LensFlare, LensFlareSource, LensFlareX, LensFlareY, LensFlareStrength, LensFlareArcs, LensFlareRainbow, LensFlareFilledArcs, LensFlareGhosts, LensFlareStreaks,
         LensFlareGlare, LensFlareSize, LensFlareWarmth, LensFlareRedFringe, LensFlareTexture,
         PhysicalSky, SkyHaziness, DistanceHaze, NightBrightness,
+        PhysicalWater, WaterClarity, WaterWaves,
         Clouds, CloudType, CloudCoverage, CloudHeight, CloudThickness, CloudSize, CloudDensity, CloudEdgeDetail, CloudSunlight, CloudSkyLight,
         CloudWind, CloudWindDirection, CloudQuality, CloudKind,
         DepthOfField, DepthOfFieldFocusMode, DepthOfFieldFocusSpeed, DepthOfFieldFocusDistance, DepthOfFieldAperture, DepthOfFieldFocusX, DepthOfFieldFocusY, DepthOfFieldMaxBlur,
@@ -272,6 +273,9 @@ namespace CameraTools
             Slider(Enhancement.SkyHaziness, Enhancement.PhysicalSky, "Haziness", 0f, 0.5f, 0.1f, 0.05f, 2),
             Slider(Enhancement.DistanceHaze, Enhancement.PhysicalSky, "Distance haze", 0f, 32f, 8f, 1f, 0, "×"),
             Slider(Enhancement.NightBrightness, Enhancement.PhysicalSky, "Night brightness", 0f, 100f, 85f, 5f, 0, "%"),
+            Switch(Enhancement.PhysicalWater, "Physical water"),
+            Slider(Enhancement.WaterClarity, Enhancement.PhysicalWater, "Clarity", 0.5f, 20f, 6f, 0.5f, 1, " m"),
+            Slider(Enhancement.WaterWaves, Enhancement.PhysicalWater, "Waves", 0f, 200f, 100f, 10f, 0, "%"),
             Switch(Enhancement.Clouds, "Clouds"),
             Choice(Enhancement.CloudType, Enhancement.Clouds, "Type", 0, CloudTypeOptions),
             Slider(Enhancement.CloudCoverage, Enhancement.Clouds, "Coverage", 0f, 100f, CloudKinds[0].Coverage, 5f, 0, "%"),
@@ -331,6 +335,9 @@ namespace CameraTools
             settings.Sky.Haze = values[Enhancement.SkyHaziness];
             settings.Aerial.Distance = sky ? values[Enhancement.DistanceHaze] : 0f;
             settings.View = ProbeView;
+            settings.Water.Enabled = sky && values.On(Enhancement.PhysicalWater) ? 1u : 0u;
+            settings.Water.Clarity = values[Enhancement.WaterClarity];
+            settings.Water.Waves = values[Enhancement.WaterWaves] / 100f;
             settings.Ambient.AoStrength = forced ? 0f : values[Enhancement.AmbientOcclusion];
             settings.Ambient.AoRadius = values[Enhancement.AmbientOcclusionRadius];
             settings.Ambient.FoliageAoStrength = forced ? 0f : values[Enhancement.AmbientFoliageOcclusion];
@@ -530,13 +537,16 @@ namespace CameraTools
         public static string Detail(EnhancementField field, EnhancementValues values) => field.Id switch
         {
             Enhancement.PhysicalSky => "Real sky, sun, moon and stars that light the world",
+            Enhancement.PhysicalWater => "Real reflections and depth for rivers, lakes and the sea",
             Enhancement.CloudType => (int)values[Enhancement.CloudType] < CustomClouds ? CloudKinds[(int)values[Enhancement.CloudType]].Detail : "Your own shape",
             _ => null,
         };
 
-        // While the master switch is off, every row but the master switch is greyed and ignores input.
+        // While the master switch is off, every row but the master switch is greyed and ignores input, and Physical water's
+        // while Physical sky is off, which it draws with.
         public static bool Usable(EnhancementField field, EnhancementValues values)
-            => field.Id == Enhancement.Enabled || values.On(Enhancement.Enabled);
+            => field.Id == Enhancement.Enabled
+            || values.On(Enhancement.Enabled) && (field.Id is not (Enhancement.PhysicalWater or Enhancement.WaterClarity or Enhancement.WaterWaves) || values.On(Enhancement.PhysicalSky));
 
         // The right of the heading, folded or not: the effects count only while the master switch is on.
         public static string Summary(EnhancementValues values)

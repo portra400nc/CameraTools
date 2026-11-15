@@ -122,8 +122,12 @@ namespace enhancements
         float sky_vegetation;
         float sky_aerial_lit;
         float sky_pad;
+        float water_clarity;
+        float water_waves;
+        float water_time;
+        float water_pad;
     };
-    static_assert(sizeof(Constants) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
+    static_assert(sizeof(Constants) == 880 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
         && offsetof(Constants, cloud_toward_sun) == 560 && offsetof(Constants, tone_shadows) == 480 && offsetof(Constants, accum_gain) == 488 && offsetof(Constants, flare_sun_uv) == 456 && offsetof(Constants, wetness) == 408 && offsetof(Constants, shafts_anisotropy) == 432 && offsetof(Constants, label) == 272 && offsetof(Constants, sun_color) == 304
         && offsetof(Constants, sky_color) == 320 && offsetof(Constants, bloom_strength) == 352 && offsetof(Constants, sun_cascades) == 368
@@ -806,6 +810,7 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kSkyViewPs, sizeof kSkyViewPs, nullptr, &made.sky_view_ps_))
             && SUCCEEDED(device->CreatePixelShader(kSkyPs, sizeof kSkyPs, nullptr, &made.sky_ps_))
             && SUCCEEDED(device->CreatePixelShader(kAerialLitPs, sizeof kAerialLitPs, nullptr, &made.aerial_lit_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kWaterPs, sizeof kWaterPs, nullptr, &made.water_ps_))
             && SUCCEEDED(device->CreateVertexShader(kStarsVs, sizeof kStarsVs, nullptr, &made.stars_vs_))
             && SUCCEEDED(device->CreatePixelShader(kStarsPs, sizeof kStarsPs, nullptr, &made.stars_ps_))
             && SUCCEEDED(device->CreateBuffer(&sprites, nullptr, &made.dof_sprites_))
@@ -2175,6 +2180,80 @@ namespace enhancements
         if (stops.empty())
             return std::nullopt;
         return stops[0];
+    }
+
+    bool Gpu::draw_water(const WaterDraw &w, const FrameMap &map, const SkyDraw &sky, const PhysicalWaterSettings &water, const Camera &camera,
+        bool flip, uint64_t frame, float seconds)
+    {
+        ID3D11DeviceContext1 *c = context_.Get();
+        if (frame != water_frame_)
+        {
+            water_frame_ = frame;
+            const std::optional<Texture> &hdr = map[Entry::hdr_scene];
+            water_scene_ = hdr && scene_in_.sync(device_.Get(), native(*hdr), static_cast<DXGI_FORMAT>(hdr->format), false);
+            if (water_scene_)
+                scene_in_.copy_from(c, native(*hdr));
+        }
+        Constants k;
+        if (!water_scene_ || !sky.atmosphere || !sync_sky_tables(sky.atmosphere) || !pass_constants(camera, map.render, flip, k))
+            return false;
+        put_sky(sky, k);
+        k.water_clarity = water.clarity;
+        k.water_waves = water.waves;
+        k.water_time = seconds;
+        upload(k);
+
+        // The game's bindings, which its next draws still expect.
+        constexpr UINT kSlots = 22, kSamplers = 4;
+        ID3D11ShaderResourceView *game_srvs[kSlots] = {};
+        ID3D11SamplerState *game_samplers[kSamplers] = {};
+        ID3D11Buffer *game_cb = nullptr;
+        UINT cb_first = 0, cb_count = 0;
+        ComPtr<ID3D11PixelShader> game_ps;
+        ID3D11ClassInstance *classes[256] = {};
+        UINT class_count = 256;
+        c->PSGetShaderResources(0, kSlots, game_srvs);
+        c->PSGetSamplers(0, kSamplers, game_samplers);
+        c->PSGetConstantBuffers1(0, 1, &game_cb, &cb_first, &cb_count);
+        c->PSGetShader(&game_ps, classes, &class_count);
+
+        ID3D11ShaderResourceView *ours[kSlots] = {};
+        ours[0] = game_srvs[0];
+        ours[9] = sky_transmittance_srv_.Get();
+        ours[10] = sky_multiple_srv_.Get();
+        ours[16] = scene_in_.srv();
+        ours[17] = sky_view_[0].srv();
+        ours[18] = sky_view_[1].srv();
+        ours[19] = sky_view_[2].srv();
+        ours[20] = sky_view_[3].srv();
+        ours[21] = sky_view_[4].srv();
+        ID3D11SamplerState *const samplers[kSamplers] = { point_.Get(), linear_.Get(), lit_compare_.Get(), wrap_.Get() };
+        ID3D11Buffer *const buffers[] = { constants_.Get() };
+        c->PSSetShaderResources(0, kSlots, ours);
+        c->PSSetSamplers(0, kSamplers, samplers);
+        c->PSSetConstantBuffers(0, 1, buffers);
+        c->PSSetShader(water_ps_.Get(), nullptr, 0);
+        if (w.indexed)
+            c->DrawIndexedInstanced(w.count, w.instances, w.first, w.vertex_offset, w.first_instance);
+        else
+            c->DrawInstanced(w.count, w.instances, w.first, w.first_instance);
+
+        c->PSSetShader(game_ps.Get(), classes, class_count);
+        c->PSSetShaderResources(0, kSlots, game_srvs);
+        c->PSSetSamplers(0, kSamplers, game_samplers);
+        c->PSSetConstantBuffers1(0, 1, &game_cb, &cb_first, &cb_count);
+        for (ID3D11ShaderResourceView *v : game_srvs)
+            if (v)
+                v->Release();
+        for (ID3D11SamplerState *s : game_samplers)
+            if (s)
+                s->Release();
+        if (game_cb)
+            game_cb->Release();
+        for (UINT i = 0; i < class_count; i++)
+            if (classes[i])
+                classes[i]->Release();
+        return true;
     }
 
     uint64_t Gpu::bound_pixel_shader() const

@@ -106,6 +106,10 @@ cbuffer Constants : register(b0)
     float sky_vegetation;       // EnhancementsCelestial.vegetation_scale; 1 while the pass has no albedo
     float sky_aerial_lit;       // 1: aerial_lit_ps.hlsl's share of lit air is bound for the haze; 0: all the air is lit
     float sky_pad;
+    float water_clarity;        // EnhancementsWater's
+    float water_waves;
+    float water_time;           // seconds, for the waves' motion
+    float water_pad;
 };
 
 SamplerState point_clamp : register(s0);

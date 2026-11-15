@@ -250,6 +250,15 @@ namespace CameraToolsEnhancements
         public float Haze;                  // the aerosols' optical depth straight up, 0.1 a clear day
     }
 
+    // EnhancementsWater in enhancements.h, field for field.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct EnhancementsWater
+    {
+        public uint Enabled;
+        public float Clarity;               // meters seen into the water, 0.5 to 20
+        public float Waves;                 // the ripples' size, 0 to 2
+    }
+
     // EnhancementsAerial in enhancements.h, field for field.
     [StructLayout(LayoutKind.Sequential)]
     internal struct EnhancementsAerial
@@ -306,6 +315,7 @@ namespace CameraToolsEnhancements
         public EnhancementsSky Sky;
         public EnhancementsClouds Clouds;
         public EnhancementsAerial Aerial;
+        public EnhancementsWater Water;
 
         // The add-on's defaults: everything off, game targets upside down, and when switched on ambient level 0.6, AO
         // strength 0.5 at a 1 m radius, half that strength on grass, vegetation and foliage, full-strength contact
@@ -356,6 +366,7 @@ namespace CameraToolsEnhancements
                 Chromatic = 1, VisibilitySeconds = 0.15f, FilledArcs = 0.5f, Rainbow = 1, Texture = 1,
             },
             Sky = new EnhancementsSky { Physical = 0, Haze = 0.1f },
+            Water = new EnhancementsWater { Enabled = 0, Clarity = 6f, Waves = 1f },
             Clouds = new EnhancementsClouds
             {
                 Enabled = 0, Coverage = 0.5f, Base = 2500, Thickness = 400, Size = 380, Stretch = 1.5f, Density = 0.06f, Detail = 0.8f,
@@ -587,7 +598,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 35;
+        private const uint Version = 36;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

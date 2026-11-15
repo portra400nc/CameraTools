@@ -12,7 +12,7 @@ namespace enhancements
     namespace
     {
         static_assert(ENHANCEMENTS_COMPARE_MAX == kCompareMax && sizeof(EnhancementsVariant) == 32 + sizeof(EnhancementsSettings));
-        static_assert(sizeof(EnhancementsSettings) == 488, "settings_tsv writes every field: give a new one a column");
+        static_assert(sizeof(EnhancementsSettings) == 500, "settings_tsv writes every field: give a new one a column");
         // compare_remaining took the padding at the end, so a caller built before it still sends 72 bytes. The accumulator's
         // three fields follow, and the scene capture's three took the 4 bytes of padding after them and one more row, so a
         // caller of version 6 sends 88 and gets scene_face in its padding. The trace's five follow them, and the gather's four
@@ -175,7 +175,7 @@ namespace enhancements
                           "\tlens_flare.size\tlens_flare.warmth\tlens_flare.chromatic\tlens_flare.visibility_seconds\tlens_flare.filled_arcs\tlens_flare.place\tlens_flare.rainbow\tlens_flare.texture"
                           "\tambient.neutral\ttonemap.shadows\ttonemap.highlights\tlens_softness.radius\ttonemap.auto_exposure\tsky.physical\tsky.haze"
                           "\tclouds.enabled\tclouds.coverage\tclouds.base\tclouds.thickness\tclouds.size\tclouds.stretch\tclouds.density"
-                          "\tclouds.detail\tclouds.wind_speed\tclouds.wind_direction\tclouds.sun\tclouds.ambient\tclouds.steps\tclouds.shape\tsky.aerial\n";
+                          "\tclouds.detail\tclouds.wind_speed\tclouds.wind_direction\tclouds.sun\tclouds.ambient\tclouds.steps\tclouds.shape\tsky.aerial\twater.enabled\twater.clarity\twater.waves\n";
         for (size_t i = 0; i < variants.size(); i++)
         {
             const Settings &s = variants[i].settings;
@@ -220,7 +220,7 @@ namespace enhancements
                 + (k.enabled ? "1" : "0") + '\t' + number(k.coverage) + '\t' + number(k.base) + '\t' + number(k.thickness) + '\t' + number(k.size) + '\t'
                 + number(k.stretch) + '\t' + number(k.density) + '\t' + number(k.detail) + '\t' + number(k.wind_speed) + '\t' + number(k.wind_direction) + '\t'
                 + number(k.sun) + '\t' + number(k.ambient) + '\t' + std::to_string(k.steps) + '\t' + (k.shape == CloudShape::streaks ? "streaks" : k.shape == CloudShape::sheet ? "sheet" : "heaps") + '\t'
-                + number(s.sky.aerial) + '\n';
+                + number(s.sky.aerial) + '\t' + (s.water.enabled ? "1" : "0") + '\t' + number(s.water.clarity) + '\t' + number(s.water.waves) + '\n';
         }
         return out;
     }

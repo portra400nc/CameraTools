@@ -68,6 +68,13 @@ namespace enhancements
         float aerial = 0;           // EnhancementsAerial.distance
     };
 
+    struct PhysicalWaterSettings
+    {
+        bool enabled = false;
+        float clarity = 6;
+        float waves = 1;
+    };
+
     struct ContactShadowSettings
     {
         bool enabled = false;
@@ -269,6 +276,7 @@ namespace enhancements
         AmbientSettings ambient;
         PhysicalSkySettings sky;
         CloudSettings clouds;
+        PhysicalWaterSettings water;
         ContactShadowSettings contact_shadows;
         AtmosphereSettings atmosphere;
         TonemapSettings tonemap;

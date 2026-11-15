@@ -1424,21 +1424,53 @@ namespace enhancements
             return feed(cmd_list, Draw { native });
         }
 
+        // The game's water pixel shaders, as a FrameCensus capture of 2026-11-15 found them drawing rivers and the sea after
+        // the deferred lighting: each reads the scene's depth and a reflection cubemap.
+        static constexpr uint64_t kWaterShaders[] = { 0xd0cbb44c71ad2188ull, 0x9a78a24d5649b66aull, 0xbf3f16de3240e952ull, 0xa90d4039bf47bcdeull };
+        const std::chrono::steady_clock::time_point water_epoch = std::chrono::steady_clock::now();
+        uint64_t water_checked = 0;     // the pixel shader object last looked up, and whether it was water's
+        bool water_last = false;
+
+        // A draw of the game's water, past the combine step with physical water on: drawn with our water instead. true
+        // when it was, and the game's draw is to be skipped.
+        bool draw_water(command_list *cmd_list, bool indexed, uint32_t count, uint32_t instances, uint32_t first, int32_t vertex_offset,
+            uint32_t first_instance)
+        {
+            if (!armed.load(std::memory_order_relaxed) || cmd_list != immediate || !settings.enabled || !settings.sky.enabled || !settings.water.enabled
+                || !tracker.matched().has(Step::combine) || !gpu.ready())
+                return false;
+            const uint64_t bound = gpu.bound_pixel_shader();
+            if (bound != water_checked)
+            {
+                water_checked = bound;
+                const std::optional<ShaderCode> code = shaders.find(bound);
+                water_last = code && std::find(std::begin(kWaterShaders), std::end(kWaterShaders), code->hash) != std::end(kWaterShaders);
+            }
+            if (!water_last || !sky_draw)
+                return false;
+            const float seconds = std::fmod(std::chrono::duration<float>(std::chrono::steady_clock::now() - water_epoch).count(), 3600.0f);
+            return gpu.draw_water({ indexed, count, instances, first, vertex_offset, first_instance }, tracker.map(), *sky_draw, settings.water, camera,
+                settings.flip, frames, seconds);
+        }
+
         // The scene capture's checks cost one branch while it does not run. DrawAuto comes as a draw of 0 vertices, which
         // draws nothing to replay.
         bool on_draw(command_list *cmd_list, uint32_t vertices, uint32_t instances, uint32_t first_vertex, uint32_t first_instance)
         {
             if (armed.load(std::memory_order_relaxed) && cmd_list == immediate && scene_frame && in_gbuffer && vertices != 0)
                 replay_scene({ ReplayKind::draw, vertices, instances, first_vertex, 0, first_instance, nullptr, 0 });
-            return on_draw_any(cmd_list);
+            const bool skip = on_draw_any(cmd_list);
+            return draw_water(cmd_list, false, vertices, instances, first_vertex, 0, first_instance) || skip;
         }
 
         bool on_draw_indexed(command_list *cmd_list, uint32_t indices, uint32_t instances, uint32_t first_index, int32_t vertex_offset, uint32_t first_instance)
         {
             if (armed.load(std::memory_order_relaxed) && cmd_list == immediate && scene_frame && in_gbuffer)
                 replay_scene({ ReplayKind::indexed, indices, instances, first_index, vertex_offset, first_instance, nullptr, 0 });
-            return on_draw_any(cmd_list);
+            const bool skip = on_draw_any(cmd_list);
+            return draw_water(cmd_list, true, indices, instances, first_index, vertex_offset, first_instance) || skip;
         }
+
 
         // Indirect draws go to the scene capture only: the frame recipe never matched them, so it still sees only direct
         // draws.

@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 35
+#define ENHANCEMENTS_VERSION 36
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -521,6 +521,17 @@ typedef struct EnhancementsAerial
     float distance;             // 0 (the default) no aerial perspective, 1 real distances; clamped to 0..100
 } EnhancementsAerial;
 
+// Physical water: the game's rivers, lakes and sea drawn with a pixel shader of ours in place of its own, from the same
+// geometry: the bed seen through the water's depth, fading into the water's own color, and the physical sky, the sun's
+// and the moon's glints and the scene in front of the water mirrored on small waves, more at grazing angles. It runs only
+// with the physical sky. Version 36 added it.
+typedef struct EnhancementsWater
+{
+    uint32_t enabled;           // default 0
+    float clarity;              // meters the eye sees into the water before its own color takes over; default 6, clamped to 0.5..20
+    float waves;                // the ripples' size, 1 the default, 0 a still mirror; clamped to 0..2
+} EnhancementsWater;
+
 // The clouds' shape, values of EnhancementsClouds.shape.
 enum
 {
@@ -577,6 +588,7 @@ typedef struct EnhancementsSettings
     EnhancementsSky sky;
     EnhancementsClouds clouds;
     EnhancementsAerial aerial;
+    EnhancementsWater water;
 } EnhancementsSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and

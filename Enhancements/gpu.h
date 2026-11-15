@@ -424,6 +424,18 @@ namespace enhancements
 
         // The pixel shader bound now, as the handle ReShade's pipeline events name it by, or 0.
         uint64_t bound_pixel_shader() const;
+        // One of the game's water draws, with its own geometry and state, drawn with our water pixel shader in place of
+        // its own; the pixel shader's bindings are the game's again after. The first in a frame copies the HDR scene the
+        // water sees through and mirrors. false, and nothing drawn, when the scene or the sky's tables are not there.
+        struct WaterDraw
+        {
+            bool indexed = false;   // DrawIndexedInstanced's arguments, else DrawInstanced's
+            uint32_t count = 0, instances = 0, first = 0;
+            int32_t vertex_offset = 0;
+            uint32_t first_instance = 0;
+        };
+        bool draw_water(const WaterDraw &draw, const FrameMap &map, const SkyDraw &sky, const PhysicalWaterSettings &water, const Camera &camera,
+            bool flip, uint64_t frame, float seconds);
         // Copies the grade a tone map shader's layout names from the game's bound pixel shader constants at b0 into
         // game_grade_. Called at the game's tone map draw before any pass of ours draws, since a pass binds its own b0.
         // false when no constants are bound or they are too small for the layout.
@@ -538,7 +550,7 @@ namespace enhancements
         ComPtr<ID3D11Device> device_;
         ComPtr<ID3D11DeviceContext1> context_;
         ComPtr<ID3D11VertexShader> fullscreen_vs_, dof_sprite_vs_, stars_vs_;
-        ComPtr<ID3D11PixelShader> sky_view_ps_, sky_ps_, stars_ps_, aerial_lit_ps_;
+        ComPtr<ID3D11PixelShader> sky_view_ps_, sky_ps_, stars_ps_, aerial_lit_ps_, water_ps_;
         ComPtr<ID3D11Buffer> night_lamps_constants_;  // core/night_lamps.h NightLamps at b4
         // The physical sky's air tables, R32G32B32A32_FLOAT, uploaded from sky_air_; the moon's face, R8G8B8A8_UNORM 512 a side;
         // the stars, two R32G32B32A32_FLOAT elements each.
@@ -590,7 +602,9 @@ namespace enhancements
         };
         std::array<CombineStage, 3> combine_stages_;
         std::optional<CombineConstants> combine_;   // the newest read
-        bool sun_ready_ = false;                // gather_sun copied the constants and the atlas this frame
+        bool sun_ready_ = false;
+        uint64_t water_frame_ = ~0ull;          // the frame whose HDR scene draw_water copied
+        bool water_scene_ = false;              // and whether it did                // gather_sun copied the constants and the atlas this frame
         ComPtr<ID3D11BlendState> opaque_, additive_, no_write_;
         ComPtr<ID3D11DepthStencilState> no_depth_;
         ComPtr<ID3D11RasterizerState> no_cull_;
