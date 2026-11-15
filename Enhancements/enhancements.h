@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 33
+#define ENHANCEMENTS_VERSION 34
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -512,6 +512,15 @@ typedef struct EnhancementsSky
     float haze;                 // the aerosols' optical depth straight up: 0.1 (the default) a clear day; clamped to 0..0.5
 } EnhancementsSky;
 
+// Aerial perspective under the physical sky: each scene pixel fades with its distance into the air's own light along its
+// direction, the light the drawn sky has there, through the air's extinction from the viewer's height, so the horizon
+// meets the sky. Genshin's world is smaller than the real one, so distance multiplies the scene's meters for the air.
+// Version 34 added it.
+typedef struct EnhancementsAerial
+{
+    float distance;             // 0 (the default) no aerial perspective, 1 real distances; clamped to 0..100
+} EnhancementsAerial;
+
 // The clouds' shape, values of EnhancementsClouds.shape.
 enum
 {
@@ -567,6 +576,7 @@ typedef struct EnhancementsSettings
     EnhancementsAutoExposure auto_exposure;
     EnhancementsSky sky;
     EnhancementsClouds clouds;
+    EnhancementsAerial aerial;
 } EnhancementsSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and

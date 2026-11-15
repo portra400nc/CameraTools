@@ -887,6 +887,7 @@ namespace enhancements
             draw.axes = bodies.axes;
             draw.moon_phase = bodies.moon_phase;
             draw.cloud_light = cloud_light(*draw.atmosphere, live, settings.clouds.base * 0.001f);
+            draw.aerial = settings.sky.aerial;
             sky_draw = draw;
             if (live_sky->version != trace_gpu.sky_version() && trace_gpu.set_sky(live_sky->map, live_sky->version))
             {

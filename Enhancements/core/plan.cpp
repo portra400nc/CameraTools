@@ -66,7 +66,8 @@ namespace enhancements
             && offsetof(EnhancementsSettings, lens_flare) == 332
             && offsetof(EnhancementsSettings, ambient_color) == 400 && offsetof(EnhancementsSettings, tones) == 404
             && offsetof(EnhancementsSettings, lens_softness) == 412 && offsetof(EnhancementsSettings, auto_exposure) == 416
-            && offsetof(EnhancementsSettings, sky) == 420 && offsetof(EnhancementsSettings, clouds) == 428 && sizeof(EnhancementsSettings) == 484);
+            && offsetof(EnhancementsSettings, sky) == 420 && offsetof(EnhancementsSettings, clouds) == 428 && offsetof(EnhancementsSettings, aerial) == 484
+            && sizeof(EnhancementsSettings) == 488);
         static_assert(ENHANCEMENTS_CLOUD_SHAPE_STREAKS == static_cast<int>(CloudShape::streaks) && ENHANCEMENTS_CLOUD_SHAPE_SHEET == static_cast<int>(CloudShape::sheet)
             && ENHANCEMENTS_CLOUD_SHAPE_COUNT == static_cast<int>(CloudShape::count));
         static_assert(ENHANCEMENTS_FLARE_SOURCE_MANUAL == static_cast<int>(FlareSource::manual)
@@ -475,6 +476,8 @@ namespace enhancements
             if (s.sky.enabled)
                 s.gather.sky = GatherSky::map;
         }
+        if (knows(offsetof(EnhancementsSettings, aerial), sizeof raw.aerial))
+            s.sky.aerial = finite_or(raw.aerial.distance, 0.0f, 0.0f, 100.0f);
         if (knows(offsetof(EnhancementsSettings, clouds), offsetof(EnhancementsClouds, shape)))
         {
             const CloudSettings d;

@@ -65,6 +65,7 @@ namespace enhancements
     {
         bool enabled = false;
         float haze = 0.1f;
+        float aerial = 0;           // EnhancementsAerial.distance
     };
 
     struct ContactShadowSettings

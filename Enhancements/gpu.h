@@ -50,6 +50,7 @@ namespace enhancements
         std::array<Vec3f, 3> axes {};
         float moon_phase = 0;
         SkyLight cloud_light;       // cloud_light's at the clouds' base
+        float aerial = 0;           // PhysicalSkySettings::aerial
     };
 
     // Captures, on construction, the pipeline state our work can change, nulls the stages we never use (GS, HS, DS and

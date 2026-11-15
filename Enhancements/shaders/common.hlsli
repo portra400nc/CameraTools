@@ -102,6 +102,8 @@ cbuffer Constants : register(b0)
     float sky_cloud_physical;   // 1: the clouds take the physical sky's light at their height
     float3 sky_stars_z;
     float sky_cloud_illuminance;    // above the air, in sun units, of the light along cloud_toward_sun
+    float sky_aerial;           // EnhancementsAerial.distance: the scene's meters times this are the air's
+    float3 sky_pad;
 };
 
 SamplerState point_clamp : register(s0);

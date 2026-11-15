@@ -85,7 +85,7 @@ namespace CameraTools
                         Shown = shown, Sub = true, Detail = EnhancementsModel.Detail(field, Values) != null ? () => EnhancementsModel.Detail(field, Values) : null,
                     },
                     _ => new SliderRow(field.Label, field.Min, field.Max, field.Step, field.Format, () => Values[field.Id], value => Change(field.Id, value),
-                        Enabled: usable)
+                        Display: EnhancementsModel.ValueText(field), Enabled: usable)
                     {
                         Shown = shown, Sub = true,
                     },
