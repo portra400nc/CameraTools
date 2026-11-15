@@ -16,6 +16,7 @@ namespace CameraTools
         private static MelonPreferences_Entry<bool> enabled, soft;
         private static MelonPreferences_Entry<float> gameLight, rim;
         private static bool sent;
+        private static readonly List<EnhancementsShotLight> NoLights = new();
         private static IntPtr headOf;
         private static Transform head, headNub;
 
@@ -59,15 +60,24 @@ namespace CameraTools
         // After the lights are placed.
         public static void Update()
         {
+            // The physical sky's night dims the game's light on characters as on the world, through the same pass with no lamps.
+            float night = NightSky.CharacterScale;
             if (!Active)
             {
-                if (sent)
+                if (night < 0.999f && Enhancements.Connected)
+                {
+                    Enhancements.SetCharacterLights(true, false, night, 0, null, NoLights);
+                    sent = true;
+                }
+                else if (sent)
+                {
                     Enhancements.SetCharacterLights(false, false, 0, 0, null, null);
-                sent = false;
+                    sent = false;
+                }
                 return;
             }
             var lights = Lights.CharacterLights().Take(EnhancementsShotLight.Max).Select(light => EnhancementsShot.ToShotLight(light, 0)).ToList();
-            Enhancements.SetCharacterLights(true, Soft, GameLight, Rim, HeadCenter(), lights);
+            Enhancements.SetCharacterLights(true, Soft, GameLight * night, Rim, HeadCenter(), lights);
             sent = true;
         }
 

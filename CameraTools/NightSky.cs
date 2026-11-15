@@ -69,6 +69,7 @@ namespace CameraTools
             var sky = EnviroSky.Instance;
             if (!on || sky == null)
             {
+                CharacterScale = 1f;
                 if (sky != null && sky.Pointer == fogOffIn)
                 {
                     sky.SetFogEnable(true, FogOwner);
@@ -117,23 +118,36 @@ namespace CameraTools
             Drive();
             // The game keeps its ambient light up through the night, so the ambient pass takes it at the physical sky's
             // share of a day's sky light over the game's own share.
-            float gameShare = AmbientLuminance(RenderSettings.ambientSkyColor, RenderSettings.ambientGroundColor) / dayAmbient;
+            float gameAmbient = AmbientLuminance(RenderSettings.ambientSkyColor, RenderSettings.ambientGroundColor);
+            float gameShare = gameAmbient / dayAmbient;
             bodies.AmbientScale = gameShare > 1e-4f ? Math.Clamp(world.SkyShare / gameShare, 0f, 4f) : 1f;
             AmbientScale = bodies.AmbientScale;
+            // Characters keep the game's light, its night light and day-bright ambient: they take the share of it the world
+            // gets, our direct light and the scaled ambient over the game's direct light and its ambient.
+            var ours = Light.Value.Light;
+            float ourDirect = 0.2126f * ours.X + 0.7152f * ours.Y + 0.0722f * ours.Z;
+            float gameDirect = Luminance(new Vec3(gameColor.r, gameColor.g, gameColor.b)) * gameIntensity;
+            float gameTotal = gameDirect + gameAmbient;
+            CharacterScale = gameTotal > 1e-4f ? Math.Clamp((ourDirect + AmbientScale * gameAmbient) / gameTotal, 0f, 1f) : 1f;
             Enhancements.SetCelestial(bodies);
         }
 
         // The ambient pass's multiple this frame, for the probe.
         public static float AmbientScale { get; private set; } = 1f;
 
+        // The share of the game's light the characters keep this frame: 1 while the physical sky is off.
+        public static float CharacterScale { get; private set; } = 1f;
+
         // In C# alone: it also runs in the type's initializer, before any of Unity's calls can be made.
         private static float AmbientLuminance(Color sky, Color ground) => AmbientLuminance(new Vec3(sky.r, sky.g, sky.b), new Vec3(ground.r, ground.g, ground.b));
 
-        private static float AmbientLuminance(Vec3 sky, Vec3 ground)
+        private static float AmbientLuminance(Vec3 sky, Vec3 ground) => Luminance(sky) + Luminance(ground);
+
+        // A gamma-encoded color's linear luminance.
+        private static float Luminance(Vec3 c)
         {
             static float Linear(float v) => v <= 0.04045f ? v / 12.92f : MathF.Pow((v + 0.055f) / 1.055f, 2.4f);
-            static float Luma(Vec3 c) => 0.2126f * Linear(c.X) + 0.7152f * Linear(c.Y) + 0.0722f * Linear(c.Z);
-            return Luma(sky) + Luma(ground);
+            return 0.2126f * Linear(c.X) + 0.7152f * Linear(c.Y) + 0.0722f * Linear(c.Z);
         }
 
         // Camera.onPreCull of the main camera: puts the light back where we set it, should the game have turned it since.
