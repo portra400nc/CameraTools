@@ -77,7 +77,7 @@ namespace enhancements
         static_assert(ENHANCEMENTS_DOF_PLACE_DISPLAY == static_cast<int>(DofPlace::display) && ENHANCEMENTS_DOF_PLACE_COUNT == static_cast<int>(DofPlace::count));
         static_assert(sizeof(EnhancementsCamera) == 52 * sizeof(float));
         static_assert(offsetof(EnhancementsCelestial, toward_sun) == 8 && offsetof(EnhancementsCelestial, stars_z) == 88
-            && offsetof(EnhancementsCelestial, day_light) == 104 && sizeof(EnhancementsCelestial) == 124);
+            && offsetof(EnhancementsCelestial, day_light) == 104 && sizeof(EnhancementsCelestial) == 128);
         static_assert(ENHANCEMENTS_ACCUMULATE_PRESENT == static_cast<int>(AccumulateMode::present)
             && ENHANCEMENTS_ACCUMULATE_COUNT == static_cast<int>(AccumulateMode::count));
         static_assert(offsetof(EnhancementsAccumulate, mode) == 4 && offsetof(EnhancementsAccumulate, gain) == 20 && sizeof(EnhancementsAccumulate) == 24);
@@ -625,6 +625,8 @@ namespace enhancements
             c.days = finite_or(copy.days, 0.0f, -1e9f, 1e9f);
         if (knows(offsetof(EnhancementsCelestial, ambient_scale), sizeof copy.ambient_scale))
             c.ambient_scale = finite_or(copy.ambient_scale, 1.0f, 0.0f, 4.0f);
+        if (knows(offsetof(EnhancementsCelestial, vegetation_scale), sizeof copy.vegetation_scale))
+            c.vegetation_scale = finite_or(copy.vegetation_scale, 1.0f, 0.0f, 1.0f);
         return c;
     }
 

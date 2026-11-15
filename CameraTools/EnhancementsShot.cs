@@ -516,14 +516,19 @@ namespace CameraTools
             var camera = CameraTools.maincam;
             if (!camera)
                 return Array.Empty<EnhancementsShotLight>();
-            var eye = camera.transform.position;
-            var lights = UnityEngine.Object.FindObjectsOfType(Il2CppType.Of<Light>()).Select(o => o.Cast<Light>())
+            var lights = GameLightsNear(camera.transform.position);
+            Log($"baking {lights.Length} of the game's lights within {GameLightReach:0} m for the bounce.");
+            return lights;
+        }
+
+        // The game's own point and spot lights within GameLightReach of eye, nearest first, at most the add-on's count.
+        internal static EnhancementsShotLight[] GameLightsNear(Vector3 eye)
+        {
+            return UnityEngine.Object.FindObjectsOfType(Il2CppType.Of<Light>()).Select(o => o.Cast<Light>())
                 .Where(light => light.isActiveAndEnabled && !Lights.IsOurs(light) && light.intensity > 0 && light.type is LightType.Point or LightType.Spot)
                 .Select(light => (light, distance: Vector3.Distance(light.transform.position, eye)))
                 .Where(l => l.distance <= GameLightReach).OrderBy(l => l.distance).Take(EnhancementsShotLight.MaxGame)
                 .Select(l => ToShotLight(l.light, l.light.shadows != LightShadows.None ? EnhancementsShotLight.Shadows : 0)).ToArray();
-            Log($"baking {lights.Length} of the game's lights within {GameLightReach:0} m for the bounce.");
-            return lights;
         }
 
         internal static EnhancementsShotLight ToShotLight(Light light, uint flags)

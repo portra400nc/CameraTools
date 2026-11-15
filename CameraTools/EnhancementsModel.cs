@@ -330,6 +330,7 @@ namespace CameraTools
             settings.Sky.Physical = sky ? 1u : 0u;
             settings.Sky.Haze = values[Enhancement.SkyHaziness];
             settings.Aerial.Distance = sky ? values[Enhancement.DistanceHaze] : 0f;
+            settings.View = ProbeView;
             settings.Ambient.AoStrength = forced ? 0f : values[Enhancement.AmbientOcclusion];
             settings.Ambient.AoRadius = values[Enhancement.AmbientOcclusionRadius];
             settings.Ambient.FoliageAoStrength = forced ? 0f : values[Enhancement.AmbientFoliageOcclusion];
@@ -461,6 +462,9 @@ namespace CameraTools
 
         // Whether the add-on draws the lens flare for these values, and the game's own sun flare is to stay off.
         public static bool FlareRuns(EnhancementValues values) => values.On(Enhancement.Enabled) && values.On(Enhancement.LensFlare);
+
+        // A debug view of the add-on's, for the probe only: the panel has no row for it.
+        public static EnhancementsView ProbeView { get; set; }
 
         // Whether the physical sky runs, which draws the sky, the sun, the moon and the stars and turns the main light to them.
         public static bool SkyDrawn(EnhancementValues values) => values.On(Enhancement.Enabled) && values.On(Enhancement.PhysicalSky);

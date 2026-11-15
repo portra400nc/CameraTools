@@ -1060,8 +1060,8 @@ Check("before the first long exposure it shows the frames alone, with thousands 
 Check("past ten minutes the estimate warns", LongExposurePlan.Estimate(3841, 6.4) == ("3,841 frames · about 10 min", true)
     && LongExposurePlan.Estimate(3840, 6.4) == ("3,840 frames · about 10 min", false));
 
-Check("the binding's celestial is enhancements.h's 124 bytes, its sun at 8, its stars' z axis at 88, its day light at 104 and its ambient scale at 120",
-    Marshal.SizeOf<EnhancementsCelestial>() == 124 && Offset<EnhancementsCelestial>(nameof(EnhancementsCelestial.SunX)) == 8
+Check("the binding's celestial is enhancements.h's 128 bytes, its sun at 8, its stars' z axis at 88, its day light at 104, its ambient scale at 120 and its vegetation scale at 124",
+    Marshal.SizeOf<EnhancementsCelestial>() == 128 && Offset<EnhancementsCelestial>(nameof(EnhancementsCelestial.VegetationScale)) == 124 && Offset<EnhancementsCelestial>(nameof(EnhancementsCelestial.SunX)) == 8
     && Offset<EnhancementsCelestial>(nameof(EnhancementsCelestial.StarsZX)) == 88 && Offset<EnhancementsCelestial>(nameof(EnhancementsCelestial.DayLight)) == 104
     && Offset<EnhancementsCelestial>(nameof(EnhancementsCelestial.AmbientScale)) == 120);
 Check("the binding's world light is enhancements.h's 32 bytes, its moon at 16 and its sky share at 28",

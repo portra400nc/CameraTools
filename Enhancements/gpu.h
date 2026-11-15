@@ -13,6 +13,7 @@
 #include "core/flare.h"
 #include "core/grade.h"
 #include "core/light.h"
+#include "core/night_lamps.h"
 #include "core/plan.h"
 #include "core/sky.h"
 
@@ -31,7 +32,7 @@ namespace enhancements
     struct TraceSave;   // core/trace_files.h
 
     // Our shaders declare registers only inside these ranges, and StateGuard saves and restores exactly these.
-    constexpr UINT kSrvSlots = 11;      // t0..t10; the trace kernel uses t0..t6, the gather kernel t0..t8, the reflection kernel all
+    constexpr UINT kSrvSlots = 14;      // t0..t13; the trace kernel uses t0..t6, the gather kernel t0..t8, the reflection kernel all
     constexpr UINT kSamplerSlots = 4;   // s0..s3
     constexpr UINT kCbSlots = 5;        // b0..b4
     constexpr UINT kUavSlots = 6;       // u0..u5, u5 the reflection kernel's sums; before it u0..u4, compute only: the trace kernels' history and counters, the gather's two buffers, and
@@ -51,6 +52,7 @@ namespace enhancements
         float moon_phase = 0;
         SkyLight cloud_light;       // cloud_light's at the clouds' base
         float aerial = 0;           // PhysicalSkySettings::aerial
+        float vegetation = 1;       // Celestial::vegetation_scale
     };
 
     // Captures, on construction, the pipeline state our work can change, nulls the stages we never use (GS, HS, DS and
@@ -356,7 +358,8 @@ namespace enhancements
         // The physical sky over the sky's pixels: the air's tables uploaded when the atmosphere is new, the view tables
         // drawn for this frame's lights, the sky, the sun and the moon drawn over the mirrored HDR scene, the stars added
         // where the sky shows, and the result copied over the game's. Empty when a texture of ours failed.
-        std::optional<GameCall> run_sky(const FrameMap &map, const SkyDraw &sky, const Camera &camera, bool flip);
+        std::optional<GameCall> run_sky(const FrameMap &map, const SkyDraw &sky, const Camera &camera, bool flip,
+            const std::vector<EnhancementsShotLight> &lamps);
         // A traced shot's lights added to the HDR scene behind their traced visibility; run_trace mirrored what it reads this frame.
         std::optional<GameCall> run_traced_lights(const FrameMap &map, const Camera &camera, bool flip, TraceGpu &trace);
         // The normals, albedo and material ids the character light pass reads at bloom, copied at the combine step while they
@@ -536,6 +539,7 @@ namespace enhancements
         ComPtr<ID3D11DeviceContext1> context_;
         ComPtr<ID3D11VertexShader> fullscreen_vs_, dof_sprite_vs_, stars_vs_;
         ComPtr<ID3D11PixelShader> sky_view_ps_, sky_ps_, stars_ps_;
+        ComPtr<ID3D11Buffer> night_lamps_constants_;  // core/night_lamps.h NightLamps at b4
         // The physical sky's air tables, R32G32B32A32_FLOAT, uploaded from sky_air_; the moon's face, R8G8B8A8_UNORM 512 a side;
         // the stars, two R32G32B32A32_FLOAT elements each.
         ComPtr<ID3D11Texture2D> sky_transmittance_, sky_multiple_, moon_face_;

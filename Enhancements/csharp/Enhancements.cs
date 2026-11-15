@@ -524,6 +524,7 @@ namespace CameraToolsEnhancements
         public float NightStops;
         public float Days;
         public float AmbientScale;
+        public float VegetationScale;
     }
 
     // EnhancementsWorldLight in enhancements.h, field for field: how the physical sky lights the world, in the game's units.
@@ -586,7 +587,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 34;
+        private const uint Version = 35;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

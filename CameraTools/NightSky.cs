@@ -133,6 +133,8 @@ namespace CameraTools
             float gameDirect = Luminance(new Vec3(gameColor.r, gameColor.g, gameColor.b)) * gameIntensity;
             float gameSky = gameDirect + gameAmbient;
             float outdoors = gameSky > 1e-4f ? Math.Clamp((ourDirect + AmbientScale * gameAmbient) / gameSky, 0f, 1f) : 1f;
+            bodies.VegetationScale = outdoors;
+            SendLamps();
             float open = Openness.Update();
             float lamps = Lamps.AtCharacter();
             float skyKept = gameSky * (open * outdoors + (1 - open));
@@ -169,6 +171,19 @@ namespace CameraTools
             float RightAscension(Vec3 v) => MathF.Atan2(Vec3.Dot(v, sky.StarsY), Vec3.Dot(v, sky.StarsX));
             float lead = RightAscension(sky.TowardMoon) - RightAscension(sky.TowardSun);
             return ((lead / (2 * MathF.PI)) % 1f + 1f) % 1f;
+        }
+
+        // The game's lamps near the camera, sent again each second: the night gives back their light on vegetation.
+        private const float LampsEvery = 1f;
+        private static float lampsAt;
+
+        private static void SendLamps()
+        {
+            var camera = CameraTools.maincam;
+            if (Time.unscaledTime < lampsAt || !camera)
+                return;
+            lampsAt = Time.unscaledTime + LampsEvery;
+            Enhancements.SetGameLights(EnhancementsShot.GameLightsNear(camera.transform.position));
         }
 
         // The ambient pass's multiple this frame, for the probe.
@@ -301,7 +316,7 @@ namespace CameraTools
             var c = new EnhancementsCelestial
             {
                 SunX = towardSun.X, SunY = towardSun.Y, SunZ = towardSun.Z,
-                DayLight = dayLight, TwilightPower = TwilightPower, NightStops = NightStops, Days = (float)Days, AmbientScale = 1f,
+                DayLight = dayLight, TwilightPower = TwilightPower, NightStops = NightStops, Days = (float)Days, AmbientScale = 1f, VegetationScale = 1f,
             };
             if (placed is { } p)
             {

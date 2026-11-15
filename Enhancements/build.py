@@ -30,7 +30,7 @@ SOURCES = [
     "addon.cpp", "gpu.cpp", "scene_gpu.cpp", "trace_gpu.cpp", "core/recipe.cpp", "core/plan.cpp", "core/sky.cpp", "core/sun.cpp", "core/png.cpp", "core/compare.cpp",
     "core/accumulate.cpp", "core/dxbc.cpp", "core/shaders.cpp", "core/scene.cpp", "core/scene_files.cpp", "core/trace_scene.cpp",
     "core/bvh.cpp", "core/kernel.cpp", "core/trace.cpp", "core/trace_files.cpp", "core/shex.cpp", "core/grade.cpp", "core/alpha.cpp",
-    "core/alpha_bake.cpp", "core/light.cpp", "core/dof.cpp", "core/flare.cpp", "core/character_light.cpp", "core/dng.cpp",
+    "core/alpha_bake.cpp", "core/light.cpp", "core/dof.cpp", "core/flare.cpp", "core/character_light.cpp", "core/night_lamps.cpp", "core/dng.cpp",
 ]
 # (symbol in enhancements_shaders.h, source in shaders/, profile)
 SHADERS = [

@@ -23,6 +23,7 @@ namespace CameraTools
         private static int connections;
         // What the depth of field's block was last made for.
         private static LensView lens;
+        private static EnhancementsView view;
         private static float? saveAt;
         private static bool unsaved;
         // The heading's text for the values it was made from.
@@ -138,9 +139,10 @@ namespace CameraTools
                 ulong generation = Enhancements.Apply(EnhancementsModel.Settings(Running, lens));
                 Log($"the add-on connected and runs {Describe(Running)}, as its settings {generation}.");
             }
-            else if (now != lens)
+            else if (now != lens || view != EnhancementsModel.ProbeView)
             {
                 lens = now;
+                view = EnhancementsModel.ProbeView;
                 if (Enhancements.Connected)
                     Enhancements.Apply(EnhancementsModel.Settings(Running, lens));
             }

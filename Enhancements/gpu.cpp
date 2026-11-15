@@ -119,9 +119,10 @@ namespace enhancements
         float sky_stars_z[3];
         float sky_cloud_illuminance;
         float sky_aerial;
-        float sky_pad[3];
+        float sky_vegetation;
+        float sky_pad[2];
     };
-    static_assert(sizeof(Constants) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
+    static_assert(sizeof(Constants) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
         && offsetof(Constants, cloud_toward_sun) == 560 && offsetof(Constants, tone_shadows) == 480 && offsetof(Constants, accum_gain) == 488 && offsetof(Constants, flare_sun_uv) == 456 && offsetof(Constants, wetness) == 408 && offsetof(Constants, shafts_anisotropy) == 432 && offsetof(Constants, label) == 272 && offsetof(Constants, sun_color) == 304
         && offsetof(Constants, sky_color) == 320 && offsetof(Constants, bloom_strength) == 352 && offsetof(Constants, sun_cascades) == 368
@@ -164,6 +165,7 @@ namespace enhancements
             c.sky_cloud_physical = 0;
             c.sky_cloud_illuminance = 0;
             c.sky_aerial = sky.aerial;
+            c.sky_vegetation = sky.vegetation;
         }
 
         // The moon's face for sky_ps.hlsl: the albedo in alpha, its color, bilinearly enlarged from 64 a side, in rgb.
@@ -674,6 +676,8 @@ namespace enhancements
         sky_color.ByteWidth = kSkyColorBytes;
         D3D11_BUFFER_DESC character_light_constants = buffer;
         character_light_constants.ByteWidth = sizeof(CharacterLightConstants);
+        D3D11_BUFFER_DESC night_lamps_constants = buffer;
+        night_lamps_constants.ByteWidth = sizeof(NightLamps);
         // Zeros until a grade is copied in, which the shader takes for no grade.
         D3D11_BUFFER_DESC game_grade = {};
         game_grade.ByteWidth = kGameGradeBytes;
@@ -820,6 +824,7 @@ namespace enhancements
             && SUCCEEDED(device->CreateBuffer(&flare_constants, nullptr, &made.flare_constants_))
             && SUCCEEDED(device->CreateBuffer(&sky_color, nullptr, &made.sky_color_constants_))
             && SUCCEEDED(device->CreateBuffer(&character_light_constants, nullptr, &made.character_light_constants_))
+            && SUCCEEDED(device->CreateBuffer(&night_lamps_constants, nullptr, &made.night_lamps_constants_))
             && SUCCEEDED(device->CreateBuffer(&game_grade, &no_grade_data, &made.game_grade_))
             && SUCCEEDED(device->CreateBuffer(&grade_stage, nullptr, &made.grade_stage_))
             && SUCCEEDED(device->CreateBlendState(&blend, &made.opaque_))
@@ -1562,7 +1567,8 @@ namespace enhancements
         return true;
     }
 
-    std::optional<GameCall> Gpu::run_sky(const FrameMap &map, const SkyDraw &sky, const Camera &camera, bool flip)
+    std::optional<GameCall> Gpu::run_sky(const FrameMap &map, const SkyDraw &sky, const Camera &camera, bool flip,
+        const std::vector<EnhancementsShotLight> &lamps)
     {
         constexpr Size kView = { 256, 128 };   // kSkyViewSize in shaders/sky.hlsli
         const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
@@ -1576,17 +1582,38 @@ namespace enhancements
             || !scene_out_.sync(d, native(scene), scene_format, true) || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false)
             || !pass_constants(camera, map.render, flip, constants))
             return std::nullopt;
+        // The night on vegetation reads its stencil, normals and albedo, and the lamps near the camera; without the albedo
+        // the vegetation keeps the game's light.
+        const std::optional<Texture> &albedo = map[Entry::albedo];
+        const bool vegetation = sky.vegetation < 1 && albedo && mirror_gbuffer(map)
+            && albedo_.sync(d, native(*albedo), static_cast<DXGI_FORMAT>(albedo->format), false);
         put_sky(sky, constants);
+        if (!vegetation)
+            constants.sky_vegetation = 1;
         upload(constants);
         ID3D11DeviceContext1 *c = context_.Get();
         scene_in_.copy_from(c, native(scene));
         depth_.copy_from(c, native(depth));
+        if (vegetation)
+        {
+            albedo_.copy_from(c, native(*albedo));
+            const NightLamps nearby = night_lamps(lamps, camera);
+            D3D11_MAPPED_SUBRESOURCE mapped;
+            if (SUCCEEDED(c->Map(night_lamps_constants_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+            {
+                std::memcpy(mapped.pData, &nearby, sizeof nearby);
+                c->Unmap(night_lamps_constants_.Get(), 0);
+            }
+            ID3D11Buffer *const own[] = { night_lamps_constants_.Get() };
+            c->PSSetConstantBuffers(4, 1, own);
+        }
         ID3D11ShaderResourceView *const tables[kSrvSlots] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
             sky_transmittance_srv_.Get(), sky_multiple_srv_.Get() };
         ID3D11RenderTargetView *const view_out[] = { sky_view_[0].rtv(), sky_view_[1].rtv(), sky_view_[2].rtv(), sky_view_[3].rtv(), sky_view_[4].rtv() };
         draw_fullscreen(sky_view_ps_.Get(), tables, kSrvSlots, view_out, 5, kView);
         ID3D11ShaderResourceView *const drawn[kSrvSlots] = { scene_in_.srv(), sky_view_[0].srv(), depth_.srv(), sky_view_[1].srv(), sky_view_[2].srv(),
-            sky_view_[3].srv(), sky_view_[4].srv(), moon_face_srv_.Get(), nullptr, sky_transmittance_srv_.Get(), sky_multiple_srv_.Get() };
+            sky_view_[3].srv(), sky_view_[4].srv(), moon_face_srv_.Get(), nullptr, sky_transmittance_srv_.Get(), sky_multiple_srv_.Get(),
+            vegetation ? depth_.stencil_srv() : nullptr, vegetation ? normals_.srv() : nullptr, vegetation ? albedo_.srv() : nullptr };
         draw_fullscreen(sky_ps_.Get(), drawn, kSrvSlots, scene_out_.rtv(), map.render);
         if (sky.stars && star_count_ > 0)
         {

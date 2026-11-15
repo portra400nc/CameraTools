@@ -103,7 +103,8 @@ cbuffer Constants : register(b0)
     float3 sky_stars_z;
     float sky_cloud_illuminance;    // above the air, in sun units, of the light along cloud_toward_sun
     float sky_aerial;           // EnhancementsAerial.distance: the scene's meters times this are the air's
-    float3 sky_pad;
+    float sky_vegetation;       // EnhancementsCelestial.vegetation_scale; 1 while the pass has no albedo
+    float2 sky_pad;
 };
 
 SamplerState point_clamp : register(s0);

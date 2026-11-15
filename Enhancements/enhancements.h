@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 34
+#define ENHANCEMENTS_VERSION 35
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -846,6 +846,9 @@ typedef struct EnhancementsCelestial
     float ambient_scale;        // multiplies the ambient pass's level and the traced ambient's, so the game's ambient light
                                 // takes the physical sky's level (EnhancementsWorldLight.sky_share over the game's own);
                                 // default 1, clamped to 0..4. Version 33 added it.
+    float vegetation_scale;     // the share of the game's light vegetation keeps, which the game gives it whatever the sky:
+                                // the rest goes, and the game's lamps (EnhancementsSetGameLights) give back their own on it;
+                                // default 1, clamped to 0..1. Version 35 added it.
 } EnhancementsCelestial;
 
 ENHANCEMENTS_EXPORT void EnhancementsSetCelestial(const EnhancementsCelestial *celestial);

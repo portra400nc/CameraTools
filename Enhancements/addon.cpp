@@ -888,6 +888,8 @@ namespace enhancements
             draw.moon_phase = bodies.moon_phase;
             draw.cloud_light = cloud_light(*draw.atmosphere, live, settings.clouds.base * 0.001f);
             draw.aerial = settings.sky.aerial;
+            draw.vegetation = bodies.vegetation_scale;
+            game_lights_box.take(game_lights, game_lights_seen);
             sky_draw = draw;
             if (live_sky->version != trace_gpu.sky_version() && trace_gpu.set_sky(live_sky->map, live_sky->version))
             {
@@ -1091,7 +1093,7 @@ namespace enhancements
                     }
                     case PassId::sky:
                         // Nothing to draw before the first map's atmosphere: the game's sky shows.
-                        call = sky_draw ? gpu.run_sky(map, *sky_draw, camera, settings.flip) : std::optional<GameCall>(GameCall::keep);
+                        call = sky_draw ? gpu.run_sky(map, *sky_draw, camera, settings.flip, game_lights) : std::optional<GameCall>(GameCall::keep);
                         break;
                     case PassId::traced_lights:
                         // Nothing to add before the trace has a sample at every pixel.

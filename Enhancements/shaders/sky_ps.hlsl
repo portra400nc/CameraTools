@@ -4,6 +4,7 @@
 // pixel, because the result is copied over the game's HDR scene whole.
 #include "common.hlsli"
 #include "sky.hlsli"
+#include "vegetation.hlsli"
 
 Texture2D<float3> scene : register(t0);             // mirror of the game's HDR scene
 Texture2D<float4> view_sun_rayleigh : register(t1);
@@ -90,9 +91,10 @@ float3 main(float4 position : SV_Position) : SV_Target0
     float scene_depth = depth.Load(int3(pixel, 0));
     if (scene_depth > 0)
     {
+        float3 at = view_position(position.xy * render_size.zw, scene_depth);
+        color = night_vegetation(color, pixel, at);
         if (sky_aerial <= 0)
             return color;
-        float3 at = view_position(position.xy * render_size.zw, scene_depth);
         float3 toward = normalize(mul(normalize(at), (float3x3)world_to_view));
         return min(aerial(color, length(at), toward), kMostLight);
     }
