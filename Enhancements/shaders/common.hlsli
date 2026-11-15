@@ -88,6 +88,20 @@ cbuffer Constants : register(b0)
     float2 cloud_wind_step;     // meters the clouds drifted since last frame
     float cloud_camera_height;  // world meters
     float cloud_pad4;
+    float3 sky_toward_sun;      // the physical sky's sun, unit, world
+    float sky_haze;             // the aerosols' optical depth straight up
+    float3 sky_toward_moon;     // unit, world
+    float sky_moon_radiance;    // the sunlit moon's radiance over its albedo and its Lommel-Seeliger shading, in sun units
+    float3 sky_moon_north;      // unit, world
+    float sky_earthshine;       // the earthlit moon's radiance over its albedo
+    float3 sky_scale;           // game units per unit of the sun's light above the air, per channel
+    float sky_camera_km;        // the viewer's height above the ground
+    float3 sky_stars_x;         // the J2000 equatorial axes in the world
+    float sky_moon_illuminance; // the moon's illuminance above the air, in sun units
+    float3 sky_stars_y;
+    float sky_cloud_physical;   // 1: the clouds take the physical sky's light at their height
+    float3 sky_stars_z;
+    float sky_cloud_illuminance;    // above the air, in sun units, of the light along cloud_toward_sun
 };
 
 SamplerState point_clamp : register(s0);

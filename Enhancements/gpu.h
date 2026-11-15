@@ -14,6 +14,7 @@
 #include "core/grade.h"
 #include "core/light.h"
 #include "core/plan.h"
+#include "core/sky.h"
 
 #include <d3d11_1.h>
 #include <wrl/client.h>
@@ -37,6 +38,19 @@ namespace enhancements
                                         // the traced lights' visibility
     constexpr UINT kSoSlots = D3D11_SO_BUFFER_SLOT_COUNT;
     constexpr UINT kClassInstances = 256;
+
+    // The physical sky to draw this frame: its air's tables, its lights, the moon's face and the stars' axes, at its scale.
+    struct SkyDraw
+    {
+        std::shared_ptr<const Atmosphere> atmosphere;
+        SkyRequest request;
+        Vec3f scale {};             // sky_scale's
+        bool stars = false;         // the moon and the stars' axes are known
+        Vec3f moon_north {};
+        std::array<Vec3f, 3> axes {};
+        float moon_phase = 0;
+        SkyLight cloud_light;       // cloud_light's at the clouds' base
+    };
 
     // Captures, on construction, the pipeline state our work can change, nulls the stages we never use (GS, HS, DS and
     // stream output), and puts everything back on destruction: IA input layout and topology; VS/PS/GS/HS/DS/CS with
@@ -335,8 +349,13 @@ namespace enhancements
         // the clouds drifted. Empty when gather_sun copied nothing this frame or a texture of ours failed.
         // The volume clouds' two noise textures, generated once on the GPU. false when one could not be made.
         bool make_cloud_noise();
+        // With physical, the clouds take its sunlight or moonlight at their height in place of the camera's sun.
         std::optional<GameCall> run_clouds(const FrameMap &map, const CloudSettings &settings, const Camera &camera, const SunShadowConstants &sun,
-            const float wind[2], uint64_t frame, bool flip);
+            const float wind[2], uint64_t frame, bool flip, const SkyDraw *physical);
+        // The physical sky over the sky's pixels: the air's tables uploaded when the atmosphere is new, the view tables
+        // drawn for this frame's lights, the sky, the sun and the moon drawn over the mirrored HDR scene, the stars added
+        // where the sky shows, and the result copied over the game's. Empty when a texture of ours failed.
+        std::optional<GameCall> run_sky(const FrameMap &map, const SkyDraw &sky, const Camera &camera, bool flip);
         // A traced shot's lights added to the HDR scene behind their traced visibility; run_trace mirrored what it reads this frame.
         std::optional<GameCall> run_traced_lights(const FrameMap &map, const Camera &camera, bool flip, TraceGpu &trace);
         // The normals, albedo and material ids the character light pass reads at bloom, copied at the combine step while they
@@ -514,7 +533,18 @@ namespace enhancements
 
         ComPtr<ID3D11Device> device_;
         ComPtr<ID3D11DeviceContext1> context_;
-        ComPtr<ID3D11VertexShader> fullscreen_vs_, dof_sprite_vs_;
+        ComPtr<ID3D11VertexShader> fullscreen_vs_, dof_sprite_vs_, stars_vs_;
+        ComPtr<ID3D11PixelShader> sky_view_ps_, sky_ps_, stars_ps_;
+        // The physical sky's air tables, R32G32B32A32_FLOAT, uploaded from sky_air_; the moon's face, R8G8B8A8_UNORM 512 a side;
+        // the stars, two R32G32B32A32_FLOAT elements each.
+        ComPtr<ID3D11Texture2D> sky_transmittance_, sky_multiple_, moon_face_;
+        ComPtr<ID3D11ShaderResourceView> sky_transmittance_srv_, sky_multiple_srv_, moon_face_srv_, stars_srv_;
+        ComPtr<ID3D11Buffer> stars_;
+        uint32_t star_count_ = 0;
+        std::shared_ptr<const Atmosphere> sky_air_;
+        Scratch sky_view_[5];       // sky_view_ps.hlsl's tables, kSkyViewSize, R32G32B32A32_FLOAT
+        // The physical sky's tables from atmosphere when it is not the one uploaded. false when a texture failed.
+        bool sync_sky_tables(const std::shared_ptr<const Atmosphere> &atmosphere);
         ComPtr<ID3D11ComputeShader> dof_scatter_cs_, cloud_shape_cs_, cloud_detail_cs_;
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_, cloud_map_ps_, clouds_ps_, clouds_apply_ps_, clouds_resolve_ps_,
             tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, character_light_ps_, character_shadow_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,

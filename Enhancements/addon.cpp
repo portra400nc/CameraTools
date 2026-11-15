@@ -84,6 +84,7 @@ namespace enhancements
 
         Mailbox<Settings> settings_box;
         Mailbox<Camera> camera_box;
+        Mailbox<std::optional<Celestial>> celestial_box;
         Mailbox<Published> status_box;
         Mailbox<std::vector<Variant>> compare_box;
         Mailbox<AccumulateSettings> accumulate_box;
@@ -199,12 +200,15 @@ namespace enhancements
         };
         TraceScene trace_scene;
         TraceState trace_logged = TraceState::none; // the state the log last said
-        // The physical sky: the live view's, from the pushed camera, and the traced scene's, from the light it was captured
-        // with, each built on a thread of its own, and what each was last asked for. The live view's waits for the first
-        // camera push with a sun, which CameraTools sends once its free camera has been on.
-        SkyBuilder live_sky_builder, traced_sky_builder;
-        std::optional<SkyRequest> live_sky_asked, traced_sky_asked;
+        // The physical sky: its map, built on a thread of its own from EnhancementsSetCelestial's bodies and what it was last
+        // asked for, and this frame's drawing, which waits for the first map and its atmosphere. The traced scene takes the
+        // live map, as a traced shot holds the hour.
+        SkyBuilder live_sky_builder;
+        std::optional<SkyRequest> live_sky_asked;
         std::shared_ptr<const SkyResult> live_sky;
+        std::optional<Celestial> celestial;     // EnhancementsSetCelestial's newest
+        uint64_t celestial_seen = 0;
+        std::optional<SkyDraw> sky_draw;
         bool ambient_physical_said = false;     // the log said the ambient pass took the physical sky's color
 
         // An ENHANCEMENTS_SCENE_TRACE capture's triangles as the writer thread writes its faces.
@@ -818,6 +822,7 @@ namespace enhancements
         // light the scene has now. With the physical sky off, puts the scene's own sky map back.
         void tick_sky()
         {
+            sky_draw.reset();
             if (!settings.sky.enabled)
             {
                 if (trace_gpu.sky_version() != 0 && trace_gpu.light() && trace_gpu.set_sky(trace_gpu.light()->sky, 0))
@@ -825,47 +830,51 @@ namespace enhancements
                 live_sky.reset();
                 return;
             }
-            const Vec3f tint = night_tint(camera.toward_sky_sun[1]);
+            // The sky's sun from the bodies, or from the camera's sky sun before any came.
+            const Celestial bodies = celestial.value_or(Celestial {});
             SkyRequest live;
-            live.toward_light = { camera.toward_sun[0], camera.toward_sun[1], camera.toward_sun[2] };
-            live.shade = { camera.sun_color[0], camera.sun_color[1], camera.sun_color[2] };
+            live.sun.toward = bodies.toward_sun;
+            if (live.sun.toward == Vec3f {})
+                live.sun.toward = { camera.toward_sky_sun[0], camera.toward_sky_sun[1], camera.toward_sky_sun[2] };
+            live.sun.illuminance = 1;
+            if (bodies.stars)
+                live.moon = { bodies.toward_moon, moon_illuminance(bodies.moon_phase) };
+            live.exposure = { bodies.day_light, bodies.twilight_power, bodies.night_stops };
             live.haze = settings.sky.haze;
-            live.tint = tint;
-            if (live.toward_light != Vec3f {} && (!live_sky_asked || sky_request_differs(*live_sky_asked, live)))
+            if (live.sun.toward != Vec3f {} && (!live_sky_asked || sky_request_differs(*live_sky_asked, live)))
             {
                 live_sky_builder.request(live);
                 live_sky_asked = live;
             }
             const uint64_t had = live_sky ? live_sky->version : 0;
             live_sky = live_sky_builder.latest();
-            if (live_sky && had == 0)
+            if (!live_sky)
+                return;
+            if (had == 0)
             {
                 const Vec3f &h = live_sky->horizon, up = sky_irradiance(live_sky->map, { 0, 1, 0 });
-                char text[220];
-                std::snprintf(text, sizeof text, "the live view's sky is the physical one: haze %.2f, its light on a floor (%.3f, %.3f, %.3f), its horizon (%.3f, %.3f, %.3f).",
-                    live_sky->request.haze, up[0], up[1], up[2], h[0], h[1], h[2]);
+                char text[260];
+                std::snprintf(text, sizeof text, "the live view's sky is the physical one: haze %.2f, day %.2f, the moon %s, its light on a floor (%.4g, %.4g, %.4g), its horizon (%.4g, %.4g, %.4g).",
+                    live_sky->request.haze, bodies.days, bodies.stars ? "and the stars drawn" : "and the stars unknown", up[0], up[1], up[2], h[0], h[1], h[2]);
                 log(reshade::log::level::info, text);
             }
-            // Without a sun's direction or light, the physical sky would be black: the scene keeps its own.
-            const SceneLight *light = trace_gpu.light();
-            if (!light || light->sun.shade == Vec3 {} || light->sun.color == Vec3 {})
-                return;
-            SkyRequest traced = live;
-            traced.toward_light = light->sun.shade;
-            traced.shade = light->sun.color;
-            if (!traced_sky_asked || sky_request_differs(*traced_sky_asked, traced))
+            // This frame's lights over the newest atmosphere, at this frame's scale.
+            SkyDraw draw;
+            draw.atmosphere = live_sky->atmosphere;
+            draw.request = live;
+            draw.scale = sky_scale(*draw.atmosphere, live.sun, live.moon, live.exposure);
+            draw.stars = bodies.stars;
+            draw.moon_north = bodies.moon_north;
+            draw.axes = bodies.axes;
+            draw.moon_phase = bodies.moon_phase;
+            draw.cloud_light = cloud_light(*draw.atmosphere, live, settings.clouds.base * 0.001f);
+            sky_draw = draw;
+            if (live_sky->version != trace_gpu.sky_version() && trace_gpu.set_sky(live_sky->map, live_sky->version))
             {
-                traced_sky_builder.request(traced);
-                traced_sky_asked = traced;
-            }
-            const std::shared_ptr<const SkyResult> built = traced_sky_builder.latest();
-            if (built && built->version != trace_gpu.sky_version() && !sky_request_differs(built->request, *traced_sky_asked)
-                && trace_gpu.set_sky(built->map, built->version))
-            {
-                const Vec3f &h = built->horizon;
+                const Vec3f &h = live_sky->horizon;
                 char text[200];
-                std::snprintf(text, sizeof text, "the traced scene's sky is the physical one, version %llu: haze %.2f, its horizon (%.3f, %.3f, %.3f).",
-                    static_cast<unsigned long long>(built->version), built->request.haze, h[0], h[1], h[2]);
+                std::snprintf(text, sizeof text, "the traced scene's sky is the physical one, version %llu: haze %.2f, its horizon (%.4g, %.4g, %.4g).",
+                    static_cast<unsigned long long>(live_sky->version), live_sky->request.haze, h[0], h[1], h[2]);
                 log(reshade::log::level::info, text);
             }
         }
@@ -887,6 +896,20 @@ namespace enhancements
             if (from > 1e-9f)
                 for (int k = 0; k < 3; k++)
                     c.sky_color[k] = h[size_t(k)] * to / from;
+            return c;
+        }
+
+        // The camera the clouds read: with the physical sky, the sky light from above in it, which shines on the clouds as
+        // on a level floor.
+        Camera cloud_camera()
+        {
+            Camera c = sky_camera();
+            if (const SkyMap *physical = live_physical_sky())
+            {
+                const Vec3f up = sky_irradiance(*physical, { 0, 1, 0 });
+                for (int k = 0; k < 3; k++)
+                    c.sky_color[k] = up[size_t(k)];
+            }
             return c;
         }
 
@@ -1042,9 +1065,14 @@ namespace enhancements
                         const float radians = settings.clouds.wind_direction * 0.01745329f, step = settings.clouds.wind_speed * frame_seconds;
                         cloud_wind[0] = std::fmod(cloud_wind[0] + std::cos(radians) * step, 1.0e5f);
                         cloud_wind[1] = std::fmod(cloud_wind[1] + std::sin(radians) * step, 1.0e5f);
-                        call = gpu.run_clouds(map, settings.clouds, sky_camera(), sun_parse.constants, cloud_wind, frames, settings.flip);
+                        call = gpu.run_clouds(map, settings.clouds, cloud_camera(), sun_parse.constants, cloud_wind, frames, settings.flip,
+                            sky_draw ? &*sky_draw : nullptr);
                         break;
                     }
+                    case PassId::sky:
+                        // Nothing to draw before the first map's atmosphere: the game's sky shows.
+                        call = sky_draw ? gpu.run_sky(map, *sky_draw, camera, settings.flip) : std::optional<GameCall>(GameCall::keep);
+                        break;
                     case PassId::traced_lights:
                         // Nothing to add before the trace has a sample at every pixel.
                         call = trace_traced && trace_frame && trace_frame->lights.info[0] != 0 ? gpu.run_traced_lights(map, camera, settings.flip, trace_gpu)
@@ -2408,6 +2436,7 @@ namespace enhancements
             else if (camera_age != UINT32_MAX)
                 camera_age++;
             accumulate_box.take(accumulate, accumulate_seen);
+            celestial_box.take(celestial, celestial_seen);
             tick_sky();
             frame_error = ENHANCEMENTS_ERROR_NONE;
             sun_frame = SunCheck::unread;
@@ -2565,6 +2594,22 @@ extern "C" void EnhancementsSetCamera(const EnhancementsCamera *raw)
     if (raw == nullptr)
         return;
     camera_box.put(parse_camera(*raw));
+}
+
+extern "C" void EnhancementsSetCelestial(const EnhancementsCelestial *raw)
+{
+    celestial_box.put(parse_celestial(raw));
+}
+
+extern "C" void EnhancementsSunlight(float toward_y, float haze, float *rgb)
+{
+    if (rgb == nullptr)
+        return;
+    SkySettings air;
+    air.aerosol_depth = std::isfinite(haze) ? std::clamp(haze, 0.0f, 0.5f) : 0.1f;
+    const Vec3f through = sun_transmittance(air, std::isfinite(toward_y) ? toward_y : -1.0f);
+    for (int k = 0; k < 3; k++)
+        rgb[k] = through[size_t(k)];
 }
 
 extern "C" void EnhancementsSetAccumulate(const EnhancementsAccumulate *raw)

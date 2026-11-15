@@ -1049,6 +1049,9 @@ Check("before the first long exposure it shows the frames alone, with thousands 
 Check("past ten minutes the estimate warns", LongExposurePlan.Estimate(3841, 6.4) == ("3,841 frames · about 10 min", true)
     && LongExposurePlan.Estimate(3840, 6.4) == ("3,840 frames · about 10 min", false));
 
+Check("the binding's celestial is enhancements.h's 120 bytes, its sun at 8, its stars' z axis at 88 and its day light at 104",
+    Marshal.SizeOf<EnhancementsCelestial>() == 120 && Offset<EnhancementsCelestial>(nameof(EnhancementsCelestial.SunX)) == 8
+    && Offset<EnhancementsCelestial>(nameof(EnhancementsCelestial.StarsZX)) == 88 && Offset<EnhancementsCelestial>(nameof(EnhancementsCelestial.DayLight)) == 104);
 CelestialTests.Run(Check);
 
 Console.WriteLine($"CameraTools tests: {failures} failed");

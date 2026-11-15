@@ -1,0 +1,13 @@
+The night sky's data, made by make_sky_data.py from these public-domain sources.
+
+stars.bin
+    The Yale Bright Star Catalog, 5th revised edition (Hoffleit and Warren 1991), 9,096 stars with positions.
+    Downloaded 2026-11-15 from http://tdc-www.harvard.edu/catalogs/bsc5.dat.gz (the same as CDS catalog V/50).
+    Public domain: distributed by the NASA Astronomical Data Center and the Harvard-Smithsonian Center for Astrophysics
+    without restriction.
+
+moon.bin
+    The LRO color map of the CGI Moon Kit, lroc_color_poles_2k.tif, by Ernie Wright, NASA's Scientific Visualization
+    Studio, from the Lunar Reconnaissance Orbiter Camera's Wide Angle Camera mosaic.
+    Downloaded 2026-11-15 from https://svs.gsfc.nasa.gov/vis/a000000/a004700/a004720/lroc_color_poles_2k.tif
+    (https://svs.gsfc.nasa.gov/4720). Public domain as NASA imagery; credit NASA's Scientific Visualization Studio.

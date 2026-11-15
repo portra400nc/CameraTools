@@ -13,7 +13,9 @@ namespace enhancements
         constexpr Vec3f kRayleigh = { 5.802e-3f, 13.558e-3f, 33.1e-3f };
         constexpr float kRayleighHeight = 8;
         constexpr float kMieScatter = 3.996e-3f, kMieExtinction = 4.40e-3f, kMieHeight = 1.2f, kMieG = 0.8f;
-        constexpr Vec3f kOzone = { 0.650e-3f, 1.881e-3f, 0.085e-3f };
+        // Ozone's red is Hillaire's 680 nm one raised to the sRGB red response's weight near the Chappuis band's 600 nm
+        // peak: at 680 nm the red channel passed the long twilight paths and turned the blue hour purple.
+        constexpr Vec3f kOzone = { 1.85e-3f, 1.881e-3f, 0.085e-3f };
         constexpr float kOzoneCenter = 25, kOzoneHalfWidth = 15;
 
         Vec3f add(const Vec3f &a, const Vec3f &b) { return { a[0] + b[0], a[1] + b[1], a[2] + b[2] }; }
@@ -38,7 +40,7 @@ namespace enhancements
             Medium out;
             out.rayleigh = scale(kRayleigh, r);
             out.mie = kMieScatter * m;
-            out.extinction = add(add(out.rayleigh, Vec3f { kMieExtinction * m, kMieExtinction * m, kMieExtinction * m }), scale(kOzone, o));
+            out.extinction = add(add(out.rayleigh, Vec3f { kMieExtinction * m, kMieExtinction * m, kMieExtinction * m }), scale(kOzone, o * s.ozone));
             return out;
         }
 
@@ -128,6 +130,21 @@ namespace enhancements
             up = scale(p, 1 / r);
         }
 
+        // The transmittance from radius r along mu to the atmosphere's top, the planet's shadow left out.
+        Vec3f integrate_transmittance(const SkySettings &settings, float r, float mu)
+        {
+            const float length = distance_to_top(r, mu);
+            constexpr int kSteps = 400;
+            Vec3f depth {};
+            for (int k = 0; k < kSteps; k++)
+            {
+                const float t = (k + 0.5f) * length / kSteps;
+                const float rk = std::sqrt(r * r + t * t + 2 * r * mu * t);
+                depth = add(depth, scale(medium(settings, rk - kGround).extinction, length / kSteps));
+            }
+            return exp_of(scale(depth, -1));
+        }
+
         void make_transmittance(Atmosphere &a)
         {
             a.transmittance.resize(size_t(kTransmittanceWidth) * kTransmittanceHeight);
@@ -136,16 +153,7 @@ namespace enhancements
                 {
                     float r, mu;
                     transmittance_r_mu((x + 0.5f) / kTransmittanceWidth, (y + 0.5f) / kTransmittanceHeight, r, mu);
-                    const float length = distance_to_top(r, mu);
-                    constexpr int kSteps = 400;
-                    Vec3f depth {};
-                    for (int k = 0; k < kSteps; k++)
-                    {
-                        const float t = (k + 0.5f) * length / kSteps;
-                        const float rk = std::sqrt(r * r + t * t + 2 * r * mu * t);
-                        depth = add(depth, scale(medium(a.settings, rk - kGround).extinction, length / kSteps));
-                    }
-                    a.transmittance[size_t(y) * kTransmittanceWidth + x] = exp_of(scale(depth, -1));
+                    a.transmittance[size_t(y) * kTransmittanceWidth + x] = integrate_transmittance(a.settings, r, mu);
                 }
         }
 
@@ -210,6 +218,31 @@ namespace enhancements
         }
     }
 
+    namespace
+    {
+        // The light's direction at a sine of its elevation, along +x.
+        Vec3f toward_sine(float sine) { return { std::sqrt(std::max(1 - sine * sine, 0.0f)), sine, 0 }; }
+
+        // The sky's light on a level floor over 128 directions spread evenly over the upper half, each weighted by its
+        // cosine.
+        void make_irradiance(Atmosphere &a)
+        {
+            constexpr int kDirections = 128;
+            a.irradiance.resize(kIrradianceSize);
+            for (uint32_t i = 0; i < kIrradianceSize; i++)
+            {
+                const Vec3f light = toward_sine(kIrradianceLow + (1 - kIrradianceLow) * i / (kIrradianceSize - 1));
+                float sum = 0;
+                for (int k = 0; k < kDirections; k++)
+                {
+                    const float y = 1 - (k + 0.5f) / kDirections, ring = std::sqrt(std::max(1 - y * y, 0.0f)), phi = k * 2.39996323f;
+                    sum += luminance_of(sky_radiance(a, { ring * std::cos(phi), y, ring * std::sin(phi) }, light)) * y;
+                }
+                a.irradiance[i] = sum * 2 * kPi / kDirections;
+            }
+        }
+    }
+
     Atmosphere make_atmosphere(const SkySettings &settings)
     {
         Atmosphere a;
@@ -217,9 +250,19 @@ namespace enhancements
         a.settings.aerosol_depth = std::min(std::max(settings.aerosol_depth, 0.0f), 2.0f);
         a.settings.ground_albedo = clamp01(settings.ground_albedo);
         a.settings.altitude_km = std::min(std::max(settings.altitude_km, 0.001f), 50.0f);
+        a.settings.ozone = std::min(std::max(settings.ozone, 0.0f), 10.0f);
         make_transmittance(a);
         make_multiple(a);
+        make_irradiance(a);
         return a;
+    }
+
+    Vec3f sun_transmittance(const SkySettings &settings, float toward_y)
+    {
+        const float r = kGround + std::min(std::max(settings.altitude_km, 0.001f), 50.0f), mu = std::min(std::max(toward_y, -1.0f), 1.0f);
+        SkySettings clamped = settings;
+        clamped.aerosol_depth = std::min(std::max(settings.aerosol_depth, 0.0f), 2.0f);
+        return scale(integrate_transmittance(clamped, r, mu), light_visible(r, mu));
     }
 
     Vec3f sky_transmittance(const Atmosphere &atmosphere, const Vec3f &toward_light)
@@ -262,17 +305,95 @@ namespace enhancements
         return light;
     }
 
-    SkyMap physical_sky_map(const Atmosphere &atmosphere, const Vec3f &toward_light, const Vec3f &light_shade, float min_elevation)
+    float moon_illuminance(float phase_angle)
     {
-        // The light's direction held at min_elevation or above, for the brightness's scale only.
-        const float elevation = std::asin(std::min(std::max(toward_light[1], -1.0f), 1.0f));
-        const float flat = std::sqrt(toward_light[0] * toward_light[0] + toward_light[2] * toward_light[2]);
-        const float held = std::max(elevation, min_elevation);
-        const Vec3f across = flat > 1e-6f ? Vec3f { toward_light[0] / flat, 0, toward_light[2] / flat } : Vec3f { 1, 0, 0 };
-        const Vec3f reference = { across[0] * std::cos(held), std::sin(held), across[2] * std::cos(held) };
-        const float direct = luminance_of(sky_transmittance(atmosphere, reference)) / kPi;
-        const float k = direct > 1e-9f ? std::max(luminance_of(light_shade), 0.0f) / direct : 0.0f;
+        const float degrees = std::fabs(phase_angle) * 180 / kPi;
+        const float magnitude = -12.73f + 0.026f * degrees + 4e-9f * degrees * degrees * degrees * degrees;
+        return std::pow(10.0f, -0.4f * (magnitude + 26.74f));
+    }
 
+    float moon_radiance(float phase_angle)
+    {
+        const float a = std::min(std::fabs(phase_angle), kPi);
+        const float law = a < 1e-4f ? 1 : 1 - std::sin(a / 2) * std::tan(a / 2) * std::log(1 / std::tan(a / 4));
+        return 2 * moon_illuminance(a) / (kPi * kMoonRadius * kMoonRadius * std::max(law, 1e-3f));
+    }
+
+    float earthshine_radiance(float phase_angle)
+    {
+        const float earth = kPi - std::min(std::fabs(phase_angle), kPi);
+        return 1.7e-4f * moon_radiance(0) * 0.5f * (std::sin(earth) + (kPi - earth) * std::cos(earth)) / kPi;
+    }
+
+    Vec3f transmittance_at(const Atmosphere &a, float altitude_km, const Vec3f &toward)
+    {
+        return light_at(a, kGround + std::min(std::max(altitude_km, 0.001f), kTop - kGround - 0.001f), toward[1]);
+    }
+
+    SkyLight cloud_light(const Atmosphere &a, const SkyRequest &request, float altitude_km)
+    {
+        const float sun = request.sun.illuminance * luminance_of(transmittance_at(a, altitude_km, request.sun.toward));
+        const float moon = request.moon.illuminance * luminance_of(transmittance_at(a, altitude_km, request.moon.toward));
+        return sun >= moon ? request.sun : request.moon;
+    }
+
+    Vec3f night_glow(const Atmosphere &a, const Vec3f &view)
+    {
+        if (view[1] <= 0)
+            return {};
+        // 22 magnitudes per square arcsecond, a little over half of it airglow, over the sun's -26.74 and a square
+        // arcsecond's 2.35e-11 steradians.
+        constexpr float kZenith = 1.35e-9f, kAirglow = 0.6f;
+        // Green from oxygen's 557.7 nm line over red from its 630 nm and the hydroxyl bands, at luminance 1.
+        constexpr Vec3f kAirglowColor = { 0.62f, 1.07f, 0.52f };
+        const float ratio = kGround / (kGround + 90), edge_on = 1 / std::sqrt(std::max(1 - ratio * ratio * (1 - view[1] * view[1]), 1e-4f));
+        const float background = kZenith * (1 - kAirglow);
+        const Vec3f glow = add(scale(kAirglowColor, kZenith * kAirglow * edge_on), Vec3f { background, background, background });
+        return mul(glow, sky_transmittance(a, view));
+    }
+
+    float level_illuminance(const Atmosphere &a, const SkyLight &light)
+    {
+        if (light.illuminance <= 0)
+            return 0;
+        const float sine = std::min(std::max(light.toward[1], -1.0f), 1.0f);
+        const float x = std::min(std::max((sine - kIrradianceLow) / (1 - kIrradianceLow), 0.0f), 1.0f) * (kIrradianceSize - 1);
+        const uint32_t i0 = std::min(uint32_t(x), kIrradianceSize - 2);
+        const float sky = a.irradiance[i0] + (a.irradiance[i0 + 1] - a.irradiance[i0]) * (x - i0);
+        const float direct = luminance_of(sky_transmittance(a, light.toward)) * std::max(sine, 0.0f);
+        return light.illuminance * (sky + direct);
+    }
+
+    Vec3f sky_scale(const Atmosphere &a, const SkyLight &sun, const SkyLight &moon, const SkyExposure &exposure)
+    {
+        const Vec3f zenith = sky_transmittance(a, { 0, 1, 0 });
+        const float white = luminance_of(zenith);
+        // A moonless night's floor gets about pi times the glow's zenith radiance.
+        const float night = kPi * luminance_of(night_glow(a, { 0, 1, 0 }));
+        const float light = level_illuminance(a, sun) + level_illuminance(a, moon) + night;
+        const float sunset = level_illuminance(a, { { 1, 0, 0 }, 1 });
+        float gain = 1;
+        if (light < sunset && light > 0)
+            gain = std::min(std::pow(sunset / light, std::max(exposure.twilight_power, 0.0f)), std::exp2(std::max(exposure.night_stops, 0.0f)));
+        const float k = kPi * std::max(exposure.day_light, 0.0f) / std::max(white, 1e-6f) * gain;
+        return { k * white / zenith[0], k * white / zenith[1], k * white / zenith[2] };
+    }
+
+    Vec3f sky_light(const Atmosphere &a, const Vec3f &view, const SkyRequest &request, const Vec3f &k)
+    {
+        Vec3f light = night_glow(a, view);
+        // A light below 20 degrees down, or one a ten-thousandth of the other's, adds nothing that shows.
+        const float sun = level_illuminance(a, request.sun), moon = level_illuminance(a, request.moon);
+        if (request.sun.illuminance > 0 && request.sun.toward[1] > -0.35f && sun >= 1e-4f * moon)
+            light = add(light, scale(sky_radiance(a, view, request.sun.toward), request.sun.illuminance));
+        if (request.moon.illuminance > 0 && request.moon.toward[1] > -0.35f && moon >= 1e-4f * sun)
+            light = add(light, scale(sky_radiance(a, view, request.moon.toward), request.moon.illuminance));
+        return mul(light, k);
+    }
+
+    SkyMap physical_sky_map(const Atmosphere &atmosphere, const SkyRequest &request)
+    {
+        const Vec3f k = sky_scale(atmosphere, request.sun, request.moon, request.exposure);
         SkyMap sky;
         sky.texels.assign(size_t(kSkyMapSide) * kSkyMapSide * 4, 0.0f);
         for (uint32_t y = 0; y < kSkyMapSide; y++)
@@ -282,11 +403,11 @@ namespace enhancements
                 for (uint32_t s = 0; s < 4; s++)
                 {
                     const Vec3f d = sky_direction((x + (s % 2 + 0.5f) / 2) / kSkyMapSide, (y + (s / 2 + 0.5f) / 2) / kSkyMapSide);
-                    sum = add(sum, sky_radiance(atmosphere, d, toward_light));
+                    sum = add(sum, sky_light(atmosphere, d, request, k));
                 }
                 float *texel = &sky.texels[(size_t(y) * kSkyMapSide + x) * 4];
                 for (int c = 0; c < 3; c++)
-                    texel[c] = sum[c] / 4 * k;
+                    texel[c] = sum[c] / 4;
                 texel[3] = 1;
             }
         sky.real = kSkyMapSide * kSkyMapSide;
@@ -312,28 +433,14 @@ namespace enhancements
         return count ? scale(sum, 1.0f / count) : sum;
     }
 
-    Vec3f night_tint(float sky_sun_y)
-    {
-        // A blue of luminance 1.
-        const Vec3f blue = { 0.848f, 1.007f, 1.379f };
-        const float t = clamp01(-sky_sun_y / std::sin(6 * kPi / 180));
-        return { 1 + (blue[0] - 1) * t, 1 + (blue[1] - 1) * t, 1 + (blue[2] - 1) * t };
-    }
-
-    void tint_sky(SkyMap &sky, const Vec3f &tint)
-    {
-        for (size_t i = 0; i + 3 < sky.texels.size(); i += 4)
-            for (int c = 0; c < 3; c++)
-                sky.texels[i + size_t(c)] *= tint[size_t(c)];
-        for (Vec3f &h : sky.harmonics)
-            h = mul(h, tint);
-    }
-
     bool sky_request_differs(const SkyRequest &a, const SkyRequest &b)
     {
-        const float la = luminance_of(a.shade), lb = luminance_of(b.shade);
-        const float tint = std::max({ std::fabs(a.tint[0] - b.tint[0]), std::fabs(a.tint[1] - b.tint[1]), std::fabs(a.tint[2] - b.tint[2]) });
-        return dot(a.toward_light, b.toward_light) < 0.9999905f || std::fabs(la - lb) > 0.01f * std::max(la, lb) || a.haze != b.haze || tint > 0.005f;
+        const auto light_differs = [](const SkyLight &x, const SkyLight &y)
+        {
+            return dot(x.toward, y.toward) < 0.9999905f || std::fabs(x.illuminance - y.illuminance) > 0.01f * std::max(x.illuminance, y.illuminance);
+        };
+        return light_differs(a.sun, b.sun) || light_differs(a.moon, b.moon) || a.haze != b.haze || a.exposure.day_light != b.exposure.day_light
+            || a.exposure.twilight_power != b.exposure.twilight_power || a.exposure.night_stops != b.exposure.night_stops;
     }
 
     SkyBuilder::SkyBuilder() : thread_([this] { run(); }) {}
@@ -365,7 +472,7 @@ namespace enhancements
 
     void SkyBuilder::run()
     {
-        std::optional<Atmosphere> air;
+        std::shared_ptr<const Atmosphere> air;
         uint64_t version = 0;
         for (;;)
         {
@@ -382,12 +489,13 @@ namespace enhancements
             {
                 SkySettings settings;
                 settings.aerosol_depth = request.haze;
-                air = make_atmosphere(settings);
+                air = std::make_shared<const Atmosphere>(make_atmosphere(settings));
             }
             auto result = std::make_shared<SkyResult>();
             result->request = request;
-            result->map = physical_sky_map(*air, request.toward_light, request.shade);
-            tint_sky(result->map, request.tint);
+            result->atmosphere = air;
+            result->scale = sky_scale(*air, request.sun, request.moon, request.exposure);
+            result->map = physical_sky_map(*air, request);
             result->horizon = sky_horizon(result->map);
             result->version = ++version;
             std::lock_guard<std::mutex> lock(mutex_);

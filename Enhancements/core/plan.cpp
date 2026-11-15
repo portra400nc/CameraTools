@@ -15,6 +15,7 @@ namespace enhancements
         bool contact_shadows_wanted(const Settings &s) { return s.contact_shadows.enabled; }
         bool atmosphere_wanted(const Settings &s) { return s.atmosphere.enabled; }
         bool clouds_wanted(const Settings &s) { return s.clouds.enabled; }
+        bool sky_wanted(const Settings &s) { return s.sky.enabled; }
         bool traced_lights_wanted(const Settings &s) { return s.traced_lights; }
         bool character_light_wanted(const Settings &s) { return s.character_light.enabled; }
         bool tonemap_wanted(const Settings &s) { return s.tonemap.enabled; }
@@ -38,7 +39,7 @@ namespace enhancements
             && ENHANCEMENTS_PASS_LIGHT_SHAFTS == bit(PassId::light_shafts) && ENHANCEMENTS_PASS_TRACE == bit(PassId::trace)
             && ENHANCEMENTS_PASS_DEPTH_OF_FIELD == bit(PassId::depth_of_field) && ENHANCEMENTS_PASS_LENS_FLARE == bit(PassId::lens_flare)
             && ENHANCEMENTS_PASS_TRACED_LIGHTS == bit(PassId::traced_lights) && ENHANCEMENTS_PASS_CHARACTER_LIGHT == bit(PassId::character_light)
-            && ENHANCEMENTS_PASS_CLOUDS == bit(PassId::clouds) && static_cast<int>(PassId::count) == 13);
+            && ENHANCEMENTS_PASS_CLOUDS == bit(PassId::clouds) && ENHANCEMENTS_PASS_SKY == bit(PassId::sky) && static_cast<int>(PassId::count) == 14);
         static_assert(ENHANCEMENTS_TRACE_STATE_FAILED == static_cast<int>(TraceState::failed) && static_cast<int>(TraceState::count) == 6);
         static_assert(ENHANCEMENTS_CURVE_AGX == static_cast<int>(Curve::agx) && ENHANCEMENTS_CURVE_COUNT == static_cast<int>(Curve::count));
         static_assert(ENHANCEMENTS_VIEW_COUNT == static_cast<int>(View::count) && ENHANCEMENTS_VIEW_STENCIL == static_cast<int>(View::stencil)
@@ -74,6 +75,8 @@ namespace enhancements
             && ENHANCEMENTS_FLARE_PLACE_COUNT == static_cast<int>(FlarePlace::count));
         static_assert(ENHANCEMENTS_DOF_PLACE_DISPLAY == static_cast<int>(DofPlace::display) && ENHANCEMENTS_DOF_PLACE_COUNT == static_cast<int>(DofPlace::count));
         static_assert(sizeof(EnhancementsCamera) == 52 * sizeof(float));
+        static_assert(offsetof(EnhancementsCelestial, toward_sun) == 8 && offsetof(EnhancementsCelestial, stars_z) == 88
+            && offsetof(EnhancementsCelestial, day_light) == 104 && sizeof(EnhancementsCelestial) == 120);
         static_assert(ENHANCEMENTS_ACCUMULATE_PRESENT == static_cast<int>(AccumulateMode::present)
             && ENHANCEMENTS_ACCUMULATE_COUNT == static_cast<int>(AccumulateMode::count));
         static_assert(offsetof(EnhancementsAccumulate, mode) == 4 && offsetof(EnhancementsAccumulate, gain) == 20 && sizeof(EnhancementsAccumulate) == 24);
@@ -124,6 +127,8 @@ namespace enhancements
           true, SunUse::none, character_light_wanted },
         { PassId::traced_lights, "traced-lights", Step::bloom, { Entry::depth, Entry::hdr_scene, Entry::albedo, Entry::normals }, true, SunUse::none,
           traced_lights_wanted },
+        // Over the sky's pixels before the clouds, which lie in front of it, and the haze.
+        { PassId::sky, "sky", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::none, sky_wanted },
         // Before the haze and the mist, which lie in front of it. The game's camera constants place the camera in the world.
         { PassId::clouds, "clouds", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::required, clouds_wanted },
         { PassId::atmosphere, "atmosphere", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::none, atmosphere_wanted },
@@ -574,6 +579,47 @@ namespace enhancements
         const double sky_length = std::sqrt(sx * sx + sy * sy + sz * sz);
         for (int i = 0; i < 3; i++)
             c.toward_sky_sun[i] = std::isfinite(sky_length) && sky_length > 0 ? static_cast<float>(raw.sky_sun[i] / sky_length) : c.toward_sun[i];
+        return c;
+    }
+
+    std::optional<Celestial> parse_celestial(const EnhancementsCelestial *raw)
+    {
+        if (raw == nullptr || raw->size < offsetof(EnhancementsCelestial, toward_sun) + sizeof raw->toward_sun)
+            return std::nullopt;
+        EnhancementsCelestial copy {};
+        std::memcpy(&copy, raw, std::min<size_t>(raw->size, sizeof copy));
+        const auto knows = [&copy](size_t offset, size_t bytes) { return copy.size >= offset + bytes; };
+        // The unit vector along v, or none when v is zero or not finite.
+        const auto unit = [](const float *v) -> std::optional<std::array<float, 3>>
+        {
+            const double length = std::sqrt(double(v[0]) * v[0] + double(v[1]) * v[1] + double(v[2]) * v[2]);
+            if (!std::isfinite(length) || length <= 0)
+                return std::nullopt;
+            return std::array<float, 3> { static_cast<float>(v[0] / length), static_cast<float>(v[1] / length), static_cast<float>(v[2] / length) };
+        };
+        Celestial c;
+        c.toward_sun = unit(copy.toward_sun).value_or(std::array<float, 3> {});
+        if (knows(offsetof(EnhancementsCelestial, stars_z), sizeof copy.stars_z) && copy.stars != 0)
+        {
+            const auto moon = unit(copy.toward_moon), north = unit(copy.moon_north), x = unit(copy.stars_x), y = unit(copy.stars_y), z = unit(copy.stars_z);
+            c.stars = moon && north && x && y && z && std::isfinite(copy.toward_moon[3]);
+            if (c.stars)
+            {
+                c.toward_moon = *moon;
+                c.moon_phase = std::clamp(std::fabs(copy.toward_moon[3]), 0.0f, 3.14159265f);
+                c.moon_north = *north;
+                c.axes = { *x, *y, *z };
+            }
+        }
+        const Celestial defaults;
+        if (knows(offsetof(EnhancementsCelestial, day_light), sizeof copy.day_light) && std::isfinite(copy.day_light) && copy.day_light > 0)
+            c.day_light = std::min(copy.day_light, 1000.0f);
+        if (knows(offsetof(EnhancementsCelestial, twilight_power), sizeof copy.twilight_power))
+            c.twilight_power = finite_or(copy.twilight_power, defaults.twilight_power, 0.0f, 2.0f);
+        if (knows(offsetof(EnhancementsCelestial, night_stops), sizeof copy.night_stops))
+            c.night_stops = finite_or(copy.night_stops, defaults.night_stops, 0.0f, 30.0f);
+        if (knows(offsetof(EnhancementsCelestial, days), sizeof copy.days))
+            c.days = finite_or(copy.days, 0.0f, -1e9f, 1e9f);
         return c;
     }
 

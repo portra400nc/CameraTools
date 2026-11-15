@@ -3,10 +3,11 @@
 //
 //   render_sky <out.png> [scene folder]
 //
-// The first row is the physical sky at 60, 20, 5, 1, -3 and -8 degrees of the light's elevation, each tile exposed so its
-// mean is middle gray. With a scene folder (trace-light.bin), a second row puts the scene's own sky map, the one the
-// game's six faces gave, beside the physical sky for the same sun and light, both at one exposure, so their brightness
-// compares.
+// The first row is the physical sky with the sun at 60, 10, 0, -4, -8, -12 and -18 degrees and no moon, at the sky's own
+// provisional exposure (sky_scale) for a day light of 1. The second row is the same skies, each tile exposed so its mean is
+// middle gray, which shows their colors. With a scene folder (trace-light.bin), a third row puts the scene's own sky map,
+// the one the game's six faces gave, beside the physical sky for the same sun and light, both at one exposure, so their
+// brightness compares.
 #include "../core/png.h"
 #include "../core/sky.h"
 #include "scene_light.h"
@@ -117,30 +118,39 @@ int main(int argc, char **argv)
     std::optional<LightFile> scene;
     if (argc > 2)
         scene = parse_light(scene_light::slurp(std::filesystem::path(argv[2]) / "trace-light.bin"));
-    const float elevations[] = { 60, 20, 5, 1, -3, -8 };
-    const uint32_t columns = 6, rows = scene ? 2 : 1, width = columns * kTile;
+    const float elevations[] = { 60, 10, 0, -4, -8, -12, -18 };
+    const uint32_t columns = 7, rows = scene ? 3 : 2, width = columns * kTile;
     std::vector<uint8_t> rgb(size_t(width) * rows * kTile * 3, 0);
     const Vec3f shade = scene ? Vec3f { float(scene->light.sun.color[0]), float(scene->light.sun.color[1]), float(scene->light.sun.color[2]) } : Vec3f { 1, 1, 1 };
     const Vec3f azimuth = scene ? Vec3f { float(scene->light.sun.shade[0]), 0, float(scene->light.sun.shade[2]) } : Vec3f { 1, 0, 0 };
     for (uint32_t i = 0; i < columns; i++)
     {
-        const Vec3f light = toward(elevations[i], azimuth);
-        const SkyMap sky = physical_sky_map(air, light, shade);
-        const float mean = mean_luminance(sky, light);
-        std::printf("light at %g degrees: mean sky luminance %.5f\n", elevations[i], mean);
-        draw(rgb, width, i, 0, sky, light, mean > 0 ? 0.18f / mean : 1);
+        SkyRequest request;
+        request.sun = { toward(elevations[i], azimuth), 1 };
+        request.moon = { { 0, -1, 0 }, 0 };
+        request.exposure.day_light = 1;
+        const SkyMap sky = physical_sky_map(air, request);
+        const float mean = mean_luminance(sky, request.sun.toward);
+        const Vec3f k = sky_scale(air, request.sun, request.moon, request.exposure);
+        std::printf("sun at %g degrees: mean sky luminance %.5f at a scale of %.4g, %.2f stops over the day's\n", elevations[i], mean, k[1],
+            std::log2(k[1] / sky_scale(air, { { 0, 1, 0 }, 1 }, request.moon, request.exposure)[1]));
+        draw(rgb, width, i, 0, sky, request.sun.toward, 1);
+        draw(rgb, width, i, 1, sky, request.sun.toward, mean > 0 ? 0.18f / mean : 1);
     }
     if (scene)
     {
         const Vec3f light = { float(scene->light.sun.shade[0]), float(scene->light.sun.shade[1]), float(scene->light.sun.shade[2]) };
-        const SkyMap physical = physical_sky_map(air, light, shade);
+        SkyRequest request;
+        request.sun = { light, 1 };
+        request.exposure.day_light = luminance(shade);
+        const SkyMap physical = physical_sky_map(air, request);
         const float game_mean = mean_luminance(scene->light.sky, light), physical_mean = mean_luminance(physical, light);
         std::printf("scene: sun at %.1f degrees, its light shows %.3f; mean sky luminance: the game's %.5f, the physical %.5f\n",
             std::asin(light[1]) * 180 / 3.14159265f, luminance(shade), game_mean, physical_mean);
         const float exposure = 0.18f / std::max(game_mean, 1e-6f);
-        draw(rgb, width, 0, 1, scene->light.sky, light, exposure);
-        draw(rgb, width, 1, 1, physical, light, exposure);
-        draw(rgb, width, 2, 1, physical, light, 0.18f / std::max(physical_mean, 1e-6f));
+        draw(rgb, width, 0, 2, scene->light.sky, light, exposure);
+        draw(rgb, width, 1, 2, physical, light, exposure);
+        draw(rgb, width, 2, 2, physical, light, 0.18f / std::max(physical_mean, 1e-6f));
     }
     std::ofstream(argv[1], std::ios::binary) << encode_png(rgb.data(), width, rows * kTile);
     return 0;

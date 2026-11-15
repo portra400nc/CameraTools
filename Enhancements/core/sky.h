@@ -1,7 +1,8 @@
 // The physical sky: Earth's atmosphere as Hillaire's "A Scalable and Production Ready Sky and Atmosphere Rendering
 // Technique" (EGSR 2020) models it, Rayleigh and Mie scattering and ozone absorption over a spherical planet, with his
 // multiple-scattering approximation. Computed on the CPU into the tracer's sky map, so the traced shot's sky light, the
-// ambient pass and the haze take one sky whose brightness against the sun is physical. Directions are the world's, y up.
+// ambient pass and the haze take one sky whose brightness against the sun is physical, and into the tables the drawn sky
+// reads. The sun and the moon light it, and the night adds its own glow. Directions are the world's, y up.
 #pragma once
 
 #include "light.h"
@@ -20,6 +21,7 @@ namespace enhancements
         float aerosol_depth = 0.1f; // the dust and droplets' optical depth straight up: 0.1 a clear day, 0.3 hazy and whiter
         float ground_albedo = 0.3f; // the planet's ground below the horizon
         float altitude_km = 0.2f;   // the viewer's height above the ground
+        float ozone = 1;            // multiplies the ozone layer's absorption: 1 the earth's, which keeps the twilight sky blue
     };
 
     // The atmosphere's lookup tables for a setting: the transmittance to the atmosphere's top, and the multiple
@@ -29,51 +31,106 @@ namespace enhancements
         SkySettings settings;
         std::vector<Vec3f> transmittance;   // kTransmittanceWidth x kTransmittanceHeight, over Bruneton's (mu, r) mapping
         std::vector<Vec3f> multiple;        // kMultipleSide x kMultipleSide, over the light's cosine and the height
+        std::vector<float> irradiance;      // kIrradianceSize: the luminance the sky alone sheds on a level floor for a light
+                                            // of unit illuminance, over the light's sine from kIrradianceLow to 1
     };
-    constexpr uint32_t kTransmittanceWidth = 256, kTransmittanceHeight = 64, kMultipleSide = 32;
+    constexpr uint32_t kTransmittanceWidth = 256, kTransmittanceHeight = 64, kMultipleSide = 32, kIrradianceSize = 64;
+    constexpr float kIrradianceLow = -0.35f;
 
     Atmosphere make_atmosphere(const SkySettings &settings);
 
     // The light's transmittance through the atmosphere to the viewer, per channel: what of a light above the
     // atmosphere reaches it along toward_light (unit, y up); 0 once the planet hides the light.
     Vec3f sky_transmittance(const Atmosphere &atmosphere, const Vec3f &toward_light);
+    // The same without the tables, by integrating the air along the ray, for a light toward_y above the horizon (its sine).
+    Vec3f sun_transmittance(const SkySettings &settings, float toward_y);
 
     // The sky's radiance seen along view (unit, y up), for a light of unit illuminance above the atmosphere along
     // toward_light, the light's own disc left out. Below the horizon it is the lit ground seen through the air.
     Vec3f sky_radiance(const Atmosphere &atmosphere, const Vec3f &view, const Vec3f &toward_light);
 
-    // The physical sky as the tracer's sky map, at the game's brightness: scaled so the light's direct light, through the
-    // atmosphere at its elevation but at least min_elevation radians, shows on a white surface facing it what the game's
-    // light shows, light_shade's luminance. Its color stays the model's. Every texel is real.
-    SkyMap physical_sky_map(const Atmosphere &atmosphere, const Vec3f &toward_light, const Vec3f &light_shade, float min_elevation = 0.1f);
+    // A light above the atmosphere: the sun, or the moon by the sunlight it sends back. Its illuminance there is in the
+    // sun's: 1 for the sun.
+    struct SkyLight
+    {
+        Vec3f toward {};            // unit
+        float illuminance = 0;
+    };
 
-    // The mean of the map's texels from the horizon to 10 degrees above it, all around: the light distant haze takes.
-    Vec3f sky_horizon(const SkyMap &sky);
+    // The moon's illuminance above the atmosphere over the sun's at a phase angle in radians, 0 full: Allen's magnitudes,
+    // -12.73 full, fading by 0.026 a degree and the fourth power of the angle.
+    float moon_illuminance(float phase_angle);
 
-    // The colors' change while the sky's sun is below the horizon, when the main light is the moon: none by day, and
-    // toward a blue of the same luminance, fully once the sun is 6 degrees down. sky_sun_y is the sky's sun direction's y.
-    Vec3f night_tint(float sky_sun_y);
+    // The moon's angular radius at its mean distance, in radians.
+    constexpr float kMoonRadius = 0.004528f;
 
-    // Multiplies the map's texels and harmonics by tint.
-    void tint_sky(SkyMap &sky, const Vec3f &tint);
+    // The sunlit moon's radiance over its albedo (its mean's multiple) and its Lommel-Seeliger shading
+    // cos i / (cos i + cos e), in the sun's units, at a phase angle: the disc then sends moon_illuminance's light, the
+    // Lommel-Seeliger disc's phase law 1 - sin(a/2) tan(a/2) ln(cot(a/4)) taking the rest.
+    float moon_radiance(float phase_angle);
+
+    // The earthlit moon's radiance over its albedo: the ashen light, 1.7e-4 of the full moon's at a full earth, which wanes
+    // as the earth's phase seen from the moon, the moon's opposite.
+    float earthshine_radiance(float phase_angle);
+
+    // The moonless night sky's own light along view, per unit of the sun's illuminance: airglow, brighter toward the
+    // horizon as its layer 90 km up is seen edge on, and the faint background of unresolved stars and zodiacal light,
+    // both through the air's transmittance; 22 magnitudes per square arcsecond at the zenith in all. Zero below the horizon.
+    // A Milky Way would add here.
+    Vec3f night_glow(const Atmosphere &atmosphere, const Vec3f &view);
+
+    // The luminance a level floor gets from a light, straight and from the sky it lights, per unit of the sun's illuminance.
+    float level_illuminance(const Atmosphere &atmosphere, const SkyLight &light);
+
+    // How the physical sky shows in the game's units until the night has an exposure of its own: the sun straight
+    // overhead lights a white surface facing it as the game's day light does, white, so the sun's color through the air
+    // at the zenith is the white balance. Once the light on a level floor falls below the sunset's, the exposure follows
+    // it by twilight_power (1 keeps it as bright as at sunset) for at most night_stops stops.
+    struct SkyExposure
+    {
+        float day_light = 1.5f;     // the luminance the game's day sun shows on a white surface facing it
+        float twilight_power = 1;
+        float night_stops = 15;
+    };
+
+    // Game units per unit of the sun's light above the atmosphere, per channel.
+    Vec3f sky_scale(const Atmosphere &atmosphere, const SkyLight &sun, const SkyLight &moon, const SkyExposure &exposure);
+
+    // The transmittance from altitude_km above the ground toward a light above the air, the planet's shadow included.
+    Vec3f transmittance_at(const Atmosphere &atmosphere, float altitude_km, const Vec3f &toward);
 
     // What a physical sky is built for.
     struct SkyRequest
     {
-        Vec3f toward_light {};      // the main light's direction, unit
-        Vec3f shade {};             // what a white surface facing it shows, as physical_sky_map scales to
+        SkyLight sun, moon;
+        SkyExposure exposure;
         float haze = 0.1f;          // SkySettings::aerosol_depth
-        Vec3f tint = { 1, 1, 1 };   // night_tint's
     };
 
-    // Whether two requests build skies far enough apart to build again: the light's direction a quarter of a degree, its
-    // luminance 1%, the haze at all, or the tint 0.005 in a channel.
+    // The sky's light along view in the game's units for scale: the sun's and the moon's light scattered by the air, and
+    // the night's own.
+    Vec3f sky_light(const Atmosphere &atmosphere, const Vec3f &view, const SkyRequest &request, const Vec3f &scale);
+
+    // The light that lights clouds altitude_km above the ground: the sun while its light there passes the moon's, else
+    // the moon.
+    SkyLight cloud_light(const Atmosphere &atmosphere, const SkyRequest &request, float altitude_km);
+
+    // The physical sky as the tracer's sky map, at sky_scale. Every texel is real.
+    SkyMap physical_sky_map(const Atmosphere &atmosphere, const SkyRequest &request);
+
+    // The mean of the map's texels from the horizon to 10 degrees above it, all around: the light distant haze takes.
+    Vec3f sky_horizon(const SkyMap &sky);
+
+    // Whether two requests build skies far enough apart to build again: a light's direction a quarter of a degree, its
+    // illuminance 1%, the haze or the exposure at all.
     bool sky_request_differs(const SkyRequest &a, const SkyRequest &b);
 
     struct SkyResult
     {
         SkyRequest request;
-        SkyMap map;                 // tinted
+        std::shared_ptr<const Atmosphere> atmosphere;   // its lookup tables, for the drawn sky
+        Vec3f scale {};             // sky_scale's
+        SkyMap map;
         Vec3f horizon {};           // sky_horizon of the map
         uint64_t version = 0;       // 1 for the builder's first sky, one more for each after it
     };

@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 31
+#define ENHANCEMENTS_VERSION 32
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -102,6 +102,7 @@ enum
     ENHANCEMENTS_PASS_TRACED_LIGHTS = 1u << 10,
     ENHANCEMENTS_PASS_CHARACTER_LIGHT = 1u << 11,
     ENHANCEMENTS_PASS_CLOUDS = 1u << 12,
+    ENHANCEMENTS_PASS_SKY = 1u << 13,
 };
 
 // The tonemap pass's curves, values of EnhancementsTonemap.curve.
@@ -498,12 +499,13 @@ typedef struct EnhancementsAutoExposure
     float strength;             // 0 (the default) keeps the game's exposure, 1 meters all the way; clamped to 0..1
 } EnhancementsAutoExposure;
 
-// The physical sky: the sky light comes from a model of Earth's atmosphere lit by the game's main light (core/sky.h) in
-// place of the game's. Traced shots trace its sky map in place of the one the scene's faces gave, with the gather's sky mode
-// ENHANCEMENTS_GATHER_SKY_MAP, at the game's sun brightness. The ambient pass keeps the game's irradiance's luminance with
-// the model's color for the pixel's normal, and the haze and the light shafts' mist take the model's horizon color at the
-// luminance of the pushed sky color. While the sky's sun is below the horizon the main light is the moon's, and the colors
-// turn bluer. Version 30 added it.
+// The physical sky: a model of Earth's atmosphere lit by the sun and the moon of EnhancementsSetCelestial (core/sky.h)
+// draws the sky, the sun's disc, the moon and the stars over the sky's pixels (depth 0) before the clouds, and its light
+// replaces the game's sky light. Traced shots trace its sky map in place of the one the scene's faces gave, with the
+// gather's sky mode ENHANCEMENTS_GATHER_SKY_MAP. The ambient pass keeps the game's irradiance's luminance with the model's
+// color for the pixel's normal, the haze and the light shafts' mist take the model's horizon color at the luminance of the
+// pushed sky color, and the clouds take the model's sunlight and moonlight at their height and its sky light. Version 30
+// added it, version 32 the drawn sky.
 typedef struct EnhancementsSky
 {
     uint32_t physical;          // default 0, the game's sky light
@@ -813,6 +815,32 @@ ENHANCEMENTS_EXPORT uint32_t EnhancementsVersion(void);
 ENHANCEMENTS_EXPORT uint64_t EnhancementsApply(const EnhancementsSettings *settings);
 
 ENHANCEMENTS_EXPORT void EnhancementsSetCamera(const EnhancementsCamera *camera);
+
+// The sky's bodies for the physical sky (EnhancementsSky.physical), in the world (Unity's axes, y up): the sun the sky draws,
+// the moon, and the stars' axes. The sky's brightness in the game's units hangs on the game's day light, and past sunset on
+// a provisional exposure until the night has one of its own: core/sky.h, SkyExposure. Version 32 added it.
+typedef struct EnhancementsCelestial
+{
+    uint32_t size;              // sizeof(EnhancementsCelestial) as the caller compiled it
+    uint32_t stars;             // 1 when the moon and the stars' axes are known; 0 draws the sun and the sky alone
+    float toward_sun[4];        // xyz: toward the sun's center, any length; zero or not finite takes the camera's sky_sun; w unused
+    float toward_moon[4];       // xyz: toward the moon's center, any length; w: its phase angle in radians, 0 full to pi new
+    float moon_north[4];        // xyz: the moon's north, which turns its face; w unused
+    float stars_x[4];           // xyz: the J2000 equatorial axes in the world, x toward the March equinox and z toward the
+    float stars_y[4];           // north celestial pole, so a star at right ascension a and declination d lies along
+    float stars_z[4];           // cos d cos a x + cos d sin a y + sin d z; w unused
+    float day_light;            // the luminance the game's day sun shows on a white surface facing it; default 1.5
+    float twilight_power;       // SkyExposure's; default 1, clamped to 0..2
+    float night_stops;          // SkyExposure's; default 15, clamped to 0..30
+    float days;                 // the day count the moon follows, for the log
+} EnhancementsCelestial;
+
+ENHANCEMENTS_EXPORT void EnhancementsSetCelestial(const EnhancementsCelestial *celestial);
+
+// The share of the sun's light above the atmosphere that reaches the ground through the physical sky's air, per channel
+// into rgb[3], for a sun toward_y (the sine of its elevation) up and the aerosols' optical depth haze (EnhancementsSky.haze).
+// 0 once the planet hides the sun. Computed on the caller's thread, about 0.1 ms. Version 32 added it.
+ENHANCEMENTS_EXPORT void EnhancementsSunlight(float toward_y, float haze, float *rgb);
 
 // Starts a comparison capture: from the next present, the render thread runs each variant's settings in turn, lets 4
 // presents settle, copies the back buffer of the next 2 before ReShade's effects, saves the second as a PNG with the

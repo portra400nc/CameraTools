@@ -7,6 +7,7 @@
 #include "sun.hlsli"
 #include "clouds.hlsli"
 #include "scatter.hlsli"
+#include "sky.hlsli"
 
 Texture2D<float> cloud_map : register(t5);      // the weather map
 Texture3D<float4> shape_noise : register(t7);   // cloud_shape_cs.hlsl's
@@ -148,6 +149,23 @@ float4 sheet_ray(float3 origin, float3 dir, float3 l, float c, float3 sun, float
     return float4((1 - through) * light, through);
 }
 
+// With the physical sky, the light along cloud_toward_sun that reaches world point p through the air above it, on the
+// curved planet below the viewer at origin: clouds stay lit after the sun has set on the ground.
+float3 physical_sunlight(float3 origin, float3 p)
+{
+    float3 planet = float3((p.x - origin.x) * 0.001, sky_viewer_radius() + (p.y - origin.y) * 0.001, (p.z - origin.z) * 0.001);
+    float r = length(planet);
+    return sky_scale * sky_cloud_illuminance * sky_light_at(r, dot(planet / r, cloud_toward_sun)) * cloud_sun;
+}
+
+// The same at the layer's middle where the ray crosses it, for the thin layers lit once a ray.
+float3 layer_sunlight(float3 origin, float3 dir)
+{
+    float middle = cloud_base + 0.5 * cloud_thickness;
+    float t = abs(dir.y) > 0.01 ? max((middle - origin.y) / dir.y, 0) : 0;
+    return physical_sunlight(origin, origin + dir * min(t, cloud_map_extent * 0.35));
+}
+
 float4 main(float4 position : SV_Position) : SV_Target0
 {
     // This frame's pixel of the 2x2 block of the half-size history that this quarter-size pixel covers.
@@ -158,8 +176,10 @@ float4 main(float4 position : SV_Position) : SV_Target0
     float3 dir = normalize(game_world(game_view_at(uv, 1)) - origin);
     float top = cloud_base + cloud_thickness;
     skew_direction = float2(cos(radians(cloud_pad)), sin(radians(cloud_pad)));
+    bool physical = sky_cloud_physical > 0.5;
     if (cloud_shape >= 1.5)
-        return sheet_ray(origin, dir, cloud_toward_sun, dot(dir, cloud_toward_sun), kPi * sun_color * cloud_sun, sky_color * cloud_ambient);
+        return sheet_ray(origin, dir, cloud_toward_sun, dot(dir, cloud_toward_sun), physical ? layer_sunlight(origin, dir) : kPi * sun_color * cloud_sun,
+            sky_color * cloud_ambient);
     float t0, t1;
     if (origin.y < cloud_base)
     {
@@ -195,7 +215,7 @@ float4 main(float4 position : SV_Position) : SV_Target0
 
     float3 l = cloud_toward_sun;
     float c = dot(dir, l);
-    float3 sun = kPi * sun_color * cloud_sun;
+    float3 sun = physical ? layer_sunlight(origin, dir) : kPi * sun_color * cloud_sun;
     float3 sky = sky_color * cloud_ambient;
     if (cloud_shape >= 0.5)
         return cirrus_ray(origin, dir, t0, t1, l, c, sun, sky);
@@ -244,7 +264,7 @@ float4 main(float4 position : SV_Position) : SV_Target0
         float lit = scattered(c, od);
         // Light reaching a cloud's sunlit skin has not yet scattered toward the eye: the powder term darkens it a little.
         lit *= lerp(1, 1 - exp(-od * 2), 0.4);
-        float3 light = sun * lit + sky * (0.2 + 0.8 * h);
+        float3 light = (physical ? physical_sunlight(origin, p) : sun) * lit + sky * (0.2 + 0.8 * h);
         float through = exp(-sigma * step);
         float fade = exp(-t / cloud_fade);
         float taken = transmittance * (1 - through);

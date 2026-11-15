@@ -499,6 +499,24 @@ namespace CameraToolsEnhancements
     // back from the GPU; Write: the file could not be written; Dropped: no write asked for it within 1800 presents.
     internal enum EnhancementsDngFailure : uint { None, NoTonemap, Develop, Readback, Write, Dropped }
 
+    // EnhancementsCelestial in enhancements.h, field for field: the sky's bodies for the physical sky, in Unity's world.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct EnhancementsCelestial
+    {
+        public uint Size;
+        public uint Stars;
+        public float SunX, SunY, SunZ, SunW;
+        public float MoonX, MoonY, MoonZ, MoonPhase;
+        public float MoonNorthX, MoonNorthY, MoonNorthZ, MoonNorthW;
+        public float StarsXX, StarsXY, StarsXZ, StarsXW;
+        public float StarsYX, StarsYY, StarsYZ, StarsYW;
+        public float StarsZX, StarsZY, StarsZZ, StarsZW;
+        public float DayLight;
+        public float TwilightPower;
+        public float NightStops;
+        public float Days;
+    }
+
     // EnhancementsStatus in enhancements.h, field for field. Bit fields use ENHANCEMENTS_STEP_*, ENHANCEMENTS_PASS_* and ENHANCEMENTS_ENTRY_*.
     [StructLayout(LayoutKind.Sequential)]
     internal struct EnhancementsStatus
@@ -549,7 +567,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 31;
+        private const uint Version = 32;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -605,12 +623,19 @@ namespace CameraToolsEnhancements
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void SetCharacterLightsCall(ref EnhancementsCharacterLights lights);
 
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate void SetCelestialCall(ref EnhancementsCelestial celestial);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate void SunlightCall(float towardY, float haze, [Out] float[] rgb);
+
         private sealed record AddOn(IntPtr Module, ApplyCall Apply, SetCameraCall SetCamera, GetStatusCall GetStatus, DescribeCall Describe, CompareCall Compare,
             SetAccumulateCall SetAccumulate, DepthAtCall DepthAt, CaptureSceneCall CaptureScene, SaveTraceCall SaveTrace, SetShotCall SetShot, SaveFrameCall SaveFrame,
             DevelopDngCall DevelopDng, WriteDngCall WriteDng, SetShotLightsCall SetShotLights, SetGameLightsCall SetGameLights,
-            SetCharacterLightsCall SetCharacterLights);
+            SetCharacterLightsCall SetCharacterLights, SetCelestialCall SetCelestial, SunlightCall Sunlight);
 
         private static readonly float[] camera = new float[52];
+        private static readonly float[] sunlight = new float[3];
         private static readonly byte[] line = new byte[512];
         private static AddOn addOn;
         // A loaded module that is not an add-on of this version, so it is reported once and not tried again.
@@ -676,6 +701,25 @@ namespace CameraToolsEnhancements
             camera[50] = towardSkySun.z;
             camera[51] = 0;
             addOn.SetCamera(camera);
+        }
+
+        // The sky's bodies for the physical sky, from the celestial model, once a frame while it runs.
+        public static void SetCelestial(EnhancementsCelestial celestial)
+        {
+            if (addOn == null)
+                return;
+            celestial.Size = (uint)Marshal.SizeOf<EnhancementsCelestial>();
+            addOn.SetCelestial(ref celestial);
+        }
+
+        // The share of the sun's light above the air that reaches the ground through the physical sky's air, per channel,
+        // for a sun towardY (the sine of its elevation) up and the sky's haze; null while the add-on is not loaded.
+        public static (float R, float G, float B)? Sunlight(float towardY, float haze)
+        {
+            if (addOn == null)
+                return null;
+            addOn.Sunlight(towardY, haze, sunlight);
+            return (sunlight[0], sunlight[1], sunlight[2]);
         }
 
         // Starts, presents or stops lens-sampled depth of field; it takes effect at the add-on's next frame boundary. While
@@ -906,14 +950,16 @@ namespace CameraToolsEnhancements
                 || !TryExport<WriteDngCall>(module, "EnhancementsWriteDng", out var writeDng)
                 || !TryExport<SetShotLightsCall>(module, "EnhancementsSetShotLights", out var setShotLights)
                 || !TryExport<SetGameLightsCall>(module, "EnhancementsSetGameLights", out var setGameLights)
-                || !TryExport<SetCharacterLightsCall>(module, "EnhancementsSetCharacterLights", out var setCharacterLights))
+                || !TryExport<SetCharacterLightsCall>(module, "EnhancementsSetCharacterLights", out var setCharacterLights)
+                || !TryExport<SetCelestialCall>(module, "EnhancementsSetCelestial", out var setCelestial)
+                || !TryExport<SunlightCall>(module, "EnhancementsSunlight", out var sunlightCall))
             {
                 MelonLogger.Warning($"Enhancements: {ModuleName} version {found} is missing an export.");
                 return;
             }
             rejected = IntPtr.Zero;
             addOn = new AddOn(module, apply, setCamera, getStatus, describe, compare, setAccumulate, depthAt, captureScene, saveTrace, setShot, saveFrame,
-                developDng, writeDng, setShotLights, setGameLights, setCharacterLights);
+                developDng, writeDng, setShotLights, setGameLights, setCharacterLights, setCelestial, sunlightCall);
             Connections++;
             MelonLogger.Msg($"Enhancements: connected to {ModuleName} version {found}.");
         }

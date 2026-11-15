@@ -16,6 +16,7 @@ struct EnhancementsCamera;    // enhancements.h, read only by parse_camera
 struct EnhancementsAccumulate;  // enhancements.h, read only by parse_accumulate
 struct EnhancementsShot;      // enhancements.h, read only by parse_shot
 struct EnhancementsCharacterLights;  // enhancements.h, read only by parse_character_lights
+struct EnhancementsCelestial;  // enhancements.h, read only by parse_celestial
 
 namespace enhancements
 {
@@ -313,6 +314,27 @@ namespace enhancements
     // sun that is zero or not finite takes the sun's direction.
     Camera parse_camera(const EnhancementsCamera &raw);
 
+    // The domain form of EnhancementsCelestial: the sky's bodies in the world, every direction unit length.
+    struct Celestial
+    {
+        std::array<float, 3> toward_sun {};
+        bool stars = false;                     // the moon and the stars' axes are known
+        std::array<float, 3> toward_moon {};
+        float moon_phase = 0;                   // radians, 0 full to pi new
+        std::array<float, 3> moon_north {};
+        std::array<std::array<float, 3>, 3> axes {};    // the J2000 equatorial x, y and z in the world
+        float day_light = 1.5f;
+        float twilight_power = 1;
+        float night_stops = 15;
+        float days = 0;
+    };
+
+    // Null for a null pointer or one too short to hold the sun. A sun that is zero or not finite becomes zero, for the
+    // caller to fill from the camera. Without stars, or with a moon, a north or an axis that is zero or not finite, the
+    // moon and the stars are unknown. A day light that is not finite or not above 0 reads as 1.5; the exposure clamps as
+    // the header says, its fields reading as their defaults when not finite or past the caller's size.
+    std::optional<Celestial> parse_celestial(const EnhancementsCelestial *raw);
+
     enum class AccumulateMode : uint8_t { off, add, present, count };  // ENHANCEMENTS_ACCUMULATE_*
 
     // The domain form of EnhancementsAccumulate. Built only by parse_accumulate, so every value in it is in range.
@@ -405,7 +427,7 @@ namespace enhancements
     enum class GameCall : bool { keep, skip };
 
     // The ENHANCEMENTS_PASS_* bit order, not the run order.
-    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, wetness, light_shafts, trace, depth_of_field, lens_flare, traced_lights, character_light, clouds, count };
+    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, wetness, light_shafts, trace, depth_of_field, lens_flare, traced_lights, character_light, clouds, sky, count };
 
     // ENHANCEMENTS_TRACE_STATE_*: where the traced scene the trace pass needs is. The names follow in kTraceStateNames.
     enum class TraceState : uint8_t { none, building, uploading, ready, stale, failed, count };
@@ -432,7 +454,7 @@ namespace enhancements
     };
 
     // Table order is run order within a step: wetness at gbuffer-done; the trace, sun shadows, contact shadows, then ambient
-    // at combine; clouds, atmosphere, light shafts, depth of field, then the lens flare at bloom; tonemap at tonemap.
+    // at combine; the sky, clouds, atmosphere, light shafts, depth of field, then the lens flare at bloom; tonemap at tonemap.
     extern const std::array<PassSpec, static_cast<size_t>(PassId::count)> kPasses;
 
     struct ViewSpec
