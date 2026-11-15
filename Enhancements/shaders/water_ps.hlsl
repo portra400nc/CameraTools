@@ -174,9 +174,13 @@ float4 main(float4 position : SV_Position) : SV_Target0
     float nv = saturate(dot(n, v));
     float fresnel = kWaterF0 + (1 - kWaterF0) * pow(1 - nv, 5);
 
-    // What the surface mirrors: the frame, else the sky.
-    float3 r = reflect(-v, n_mirror);
-    float3 r_world = mul(transpose(to_view), r);
+    // What the surface mirrors: the frame, else the sky. At a low view a long wave tilts the mirrored ray down into the
+    // water, where it met the bed through the frame and flickered as the wave passed; a slope that steep hides behind
+    // the next wave, so the ray rises at least half as steeply as off still water.
+    float3 r_world = mul(transpose(to_view), reflect(-v, n_mirror));
+    r_world.y = max(r_world.y, 0.5 * max(v_world.y, 0));
+    r_world = normalize(r_world);
+    float3 r = mul(to_view, r_world);
     float3 sky = air_light(normalize(float3(r_world.x, max(r_world.y, 0.01), r_world.z))) * sky_scale;
     float4 met = reflected_scene(at, r);
     float3 mirrored = lerp(sky, met.rgb, met.a);
