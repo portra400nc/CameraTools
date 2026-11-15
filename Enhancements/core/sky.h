@@ -84,13 +84,14 @@ namespace enhancements
 
     // How the physical sky shows in the game's units until the night has an exposure of its own: the sun straight
     // overhead lights a white surface facing it as the game's day light does, white, so the sun's color through the air
-    // at the zenith is the white balance. Once the light on a level floor falls below the sunset's, the exposure follows
-    // it by twilight_power (1 keeps it as bright as at sunset) for at most night_stops stops.
+    // at the zenith is the white balance. Once the light on a level floor falls below the sun's at 10 degrees up, the
+    // exposure follows it by twilight_power (1 would keep a floor as bright as then) for at most night_stops stops, so
+    // the blue hour stays blue and the stars show.
     struct SkyExposure
     {
         float day_light = 1.5f;     // the luminance the game's day sun shows on a white surface facing it
-        float twilight_power = 1;
-        float night_stops = 15;
+        float twilight_power = 0.85f;
+        float night_stops = 17;
     };
 
     // Game units per unit of the sun's light above the atmosphere, per channel.

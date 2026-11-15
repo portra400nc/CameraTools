@@ -817,7 +817,7 @@ ENHANCEMENTS_EXPORT uint64_t EnhancementsApply(const EnhancementsSettings *setti
 ENHANCEMENTS_EXPORT void EnhancementsSetCamera(const EnhancementsCamera *camera);
 
 // The sky's bodies for the physical sky (EnhancementsSky.physical), in the world (Unity's axes, y up): the sun the sky draws,
-// the moon, and the stars' axes. The sky's brightness in the game's units hangs on the game's day light, and past sunset on
+// the moon, and the stars' axes. The sky's brightness in the game's units hangs on the game's day light, and toward dusk on
 // a provisional exposure until the night has one of its own: core/sky.h, SkyExposure. Version 32 added it.
 typedef struct EnhancementsCelestial
 {
@@ -830,8 +830,8 @@ typedef struct EnhancementsCelestial
     float stars_y[4];           // north celestial pole, so a star at right ascension a and declination d lies along
     float stars_z[4];           // cos d cos a x + cos d sin a y + sin d z; w unused
     float day_light;            // the luminance the game's day sun shows on a white surface facing it; default 1.5
-    float twilight_power;       // SkyExposure's; default 1, clamped to 0..2
-    float night_stops;          // SkyExposure's; default 15, clamped to 0..30
+    float twilight_power;       // SkyExposure's; default 0.85, clamped to 0..2
+    float night_stops;          // SkyExposure's; default 17, clamped to 0..30
     float days;                 // the day count the moon follows, for the log
 } EnhancementsCelestial;
 

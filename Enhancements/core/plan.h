@@ -324,8 +324,8 @@ namespace enhancements
         std::array<float, 3> moon_north {};
         std::array<std::array<float, 3>, 3> axes {};    // the J2000 equatorial x, y and z in the world
         float day_light = 1.5f;
-        float twilight_power = 1;
-        float night_stops = 15;
+        float twilight_power = 0.85f;
+        float night_stops = 17;
         float days = 0;
     };
 

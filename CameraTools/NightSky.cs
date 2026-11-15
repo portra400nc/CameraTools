@@ -17,8 +17,8 @@ namespace CameraTools
         private static readonly Vec3 MeasuredNightLight = new(0.226f, 0.608f, 1.0f);
 
         // The provisional exposure (core/sky.h, SkyExposure) until the night has its own. Probe items tune them.
-        public static float TwilightPower { get; set; } = 1f;
-        public static float NightStops { get; set; } = 15f;
+        public static float TwilightPower { get; set; } = 0.85f;
+        public static float NightStops { get; set; } = 17f;
 
         private static MelonPreferences_Entry<int> savedDays;
         private static int days;

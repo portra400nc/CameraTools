@@ -371,10 +371,10 @@ namespace enhancements
         // A moonless night's floor gets about pi times the glow's zenith radiance.
         const float night = kPi * luminance_of(night_glow(a, { 0, 1, 0 }));
         const float light = level_illuminance(a, sun) + level_illuminance(a, moon) + night;
-        const float sunset = level_illuminance(a, { { 1, 0, 0 }, 1 });
+        const float low_sun = level_illuminance(a, { { 0.98481f, 0.17365f, 0 }, 1 });
         float gain = 1;
-        if (light < sunset && light > 0)
-            gain = std::min(std::pow(sunset / light, std::max(exposure.twilight_power, 0.0f)), std::exp2(std::max(exposure.night_stops, 0.0f)));
+        if (light < low_sun && light > 0)
+            gain = std::min(std::pow(low_sun / light, std::max(exposure.twilight_power, 0.0f)), std::exp2(std::max(exposure.night_stops, 0.0f)));
         const float k = kPi * std::max(exposure.day_light, 0.0f) / std::max(white, 1e-6f) * gain;
         return { k * white / zenith[0], k * white / zenith[1], k * white / zenith[2] };
     }

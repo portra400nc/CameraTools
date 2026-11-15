@@ -126,11 +126,11 @@ int main()
     const Vec3f day_scale = sky_scale(air, { noon, 1 }, no_moon, exposure);
     check("by day the sun overhead lights a white surface white at the game's day light",
         std::fabs(day_scale[0] * ground_zenith[0] / 3.14159265f - 1.5f) < 0.01f && std::fabs(day_scale[2] * ground_zenith[2] / 3.14159265f - 1.5f) < 0.01f);
-    check("and the scale holds down to sunset", sky_scale(air, { toward(3), 1 }, no_moon, exposure) == day_scale);
+    check("and the scale holds down to the sun 10 degrees up", sky_scale(air, { toward(11), 1 }, no_moon, exposure) == day_scale);
     const Vec3f dusk_scale = sky_scale(air, { toward(-6), 1 }, no_moon, exposure);
     check("past it the exposure follows the falling light", dusk_scale[1] > 20 * day_scale[1]);
-    const Vec3f night_scale = sky_scale(air, { toward(-40), 1 }, no_moon, exposure);
-    check("and at night it stops at night_stops", std::fabs(night_scale[1] / day_scale[1] - std::exp2(15.0f)) < 1);
+    exposure.night_stops = 15;
+    check("and at night it stops at night_stops", std::fabs(sky_scale(air, { toward(-40), 1 }, no_moon, exposure)[1] / day_scale[1] - std::exp2(15.0f)) < 1);
     check("glow lights the night sky toward the horizon more than overhead, and nothing below it",
         luminance(night_glow(air, toward(10))) > luminance(night_glow(air, { 0, 1, 0 })) && luminance(night_glow(air, toward(-5))) == 0);
 
@@ -227,7 +227,7 @@ int main()
     body.stars_y[1] = std::numeric_limits<float>::quiet_NaN();
     check("an axis that is no number leaves the moon and the stars unknown", !parse_celestial(&body)->stars);
     body.size = offsetof(EnhancementsCelestial, day_light);
-    check("a caller without the exposure keeps its defaults", parse_celestial(&body)->day_light == 1.5f && parse_celestial(&body)->night_stops == 15);
+    check("a caller without the exposure keeps its defaults", parse_celestial(&body)->day_light == 1.5f && parse_celestial(&body)->night_stops == 17);
 
     raw.size = sizeof raw;
     raw.clouds = { 1, 2.0f, 3000, 1, 5, 9, -1, 0.5f, 10, 45, 2, 0.5f, 200, 1 };
