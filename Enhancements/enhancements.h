@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 36
+#define ENHANCEMENTS_VERSION 37
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -529,7 +529,8 @@ typedef struct EnhancementsWater
 {
     uint32_t enabled;           // default 0
     float clarity;              // meters the eye sees into the water before its own color takes over; default 6, clamped to 0.5..20
-    float waves;                // the ripples' size, 1 the default, 0 a still mirror; clamped to 0..2
+    float waves;                // the waves' height, 1 the default, 0 a still mirror; clamped to 0..3
+    float size;                 // the waves' length, 1 the default; clamped to 0.25..4. Version 37 added it.
 } EnhancementsWater;
 
 // The clouds' shape, values of EnhancementsClouds.shape.
@@ -861,6 +862,8 @@ typedef struct EnhancementsCelestial
     float vegetation_scale;     // the share of the game's light vegetation keeps, which the game gives it whatever the sky:
                                 // the rest goes, and the game's lamps (EnhancementsSetGameLights) give back their own on it;
                                 // default 1, clamped to 0..1. Version 35 added it.
+    float water_seconds;        // the game's own time in seconds, which moves physical water's waves and stands still
+                                // while the game is paused; default 0. Version 37 added it.
 } EnhancementsCelestial;
 
 ENHANCEMENTS_EXPORT void EnhancementsSetCelestial(const EnhancementsCelestial *celestial);

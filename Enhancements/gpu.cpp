@@ -126,8 +126,10 @@ namespace enhancements
         float water_waves;
         float water_time;
         float water_wind;
+        float water_size;
+        float water_pad[3];
     };
-    static_assert(sizeof(Constants) == 880 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
+    static_assert(sizeof(Constants) == 896 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
         && offsetof(Constants, cloud_toward_sun) == 560 && offsetof(Constants, tone_shadows) == 480 && offsetof(Constants, accum_gain) == 488 && offsetof(Constants, flare_sun_uv) == 456 && offsetof(Constants, wetness) == 408 && offsetof(Constants, shafts_anisotropy) == 432 && offsetof(Constants, label) == 272 && offsetof(Constants, sun_color) == 304
         && offsetof(Constants, sky_color) == 320 && offsetof(Constants, bloom_strength) == 352 && offsetof(Constants, sun_cascades) == 368
@@ -681,6 +683,12 @@ namespace enhancements
         sky_color.ByteWidth = kSkyColorBytes;
         D3D11_BUFFER_DESC character_light_constants = buffer;
         character_light_constants.ByteWidth = sizeof(CharacterLightConstants);
+        D3D11_BLEND_DESC water_blend = {};
+        water_blend.IndependentBlendEnable = TRUE;
+        water_blend.RenderTarget[0] = { TRUE, D3D11_BLEND_ONE, D3D11_BLEND_ONE, D3D11_BLEND_OP_ADD, D3D11_BLEND_ZERO, D3D11_BLEND_ONE,
+            D3D11_BLEND_OP_ADD, D3D11_COLOR_WRITE_ENABLE_ALL };
+        for (int t = 1; t < 8; t++)
+            water_blend.RenderTarget[t].RenderTargetWriteMask = 0;
         D3D11_BUFFER_DESC night_lamps_constants = buffer;
         night_lamps_constants.ByteWidth = sizeof(NightLamps);
         // Zeros until a grade is copied in, which the shader takes for no grade.
@@ -811,6 +819,7 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kSkyPs, sizeof kSkyPs, nullptr, &made.sky_ps_))
             && SUCCEEDED(device->CreatePixelShader(kAerialLitPs, sizeof kAerialLitPs, nullptr, &made.aerial_lit_ps_))
             && SUCCEEDED(device->CreatePixelShader(kWaterPs, sizeof kWaterPs, nullptr, &made.water_ps_))
+            && SUCCEEDED(device->CreateBlendState(&water_blend, &made.water_blend_))
             && SUCCEEDED(device->CreateVertexShader(kStarsVs, sizeof kStarsVs, nullptr, &made.stars_vs_))
             && SUCCEEDED(device->CreatePixelShader(kStarsPs, sizeof kStarsPs, nullptr, &made.stars_ps_))
             && SUCCEEDED(device->CreateBuffer(&sprites, nullptr, &made.dof_sprites_))
@@ -2195,12 +2204,17 @@ namespace enhancements
         bool flip, uint64_t frame, float seconds, float wind_radians)
     {
         ID3D11DeviceContext1 *c = context_.Get();
+        // A frame whose forward step came after some of its water copies the scene at its first water draw instead, so
+        // no water of the frame is left to the game.
+        if (frame != water_frame_)
+            copy_water_scene(map, frame);
         Constants k;
         if (frame != water_frame_ || !sky.atmosphere || !sync_sky_tables(sky.atmosphere) || !pass_constants(camera, map.render, flip, k))
             return false;
         put_sky(sky, k);
         k.water_clarity = water.clarity;
         k.water_waves = water.waves;
+        k.water_size = water.size;
         k.water_time = seconds;
         k.water_wind = wind_radians;
         upload(k);
@@ -2234,12 +2248,19 @@ namespace enhancements
         c->PSSetShaderResources(0, kSlots, ours);
         c->PSSetSamplers(0, kSamplers, samplers);
         c->PSSetConstantBuffers(0, 1, buffers);
+        ComPtr<ID3D11BlendState> game_blend;
+        FLOAT game_factor[4];
+        UINT game_mask = 0;
+        c->OMGetBlendState(&game_blend, game_factor, &game_mask);
+        const FLOAT factor[4] = { 0, 0, 0, 0 };
+        c->OMSetBlendState(water_blend_.Get(), factor, 0xffffffff);
         c->PSSetShader(water_ps_.Get(), nullptr, 0);
         if (w.indexed)
             c->DrawIndexedInstanced(w.count, w.instances, w.first, w.vertex_offset, w.first_instance);
         else
             c->DrawInstanced(w.count, w.instances, w.first, w.first_instance);
 
+        c->OMSetBlendState(game_blend.Get(), game_factor, game_mask);
         c->PSSetShader(game_ps.Get(), classes, class_count);
         c->PSSetShaderResources(0, kSlots, game_srvs);
         c->PSSetSamplers(0, kSamplers, game_samplers);

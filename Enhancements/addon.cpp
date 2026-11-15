@@ -1431,7 +1431,6 @@ namespace enhancements
         // The game's water pixel shaders, as a FrameCensus capture of 2026-11-15 found them drawing rivers and the sea after
         // the deferred lighting: each reads the scene's depth and a reflection cubemap.
         static constexpr uint64_t kWaterShaders[] = { 0xd0cbb44c71ad2188ull, 0x9a78a24d5649b66aull, 0xbf3f16de3240e952ull, 0xa90d4039bf47bcdeull };
-        const std::chrono::steady_clock::time_point water_epoch = std::chrono::steady_clock::now();
         uint64_t water_checked = 0;     // the pixel shader object last looked up, and whether it was water's
         bool water_last = false;
 
@@ -1452,7 +1451,8 @@ namespace enhancements
             }
             if (!water_last || !sky_draw)
                 return false;
-            const float seconds = std::fmod(std::chrono::duration<float>(std::chrono::steady_clock::now() - water_epoch).count(), 3600.0f);
+            // The game's own time, so the waves stand still while it is paused.
+            const float seconds = celestial ? celestial->water_seconds : 0.0f;
             return gpu.draw_water({ indexed, count, instances, first, vertex_offset, first_instance }, tracker.map(), *sky_draw, settings.water, camera,
                 settings.flip, frames, seconds, settings.clouds.wind_direction * 0.01745329f);
         }

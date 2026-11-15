@@ -134,6 +134,9 @@ namespace CameraTools
             float gameSky = gameDirect + gameAmbient;
             float outdoors = gameSky > 1e-4f ? Math.Clamp((ourDirect + AmbientScale * gameAmbient) / gameSky, 0f, 1f) : 1f;
             bodies.VegetationScale = outdoors;
+            // The game's own time, which stands still while it is paused, so a traced shot sees still water.
+            waterSeconds = (waterSeconds + Time.deltaTime) % 100000f;
+            bodies.WaterSeconds = waterSeconds;
             SendLamps();
             float open = Openness.Update();
             float lamps = Lamps.AtCharacter();
@@ -172,6 +175,8 @@ namespace CameraTools
             float lead = RightAscension(sky.TowardMoon) - RightAscension(sky.TowardSun);
             return ((lead / (2 * MathF.PI)) % 1f + 1f) % 1f;
         }
+
+        private static float waterSeconds;
 
         // The game's lamps near the camera, sent again each second: the night gives back their light on vegetation.
         private const float LampsEvery = 1f;

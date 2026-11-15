@@ -427,8 +427,8 @@ namespace enhancements
         // The HDR scene physical water sees through and mirrors, copied at the forward step of frame.
         void copy_water_scene(const FrameMap &map, uint64_t frame);
         // One of the game's water draws, with its own geometry and state, drawn with our water pixel shader in place of
-        // its own; the pixel shader's bindings are the game's again after. false, and nothing drawn, when this frame has
-        // no copy of the scene or the sky's tables are not there.
+        // its own; the pixel shader's bindings are the game's again after. The first of a frame that has no copy of the
+        // scene yet takes one. false, and nothing drawn, when no copy could be made or the sky's tables are not there.
         struct WaterDraw
         {
             bool indexed = false;   // DrawIndexedInstanced's arguments, else DrawInstanced's
@@ -553,6 +553,7 @@ namespace enhancements
         ComPtr<ID3D11DeviceContext1> context_;
         ComPtr<ID3D11VertexShader> fullscreen_vs_, dof_sprite_vs_, stars_vs_;
         ComPtr<ID3D11PixelShader> sky_view_ps_, sky_ps_, stars_ps_, aerial_lit_ps_, water_ps_;
+        ComPtr<ID3D11BlendState> water_blend_;  // target 0: the color added; the others untouched
         ComPtr<ID3D11Buffer> night_lamps_constants_;  // core/night_lamps.h NightLamps at b4
         // The physical sky's air tables, R32G32B32A32_FLOAT, uploaded from sky_air_; the moon's face, R8G8B8A8_UNORM 512 a side;
         // the stars, two R32G32B32A32_FLOAT elements each.

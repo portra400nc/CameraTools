@@ -219,7 +219,7 @@ int main()
     EnhancementsCelestial body {};
     body.size = sizeof body;
     check("a celestial too short for its sun is none", (body.size = 8, !parse_celestial(&body)) && !parse_celestial(nullptr));
-    body = { sizeof body, 1, { 0, 2, 0, 0 }, { 3, 0, 4, 9 }, { 0, 0, 1, 0 }, { 1, 0, 0, 0 }, { 0, 1, 0, 0 }, { 0, 0, 1, 0 }, -1, 5, 40, 12, 1, 1 };
+    body = { sizeof body, 1, { 0, 2, 0, 0 }, { 3, 0, 4, 9 }, { 0, 0, 1, 0 }, { 1, 0, 0, 0 }, { 0, 1, 0, 0 }, { 0, 0, 1, 0 }, -1, 5, 40, 12, 1, 1, 0 };
     const std::optional<Celestial> parsed = parse_celestial(&body);
     check("a celestial's directions come out unit length, its phase clamped to pi, a day light below 0 read as 1.5, its exposure clamped",
         parsed && parsed->stars && parsed->toward_sun == std::array<float, 3> { 0, 1, 0 } && parsed->toward_moon == std::array<float, 3> { 0.6f, 0, 0.8f }

@@ -73,6 +73,7 @@ namespace enhancements
         bool enabled = false;
         float clarity = 6;
         float waves = 1;
+        float size = 1;
     };
 
     struct ContactShadowSettings
@@ -338,6 +339,7 @@ namespace enhancements
         float days = 0;
         float ambient_scale = 1;
         float vegetation_scale = 1;
+        float water_seconds = 0;
     };
 
     // Null for a null pointer or one too short to hold the sun. A sun that is zero or not finite becomes zero, for the

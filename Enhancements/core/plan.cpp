@@ -67,7 +67,7 @@ namespace enhancements
             && offsetof(EnhancementsSettings, ambient_color) == 400 && offsetof(EnhancementsSettings, tones) == 404
             && offsetof(EnhancementsSettings, lens_softness) == 412 && offsetof(EnhancementsSettings, auto_exposure) == 416
             && offsetof(EnhancementsSettings, sky) == 420 && offsetof(EnhancementsSettings, clouds) == 428 && offsetof(EnhancementsSettings, aerial) == 484
-            && offsetof(EnhancementsSettings, water) == 488 && sizeof(EnhancementsSettings) == 500);
+            && offsetof(EnhancementsSettings, water) == 488 && sizeof(EnhancementsSettings) == 504);
         static_assert(ENHANCEMENTS_CLOUD_SHAPE_STREAKS == static_cast<int>(CloudShape::streaks) && ENHANCEMENTS_CLOUD_SHAPE_SHEET == static_cast<int>(CloudShape::sheet)
             && ENHANCEMENTS_CLOUD_SHAPE_COUNT == static_cast<int>(CloudShape::count));
         static_assert(ENHANCEMENTS_FLARE_SOURCE_MANUAL == static_cast<int>(FlareSource::manual)
@@ -77,7 +77,7 @@ namespace enhancements
         static_assert(ENHANCEMENTS_DOF_PLACE_DISPLAY == static_cast<int>(DofPlace::display) && ENHANCEMENTS_DOF_PLACE_COUNT == static_cast<int>(DofPlace::count));
         static_assert(sizeof(EnhancementsCamera) == 52 * sizeof(float));
         static_assert(offsetof(EnhancementsCelestial, toward_sun) == 8 && offsetof(EnhancementsCelestial, stars_z) == 88
-            && offsetof(EnhancementsCelestial, day_light) == 104 && sizeof(EnhancementsCelestial) == 128);
+            && offsetof(EnhancementsCelestial, day_light) == 104 && sizeof(EnhancementsCelestial) == 132);
         static_assert(ENHANCEMENTS_ACCUMULATE_PRESENT == static_cast<int>(AccumulateMode::present)
             && ENHANCEMENTS_ACCUMULATE_COUNT == static_cast<int>(AccumulateMode::count));
         static_assert(offsetof(EnhancementsAccumulate, mode) == 4 && offsetof(EnhancementsAccumulate, gain) == 20 && sizeof(EnhancementsAccumulate) == 24);
@@ -484,8 +484,10 @@ namespace enhancements
             const PhysicalWaterSettings water_defaults;
             s.water.enabled = raw.water.enabled != 0;
             s.water.clarity = finite_or(raw.water.clarity, water_defaults.clarity, 0.5f, 20.0f);
-            s.water.waves = finite_or(raw.water.waves, water_defaults.waves, 0.0f, 2.0f);
+            s.water.waves = finite_or(raw.water.waves, water_defaults.waves, 0.0f, 3.0f);
         }
+        if (knows(offsetof(EnhancementsSettings, water) + offsetof(EnhancementsWater, size), sizeof raw.water.size))
+            s.water.size = finite_or(raw.water.size, PhysicalWaterSettings {}.size, 0.25f, 4.0f);
         if (knows(offsetof(EnhancementsSettings, clouds), offsetof(EnhancementsClouds, shape)))
         {
             const CloudSettings d;
@@ -635,6 +637,8 @@ namespace enhancements
             c.ambient_scale = finite_or(copy.ambient_scale, 1.0f, 0.0f, 4.0f);
         if (knows(offsetof(EnhancementsCelestial, vegetation_scale), sizeof copy.vegetation_scale))
             c.vegetation_scale = finite_or(copy.vegetation_scale, 1.0f, 0.0f, 1.0f);
+        if (knows(offsetof(EnhancementsCelestial, water_seconds), sizeof copy.water_seconds))
+            c.water_seconds = finite_or(copy.water_seconds, 0.0f, 0.0f, 1e7f);
         return c;
     }
 

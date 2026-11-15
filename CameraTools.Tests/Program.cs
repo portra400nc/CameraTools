@@ -48,7 +48,7 @@ Check("the binding's shot is 40 bytes with its strength at 16, its outputs at 20
     && Marshal.SizeOf<EnhancementsCharacterLights>() == 296 && Offset<EnhancementsCharacterLights>(nameof(EnhancementsCharacterLights.Count)) == 36
     && Offset<EnhancementsCharacterLights>(nameof(EnhancementsCharacterLights.Lights)) == 40
     && Offset<EnhancementsShot>(nameof(EnhancementsShot.BudgetMs)) == 12 && Offset<EnhancementsShot>(nameof(EnhancementsShot.Outputs)) == 20
-    && Offset<EnhancementsShot>(nameof(EnhancementsShot.Strength)) == 16 && Marshal.SizeOf<EnhancementsSettings>() == 500 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Aerial)) == 484
+    && Offset<EnhancementsShot>(nameof(EnhancementsShot.Strength)) == 16 && Marshal.SizeOf<EnhancementsSettings>() == 504 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Aerial)) == 484
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Water)) == 488
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.AmbientColor)) == 400 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Tones)) == 404
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.LensSoftness)) == 412 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.AutoExposure)) == 416 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Sky)) == 420
@@ -200,8 +200,8 @@ var fresh = EnhancementValues.Defaults;
 var outside = new LensView(false, 1.6f, 1, ShotStage.None);
 var inside = new LensView(true, 1.6f, 1, ShotStage.None);
 EnhancementsSettings Settings(EnhancementValues values) => EnhancementsModel.Settings(values, outside);
-Check("the table holds 99 fields, each at its own id's place, with the master switch and eleven effects' switches, and 21 of the depth of field",
-    EnhancementsModel.Fields.Length == 99 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
+Check("the table holds 100 fields, each at its own id's place, with the master switch and eleven effects' switches, and 21 of the depth of field",
+    EnhancementsModel.Fields.Length == 100 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
     && EnhancementsModel.Fields.Count(field => field.Lens) == 21
     && string.Join(",", EnhancementsModel.Effects.Select(field => field.Label)) == "Ambient light,Contact shadows,Soft sun shadows,Haze,Light shafts,Wet surfaces,Tone map,Lens flare,Physical sky,Physical water,Clouds");
 {
@@ -282,7 +282,8 @@ Check("Ambient light's Color is the game's at 1 and gray at 0, and the tone map'
         && Settings(physical).Ambient is { Enabled: 1u, Level: 1f, AoStrength: 0f, FoliageAoStrength: 0f } && Settings(physical).AmbientColor.Neutral == 0f
         && Settings(physical.With(Enhancement.AmbientLight, 1)).Ambient is { Enabled: 1u, Level: 0.6f, AoStrength: 0.5f });
     Check("Physical water reaches the water block only with the physical sky, its clarity in meters and its waves as a share",
-        Settings(physical.With(Enhancement.PhysicalWater, 1).With(Enhancement.WaterClarity, 2.5f).With(Enhancement.WaterWaves, 150f)).Water is { Enabled: 1u, Clarity: 2.5f, Waves: 1.5f }
+        Settings(physical.With(Enhancement.PhysicalWater, 1).With(Enhancement.WaterClarity, 2.5f).With(Enhancement.WaterWaves, 150f).With(Enhancement.WaterSize, 200f)).Water
+            is { Enabled: 1u, Clarity: 2.5f, Waves: 1.5f, Size: 2f }
         && Settings(fresh.With(Enhancement.Enabled, 1).With(Enhancement.PhysicalWater, 1)).Water.Enabled == 0u && Settings(physical).Water.Enabled == 0u);
     Check("Distance haze reaches the aerial block while the physical sky runs, at 8 by default, and shows Off at 0",
         Settings(physical).Aerial.Distance == 8f && Settings(physical.With(Enhancement.DistanceHaze, 20f)).Aerial.Distance == 20f
@@ -359,7 +360,7 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     Check("the values write as name=number pairs and read back the same",
         text.StartsWith("Enabled=0;AmbientLight=0;AmbientLevel=0.6;AmbientColor=1;AmbientOcclusion=0.5;AmbientOcclusionRadius=1;") && text.Contains(";Haze=1;HazeDensity=2.5;")
         && text.Contains(";ToneMap=0;ToneMapCurve=1;ToneMapExposure=0;ToneMapAutoExposure=0;ToneMapBloom=1;ToneMapSaturation=1;ToneMapContrast=1;ToneMapShadows=0;ToneMapHighlights=0;LensFlare=0;LensFlareSource=0;")
-        && text.Contains(";LensFlareWarmth=0.5;LensFlareRedFringe=1;LensFlareTexture=1;PhysicalSky=0;SkyHaziness=0.1;DistanceHaze=8;NightBrightness=85;PhysicalWater=0;WaterClarity=6;WaterWaves=100;Clouds=0;")
+        && text.Contains(";LensFlareWarmth=0.5;LensFlareRedFringe=1;LensFlareTexture=1;PhysicalSky=0;SkyHaziness=0.1;DistanceHaze=8;NightBrightness=85;PhysicalWater=0;WaterClarity=6;WaterWaves=100;WaterSize=100;Clouds=0;")
         && text.EndsWith(";HighlightDiscs=0;HighlightBoost=2;HighlightThreshold=2;BokehContrast=0;LensSoftness=0")
         && EnhancementsModel.Parse(text, skipped).Equals(fresh.With(Enhancement.Haze, 1f).With(Enhancement.HazeDensity, 2.5f)) && skipped.Count == 0);
     var partial = EnhancementsModel.Parse("Haze=1; nonsense; Fog=3; HazeDensity=x; ToneMapBloom=0", skipped);
@@ -1068,8 +1069,9 @@ Check("before the first long exposure it shows the frames alone, with thousands 
 Check("past ten minutes the estimate warns", LongExposurePlan.Estimate(3841, 6.4) == ("3,841 frames · about 10 min", true)
     && LongExposurePlan.Estimate(3840, 6.4) == ("3,840 frames · about 10 min", false));
 
-Check("the binding's celestial is enhancements.h's 128 bytes, its sun at 8, its stars' z axis at 88, its day light at 104, its ambient scale at 120 and its vegetation scale at 124",
-    Marshal.SizeOf<EnhancementsCelestial>() == 128 && Offset<EnhancementsCelestial>(nameof(EnhancementsCelestial.VegetationScale)) == 124 && Offset<EnhancementsCelestial>(nameof(EnhancementsCelestial.SunX)) == 8
+Check("the binding's celestial is enhancements.h's 132 bytes, its sun at 8, its stars' z axis at 88, its day light at 104, its ambient scale at 120, its vegetation scale at 124 and its water seconds at 128",
+    Marshal.SizeOf<EnhancementsCelestial>() == 132 && Offset<EnhancementsCelestial>(nameof(EnhancementsCelestial.VegetationScale)) == 124
+    && Offset<EnhancementsCelestial>(nameof(EnhancementsCelestial.WaterSeconds)) == 128 && Offset<EnhancementsCelestial>(nameof(EnhancementsCelestial.SunX)) == 8
     && Offset<EnhancementsCelestial>(nameof(EnhancementsCelestial.StarsZX)) == 88 && Offset<EnhancementsCelestial>(nameof(EnhancementsCelestial.DayLight)) == 104
     && Offset<EnhancementsCelestial>(nameof(EnhancementsCelestial.AmbientScale)) == 120);
 Check("the binding's world light is enhancements.h's 32 bytes, its moon at 16 and its sky share at 28",

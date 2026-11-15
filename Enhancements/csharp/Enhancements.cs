@@ -256,7 +256,8 @@ namespace CameraToolsEnhancements
     {
         public uint Enabled;
         public float Clarity;               // meters seen into the water, 0.5 to 20
-        public float Waves;                 // the ripples' size, 0 to 2
+        public float Waves;                 // the waves' height, 0 to 3
+        public float Size;                  // the waves' length, 0.25 to 4
     }
 
     // EnhancementsAerial in enhancements.h, field for field.
@@ -366,7 +367,7 @@ namespace CameraToolsEnhancements
                 Chromatic = 1, VisibilitySeconds = 0.15f, FilledArcs = 0.5f, Rainbow = 1, Texture = 1,
             },
             Sky = new EnhancementsSky { Physical = 0, Haze = 0.1f },
-            Water = new EnhancementsWater { Enabled = 0, Clarity = 6f, Waves = 1f },
+            Water = new EnhancementsWater { Enabled = 0, Clarity = 6f, Waves = 1f, Size = 1f },
             Clouds = new EnhancementsClouds
             {
                 Enabled = 0, Coverage = 0.5f, Base = 2500, Thickness = 400, Size = 380, Stretch = 1.5f, Density = 0.06f, Detail = 0.8f,
@@ -536,6 +537,7 @@ namespace CameraToolsEnhancements
         public float Days;
         public float AmbientScale;
         public float VegetationScale;
+        public float WaterSeconds;
     }
 
     // EnhancementsWorldLight in enhancements.h, field for field: how the physical sky lights the world, in the game's units.
@@ -598,7 +600,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 36;
+        private const uint Version = 37;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
