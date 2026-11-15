@@ -221,6 +221,7 @@ namespace enhancements
         std::optional<Celestial> celestial;     // EnhancementsSetCelestial's newest
         uint64_t celestial_seen = 0;
         std::optional<SkyDraw> sky_draw;
+        uint64_t dome_frame = UINT64_MAX;   // the frame whose dome draw drew the physical sky
         bool ambient_physical_said = false;     // the log said the ambient pass took the physical sky's color
 
         // The ambient pass's and the traced ambient's level: with the physical sky, at its share of a day's sky light.
@@ -1097,7 +1098,7 @@ namespace enhancements
                     }
                     case PassId::sky:
                         // Nothing to draw before the first map's atmosphere: the game's sky shows.
-                        call = sky_draw ? gpu.run_sky(map, *sky_draw, camera, settings.flip, game_lights, d.uses_sun ? &sun_parse.constants : nullptr) : std::optional<GameCall>(GameCall::keep);
+                        call = sky_draw ? gpu.run_sky(map, *sky_draw, camera, settings.flip, game_lights, d.uses_sun ? &sun_parse.constants : nullptr, dome_frame == frames) : std::optional<GameCall>(GameCall::keep);
                         break;
                     case PassId::traced_lights:
                         // Nothing to add before the trace has a sample at every pixel.
@@ -1431,30 +1432,61 @@ namespace enhancements
         // The game's water pixel shaders, as a FrameCensus capture of 2026-11-15 found them drawing rivers and the sea after
         // the deferred lighting: each reads the scene's depth and a reflection cubemap.
         static constexpr uint64_t kWaterShaders[] = { 0xd0cbb44c71ad2188ull, 0x9a78a24d5649b66aull, 0xbf3f16de3240e952ull, 0xa90d4039bf47bcdeull };
-        uint64_t water_checked = 0;     // the pixel shader object last looked up, and whether it was water's
-        bool water_last = false;
+        // The game's sky dome, and the sky objects it draws right after it: the sun's quad by day and a draw at night. The
+        // see-through things it draws later, such as the giant tree over Snezhnaya, are drawn over the sky at depth 0.
+        static constexpr uint64_t kSkyDome = 0x7b771d2354311b7bull;
+        static constexpr uint64_t kSkyObjects[] = { 0x2b14af01abf46964ull, 0xc23cb28a6829e0afull };
+        enum class GameShader : uint8_t { other, water, dome, sky_object };
+        uint64_t shader_checked = 0;    // the pixel shader object last looked up, and what it draws
+        GameShader shader_kind = GameShader::other;
 
-        // A draw of the game's water, past the combine step with physical water on: drawn with our water instead. true
-        // when it was, and the game's draw is to be skipped.
-        bool draw_water(command_list *cmd_list, bool indexed, uint32_t count, uint32_t instances, uint32_t first, int32_t vertex_offset,
+        GameShader bound_shader()
+        {
+            const uint64_t bound = gpu.bound_pixel_shader();
+            if (bound != shader_checked)
+            {
+                shader_checked = bound;
+                const std::optional<ShaderCode> code = shaders.find(bound);
+                const uint64_t hash = code ? code->hash : 0;
+                shader_kind = std::find(std::begin(kWaterShaders), std::end(kWaterShaders), hash) != std::end(kWaterShaders) ? GameShader::water
+                    : hash == kSkyDome ? GameShader::dome
+                    : std::find(std::begin(kSkyObjects), std::end(kSkyObjects), hash) != std::end(kSkyObjects) ? GameShader::sky_object
+                    : GameShader::other;
+            }
+            return shader_kind;
+        }
+
+        // A draw of the game's sky or water, past the combine step with the physical sky on: its dome drawn with the
+        // physical sky, its sun and moon left out after that, and with physical water on, its water drawn with ours. true
+        // when the game's draw is to be skipped.
+        bool draw_physical(command_list *cmd_list, bool indexed, uint32_t count, uint32_t instances, uint32_t first, int32_t vertex_offset,
             uint32_t first_instance)
         {
-            if (!armed.load(std::memory_order_relaxed) || cmd_list != immediate || !settings.enabled || !settings.sky.enabled || !settings.water.enabled
-                || !tracker.matched().has(Step::combine) || !gpu.ready())
+            if (!armed.load(std::memory_order_relaxed) || cmd_list != immediate || !settings.enabled || !settings.sky.enabled
+                || !tracker.matched().has(Step::combine) || !gpu.ready() || !sky_draw)
                 return false;
-            const uint64_t bound = gpu.bound_pixel_shader();
-            if (bound != water_checked)
+            const Gpu::GameDraw draw { indexed, count, instances, first, vertex_offset, first_instance };
+            switch (bound_shader())
             {
-                water_checked = bound;
-                const std::optional<ShaderCode> code = shaders.find(bound);
-                water_last = code && std::find(std::begin(kWaterShaders), std::end(kWaterShaders), code->hash) != std::end(kWaterShaders);
+            case GameShader::dome:
+                if (!gpu.draw_sky_dome(draw, tracker.map(), *sky_draw, camera, settings.flip))
+                    return false;
+                dome_frame = frames;
+                return true;
+            case GameShader::sky_object:
+                return dome_frame == frames;
+            case GameShader::water:
+            {
+                if (!settings.water.enabled)
+                    return false;
+                // The game's own time, so the waves stand still while it is paused.
+                const float seconds = celestial ? celestial->water_seconds : 0.0f;
+                return gpu.draw_water(draw, tracker.map(), *sky_draw, settings.water, camera, settings.flip, frames, seconds,
+                    settings.clouds.wind_direction * 0.01745329f);
             }
-            if (!water_last || !sky_draw)
+            default:
                 return false;
-            // The game's own time, so the waves stand still while it is paused.
-            const float seconds = celestial ? celestial->water_seconds : 0.0f;
-            return gpu.draw_water({ indexed, count, instances, first, vertex_offset, first_instance }, tracker.map(), *sky_draw, settings.water, camera,
-                settings.flip, frames, seconds, settings.clouds.wind_direction * 0.01745329f);
+            }
         }
 
         // The scene capture's checks cost one branch while it does not run. DrawAuto comes as a draw of 0 vertices, which
@@ -1464,7 +1496,7 @@ namespace enhancements
             if (armed.load(std::memory_order_relaxed) && cmd_list == immediate && scene_frame && in_gbuffer && vertices != 0)
                 replay_scene({ ReplayKind::draw, vertices, instances, first_vertex, 0, first_instance, nullptr, 0 });
             const bool skip = on_draw_any(cmd_list);
-            return draw_water(cmd_list, false, vertices, instances, first_vertex, 0, first_instance) || skip;
+            return draw_physical(cmd_list, false, vertices, instances, first_vertex, 0, first_instance) || skip;
         }
 
         bool on_draw_indexed(command_list *cmd_list, uint32_t indices, uint32_t instances, uint32_t first_index, int32_t vertex_offset, uint32_t first_instance)
@@ -1472,7 +1504,7 @@ namespace enhancements
             if (armed.load(std::memory_order_relaxed) && cmd_list == immediate && scene_frame && in_gbuffer)
                 replay_scene({ ReplayKind::indexed, indices, instances, first_index, vertex_offset, first_instance, nullptr, 0 });
             const bool skip = on_draw_any(cmd_list);
-            return draw_water(cmd_list, true, indices, instances, first_index, vertex_offset, first_instance) || skip;
+            return draw_physical(cmd_list, true, indices, instances, first_index, vertex_offset, first_instance) || skip;
         }
 
 

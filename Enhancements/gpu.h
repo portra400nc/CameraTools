@@ -358,8 +358,9 @@ namespace enhancements
         // The physical sky over the sky's pixels: the air's tables uploaded when the atmosphere is new, the view tables
         // drawn for this frame's lights, the sky, the sun and the moon drawn over the mirrored HDR scene, the stars added
         // where the sky shows, and the result copied over the game's. Empty when a texture of ours failed.
+        // dome: draw_sky_dome drew the sky this frame, so the sky's pixels are kept.
         std::optional<GameCall> run_sky(const FrameMap &map, const SkyDraw &sky, const Camera &camera, bool flip,
-            const std::vector<EnhancementsShotLight> &lamps, const SunShadowConstants *sun);
+            const std::vector<EnhancementsShotLight> &lamps, const SunShadowConstants *sun, bool dome);
         // A traced shot's lights added to the HDR scene behind their traced visibility; run_trace mirrored what it reads this frame.
         std::optional<GameCall> run_traced_lights(const FrameMap &map, const Camera &camera, bool flip, TraceGpu &trace);
         // The normals, albedo and material ids the character light pass reads at bloom, copied at the combine step while they
@@ -426,18 +427,23 @@ namespace enhancements
         uint64_t bound_pixel_shader() const;
         // The HDR scene physical water sees through and mirrors, copied at the forward step of frame.
         void copy_water_scene(const FrameMap &map, uint64_t frame);
-        // One of the game's water draws, with its own geometry and state, drawn with our water pixel shader in place of
-        // its own; the pixel shader's bindings are the game's again after. The first of a frame that has no copy of the
-        // scene yet takes one. false, and nothing drawn, when no copy could be made or the sky's tables are not there.
-        struct WaterDraw
+        // A draw of the game's, to draw again with a pixel shader of ours.
+        struct GameDraw
         {
             bool indexed = false;   // DrawIndexedInstanced's arguments, else DrawInstanced's
             uint32_t count = 0, instances = 0, first = 0;
             int32_t vertex_offset = 0;
             uint32_t first_instance = 0;
         };
-        bool draw_water(const WaterDraw &draw, const FrameMap &map, const SkyDraw &sky, const PhysicalWaterSettings &water, const Camera &camera,
+        // One of the game's water draws, with its own geometry and state, drawn with our water pixel shader in place of
+        // its own; the pixel shader's bindings are the game's again after. The first of a frame that has no copy of the
+        // scene yet takes one. false, and nothing drawn, when no copy could be made or the sky's tables are not there.
+        bool draw_water(const GameDraw &draw, const FrameMap &map, const SkyDraw &sky, const PhysicalWaterSettings &water, const Camera &camera,
             bool flip, uint64_t frame, float seconds, float wind_radians);
+        // The game's sky dome draw, drawn with sky_dome_ps.hlsl in place of its own, so what the game draws over its sky
+        // after it lands on the physical sky; the sky's tables are the last sky pass's. false, and nothing drawn, before
+        // the sky pass has made them.
+        bool draw_sky_dome(const GameDraw &draw, const FrameMap &map, const SkyDraw &sky, const Camera &camera, bool flip);
         // Copies the grade a tone map shader's layout names from the game's bound pixel shader constants at b0 into
         // game_grade_. Called at the game's tone map draw before any pass of ours draws, since a pass binds its own b0.
         // false when no constants are bound or they are too small for the layout.
@@ -526,6 +532,11 @@ namespace enhancements
         std::optional<RawFrame> read_view() const { return copies_[2].read(context_.Get()); }
 
     private:
+        // The pixel shader resource slots a draw of the game's binds, which draw_in_place saves and puts back.
+        static constexpr UINT kGameSlots = 22;
+        // Draws the game's draw with ps and srvs (kGameSlots of them) and our samplers and constants, at blend, or at the
+        // game's own blend when null, and binds the game's pixel shader, its resources, samplers and b0 again after.
+        void draw_in_place(const GameDraw &draw, ID3D11PixelShader *ps, ID3D11ShaderResourceView *const *srvs, ID3D11BlendState *blend);
         void draw_fullscreen(ID3D11PixelShader *shader, ID3D11ShaderResourceView *const *srvs, UINT srv_count, ID3D11RenderTargetView *target, Size size,
             ID3D11BlendState *blend = nullptr);
         void draw_fullscreen(ID3D11PixelShader *shader, ID3D11ShaderResourceView *const *srvs, UINT srv_count, ID3D11RenderTargetView *const *targets,
@@ -552,7 +563,7 @@ namespace enhancements
         ComPtr<ID3D11Device> device_;
         ComPtr<ID3D11DeviceContext1> context_;
         ComPtr<ID3D11VertexShader> fullscreen_vs_, dof_sprite_vs_, stars_vs_;
-        ComPtr<ID3D11PixelShader> sky_view_ps_, sky_ps_, stars_ps_, aerial_lit_ps_, water_ps_;
+        ComPtr<ID3D11PixelShader> sky_view_ps_, sky_ps_, sky_dome_ps_, stars_ps_, aerial_lit_ps_, water_ps_;
         ComPtr<ID3D11BlendState> water_blend_;  // target 0: the color added; the others untouched
         ComPtr<ID3D11Buffer> night_lamps_constants_;  // core/night_lamps.h NightLamps at b4
         // The physical sky's air tables, R32G32B32A32_FLOAT, uploaded from sky_air_; the moon's face, R8G8B8A8_UNORM 512 a side;

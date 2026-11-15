@@ -121,7 +121,7 @@ namespace enhancements
         float sky_aerial;
         float sky_vegetation;
         float sky_aerial_lit;
-        float sky_pad;
+        float sky_dome;
         float water_clarity;
         float water_waves;
         float water_time;
@@ -819,6 +819,7 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kSkyPs, sizeof kSkyPs, nullptr, &made.sky_ps_))
             && SUCCEEDED(device->CreatePixelShader(kAerialLitPs, sizeof kAerialLitPs, nullptr, &made.aerial_lit_ps_))
             && SUCCEEDED(device->CreatePixelShader(kWaterPs, sizeof kWaterPs, nullptr, &made.water_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kSkyDomePs, sizeof kSkyDomePs, nullptr, &made.sky_dome_ps_))
             && SUCCEEDED(device->CreateBlendState(&water_blend, &made.water_blend_))
             && SUCCEEDED(device->CreateVertexShader(kStarsVs, sizeof kStarsVs, nullptr, &made.stars_vs_))
             && SUCCEEDED(device->CreatePixelShader(kStarsPs, sizeof kStarsPs, nullptr, &made.stars_ps_))
@@ -1584,7 +1585,7 @@ namespace enhancements
     }
 
     std::optional<GameCall> Gpu::run_sky(const FrameMap &map, const SkyDraw &sky, const Camera &camera, bool flip,
-        const std::vector<EnhancementsShotLight> &lamps, const SunShadowConstants *sun)
+        const std::vector<EnhancementsShotLight> &lamps, const SunShadowConstants *sun, bool dome)
     {
         constexpr Size kView = { 256, 128 };   // kSkyViewSize in shaders/sky.hlsli
         const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
@@ -1610,6 +1611,7 @@ namespace enhancements
         if (!vegetation)
             constants.sky_vegetation = 1;
         constants.sky_aerial_lit = shaded ? 1.0f : 0.0f;
+        constants.sky_dome = dome ? 1.0f : 0.0f;
         if (shaded)
         {
             constants.sun_cascades = sun->cascades;
@@ -2200,10 +2202,9 @@ namespace enhancements
         water_frame_ = frame;
     }
 
-    bool Gpu::draw_water(const WaterDraw &w, const FrameMap &map, const SkyDraw &sky, const PhysicalWaterSettings &water, const Camera &camera,
+    bool Gpu::draw_water(const GameDraw &w, const FrameMap &map, const SkyDraw &sky, const PhysicalWaterSettings &water, const Camera &camera,
         bool flip, uint64_t frame, float seconds, float wind_radians)
     {
-        ID3D11DeviceContext1 *c = context_.Get();
         // A frame whose forward step came after some of its water copies the scene at its first water draw instead, so
         // no water of the frame is left to the game.
         if (frame != water_frame_)
@@ -2219,22 +2220,10 @@ namespace enhancements
         k.water_wind = wind_radians;
         upload(k);
 
-        // The game's bindings, which its next draws still expect.
-        constexpr UINT kSlots = 22, kSamplers = 4;
-        ID3D11ShaderResourceView *game_srvs[kSlots] = {};
-        ID3D11SamplerState *game_samplers[kSamplers] = {};
-        ID3D11Buffer *game_cb = nullptr;
-        UINT cb_first = 0, cb_count = 0;
-        ComPtr<ID3D11PixelShader> game_ps;
-        ID3D11ClassInstance *classes[256] = {};
-        UINT class_count = 256;
-        c->PSGetShaderResources(0, kSlots, game_srvs);
-        c->PSGetSamplers(0, kSamplers, game_samplers);
-        c->PSGetConstantBuffers1(0, 1, &game_cb, &cb_first, &cb_count);
-        c->PSGetShader(&game_ps, classes, &class_count);
-
-        ID3D11ShaderResourceView *ours[kSlots] = {};
-        ours[0] = game_srvs[0];
+        ID3D11ShaderResourceView *game_depth = nullptr;
+        context_->PSGetShaderResources(0, 1, &game_depth);
+        ID3D11ShaderResourceView *ours[kGameSlots] = {};
+        ours[0] = game_depth;
         ours[9] = sky_transmittance_srv_.Get();
         ours[10] = sky_multiple_srv_.Get();
         ours[16] = water_scene_.srv();
@@ -2243,18 +2232,64 @@ namespace enhancements
         ours[19] = sky_view_[2].srv();
         ours[20] = sky_view_[3].srv();
         ours[21] = sky_view_[4].srv();
-        ID3D11SamplerState *const samplers[kSamplers] = { point_.Get(), linear_.Get(), lit_compare_.Get(), wrap_.Get() };
-        ID3D11Buffer *const buffers[] = { constants_.Get() };
-        c->PSSetShaderResources(0, kSlots, ours);
-        c->PSSetSamplers(0, kSamplers, samplers);
-        c->PSSetConstantBuffers(0, 1, buffers);
+        draw_in_place(w, water_ps_.Get(), ours, water_blend_.Get());
+        if (game_depth)
+            game_depth->Release();
+        return true;
+    }
+
+    bool Gpu::draw_sky_dome(const GameDraw &w, const FrameMap &map, const SkyDraw &sky, const Camera &camera, bool flip)
+    {
+        Constants k;
+        if (!sky.atmosphere || !sky_view_[4].srv() || !sync_sky_tables(sky.atmosphere) || !pass_constants(camera, map.render, flip, k))
+            return false;
+        put_sky(sky, k);
+        upload(k);
+        ID3D11ShaderResourceView *ours[kGameSlots] = {};
+        ours[1] = sky_view_[0].srv();
+        ours[3] = sky_view_[1].srv();
+        ours[4] = sky_view_[2].srv();
+        ours[5] = sky_view_[3].srv();
+        ours[6] = sky_view_[4].srv();
+        ours[7] = moon_face_srv_.Get();
+        ours[9] = sky_transmittance_srv_.Get();
+        ours[10] = sky_multiple_srv_.Get();
+        draw_in_place(w, sky_dome_ps_.Get(), ours, nullptr);
+        return true;
+    }
+
+    void Gpu::draw_in_place(const GameDraw &w, ID3D11PixelShader *ps, ID3D11ShaderResourceView *const *srvs, ID3D11BlendState *blend)
+    {
+        ID3D11DeviceContext1 *c = context_.Get();
+        // The game's bindings, which its next draws still expect.
+        constexpr UINT kSamplers = 4;
+        ID3D11ShaderResourceView *game_srvs[kGameSlots] = {};
+        ID3D11SamplerState *game_samplers[kSamplers] = {};
+        ID3D11Buffer *game_cb = nullptr;
+        UINT cb_first = 0, cb_count = 0;
+        ComPtr<ID3D11PixelShader> game_ps;
+        ID3D11ClassInstance *classes[256] = {};
+        UINT class_count = 256;
+        c->PSGetShaderResources(0, kGameSlots, game_srvs);
+        c->PSGetSamplers(0, kSamplers, game_samplers);
+        c->PSGetConstantBuffers1(0, 1, &game_cb, &cb_first, &cb_count);
+        c->PSGetShader(&game_ps, classes, &class_count);
         ComPtr<ID3D11BlendState> game_blend;
         FLOAT game_factor[4];
         UINT game_mask = 0;
         c->OMGetBlendState(&game_blend, game_factor, &game_mask);
-        const FLOAT factor[4] = { 0, 0, 0, 0 };
-        c->OMSetBlendState(water_blend_.Get(), factor, 0xffffffff);
-        c->PSSetShader(water_ps_.Get(), nullptr, 0);
+
+        ID3D11SamplerState *const samplers[kSamplers] = { point_.Get(), linear_.Get(), lit_compare_.Get(), wrap_.Get() };
+        ID3D11Buffer *const buffers[] = { constants_.Get() };
+        c->PSSetShaderResources(0, kGameSlots, srvs);
+        c->PSSetSamplers(0, kSamplers, samplers);
+        c->PSSetConstantBuffers(0, 1, buffers);
+        if (blend)
+        {
+            const FLOAT factor[4] = { 0, 0, 0, 0 };
+            c->OMSetBlendState(blend, factor, 0xffffffff);
+        }
+        c->PSSetShader(ps, nullptr, 0);
         if (w.indexed)
             c->DrawIndexedInstanced(w.count, w.instances, w.first, w.vertex_offset, w.first_instance);
         else
@@ -2262,7 +2297,7 @@ namespace enhancements
 
         c->OMSetBlendState(game_blend.Get(), game_factor, game_mask);
         c->PSSetShader(game_ps.Get(), classes, class_count);
-        c->PSSetShaderResources(0, kSlots, game_srvs);
+        c->PSSetShaderResources(0, kGameSlots, game_srvs);
         c->PSSetSamplers(0, kSamplers, game_samplers);
         c->PSSetConstantBuffers1(0, 1, &game_cb, &cb_first, &cb_count);
         for (ID3D11ShaderResourceView *v : game_srvs)
@@ -2276,7 +2311,6 @@ namespace enhancements
         for (UINT i = 0; i < class_count; i++)
             if (classes[i])
                 classes[i]->Release();
-        return true;
     }
 
     uint64_t Gpu::bound_pixel_shader() const
