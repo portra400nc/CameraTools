@@ -564,7 +564,14 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     Check("a preset that builds 314 to 316 saved with the depth of field's keys applies without them, warns of nothing and saves without them",
         Presets.Enhance(old316, userLens, null) is var (fromOld, _) && fromOld.On(Enhancement.Haze) && fromOld[Enhancement.DepthOfFieldAperture] == 5f
         && fromOld[Enhancement.SoapBubble] == 0.2f && fromOld.On(Enhancement.DepthOfField) && skipped.Count == 0 && !Presets.Text(old316).Contains("DepthOfField")
-        && Presets.Text(old316).StartsWith("Enabled=1;AmbientLight=0;"));
+        && Presets.Text(old316) == "Enabled=1;Haze=1");
+    var beforeWater = Presets.Parse(PresetSlot.Highest, "Enabled=1;Haze=1;PhysicalSky=1", skipped);
+    var userWater = fresh.With(Enhancement.Enabled, 1f).With(Enhancement.PhysicalSky, 1f).With(Enhancement.PhysicalWater, 1f).With(Enhancement.WaterWaves, 2f);
+    Check("a preset saved before Physical water keeps the user's water and its waves, says Keep under its switch, and saves only the keys it named",
+        beforeWater.EnhancementsOver(userWater) is { } shot && shot.On(Enhancement.PhysicalWater) && shot[Enhancement.WaterWaves] == 2f && shot.On(Enhancement.Haze)
+        && Presets.Enhance(beforeWater, userWater, null) is var (switched, _) && switched.On(Enhancement.PhysicalWater) && switched.On(Enhancement.Haze)
+        && Presets.SwitchNote(beforeWater, Enhancement.PhysicalWater) == "Keep" && Presets.SwitchNote(beforeWater, Enhancement.Haze) == "On"
+        && Presets.Text(beforeWater) == "Enabled=1;Haze=1;PhysicalSky=1" && skipped.Count == 0);
     Check("a preset that differs only in the depth of field changes nothing, says Keep under its switch, and Restore keeps the depth of field as it is",
         Presets.Enhance(roundTrip with { Enhancements = userLens.WithLensOf(fresh) }, userLens, null) is var (same, none) && ReferenceEquals(same, userLens) && none == null
         && Presets.SwitchNote(roundTrip, Enhancement.DepthOfField) == "Keep" && Presets.SwitchNote(roundTrip, Enhancement.LightShafts) == "On"

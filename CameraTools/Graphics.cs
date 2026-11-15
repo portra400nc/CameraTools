@@ -305,7 +305,7 @@ namespace CameraTools
             GameSettings.Save();
             Override(preset.Overrides, preset.Name);
             Lod.Force(preset.Lod);
-            bool enhanced = shot ? EnhancementsControl.Hold(preset.Enhancements) : Enhance(preset);
+            bool enhanced = shot ? EnhancementsControl.Hold(preset.EnhancementsOver(EnhancementsControl.Values)) : Enhance(preset);
             Changed = Time.unscaledTime;
             Melon<CameraTools>.Logger.Msg($"Graphics: {Described(preset)} changed {changes.Count} settings ({string.Join(", ", changes)}); "
                 + $"{active}; LOD {preset.Lod?.ToString() ?? "game"}; enhancements "

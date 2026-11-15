@@ -129,6 +129,8 @@ namespace CameraTools
         // The same without the depth of field's, as a preset holds them.
         public string WithoutLens() => Text(EnhancementsModel.Fields.Where(field => !field.Lens));
 
+        public string TextOf(Func<Enhancement, bool> pick) => Text(EnhancementsModel.Fields.Where(field => pick(field.Id)));
+
         private string Text(IEnumerable<EnhancementField> fields)
             => string.Join(";", fields.Select(field => $"{field.Name}={values[(int)field.Id].ToString(CultureInfo.InvariantCulture)}"));
     }

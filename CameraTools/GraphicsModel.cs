@@ -54,12 +54,21 @@ namespace CameraTools
     // What Highest or Lowest sets: a target for each game setting by its number, the values past the game's range, the
     // forced detail level, and every enhancement switch and value, or null to leave the enhancements as they are. A preset
     // is about quality, and the depth of field is part of the picture the user framed, so a preset never sets it: what
-    // Enhancements holds of it is never applied or saved.
-    public sealed record Preset(PresetSlot Slot, IReadOnlyDictionary<int, Target> Settings, Overrides Overrides, LodLevel? Lod, EnhancementValues Enhancements)
+    // Enhancements holds of it is never applied or saved. Held names the enhancements the preset sets, null for all: a
+    // preset saved before a field existed leaves that field as it is.
+    public sealed record Preset(PresetSlot Slot, IReadOnlyDictionary<int, Target> Settings, Overrides Overrides, LodLevel? Lod, EnhancementValues Enhancements,
+        IReadOnlySet<Enhancement> Held = null)
     {
         public string Name => Slot.ToString();
 
         public Target For(int setting) => Settings.TryGetValue(setting, out var target) ? target : default;
+
+        // Whether the preset sets this enhancement.
+        public bool Sets(Enhancement id) => Enhancements != null && !EnhancementsModel.Field(id).Lens && (Held == null || Held.Contains(id));
+
+        // The enhancements after the preset over now: those it sets, and now's for the rest; null when it holds none.
+        public EnhancementValues EnhancementsOver(EnhancementValues now)
+            => Enhancements == null ? null : EnhancementValues.From(field => Sets(field.Id) ? Enhancements[field.Id] : now[field.Id]);
     }
 
     public readonly record struct SettingChange(int Setting, int From, int To);
@@ -112,7 +121,7 @@ namespace CameraTools
         // changes nothing.
         public static (EnhancementValues Next, EnhancementValues Remembered) Enhance(Preset preset, EnhancementValues now, EnhancementValues remembered)
         {
-            var next = preset.Enhancements?.WithLensOf(now);
+            var next = preset.EnhancementsOver(now);
             return next == null || next.Equals(now) ? (now, remembered) : (next, remembered ?? now);
         }
 
@@ -125,7 +134,7 @@ namespace CameraTools
 
         // What a preset sets the master switch or an effect's switch to, for the line under the switch's label.
         public static string SwitchNote(Preset preset, Enhancement id)
-            => preset.Enhancements == null || EnhancementsModel.Field(id).Lens ? "Keep" : preset.Enhancements.On(id) ? "On" : "Off";
+            => !preset.Sets(id) ? "Keep" : preset.Enhancements.On(id) ? "On" : "Off";
 
         public static string ScaleNote(Preset preset) => preset.Overrides.RenderScale?.ToString("0.00", CultureInfo.InvariantCulture) ?? "Game";
 
@@ -149,7 +158,7 @@ namespace CameraTools
             if (preset.Lod is LodLevel lod)
                 parts.Add($"{Detail}={lod}");
             if (preset.Enhancements != null)
-                parts.Add(preset.Enhancements.WithoutLens());
+                parts.Add(preset.Enhancements.TextOf(preset.Sets));
             return string.Join(";", parts);
         }
 
@@ -195,7 +204,7 @@ namespace CameraTools
             // Builds 314 to 316 saved the depth of field's too.
             foreach (var field in EnhancementsModel.Fields.Where(field => field.Lens))
                 enhancements.Remove(field.Id);
-            return new Preset(slot, settings, held, lod, EnhancementsModel.From(enhancements));
+            return new Preset(slot, settings, held, lod, EnhancementsModel.From(enhancements), enhancements.Keys.ToHashSet());
         }
 
         private static string Number(float value) => value.ToString(CultureInfo.InvariantCulture);
