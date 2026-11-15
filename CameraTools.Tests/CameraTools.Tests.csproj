@@ -35,6 +35,7 @@
     <Compile Include="../CameraTools/ControlsModel.cs" Link="ControlsModel.cs" />
     <Compile Include="../CameraTools/PadBinding.cs" Link="PadBinding.cs" />
     <Compile Include="../CameraTools/WindowFocusModel.cs" Link="WindowFocusModel.cs" />
+    <Compile Include="../CameraTools/Celestial.cs" Link="Celestial.cs" />
     <Compile Include="../Enhancements/csharp/Enhancements.cs" Link="Enhancements.cs" />
   </ItemGroup>
   <ItemGroup>

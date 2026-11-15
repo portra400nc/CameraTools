@@ -1049,5 +1049,7 @@ Check("before the first long exposure it shows the frames alone, with thousands 
 Check("past ten minutes the estimate warns", LongExposurePlan.Estimate(3841, 6.4) == ("3,841 frames · about 10 min", true)
     && LongExposurePlan.Estimate(3840, 6.4) == ("3,840 frames · about 10 min", false));
 
+CelestialTests.Run(Check);
+
 Console.WriteLine($"CameraTools tests: {failures} failed");
 return failures == 0 ? 0 : 1;
