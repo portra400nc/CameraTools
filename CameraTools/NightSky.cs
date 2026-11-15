@@ -21,7 +21,8 @@ namespace CameraTools
         private const float DaySun = 0.342f;
 
         // The provisional exposure (core/sky.h, SkyExposure) until the night has its own. Probe items tune them.
-        public static float TwilightPower { get; set; } = 0.85f;
+        // Night brightness: how far the exposure follows the light as it fails after sunset, 1 all the way.
+        private static float TwilightPower => EnhancementsControl.RunningValues[Enhancement.NightBrightness] / 100f;
         public static float NightStops { get; set; } = 17f;
 
         private static MelonPreferences_Entry<int> savedDays;
@@ -103,7 +104,7 @@ namespace CameraTools
                     : "the sky's sun path fits no frame, so the moon and the stars are not drawn.");
             }
             var towardSun = ToNumerics(-sky.GetSunLightDirection(sky.curTimeOfDay24, config.sunAngle, config.sunInclination, config.sunInclinationOffset));
-            float haze = EnhancementsControl.RunningValues[Enhancement.AmbientHaze];
+            float haze = EnhancementsControl.RunningValues[Enhancement.SkyHaziness];
             var placed = frame is { } fitted ? Celestial.Place(fitted, Days, towardSun) : (CelestialSky?)null;
             var bodies = Bodies(towardSun, placed);
             if (placed is not { } known || Enhancements.WorldLight(bodies, haze) is not { } world)
@@ -139,6 +140,35 @@ namespace CameraTools
             LampLight = lamps;
             SkyOpenness = open;
             Enhancements.SetCelestial(bodies);
+        }
+
+        // Moon day: the day of the moon's cycle from the new moon, 0 to MoonDays - 1, from where the moon stands against the
+        // sun: its age is its elongation east of the sun over a turn, in synodic months.
+        public const int MoonDays = 30;
+        private const float SynodicMonth = 29.530589f;
+
+        public static int MoonDay => Sky is { } sky ? Math.Clamp((int)(MoonAge(sky) * SynodicMonth), 0, MoonDays - 1) : 0;
+
+        // Moves the day count by as many days as the moon day moves.
+        public static void SetMoonDay(int day) => SetDays(days + day - MoonDay);
+
+        // The line under Moon day: the phase's name and how much of the moon is lit.
+        public static string MoonPhase()
+        {
+            if (Sky is not { } sky)
+                return "";
+            float age = MoonAge(sky), lit = sky.MoonIlluminated;
+            string name = age < 0.03f || age > 0.97f ? "New moon" : age < 0.22f ? "Waxing crescent" : age < 0.28f ? "First quarter"
+                : age < 0.47f ? "Waxing gibbous" : age < 0.53f ? "Full moon" : age < 0.72f ? "Waning gibbous" : age < 0.78f ? "Last quarter" : "Waning crescent";
+            return $"{name}, {lit * 100f:0}% lit";
+        }
+
+        // The moon's age as a share of its cycle, 0 new and 0.5 full: its right ascension's lead over the sun's, a turn round.
+        private static float MoonAge(CelestialSky sky)
+        {
+            float RightAscension(Vec3 v) => MathF.Atan2(Vec3.Dot(v, sky.StarsY), Vec3.Dot(v, sky.StarsX));
+            float lead = RightAscension(sky.TowardMoon) - RightAscension(sky.TowardSun);
+            return ((lead / (2 * MathF.PI)) % 1f + 1f) % 1f;
         }
 
         // The ambient pass's multiple this frame, for the probe.

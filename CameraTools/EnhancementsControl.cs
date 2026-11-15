@@ -17,7 +17,7 @@ namespace CameraTools
 
         // By field: writes a value to the field's entry.
         private static readonly Action<float>[] writers = new Action<float>[EnhancementsModel.Fields.Length];
-        private static MelonPreferences_Entry<bool> folded;
+        private static MelonPreferences_Entry<bool> folded, experimentalFolded;
         // The user's own values, which the preferences keep, and a screenshot's preset's while it runs them.
         private static EnhancementRun run = new(EnhancementValues.Defaults);
         private static int connections;
@@ -38,6 +38,8 @@ namespace CameraTools
 
         public static bool Folded => folded.Value;
 
+        public static bool ExperimentalFolded => experimentalFolded.Value;
+
         // The right of the heading: why the add-on cannot run the effects, or whether anything is switched on.
         private static string State
         {
@@ -55,18 +57,22 @@ namespace CameraTools
         // switch with the effect's own rows under it, and the reset.
         public static IEnumerable<Row> Rows()
         {
-            yield return new FoldRow("Enhancements", () => !Folded, () => SetFolded(!Folded), () => State);
+            yield return new FoldRow("Enhancements", () => !Folded, () => SetFolded(folded, !Folded), () => State);
             foreach (var field in EnhancementsModel.Fields.Where(field => !field.Lens))
             {
-                Func<bool> shown = () => EnhancementsModel.Shown(field, Values, Folded);
+                if (field.Id == Enhancement.PhysicalSky)
+                    yield return new FoldRow("Experimental features", () => !ExperimentalFolded, () => SetFolded(experimentalFolded, !ExperimentalFolded),
+                        () => EnhancementsModel.ExperimentalSummary(Values)) { Shown = () => !Folded };
+                Func<bool> shown = () => EnhancementsModel.Shown(field, Values, Folded, ExperimentalFolded);
                 Func<bool> usable = field.Id == Enhancement.Enabled ? null : () => EnhancementsModel.Usable(field, Values);
                 if (field.Kind == EnhancementKind.Switch)
                 {
                     // The line that says what the presets set a switch to comes with a saved preset and makes the row
                     // taller, so each switch has a row without the line and a row with it.
+                    string detail = EnhancementsModel.Detail(field, Values);
                     var plain = new ToggleRow(field.Label, () => Values.On(field.Id), on => Change(field.Id, on ? 1f : 0f), usable)
                     {
-                        Shown = () => shown() && !Graphics.PresetsEnhance,
+                        Shown = () => shown() && !Graphics.PresetsEnhance, Detail = detail != null ? () => detail : null,
                     };
                     yield return plain;
                     yield return plain with { Shown = () => shown() && Graphics.PresetsEnhance, Note = () => Graphics.SwitchNote(field.Id) };
@@ -84,6 +90,11 @@ namespace CameraTools
                         Shown = shown, Sub = true,
                     },
                 };
+                if (field.Id == Enhancement.NightBrightness)
+                    yield return new StepperRow("Moon day", () => NightSky.MoonDays, () => NightSky.MoonDay, NightSky.SetMoonDay, NightSky.MoonPhase, usable)
+                    {
+                        Shown = shown, Sub = true, Display = () => $"Day {NightSky.MoonDay + 1}", Icon = () => Shapes.Moon(NightSky.MoonDay),
+                    };
             }
             yield return new ActionRow("Reset enhancements", Reset, "Reset") { Shown = () => !Folded };
         }
@@ -92,9 +103,17 @@ namespace CameraTools
         {
             var category = MelonPreferences.CreateCategory(Category);
             folded = category.CreateEntry("Folded", false, description: "Fold the Graphics tab's Enhancements category away, so only its heading shows.");
+            experimentalFolded = category.CreateEntry("ExperimentalFolded", true,
+                description: "Fold the Enhancements category's Experimental features group away, so only its heading shows.");
+            bool oldPhysical = OldSkyWasPhysical(category);
             var readers = new Func<float?>[writers.Length];
             foreach (var field in EnhancementsModel.Fields)
                 (readers[(int)field.Id], writers[(int)field.Id]) = Entry(category, field);
+            if (oldPhysical && readers[(int)Enhancement.AmbientLight]() == 1f)
+            {
+                writers[(int)Enhancement.PhysicalSky](1f);
+                Log("Ambient light's Sky was Physical, so Physical sky is on.");
+            }
             run = new EnhancementRun(EnhancementValues.From(field => readers[(int)field.Id]()));
             // An entry may hold what its row cannot, such as a number past the row's range, and then says what was read.
             foreach (var field in EnhancementsModel.Fields)
@@ -160,10 +179,20 @@ namespace CameraTools
             CameraUi.Toast("Enhancements are back to their defaults");
         }
 
-        private static void SetFolded(bool on)
+        private static void SetFolded(MelonPreferences_Entry<bool> entry, bool on)
         {
-            folded.Value = on;
+            entry.Value = on;
             MelonPreferences.Save();
+        }
+
+        // Before the physical sky had its own switch, Ambient light's Sky choice switched it on, with Ambient light on. Its
+        // entry is read once and goes; Haze moves to Haziness by its entry's rename.
+        private static bool OldSkyWasPhysical(MelonPreferences_Category category)
+        {
+            var sky = category.CreateEntry("AmbientSky", "", is_hidden: true);
+            bool physical = sky.Value == "Physical";
+            category.DeleteEntry("AmbientSky");
+            return physical;
         }
 
         // A screenshot's preset holds these values: the add-on runs them until Release, and the user's own stay as they
@@ -214,7 +243,8 @@ namespace CameraTools
                     }, value => label.Value = field.Options[(int)value]);
                 default:
                     var number = category.CreateEntry(field.Name, field.Default,
-                        description: $"{effect}: {field.Label}, from {field.Min.ToString(field.Format)} to {field.Max.ToString(field.Format)}.");
+                        description: $"{effect}: {field.Label}, from {field.Min.ToString(field.Format)} to {field.Max.ToString(field.Format)}.",
+                        oldIdentifier: field.Id == Enhancement.SkyHaziness ? "AmbientHaze" : null);
                     return (() => number.Value, value => number.Value = value);
             }
         }

@@ -9,18 +9,19 @@ namespace CameraTools
     public enum Enhancement
     {
         Enabled,
-        AmbientLight, AmbientLevel, AmbientSky, AmbientHaze, AmbientColor, AmbientOcclusion, AmbientOcclusionRadius, AmbientFoliageOcclusion,
+        AmbientLight, AmbientLevel, AmbientColor, AmbientOcclusion, AmbientOcclusionRadius, AmbientFoliageOcclusion,
         ContactShadows, ContactShadowLength, ContactShadowStrength, ContactShadowFoliage,
         SoftSunShadows, SunShadowSoftness, SunShadowStrength,
         Haze, HazeDensity, HazeHeightFalloff, HazeSunGlow, HazeGlowTowardSun,
-        Clouds, CloudType, CloudCoverage, CloudHeight, CloudThickness, CloudSize, CloudDensity, CloudEdgeDetail, CloudSunlight, CloudSkyLight,
-        CloudWind, CloudWindDirection, CloudQuality, CloudKind,
         LightShafts, LightShaftStrength, MistDensity, MistHeight, LightShaftGlowTowardSun, LightShaftDistance, MistPatchiness, MistPatchSize,
         MistSkyLight, LightShaftQuality,
         WetSurfaces, Wetness, WetDarkening, Puddles,
         ToneMap, ToneMapCurve, ToneMapExposure, ToneMapAutoExposure, ToneMapBloom, ToneMapSaturation, ToneMapContrast, ToneMapShadows, ToneMapHighlights,
         LensFlare, LensFlareSource, LensFlareX, LensFlareY, LensFlareStrength, LensFlareArcs, LensFlareRainbow, LensFlareFilledArcs, LensFlareGhosts, LensFlareStreaks,
         LensFlareGlare, LensFlareSize, LensFlareWarmth, LensFlareRedFringe, LensFlareTexture,
+        PhysicalSky, SkyHaziness, NightBrightness,
+        Clouds, CloudType, CloudCoverage, CloudHeight, CloudThickness, CloudSize, CloudDensity, CloudEdgeDetail, CloudSunlight, CloudSkyLight,
+        CloudWind, CloudWindDirection, CloudQuality, CloudKind,
         DepthOfField, DepthOfFieldFocusMode, DepthOfFieldFocusSpeed, DepthOfFieldFocusDistance, DepthOfFieldAperture, DepthOfFieldFocusX, DepthOfFieldFocusY, DepthOfFieldMaxBlur,
         BokehShape, BladeRoundness, BladeRotation, SoapBubble, BokehChromaticAberration, CatsEye, Swirl, AnamorphicRatio,
         HighlightDiscs, HighlightBoost, HighlightThreshold, BokehContrast,
@@ -38,7 +39,7 @@ namespace CameraTools
     {
         public string Name => Id.ToString();
 
-        // One of the nine effects' switches.
+        // One of the ten effects' switches.
         public bool IsEffect => Kind == EnhancementKind.Switch && Effect == Enhancement.Enabled && Id != Enhancement.Enabled;
 
         // One of the depth of field's, whose rows are in the ReShade tab.
@@ -204,7 +205,6 @@ namespace CameraTools
         public const int FlareSun = 0, FlareManual = 1;
 
         // Ambient light's Sky: the game's own sky light, or the physical sky's.
-        public const int SkyGame = 0, SkyPhysical = 1;
         // Haze's Density row counts in multiples of this, the add-on's default.
         private static readonly float HazeDensity = EnhancementsSettings.Defaults.Atmosphere.Density;
 
@@ -214,8 +214,6 @@ namespace CameraTools
             Switch(Enhancement.Enabled, "Enhancements"),
             Switch(Enhancement.AmbientLight, "Ambient light"),
             Slider(Enhancement.AmbientLevel, Enhancement.AmbientLight, "Level", 0f, 2f, 0.6f, 0.05f, 2),
-            Choice(Enhancement.AmbientSky, Enhancement.AmbientLight, "Sky", SkyGame, "Game", "Physical"),
-            Slider(Enhancement.AmbientHaze, Enhancement.AmbientLight, "Haze", 0f, 0.5f, 0.1f, 0.05f, 2),
             Slider(Enhancement.AmbientColor, Enhancement.AmbientLight, "Color", 0f, 1f, 1f, 0.05f, 2),
             Slider(Enhancement.AmbientOcclusion, Enhancement.AmbientLight, "Occlusion", 0f, 1f, 0.5f, 0.05f, 2),
             Slider(Enhancement.AmbientOcclusionRadius, Enhancement.AmbientLight, "Occlusion radius", 0.1f, 5f, 1f, 0.1f, 1, " m"),
@@ -232,20 +230,6 @@ namespace CameraTools
             Slider(Enhancement.HazeHeightFalloff, Enhancement.Haze, "Thins with height", 0f, 0.2f, 0.02f, 0.005f, 3),
             Slider(Enhancement.HazeSunGlow, Enhancement.Haze, "Sun glow", 0f, 10f, 1f, 0.1f, 1),
             Slider(Enhancement.HazeGlowTowardSun, Enhancement.Haze, "Glow toward the sun", 0f, 0.95f, 0.7f, 0.05f, 2),
-            Switch(Enhancement.Clouds, "Clouds"),
-            Choice(Enhancement.CloudType, Enhancement.Clouds, "Type", 0, CloudTypeOptions),
-            Slider(Enhancement.CloudCoverage, Enhancement.Clouds, "Coverage", 0f, 100f, CloudKinds[0].Coverage, 5f, 0, "%"),
-            Slider(Enhancement.CloudHeight, Enhancement.Clouds, "Height", 500f, 10000f, CloudKinds[0].Height, 100f, 0, " m"),
-            Slider(Enhancement.CloudThickness, Enhancement.Clouds, "Thickness", 100f, 3000f, CloudKinds[0].Thickness, 50f, 0, " m"),
-            Slider(Enhancement.CloudSize, Enhancement.Clouds, "Cloud size", 100f, 1000f, CloudKinds[0].Size, 10f, 0, " m"),
-            Slider(Enhancement.CloudDensity, Enhancement.Clouds, "Density", 0.002f, 0.15f, CloudKinds[0].Density, 0.002f, 3),
-            Slider(Enhancement.CloudEdgeDetail, Enhancement.Clouds, "Edge detail", 0f, 1f, CloudKinds[0].EdgeDetail, 0.05f, 2),
-            Slider(Enhancement.CloudSunlight, Enhancement.Clouds, "Sunlight", 0f, 8f, 4f, 0.05f, 2),
-            Slider(Enhancement.CloudSkyLight, Enhancement.Clouds, "Sky light", 0f, 2f, 1f, 0.05f, 2),
-            Slider(Enhancement.CloudWind, Enhancement.Clouds, "Wind", 0f, 30f, 8f, 1f, 0, " m/s"),
-            Slider(Enhancement.CloudWindDirection, Enhancement.Clouds, "Wind direction", 0f, 355f, 30f, 5f, 0, "°"),
-            Choice(Enhancement.CloudQuality, Enhancement.Clouds, "Quality", 1, "Low", "Medium", "High"),
-            Choice(Enhancement.CloudKind, Enhancement.Clouds, "Last type", 0, CloudKinds.Select(kind => kind.Name).ToArray()),
             Switch(Enhancement.LightShafts, "Light shafts"),
             Slider(Enhancement.LightShaftStrength, Enhancement.LightShafts, "Strength", 0f, 10f, 3f, 0.1f, 1),
             Slider(Enhancement.MistDensity, Enhancement.LightShafts, "Mist density", 0f, 0.05f, 0.006f, 0.001f, 3),
@@ -284,6 +268,23 @@ namespace CameraTools
             Slider(Enhancement.LensFlareWarmth, Enhancement.LensFlare, "Warmth", 0f, 1f, 0.5f, 0.05f, 2),
             Slider(Enhancement.LensFlareRedFringe, Enhancement.LensFlare, "Red fringe", 0f, 4f, 1f, 0.05f, 2),
             Slider(Enhancement.LensFlareTexture, Enhancement.LensFlare, "Texture", 0f, 2f, 1f, 0.05f, 2),
+            Switch(Enhancement.PhysicalSky, "Physical sky"),
+            Slider(Enhancement.SkyHaziness, Enhancement.PhysicalSky, "Haziness", 0f, 0.5f, 0.1f, 0.05f, 2),
+            Slider(Enhancement.NightBrightness, Enhancement.PhysicalSky, "Night brightness", 0f, 100f, 85f, 5f, 0, "%"),
+            Switch(Enhancement.Clouds, "Clouds"),
+            Choice(Enhancement.CloudType, Enhancement.Clouds, "Type", 0, CloudTypeOptions),
+            Slider(Enhancement.CloudCoverage, Enhancement.Clouds, "Coverage", 0f, 100f, CloudKinds[0].Coverage, 5f, 0, "%"),
+            Slider(Enhancement.CloudHeight, Enhancement.Clouds, "Height", 500f, 10000f, CloudKinds[0].Height, 100f, 0, " m"),
+            Slider(Enhancement.CloudThickness, Enhancement.Clouds, "Thickness", 100f, 3000f, CloudKinds[0].Thickness, 50f, 0, " m"),
+            Slider(Enhancement.CloudSize, Enhancement.Clouds, "Cloud size", 100f, 1000f, CloudKinds[0].Size, 10f, 0, " m"),
+            Slider(Enhancement.CloudDensity, Enhancement.Clouds, "Density", 0.002f, 0.15f, CloudKinds[0].Density, 0.002f, 3),
+            Slider(Enhancement.CloudEdgeDetail, Enhancement.Clouds, "Edge detail", 0f, 1f, CloudKinds[0].EdgeDetail, 0.05f, 2),
+            Slider(Enhancement.CloudSunlight, Enhancement.Clouds, "Sunlight", 0f, 8f, 4f, 0.05f, 2),
+            Slider(Enhancement.CloudSkyLight, Enhancement.Clouds, "Sky light", 0f, 2f, 1f, 0.05f, 2),
+            Slider(Enhancement.CloudWind, Enhancement.Clouds, "Wind", 0f, 30f, 8f, 1f, 0, " m/s"),
+            Slider(Enhancement.CloudWindDirection, Enhancement.Clouds, "Wind direction", 0f, 355f, 30f, 5f, 0, "°"),
+            Choice(Enhancement.CloudQuality, Enhancement.Clouds, "Quality", 1, "Low", "Medium", "High"),
+            Choice(Enhancement.CloudKind, Enhancement.Clouds, "Last type", 0, CloudKinds.Select(kind => kind.Name).ToArray()),
             new(Enhancement.DepthOfField, EnhancementKind.Switch, "Depth of field", Enhancement.DepthOfField, 0f),
             Choice(Enhancement.DepthOfFieldFocusMode, Enhancement.DepthOfField, "Focus mode", FocusPoint, "Focus point", "Manual distance", "Eyes"),
             Slider(Enhancement.DepthOfFieldFocusSpeed, Enhancement.DepthOfField, "Focus speed", 0f, 3f, 0.5f, 0.1f, 1, " s"),
@@ -319,14 +320,17 @@ namespace CameraTools
             uint Bit(Enhancement id) => values.On(id) ? 1u : 0u;
             var settings = EnhancementsSettings.Defaults;
             settings.Enabled = Bit(Enhancement.Enabled);
-            settings.Ambient.Enabled = Bit(Enhancement.AmbientLight);
-            settings.Ambient.Level = values[Enhancement.AmbientLevel];
-            settings.AmbientColor.Neutral = 1f - values[Enhancement.AmbientColor];
-            settings.Sky.Physical = SkyDrawn(values) ? 1u : 0u;
-            settings.Sky.Haze = values[Enhancement.AmbientHaze];
-            settings.Ambient.AoStrength = values[Enhancement.AmbientOcclusion];
+            // The physical sky darkens the game's ambient light at night through the ambient pass, which then runs also with
+            // Ambient light off, at the game's level and without occlusion.
+            bool sky = SkyDrawn(values), forced = sky && !values.On(Enhancement.AmbientLight);
+            settings.Ambient.Enabled = forced ? 1u : Bit(Enhancement.AmbientLight);
+            settings.Ambient.Level = forced ? 1f : values[Enhancement.AmbientLevel];
+            settings.AmbientColor.Neutral = forced ? 0f : 1f - values[Enhancement.AmbientColor];
+            settings.Sky.Physical = sky ? 1u : 0u;
+            settings.Sky.Haze = values[Enhancement.SkyHaziness];
+            settings.Ambient.AoStrength = forced ? 0f : values[Enhancement.AmbientOcclusion];
             settings.Ambient.AoRadius = values[Enhancement.AmbientOcclusionRadius];
-            settings.Ambient.FoliageAoStrength = values[Enhancement.AmbientFoliageOcclusion];
+            settings.Ambient.FoliageAoStrength = forced ? 0f : values[Enhancement.AmbientFoliageOcclusion];
             settings.ContactShadows.Enabled = Bit(Enhancement.ContactShadows);
             settings.ContactShadows.Length = values[Enhancement.ContactShadowLength];
             settings.ContactShadows.Strength = values[Enhancement.ContactShadowStrength];
@@ -457,8 +461,10 @@ namespace CameraTools
         public static bool FlareRuns(EnhancementValues values) => values.On(Enhancement.Enabled) && values.On(Enhancement.LensFlare);
 
         // Whether the physical sky runs, which draws the sky, the sun, the moon and the stars and turns the main light to them.
-        public static bool SkyDrawn(EnhancementValues values) =>
-            values.On(Enhancement.Enabled) && values.On(Enhancement.AmbientLight) && (int)values[Enhancement.AmbientSky] == SkyPhysical;
+        public static bool SkyDrawn(EnhancementValues values) => values.On(Enhancement.Enabled) && values.On(Enhancement.PhysicalSky);
+
+        // The Experimental features group's rows: the physical sky's and the clouds'.
+        public static bool Experimental(EnhancementField field) => field.Id >= Enhancement.PhysicalSky && field.Id <= Enhancement.CloudKind;
 
         // The depth of field's block. The sensor is the one the focal length readout assumes, a full-frame diagonal in the
         // picture's shape, so the readout's millimeters and the blur describe the same lens; N times taller, the whole
@@ -499,21 +505,21 @@ namespace CameraTools
             return dof;
         }
 
-        // A folded category shows only its heading. Open, every switch shows, and an effect's own rows show while its
-        // switch is on, whatever the master switch says; the lens flare's position only for its manual light; Haze only
-        // for the physical sky, and Color only for the game's, whose color it sets.
-        public static bool Shown(EnhancementField field, EnhancementValues values, bool folded)
-            => !folded && (field.Kind == EnhancementKind.Switch || values.On(field.Effect))
+        // A folded category shows only its heading, and the folded Experimental features group only its own heading. Open,
+        // every switch shows, and an effect's own rows show while its switch is on, whatever the master switch says; the
+        // lens flare's position only for its manual light, and Ambient light's Color only for the game's sky, whose color
+        // it sets.
+        public static bool Shown(EnhancementField field, EnhancementValues values, bool folded, bool experimentalFolded)
+            => !folded && !(experimentalFolded && Experimental(field)) && (field.Kind == EnhancementKind.Switch || values.On(field.Effect))
             && (field.Id is not (Enhancement.LensFlareX or Enhancement.LensFlareY) || (int)values[Enhancement.LensFlareSource] == FlareManual)
             && field.Id != Enhancement.CloudKind
-            && (field.Id != Enhancement.AmbientHaze || (int)values[Enhancement.AmbientSky] == SkyPhysical)
-            && (field.Id != Enhancement.AmbientColor || (int)values[Enhancement.AmbientSky] == SkyGame);
+            && (field.Id != Enhancement.AmbientColor || !values.On(Enhancement.PhysicalSky));
 
-        // The line under a row's label, or null for none: Sky says where its light comes from, and the clouds' Type what
+        // The line under a row's label, or null for none: the physical sky says what it does, and the clouds' Type what
         // they look like.
         public static string Detail(EnhancementField field, EnhancementValues values) => field.Id switch
         {
-            Enhancement.AmbientSky => (int)values[Enhancement.AmbientSky] == SkyPhysical ? "Light from a real sky that follows the sun" : "The game's own sky light",
+            Enhancement.PhysicalSky => "Real sky, sun, moon and stars that light the world",
             Enhancement.CloudType => (int)values[Enhancement.CloudType] < CustomClouds ? CloudKinds[(int)values[Enhancement.CloudType]].Detail : "Your own shape",
             _ => null,
         };
@@ -529,6 +535,13 @@ namespace CameraTools
                 return "Off";
             int effects = Effects.Count(field => values.On(field.Id));
             return $"On · {effects} effect{(effects == 1 ? "" : "s")}";
+        }
+
+        // The right of the Experimental features heading: its switched-on sections by name, or Off.
+        public static string ExperimentalSummary(EnhancementValues values)
+        {
+            var on = Effects.Where(field => Experimental(field) && values.On(field.Id)).Select(field => field.Label).ToArray();
+            return on.Length > 0 ? string.Join(" · ", on) : "Off";
         }
 
         // The effects that are switched on, by their rows' labels, for the log.
@@ -551,9 +564,18 @@ namespace CameraTools
             return From(read);
         }
 
-        // Adds the pair to read when it names a field and holds a number.
+        // The names of fields that moved, as presets saved before then hold them: Ambient light's Sky choice, 1 for the
+        // physical sky, and its Haze.
+        public static readonly IReadOnlyDictionary<string, Enhancement> Renamed = new Dictionary<string, Enhancement>
+        {
+            ["AmbientSky"] = Enhancement.PhysicalSky, ["AmbientHaze"] = Enhancement.SkyHaziness,
+        };
+
+        // Adds the pair to read when it names a field, or a field's old name, and holds a number.
         public static bool TryRead(string name, string value, Dictionary<Enhancement, float> read)
         {
+            if (Renamed.TryGetValue(name, out Enhancement renamed))
+                name = renamed.ToString();
             if (!Enum.TryParse(name, out Enhancement id) || !Enum.IsDefined(id) || id.ToString() != name
                 || !float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float number))
                 return false;

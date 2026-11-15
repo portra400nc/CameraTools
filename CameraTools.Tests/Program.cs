@@ -199,10 +199,10 @@ var fresh = EnhancementValues.Defaults;
 var outside = new LensView(false, 1.6f, 1, ShotStage.None);
 var inside = new LensView(true, 1.6f, 1, ShotStage.None);
 EnhancementsSettings Settings(EnhancementValues values) => EnhancementsModel.Settings(values, outside);
-Check("the table holds 94 fields, each at its own id's place, with the master switch and nine effects' switches, and 21 of the depth of field",
-    EnhancementsModel.Fields.Length == 94 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
+Check("the table holds 95 fields, each at its own id's place, with the master switch and ten effects' switches, and 21 of the depth of field",
+    EnhancementsModel.Fields.Length == 95 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
     && EnhancementsModel.Fields.Count(field => field.Lens) == 21
-    && string.Join(",", EnhancementsModel.Effects.Select(field => field.Label)) == "Ambient light,Contact shadows,Soft sun shadows,Haze,Clouds,Light shafts,Wet surfaces,Tone map,Lens flare");
+    && string.Join(",", EnhancementsModel.Effects.Select(field => field.Label)) == "Ambient light,Contact shadows,Soft sun shadows,Haze,Light shafts,Wet surfaces,Tone map,Lens flare,Physical sky,Clouds");
 {
     var cloudLens = new LensView(false, 1.6f, 1, ShotStage.None);
     var cloudFresh = EnhancementValues.Defaults;
@@ -232,8 +232,8 @@ Check("the table holds 94 fields, each at its own id's place, with the master sw
     Check("Quality Low and High march 32 and 64 steps",
         EnhancementsModel.Settings(cloudOn.With(Enhancement.CloudQuality, 0f), cloudLens).Clouds.Steps == 32 && EnhancementsModel.Settings(cloudOn.With(Enhancement.CloudQuality, 2f), cloudLens).Clouds.Steps == 64);
     Check("the clouds' rows show under their switch, and the last type never shows",
-        EnhancementsModel.Shown(EnhancementsModel.Field(Enhancement.CloudCoverage), cloudOn, false) && !EnhancementsModel.Shown(EnhancementsModel.Field(Enhancement.CloudCoverage), cloudFresh, false)
-        && !EnhancementsModel.Shown(EnhancementsModel.Field(Enhancement.CloudKind), cloudOn, false));
+        EnhancementsModel.Shown(EnhancementsModel.Field(Enhancement.CloudCoverage), cloudOn, false, false) && !EnhancementsModel.Shown(EnhancementsModel.Field(Enhancement.CloudCoverage), cloudFresh, false, false)
+        && !EnhancementsModel.Shown(EnhancementsModel.Field(Enhancement.CloudKind), cloudOn, false, false));
     Check("the depth of field alone draws no clouds",
         EnhancementsModel.Settings(cloudOn.With(Enhancement.Enabled, 0f).With(Enhancement.DepthOfField, 1f), cloudLens with { FreeCamera = true }).Clouds.Enabled == 0);
 }
@@ -275,18 +275,24 @@ Check("Ambient light's Color is the game's at 1 and gray at 0, and the tone map'
     on.AmbientColor.Neutral == 0.75f && Settings(fresh).AmbientColor.Neutral == 0f && Settings(fresh.With(Enhancement.AmbientColor, 0f)).AmbientColor.Neutral == 1f
     && on.Tones is { Shadows: 0.5f, Highlights: -0.75f } && Settings(fresh).Tones is { Shadows: 0f, Highlights: 0f });
 {
-    var physical = fresh.With(Enhancement.Enabled, 1).With(Enhancement.AmbientLight, 1).With(Enhancement.AmbientSky, EnhancementsModel.SkyPhysical)
-        .With(Enhancement.AmbientHaze, 0.25f);
-    Check("Ambient light's Sky reaches the sky block, Physical with its haze, off by default and while Ambient light or the master switch is off",
-        Settings(physical).Sky is { Physical: 1u, Haze: 0.25f } && Settings(fresh).Sky.Physical == 0
-        && Settings(physical.With(Enhancement.AmbientLight, 0)).Sky.Physical == 0 && Settings(physical.With(Enhancement.Enabled, 0)).Sky.Physical == 0);
-    Check("Haze shows only for the physical sky, Color only for the game's, and Sky says where its light comes from",
-        EnhancementsModel.Shown(Field(Enhancement.AmbientHaze), physical, false) && !EnhancementsModel.Shown(Field(Enhancement.AmbientColor), physical, false)
-        && !EnhancementsModel.Shown(Field(Enhancement.AmbientHaze), physical.With(Enhancement.AmbientSky, EnhancementsModel.SkyGame), false)
-        && EnhancementsModel.Shown(Field(Enhancement.AmbientColor), physical.With(Enhancement.AmbientSky, EnhancementsModel.SkyGame), false)
-        && EnhancementsModel.Detail(Field(Enhancement.AmbientSky), physical) == "Light from a real sky that follows the sun"
-        && EnhancementsModel.Detail(Field(Enhancement.AmbientSky), fresh) == "The game's own sky light"
+    var physical = fresh.With(Enhancement.Enabled, 1).With(Enhancement.PhysicalSky, 1).With(Enhancement.SkyHaziness, 0.25f);
+    Check("Physical sky reaches the sky block with its haziness, off by default and while the master switch is off, and no longer needs Ambient light",
+        Settings(physical).Sky is { Physical: 1u, Haze: 0.25f } && Settings(fresh).Sky.Physical == 0 && Settings(physical.With(Enhancement.Enabled, 0)).Sky.Physical == 0
+        && Settings(physical).Ambient is { Enabled: 1u, Level: 1f, AoStrength: 0f, FoliageAoStrength: 0f } && Settings(physical).AmbientColor.Neutral == 0f
+        && Settings(physical.With(Enhancement.AmbientLight, 1)).Ambient is { Enabled: 1u, Level: 0.6f, AoStrength: 0.5f });
+    Check("Ambient light's Color shows only for the game's sky, and Physical sky says what it does",
+        !EnhancementsModel.Shown(Field(Enhancement.AmbientColor), physical.With(Enhancement.AmbientLight, 1), false, false)
+        && EnhancementsModel.Shown(Field(Enhancement.AmbientColor), fresh.With(Enhancement.AmbientLight, 1), false, false)
+        && EnhancementsModel.Detail(Field(Enhancement.PhysicalSky), fresh) == "Real sky, sun, moon and stars that light the world"
         && EnhancementsModel.Detail(Field(Enhancement.AmbientLevel), fresh) == null);
+    Check("the Experimental features group holds Physical sky and Clouds, folds them away, and names what is on",
+        EnhancementsModel.Experimental(Field(Enhancement.PhysicalSky)) && EnhancementsModel.Experimental(Field(Enhancement.CloudWind))
+        && !EnhancementsModel.Experimental(Field(Enhancement.LensFlare)) && !EnhancementsModel.Experimental(Field(Enhancement.DepthOfField))
+        && EnhancementsModel.Shown(Field(Enhancement.PhysicalSky), fresh, false, false) && !EnhancementsModel.Shown(Field(Enhancement.Clouds), fresh, false, true)
+        && EnhancementsModel.Shown(Field(Enhancement.Haze), fresh, false, true) && EnhancementsModel.Shown(Field(Enhancement.NightBrightness), physical, false, false)
+        && EnhancementsModel.ExperimentalSummary(fresh) == "Off" && EnhancementsModel.ExperimentalSummary(physical.With(Enhancement.Clouds, 1)) == "Physical sky · Clouds");
+    Check("a preset saved with Ambient light's Sky and Haze reads them as Physical sky and Haziness",
+        EnhancementsModel.Parse("AmbientSky=1;AmbientHaze=0.3", new List<string>()) is { } old && old.On(Enhancement.PhysicalSky) && old[Enhancement.SkyHaziness] == 0.3f);
 }
 Check("the tone map's Auto exposure reaches its block as a share of 1, and is off by default",
     MathF.Abs(on.AutoExposure.Strength - 0.6f) < 1e-6f && Settings(fresh).AutoExposure.Strength == 0f
@@ -342,9 +348,9 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     string text = fresh.With(Enhancement.Haze, 1f).With(Enhancement.HazeDensity, 2.5f).ToString();
     var skipped = new List<string>();
     Check("the values write as name=number pairs and read back the same",
-        text.StartsWith("Enabled=0;AmbientLight=0;AmbientLevel=0.6;AmbientSky=0;AmbientHaze=0.1;AmbientColor=1;AmbientOcclusion=0.5;AmbientOcclusionRadius=1;") && text.Contains(";Haze=1;HazeDensity=2.5;")
+        text.StartsWith("Enabled=0;AmbientLight=0;AmbientLevel=0.6;AmbientColor=1;AmbientOcclusion=0.5;AmbientOcclusionRadius=1;") && text.Contains(";Haze=1;HazeDensity=2.5;")
         && text.Contains(";ToneMap=0;ToneMapCurve=1;ToneMapExposure=0;ToneMapAutoExposure=0;ToneMapBloom=1;ToneMapSaturation=1;ToneMapContrast=1;ToneMapShadows=0;ToneMapHighlights=0;LensFlare=0;LensFlareSource=0;")
-        && text.Contains(";LensFlareWarmth=0.5;LensFlareRedFringe=1;LensFlareTexture=1;DepthOfField=0;")
+        && text.Contains(";LensFlareWarmth=0.5;LensFlareRedFringe=1;LensFlareTexture=1;PhysicalSky=0;SkyHaziness=0.1;NightBrightness=85;Clouds=0;")
         && text.EndsWith(";HighlightDiscs=0;HighlightBoost=2;HighlightThreshold=2;BokehContrast=0;LensSoftness=0")
         && EnhancementsModel.Parse(text, skipped).Equals(fresh.With(Enhancement.Haze, 1f).With(Enhancement.HazeDensity, 2.5f)) && skipped.Count == 0);
     var partial = EnhancementsModel.Parse("Haze=1; nonsense; Fog=3; HazeDensity=x; ToneMapBloom=0", skipped);
@@ -358,16 +364,16 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     var haze = fresh.With(Enhancement.Haze, 1f);
     var running = haze.With(Enhancement.Enabled, 1f);
     Check("an effect's own rows show only while its switch is on, whatever the master switch says",
-        !EnhancementsModel.Shown(Field(Enhancement.HazeDensity), fresh, false) && EnhancementsModel.Shown(Field(Enhancement.HazeDensity), haze, false)
-        && EnhancementsModel.Shown(Field(Enhancement.HazeDensity), running, false) && !EnhancementsModel.Shown(Field(Enhancement.MistDensity), running, false));
+        !EnhancementsModel.Shown(Field(Enhancement.HazeDensity), fresh, false, false) && EnhancementsModel.Shown(Field(Enhancement.HazeDensity), haze, false, false)
+        && EnhancementsModel.Shown(Field(Enhancement.HazeDensity), running, false, false) && !EnhancementsModel.Shown(Field(Enhancement.MistDensity), running, false, false));
     Check("every switch shows while the category is open", EnhancementsModel.Fields.Where(field => field.Kind == EnhancementKind.Switch)
-        .All(field => EnhancementsModel.Shown(field, fresh, false)));
-    Check("folded, none of the category's rows show", EnhancementsModel.Fields.All(field => !EnhancementsModel.Shown(field, running, true)));
+        .All(field => EnhancementsModel.Shown(field, fresh, false, false)));
+    Check("folded, none of the category's rows show", EnhancementsModel.Fields.All(field => !EnhancementsModel.Shown(field, running, true, false)));
     var flaring = fresh.With(Enhancement.Enabled, 1).With(Enhancement.LensFlare, 1);
     var manual = flaring.With(Enhancement.LensFlareSource, EnhancementsModel.FlareManual);
-    Check("the lens flare's position shows only for its manual light", EnhancementsModel.Shown(Field(Enhancement.LensFlareStrength), flaring, false)
-        && !EnhancementsModel.Shown(Field(Enhancement.LensFlareX), flaring, false) && !EnhancementsModel.Shown(Field(Enhancement.LensFlareY), flaring, false)
-        && EnhancementsModel.Shown(Field(Enhancement.LensFlareX), manual, false) && EnhancementsModel.Shown(Field(Enhancement.LensFlareY), manual, false));
+    Check("the lens flare's position shows only for its manual light", EnhancementsModel.Shown(Field(Enhancement.LensFlareStrength), flaring, false, false)
+        && !EnhancementsModel.Shown(Field(Enhancement.LensFlareX), flaring, false, false) && !EnhancementsModel.Shown(Field(Enhancement.LensFlareY), flaring, false, false)
+        && EnhancementsModel.Shown(Field(Enhancement.LensFlareX), manual, false, false) && EnhancementsModel.Shown(Field(Enhancement.LensFlareY), manual, false, false));
     var placed = Settings(manual.With(Enhancement.LensFlareX, -1f).With(Enhancement.LensFlareY, 2f).With(Enhancement.LensFlareRedFringe, 3f)).LensFlare;
     Check("a manual light at the left edge and a height below the bottom goes to the add-on as 0 and 1.5, with the red fringe as the chromatic spread",
         placed is { Enabled: 1, Source: EnhancementsFlareSource.Manual, X: 0f, Y: 1.5f, Chromatic: 3f, Place: EnhancementsFlarePlace.Scene });
@@ -529,8 +535,8 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     var skipped = new List<string>();
     var saved = Presets.Saved(PresetSlot.Highest, new Dictionary<int, int>(), Overrides.None, null, lens);
     string text = Presets.Text(saved);
-    Check("a saved preset holds none of the depth of field's values: it ends with the lens flare's",
-        !text.Contains("DepthOfField") && !text.Contains("SoapBubble") && !text.Contains("BokehContrast") && text.EndsWith(";LensFlareTexture=1")
+    Check("a saved preset holds none of the depth of field's values: it ends with the clouds'",
+        !text.Contains("DepthOfField") && !text.Contains("SoapBubble") && !text.Contains("BokehContrast") && text.EndsWith(";CloudKind=0")
         && skipped.Count == 0);
     var userLens = fresh.With(Enhancement.DepthOfField, 1f).With(Enhancement.DepthOfFieldFocusMode, EnhancementsModel.EyeFocus)
         .With(Enhancement.DepthOfFieldFocusSpeed, 1.5f).With(Enhancement.DepthOfFieldAperture, 5f).With(Enhancement.SoapBubble, 0.2f);

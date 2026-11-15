@@ -333,8 +333,10 @@ namespace CameraTools
     internal sealed class StepperView : ArrowsView
     {
         public Text Note;
+        public Image Icon;
         private (int Index, int Count, string Name)? shown;
         private string note;
+        private Shape icon;
 
         public override void Sync(float step)
         {
@@ -347,6 +349,11 @@ namespace CameraTools
                 Value.text = position.Name ?? (position.Count == 0 ? "None" : $"{position.Index + 1} / {position.Count}");
                 Previous.color = Style.WithAlpha(Style.White, position.Index > 0 ? 1f : Style.StepDimmed);
                 Next.color = Style.WithAlpha(Style.White, position.Index < position.Count - 1 ? 1f : Style.StepDimmed);
+            }
+            if (Icon != null && stepper.Icon() is { } now && now != icon)
+            {
+                icon = now;
+                Icon.sprite = Shapes.Get(now);
             }
             if (Note == null)
                 return;
@@ -876,9 +883,19 @@ namespace CameraTools
         public StepperView Stepper(Transform parent, StepperRow row, float y)
         {
             var view = new StepperView();
-            var rect = Arrows(parent, view, row, y, row.Note != null, row.Enabled, row.Display != null ? Style.NameValueWidth : Style.ChoiceValueWidth);
+            float valueWidth = row.Display != null ? Style.NameValueWidth : Style.ChoiceValueWidth;
+            var rect = Arrows(parent, view, row, y, row.Note != null, row.Enabled, valueWidth);
             if (row.Note != null)
                 view.Note = NoteLabel(rect, row);
+            // The icon stands at the left of the value's box, on the arrows' line.
+            if (row.Icon?.Invoke() is { } shape)
+            {
+                bool noted = row.Note != null;
+                float lineY = noted ? Style.RowTextY : 0f, lineHeight = noted ? Style.RowTextHeight : Style.ToggleRowHeight;
+                view.Icon = Picture(rect, "Icon", shape, Style.White);
+                Pin(view.Icon.rectTransform, 1f, 1f, -(Style.RowRight + Style.StepSize + Style.StepGap + valueWidth) + Style.StepGap + shape.Width,
+                    -(lineY + (lineHeight - shape.Height) / 2f), shape.Width, shape.Height);
+            }
             view.Sync(1f);
             return view;
         }

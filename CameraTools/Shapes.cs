@@ -119,6 +119,35 @@ namespace CameraTools
         // False once Sprite.Create with a border has failed; the shapes are then drawn unsliced.
         public static bool Sliced { get; private set; } = true;
 
+        private static readonly Shape[] moons = new Shape[NightSky.MoonDays];
+
+        // Moon day's icon for a day of the cycle from the new moon: the lit part grows on the right and wanes on the left.
+        public static Shape Moon(int day)
+        {
+            day = Math.Clamp(day, 0, moons.Length - 1);
+            return moons[day] ??= MoonPhase(day);
+        }
+
+        private static Shape MoonPhase(int day)
+        {
+            const float size = 18f, radius = 8.5f;
+            float age = (day + 0.5f) / NightSky.MoonDays, lit = (1f - MathF.Cos(2f * MathF.PI * age)) / 2f;
+            bool waxing = age < 0.5f;
+            return new Shape($"Moon{day}", size, size, 0f, (x, y) =>
+            {
+                float u = (x - size / 2f) / radius, v = (y - size / 2f) / radius;
+                float alpha = Math.Clamp((1f - MathF.Sqrt(u * u + v * v)) * radius + 0.5f, 0f, 1f);
+                // The terminator is an ellipse across the disc: the lit part on its sunward side.
+                float terminator = (1f - 2f * lit) * MathF.Sqrt(MathF.Max(1f - v * v, 0f));
+                float side = waxing ? u - terminator : -terminator - u;
+                float shine = Math.Clamp(side * radius + 0.5f, 0f, 1f);
+                return new Color
+                {
+                    r = 0.23f + (0.94f - 0.23f) * shine, g = 0.25f + (0.90f - 0.25f) * shine, b = 0.31f + (0.82f - 0.31f) * shine, a = alpha,
+                };
+            });
+        }
+
         public static Sprite Get(Shape shape)
         {
             if (sprites.TryGetValue(shape, out var sprite) && sprite)

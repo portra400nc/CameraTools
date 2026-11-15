@@ -94,6 +94,9 @@ namespace CameraTools
     {
         // Read every frame for a name to show in place of "2 / 3", or null for the count.
         public Func<string> Display { get; init; }
+
+        // Read every frame for a small picture at the left of the name, or null for none.
+        internal Func<Shape> Icon { get; init; }
     }
 
     public sealed record ResolutionRow(string Label, int Slot) : Row(Label);
