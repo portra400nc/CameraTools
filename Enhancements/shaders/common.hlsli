@@ -104,7 +104,8 @@ cbuffer Constants : register(b0)
     float sky_cloud_illuminance;    // above the air, in sun units, of the light along cloud_toward_sun
     float sky_aerial;           // EnhancementsAerial.distance: the scene's meters times this are the air's
     float sky_vegetation;       // EnhancementsCelestial.vegetation_scale; 1 while the pass has no albedo
-    float2 sky_pad;
+    float sky_aerial_lit;       // 1: aerial_lit_ps.hlsl's share of lit air is bound for the haze; 0: all the air is lit
+    float sky_pad;
 };
 
 SamplerState point_clamp : register(s0);

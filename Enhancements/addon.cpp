@@ -1093,7 +1093,7 @@ namespace enhancements
                     }
                     case PassId::sky:
                         // Nothing to draw before the first map's atmosphere: the game's sky shows.
-                        call = sky_draw ? gpu.run_sky(map, *sky_draw, camera, settings.flip, game_lights) : std::optional<GameCall>(GameCall::keep);
+                        call = sky_draw ? gpu.run_sky(map, *sky_draw, camera, settings.flip, game_lights, d.uses_sun ? &sun_parse.constants : nullptr) : std::optional<GameCall>(GameCall::keep);
                         break;
                     case PassId::traced_lights:
                         // Nothing to add before the trace has a sample at every pixel.

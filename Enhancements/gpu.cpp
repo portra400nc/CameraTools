@@ -120,7 +120,8 @@ namespace enhancements
         float sky_cloud_illuminance;
         float sky_aerial;
         float sky_vegetation;
-        float sky_pad[2];
+        float sky_aerial_lit;
+        float sky_pad;
     };
     static_assert(sizeof(Constants) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
@@ -804,6 +805,7 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kDngFlarePs, sizeof kDngFlarePs, nullptr, &made.dng_flare_ps_))
             && SUCCEEDED(device->CreatePixelShader(kSkyViewPs, sizeof kSkyViewPs, nullptr, &made.sky_view_ps_))
             && SUCCEEDED(device->CreatePixelShader(kSkyPs, sizeof kSkyPs, nullptr, &made.sky_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kAerialLitPs, sizeof kAerialLitPs, nullptr, &made.aerial_lit_ps_))
             && SUCCEEDED(device->CreateVertexShader(kStarsVs, sizeof kStarsVs, nullptr, &made.stars_vs_))
             && SUCCEEDED(device->CreatePixelShader(kStarsPs, sizeof kStarsPs, nullptr, &made.stars_ps_))
             && SUCCEEDED(device->CreateBuffer(&sprites, nullptr, &made.dof_sprites_))
@@ -1568,7 +1570,7 @@ namespace enhancements
     }
 
     std::optional<GameCall> Gpu::run_sky(const FrameMap &map, const SkyDraw &sky, const Camera &camera, bool flip,
-        const std::vector<EnhancementsShotLight> &lamps)
+        const std::vector<EnhancementsShotLight> &lamps, const SunShadowConstants *sun)
     {
         constexpr Size kView = { 256, 128 };   // kSkyViewSize in shaders/sky.hlsli
         const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
@@ -1587,13 +1589,30 @@ namespace enhancements
         const std::optional<Texture> &albedo = map[Entry::albedo];
         const bool vegetation = sky.vegetation < 1 && albedo && mirror_gbuffer(map)
             && albedo_.sync(d, native(*albedo), static_cast<DXGI_FORMAT>(albedo->format), false);
+        // The distance haze's lit air, from this frame's sun atlas when it has one.
+        const Size half = { (map.render.width + 1) / 2, (map.render.height + 1) / 2 };
+        const bool shaded = sky.aerial > 0 && sun && sun_ready_ && aerial_lit_.sync(d, half, DXGI_FORMAT_R16_FLOAT);
         put_sky(sky, constants);
         if (!vegetation)
             constants.sky_vegetation = 1;
+        constants.sky_aerial_lit = shaded ? 1.0f : 0.0f;
+        if (shaded)
+        {
+            constants.sun_cascades = sun->cascades;
+            constants.sun_columns = sun->columns;
+            constants.sun_rows = sun->rows;
+        }
         upload(constants);
         ID3D11DeviceContext1 *c = context_.Get();
         scene_in_.copy_from(c, native(scene));
         depth_.copy_from(c, native(depth));
+        if (shaded)
+        {
+            ID3D11Buffer *const game[] = { game_sun_[0].Get(), game_sun_[1].Get(), game_sun_[2].Get(), game_sun_[3].Get() };
+            c->PSSetConstantBuffers(1, 4, game);
+            ID3D11ShaderResourceView *const march[] = { nullptr, nullptr, depth_.srv(), nullptr, nullptr, sun_atlas_.srv() };
+            draw_fullscreen(aerial_lit_ps_.Get(), march, 6, aerial_lit_.rtv(), half);
+        }
         if (vegetation)
         {
             albedo_.copy_from(c, native(*albedo));
@@ -1612,7 +1631,7 @@ namespace enhancements
         ID3D11RenderTargetView *const view_out[] = { sky_view_[0].rtv(), sky_view_[1].rtv(), sky_view_[2].rtv(), sky_view_[3].rtv(), sky_view_[4].rtv() };
         draw_fullscreen(sky_view_ps_.Get(), tables, kSrvSlots, view_out, 5, kView);
         ID3D11ShaderResourceView *const drawn[kSrvSlots] = { scene_in_.srv(), sky_view_[0].srv(), depth_.srv(), sky_view_[1].srv(), sky_view_[2].srv(),
-            sky_view_[3].srv(), sky_view_[4].srv(), moon_face_srv_.Get(), nullptr, sky_transmittance_srv_.Get(), sky_multiple_srv_.Get(),
+            sky_view_[3].srv(), sky_view_[4].srv(), moon_face_srv_.Get(), shaded ? aerial_lit_.srv() : nullptr, sky_transmittance_srv_.Get(), sky_multiple_srv_.Get(),
             vegetation ? depth_.stencil_srv() : nullptr, vegetation ? normals_.srv() : nullptr, vegetation ? albedo_.srv() : nullptr };
         draw_fullscreen(sky_ps_.Get(), drawn, kSrvSlots, scene_out_.rtv(), map.render);
         if (sky.stars && star_count_ > 0)

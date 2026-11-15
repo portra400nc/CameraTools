@@ -22,16 +22,18 @@ float3 night_vegetation(float3 color, int2 pixel, float3 at)
         return color;
     float3 n = normalize(mul((float3x3)world_to_view, vegetation_normals.Load(int3(pixel, 0)).xyz * 2 - 1));
     float3 shed = 0;
-    for (uint k = 0; k < min(lamp_info.x, 32u); k++)
+    // Unrolled, so every row is read at a fixed place: vkd3d-compiler declares a dynamically indexed buffer as immediately
+    // indexed, which the bytecode does not allow (as sun.hlsli's cascade_transform notes).
+    [unroll]
+    for (uint k = 0; k < 32u; k++)
     {
         float4 place = lamp_rows[k * 4u], radiance = lamp_rows[k * 4u + 1u], axis = lamp_rows[k * 4u + 2u];
         float3 v = place.xyz - at;
-        float d = max(length(v), 1e-3), x = d / place.w;
-        if (x >= 1)
-            continue;
+        float d = max(length(v), 1e-3), x = d / max(place.w, 1e-3);
         float3 l = v / d;
         float spot = saturate((-dot(l, axis.xyz) - radiance.w) / max(axis.w - radiance.w, 1e-4));
-        shed += radiance.rgb * saturate(dot(n, l) * 0.6 + 0.4) * saturate((1 - x) * 5) * spot / (1 + 25 * x * x);
+        float reach = k < lamp_info.x ? saturate((1 - x) * 5) : 0;
+        shed += radiance.rgb * saturate(dot(n, l) * 0.6 + 0.4) * reach * spot / (1 + 25 * x * x);
     }
     return color * sky_vegetation + (1 - sky_vegetation) * vegetation_linear(vegetation_albedo.Load(int3(pixel, 0)).rgb) * shed;
 }

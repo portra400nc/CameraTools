@@ -359,7 +359,7 @@ namespace enhancements
         // drawn for this frame's lights, the sky, the sun and the moon drawn over the mirrored HDR scene, the stars added
         // where the sky shows, and the result copied over the game's. Empty when a texture of ours failed.
         std::optional<GameCall> run_sky(const FrameMap &map, const SkyDraw &sky, const Camera &camera, bool flip,
-            const std::vector<EnhancementsShotLight> &lamps);
+            const std::vector<EnhancementsShotLight> &lamps, const SunShadowConstants *sun);
         // A traced shot's lights added to the HDR scene behind their traced visibility; run_trace mirrored what it reads this frame.
         std::optional<GameCall> run_traced_lights(const FrameMap &map, const Camera &camera, bool flip, TraceGpu &trace);
         // The normals, albedo and material ids the character light pass reads at bloom, copied at the combine step while they
@@ -538,7 +538,7 @@ namespace enhancements
         ComPtr<ID3D11Device> device_;
         ComPtr<ID3D11DeviceContext1> context_;
         ComPtr<ID3D11VertexShader> fullscreen_vs_, dof_sprite_vs_, stars_vs_;
-        ComPtr<ID3D11PixelShader> sky_view_ps_, sky_ps_, stars_ps_;
+        ComPtr<ID3D11PixelShader> sky_view_ps_, sky_ps_, stars_ps_, aerial_lit_ps_;
         ComPtr<ID3D11Buffer> night_lamps_constants_;  // core/night_lamps.h NightLamps at b4
         // The physical sky's air tables, R32G32B32A32_FLOAT, uploaded from sky_air_; the moon's face, R8G8B8A8_UNORM 512 a side;
         // the stars, two R32G32B32A32_FLOAT elements each.
@@ -600,6 +600,7 @@ namespace enhancements
         Scratch contact_;           // R8_UNORM raw sun visibility, 1 = lit
         Scratch sun_;               // R8_UNORM raw soft sun visibility, 1 = lit
         Scratch sum_;               // R32G32B32A32_FLOAT: rgb the weighted HDR sum, a the weight sum
+        Scratch aerial_lit_;        // half size, R16_FLOAT: aerial_lit_ps.hlsl's share of lit air
         Scratch shafts_;            // half size, R16G16B16A16_FLOAT: rgb the mist's raw in-scatter, a its transmittance
         Scratch shafts_meters_;     // half size, R16_FLOAT: the meters each ray marched
         Scratch shafts_view_;       // R16G16B16A16_FLOAT: the mist's in-scatter at full size, for the light-shafts view
