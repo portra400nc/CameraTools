@@ -322,7 +322,7 @@ namespace CameraTools
             settings.Ambient.Enabled = Bit(Enhancement.AmbientLight);
             settings.Ambient.Level = values[Enhancement.AmbientLevel];
             settings.AmbientColor.Neutral = 1f - values[Enhancement.AmbientColor];
-            settings.Sky.Physical = values.On(Enhancement.Enabled) && values.On(Enhancement.AmbientLight) && (int)values[Enhancement.AmbientSky] == SkyPhysical ? 1u : 0u;
+            settings.Sky.Physical = SkyDrawn(values) ? 1u : 0u;
             settings.Sky.Haze = values[Enhancement.AmbientHaze];
             settings.Ambient.AoStrength = values[Enhancement.AmbientOcclusion];
             settings.Ambient.AoRadius = values[Enhancement.AmbientOcclusionRadius];
@@ -455,6 +455,10 @@ namespace CameraTools
 
         // Whether the add-on draws the lens flare for these values, and the game's own sun flare is to stay off.
         public static bool FlareRuns(EnhancementValues values) => values.On(Enhancement.Enabled) && values.On(Enhancement.LensFlare);
+
+        // Whether the physical sky runs, which draws the sky, the sun, the moon and the stars and turns the main light to them.
+        public static bool SkyDrawn(EnhancementValues values) =>
+            values.On(Enhancement.Enabled) && values.On(Enhancement.AmbientLight) && (int)values[Enhancement.AmbientSky] == SkyPhysical;
 
         // The depth of field's block. The sensor is the one the focal length readout assumes, a full-frame diagonal in the
         // picture's shape, so the readout's millimeters and the blur describe the same lens; N times taller, the whole

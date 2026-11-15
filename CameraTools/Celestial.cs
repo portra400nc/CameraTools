@@ -138,3 +138,66 @@ namespace CameraTools
         }
     }
 }
+
+namespace CameraTools
+{
+    // The main light while the physical sky draws, toward it and as the game's linear color times intensity.
+    internal readonly record struct SkyLightState(Vec3 Toward, Vec3 Light);
+
+    // The game's sun light follows the sky's bodies: the sun through the air, which reddens and dims it down to sunset,
+    // and once the sun is 4 to 6 degrees down the game's own night light, from our moon while it is up and from high on
+    // the moon's side while it is down. The night's brightness waits for the night exposure.
+    internal static class CelestialLight
+    {
+        private const float NightFrom = -4f, NightTo = -6f;
+        // The moon takes the night light from 1 degree down to 4 up; below it, the light stands this far from the zenith.
+        private const float MoonFrom = -1f, MoonTo = 4f, OverheadTilt = 15f;
+        // The sun's light keeps above this, so its direction never lights from below while it fades out.
+        private const float LowestSun = 1f;
+
+        private static float Radians(float degrees) => degrees * MathF.PI / 180f;
+
+        private static float Smooth(float from, float to, float x)
+        {
+            float t = Math.Clamp((x - from) / (to - from), 0f, 1f);
+            return t * t * (3 - 2 * t);
+        }
+
+        private static float Elevation(Vec3 v) => MathF.Asin(Math.Clamp(v.Y, -1f, 1f)) * 180f / MathF.PI;
+
+        // v turned up or down about the horizontal to the given elevation, its azimuth kept.
+        private static Vec3 AtElevation(Vec3 v, float degrees)
+        {
+            var flat = new Vec3(v.X, 0, v.Z);
+            flat = flat.LengthSquared() > 1e-8f ? Vec3.Normalize(flat) : Vec3.UnitX;
+            return flat * MathF.Cos(Radians(degrees)) + Vec3.UnitY * MathF.Sin(Radians(degrees));
+        }
+
+        // Unit vectors' spherical blend; nearly opposite ones go by way of the zenith.
+        public static Vec3 Slerp(Vec3 a, Vec3 b, float t)
+        {
+            float c = Math.Clamp(Vec3.Dot(a, b), -1f, 1f);
+            if (c < -0.999f)
+                return t < 0.5f ? Slerp(a, Vec3.UnitY, t * 2) : Slerp(Vec3.UnitY, b, t * 2 - 1);
+            float angle = MathF.Acos(c);
+            if (angle < 1e-4f)
+                return Vec3.Normalize(Vec3.Lerp(a, b, t));
+            return Vec3.Normalize((MathF.Sin((1 - t) * angle) * a + MathF.Sin(t * angle) * b) / MathF.Sin(angle));
+        }
+
+        // sunThrough is the air's transmittance toward the sun, zenithThrough toward the zenith, which white-balances the
+        // light; dayLight the luminance the game's day sun shows on a white surface facing it; nightLight the game's own
+        // night light.
+        public static SkyLightState Of(CelestialSky sky, Vec3 sunThrough, Vec3 zenithThrough, float dayLight, Vec3 nightLight)
+        {
+            float sunUp = Elevation(sky.TowardSun), moonUp = Elevation(sky.TowardMoon);
+            var sun = sunUp >= LowestSun ? sky.TowardSun : AtElevation(sky.TowardSun, LowestSun);
+            var sunLight = dayLight * sunThrough / Vec3.Max(zenithThrough, new Vec3(1e-6f));
+            var moon = moonUp >= MoonTo ? sky.TowardMoon : AtElevation(sky.TowardMoon, MoonTo);
+            var overhead = AtElevation(sky.TowardMoon, 90f - OverheadTilt);
+            var night = Slerp(overhead, moon, Smooth(MoonFrom, MoonTo, moonUp));
+            float w = Smooth(NightFrom, NightTo, sunUp);
+            return new SkyLightState(Slerp(sun, night, w), (1 - w) * sunLight + w * nightLight);
+        }
+    }
+}

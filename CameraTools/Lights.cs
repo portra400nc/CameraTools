@@ -428,8 +428,11 @@ namespace CameraTools
                 // Studio lighting turns the game's face shadow toward the camera, so its shading baked into the face fights no light.
                 if (CharacterLighting.Active && camera)
                     CharacterSun.Update(camera.transform.position, null);
+                else if (sun >= 0)
+                    CharacterSun.Update(placed[sun]?.Position.ToUnity(), new Color(color.X, color.Y, color.Z, 1f));
                 else
-                    CharacterSun.Update(sun >= 0 ? placed[sun]?.Position.ToUnity() : null, new Color(color.X, color.Y, color.Z, 1f));
+                    // The physical sky's light, so the characters are lit from where the world is.
+                    CharacterSun.Update(NightSky.CharacterLightFrom(), null);
                 if (changedAt is float at && Time.unscaledTime - at >= SaveDelay)
                 {
                     changedAt = null;

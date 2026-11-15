@@ -96,6 +96,26 @@ internal static class CelestialTests
         check("the moon reaches the meridian about 50 minutes later each day", MathF.Abs((float)(drift / 29 / 15 * 60) - 50.5f) < 2f);
         float[] declinations = Enumerable.Range(0, 28).Select(day => Degrees(MathF.Asin(Vec3.Dot(Celestial.FromUnity(Celestial.Place(frame, day, TowardSun(0f)).TowardMoon), frame.North)))).ToArray();
         check("over a month the moon's declination swings past 25 degrees either way", declinations.Max() > 25 && declinations.Min() < -25);
+        // The main light: the sun through the air by day, the game's night light from the moon at night.
+        Vec3 Up(float degrees, float azimuth = 0) => new(MathF.Cos(degrees * MathF.PI / 180) * MathF.Cos(azimuth), MathF.Sin(degrees * MathF.PI / 180),
+            MathF.Cos(degrees * MathF.PI / 180) * MathF.Sin(azimuth));
+        CelestialSky At(float sun, float moon) => noon with { TowardSun = Up(sun), TowardMoon = Up(moon, 2f) };
+        var through = new Vec3(0.6f, 0.5f, 0.4f);
+        var zenith = new Vec3(0.84f, 0.79f, 0.69f);
+        var night = new Vec3(0.2f, 0.6f, 1f);
+        var daylit = CelestialLight.Of(At(30, 50), through, zenith, 1.5f, night);
+        check("by day the main light shines from the sun, the game's day light dimmed and reddened by the air over its zenith's",
+            Angle(daylit.Toward, Up(30)) < 0.01f && Vec3.Distance(daylit.Light, new Vec3(1.5f * 0.6f / 0.84f, 1.5f * 0.5f / 0.79f, 1.5f * 0.4f / 0.69f)) < 1e-4f);
+        var moonlit = CelestialLight.Of(At(-10, 40), Vec3.Zero, zenith, 1.5f, night);
+        check("at night it shines from the moon with the game's night light", Angle(moonlit.Toward, Up(40, 2f)) < 0.01f && moonlit.Light == night);
+        var moonless = CelestialLight.Of(At(-10, -30), Vec3.Zero, zenith, 1.5f, night);
+        check("with the moon down it shines from 75 degrees up on the moon's side", MathF.Abs(Degrees(MathF.Asin(moonless.Toward.Y)) - 75) < 0.1f
+            && Vec3.Dot(moonless.Toward, Up(0, 2f)) > 0 && moonless.Light == night);
+        var dusk = CelestialLight.Of(At(-5, 40), Vec3.Zero, zenith, 1.5f, night);
+        check("with the sun 5 degrees down it is halfway to the night light, and its direction never lights from below",
+            Vec3.Distance(dusk.Light, night * 0.5f) < 1e-4f && dusk.Toward.Y > 0.01f && CelestialLight.Of(At(-2, 40), Vec3.Zero, zenith, 1.5f, night).Toward.Y > 0.01f);
+        check("the spherical blend of opposite directions goes by the zenith", Vec3.Distance(CelestialLight.Slerp(Vec3.UnitX, -Vec3.UnitX, 0.5f), Vec3.UnitY) < 1e-4f);
+
         var evening = Celestial.Place(frame, 21 / 24.0, TowardSun(21f));
         check("on the evening of day 0 a half-lit moon stands 35.7 degrees up at 21:00, and it is full on day 8",
             MathF.Abs(evening.MoonIlluminated - 0.5f) < 0.03f && MathF.Abs(Degrees(MathF.Asin(evening.TowardMoon.Y)) - 35.7f) < 0.3f && fullest == 8);

@@ -33,6 +33,9 @@ namespace CameraTools
 
         private static EnhancementValues Running => run.Running;
 
+        // What the add-on runs now: the user's own values, or those a screenshot holds.
+        public static EnhancementValues RunningValues => run.Running;
+
         public static bool Folded => folded.Value;
 
         // The right of the heading: why the add-on cannot run the effects, or whether anything is switched on.
@@ -104,7 +107,8 @@ namespace CameraTools
         // of field's block follows the free camera, the picture's shape, the miniature scale and the screenshot.
         public static void Update()
         {
-            GameFlare.Update(Enhancements.Connected && EnhancementsModel.FlareRuns(Running));
+            // The physical sky draws its own sun, which the game's flare would double.
+            GameFlare.Update(Enhancements.Connected && (EnhancementsModel.FlareRuns(Running) || EnhancementsModel.SkyDrawn(Running)));
             GameClouds.Update(Enhancements.Connected && EnhancementsModel.CloudsRun(Running));
             var now = DepthOfField.Frame;
             if (connections != Enhancements.Connections)

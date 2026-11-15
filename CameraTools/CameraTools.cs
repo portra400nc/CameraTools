@@ -43,6 +43,7 @@ namespace CameraTools
             CameraPaths.Load();
             Lights.Load();
             CharacterLighting.Load();
+            NightSky.Load();
             Poses.Load();
             Screenshot.Load();
             DepthOfField.Load();
@@ -142,6 +143,7 @@ namespace CameraTools
             Graphics.Update();
             TimeOfDay.Update();
             Weather.Update();
+            NightSky.Update(CameraToolsEnhancements.Enhancements.Connected && EnhancementsModel.SkyDrawn(EnhancementsControl.RunningValues));
 
             if (freecamActive && !camera)
             {
@@ -330,6 +332,7 @@ namespace CameraTools
             if (rendering != maincam)
                 return;
             Replays.PreCull();
+            NightSky.PreCull();
             CharacterSun.PreCull();
             EnhancementsCamera.Push(rendering);
         }
