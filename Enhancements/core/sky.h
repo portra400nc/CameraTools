@@ -81,6 +81,8 @@ namespace enhancements
 
     // The luminance a level floor gets from a light, straight and from the sky it lights, per unit of the sun's illuminance.
     float level_illuminance(const Atmosphere &atmosphere, const SkyLight &light);
+    // The same from the sky alone.
+    float sky_floor(const Atmosphere &atmosphere, const SkyLight &light);
 
     // How the physical sky shows in the game's units until the night has an exposure of its own: the sun straight
     // overhead lights a white surface facing it as the game's day light does, white, so the sun's color through the air
@@ -93,6 +95,9 @@ namespace enhancements
         float twilight_power = 0.85f;
         float night_stops = 17;
     };
+
+    // The provisional exposure's multiple over a day's: 1 until the light on a level floor falls below the sun's at 10 degrees.
+    float exposure_gain(const Atmosphere &atmosphere, const SkyLight &sun, const SkyLight &moon, const SkyExposure &exposure);
 
     // Game units per unit of the sun's light above the atmosphere, per channel.
     Vec3f sky_scale(const Atmosphere &atmosphere, const SkyLight &sun, const SkyLight &moon, const SkyExposure &exposure);
@@ -107,6 +112,14 @@ namespace enhancements
         SkyExposure exposure;
         float haze = 0.1f;          // SkySettings::aerosol_depth
     };
+
+    // How the physical sky lights the world, in the game's units at sky_scale, so the world takes the drawn sky's exposure.
+    struct WorldLight
+    {
+        Vec3f sun, moon;            // each body's direct light on a white surface facing it
+        float sky_share = 0;        // the sky's light on a level floor over its light with the sun overhead at a day's exposure
+    };
+    WorldLight world_light(const Atmosphere &atmosphere, const SkyRequest &request);
 
     // The sky's light along view in the game's units for scale: the sun's and the moon's light scattered by the air, and
     // the night's own.

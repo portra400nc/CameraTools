@@ -218,7 +218,7 @@ int main()
     EnhancementsCelestial body {};
     body.size = sizeof body;
     check("a celestial too short for its sun is none", (body.size = 8, !parse_celestial(&body)) && !parse_celestial(nullptr));
-    body = { sizeof body, 1, { 0, 2, 0, 0 }, { 3, 0, 4, 9 }, { 0, 0, 1, 0 }, { 1, 0, 0, 0 }, { 0, 1, 0, 0 }, { 0, 0, 1, 0 }, -1, 5, 40, 12 };
+    body = { sizeof body, 1, { 0, 2, 0, 0 }, { 3, 0, 4, 9 }, { 0, 0, 1, 0 }, { 1, 0, 0, 0 }, { 0, 1, 0, 0 }, { 0, 0, 1, 0 }, -1, 5, 40, 12, 1 };
     const std::optional<Celestial> parsed = parse_celestial(&body);
     check("a celestial's directions come out unit length, its phase clamped to pi, a day light below 0 read as 1.5, its exposure clamped",
         parsed && parsed->stars && parsed->toward_sun == std::array<float, 3> { 0, 1, 0 } && parsed->toward_moon == std::array<float, 3> { 0.6f, 0, 0.8f }
@@ -245,5 +245,42 @@ int main()
     check("a caller built before the shape draws heaps", parse_settings(raw).clouds.enabled && parse_settings(raw).clouds.shape == CloudShape::heaps);
     raw.size = offsetof(EnhancementsSettings, clouds);
     check("a caller built before the clouds draws none", !parse_settings(raw).clouds.enabled && parse_settings(raw).clouds.coverage == 0.5f);
+    {
+        // The world's light at the drawn sky's exposure, for a day light of 1.5 and the default exposure.
+        const Atmosphere clear = make_atmosphere(SkySettings {});
+        const auto lit = [&clear](float sun, float moon, float phase) {
+            SkyRequest r;
+            r.sun = { toward(sun), 1 };
+            r.moon = { toward(moon), moon_illuminance(phase) };
+            r.exposure = { 1.5f, 0.85f, 17 };
+            return world_light(clear, r);
+        };
+        const auto near = [](float a, float b) { return std::fabs(a - b) <= 0.01f * std::fabs(b); };
+        const WorldLight overhead = lit(90, -90, 3.14f);
+        check("with the sun overhead its light on a white surface is the day light, white, and the sky's share is 1",
+            std::fabs(overhead.sun[0] - 1.5f) < 1e-3f && std::fabs(overhead.sun[2] - 1.5f) < 1e-3f && std::fabs(overhead.sky_share - 1) < 1e-5f);
+        const WorldLight afternoon = lit(30, -90, 3.14f);
+        check("with the sun 30 degrees up its light is 1.219 and warmer, the sky's share 0.730",
+            near(luminance(afternoon.sun), 1.2192f) && afternoon.sun[0] > afternoon.sun[2] && near(afternoon.sky_share, 0.72958f));
+        const WorldLight blue_hour = lit(-6, -90, 3.14f);
+        check("with the sun 6 degrees down there is no sunlight and the exposed sky keeps a quarter of a day's, 0.247",
+            luminance(blue_hour.sun) == 0 && near(blue_hour.sky_share, 0.24674f));
+        const WorldLight full = lit(-30, 40, 0);
+        check("a full moon 40 degrees up lights a white surface 0.0456 at the night's exposure, the sky's share 0.0284",
+            near(luminance(full.moon), 0.045579f) && near(full.sky_share, 0.028441f));
+        const WorldLight moonless = lit(-30, -30, 0);
+        check("with no moon only the night's glow is left, the sky's share 0.00314", luminance(moonless.moon) == 0 && near(moonless.sky_share, 0.0031357f));
+    }
+    {
+        EnhancementsCelestial raw {};
+        raw.size = sizeof raw;
+        raw.toward_sun[1] = 1;
+        raw.ambient_scale = 0.25f;
+        check("the celestial's ambient scale reads as given", parse_celestial(&raw)->ambient_scale == 0.25f);
+        raw.ambient_scale = 9;
+        check("and clamps to 4", parse_celestial(&raw)->ambient_scale == 4);
+        raw.size = offsetof(EnhancementsCelestial, ambient_scale);
+        check("a caller built before it keeps the ambient as it is", parse_celestial(&raw)->ambient_scale == 1);
+    }
     return failures == 0 ? 0 : 1;
 }

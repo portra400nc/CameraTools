@@ -327,6 +327,7 @@ namespace enhancements
         float twilight_power = 0.85f;
         float night_stops = 17;
         float days = 0;
+        float ambient_scale = 1;
     };
 
     // Null for a null pointer or one too short to hold the sun. A sun that is zero or not finite becomes zero, for the

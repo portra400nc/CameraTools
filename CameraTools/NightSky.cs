@@ -11,10 +11,13 @@ namespace CameraTools
     // draws them. Puts the game's light back once the physical sky stops.
     internal static class NightSky
     {
-        // The game's measured lights (2026-11-15) until it shows its own: its day sun's luminance on a white surface, and
-        // its night light, color (0.47, 0.73, 0.92) at intensity 1.2, in linear color times intensity.
+        // The game's measured light (2026-11-15) until it shows its own: its day sun's luminance on a white surface.
         private const float MeasuredDayLight = 1.5f;
-        private static readonly Vec3 MeasuredNightLight = new(0.226f, 0.608f, 1.0f);
+        // The game's ambient light at noon (2026-11-15, RenderSettings' sky and ground colors), whose luminance the game's
+        // keeps through the night: the physical sky's share of a day's sky light is taken over the game's share of it.
+        private static readonly Vec3 MeasuredDayAmbientSky = new(0.482f, 0.758f, 0.939f), MeasuredDayAmbientGround = new(0.448f, 0.562f, 0.675f);
+        // The sun's sine above which the game's ambient is a day's.
+        private const float DaySun = 0.342f;
 
         // The provisional exposure (core/sky.h, SkyExposure) until the night has its own. Probe items tune them.
         public static float TwilightPower { get; set; } = 0.85f;
@@ -34,7 +37,7 @@ namespace CameraTools
         private static Color gameColor, ourColor;
         private static float gameIntensity, ourIntensity;
         private static float dayLight = MeasuredDayLight;
-        private static Vec3 nightLight = MeasuredNightLight;
+        private static float dayAmbient = AmbientLuminance(MeasuredDayAmbientSky, MeasuredDayAmbientGround);
 
         // The sky whose fog we switched off: the game's distance and height fog take its painted time-of-day colors (gold at
         // dawn, cyan at night) over the whole view, which the physical sky's light contradicts.
@@ -98,20 +101,39 @@ namespace CameraTools
             }
             var towardSun = ToNumerics(-sky.GetSunLightDirection(sky.curTimeOfDay24, config.sunAngle, config.sunInclination, config.sunInclinationOffset));
             float haze = EnhancementsControl.RunningValues[Enhancement.AmbientHaze];
-            if (frame is not { } fitted || Enhancements.Sunlight(towardSun.Y, haze) is not { } through || Enhancements.Sunlight(1f, haze) is not { } zenith)
+            var placed = frame is { } fitted ? Celestial.Place(fitted, Days, towardSun) : (CelestialSky?)null;
+            var bodies = Bodies(towardSun, placed);
+            if (placed is not { } known || Enhancements.WorldLight(bodies, haze) is not { } world)
             {
                 Release();
                 Sky = null;
                 Light = null;
-                Push(towardSun, null);
+                Enhancements.SetCelestial(bodies);
                 return;
             }
-            var placed = Celestial.Place(fitted, Days, towardSun);
-            Sky = placed;
-            Watch(sky);
-            Light = CelestialLight.Of(placed, new Vec3(through.R, through.G, through.B), new Vec3(zenith.R, zenith.G, zenith.B), dayLight, nightLight);
+            Sky = known;
+            Watch(sky, towardSun);
+            Light = CelestialLight.Of(known, new Vec3(world.SunR, world.SunG, world.SunB), new Vec3(world.MoonR, world.MoonG, world.MoonB));
             Drive();
-            Push(towardSun, placed);
+            // The game keeps its ambient light up through the night, so the ambient pass takes it at the physical sky's
+            // share of a day's sky light over the game's own share.
+            float gameShare = AmbientLuminance(RenderSettings.ambientSkyColor, RenderSettings.ambientGroundColor) / dayAmbient;
+            bodies.AmbientScale = gameShare > 1e-4f ? Math.Clamp(world.SkyShare / gameShare, 0f, 4f) : 1f;
+            AmbientScale = bodies.AmbientScale;
+            Enhancements.SetCelestial(bodies);
+        }
+
+        // The ambient pass's multiple this frame, for the probe.
+        public static float AmbientScale { get; private set; } = 1f;
+
+        // In C# alone: it also runs in the type's initializer, before any of Unity's calls can be made.
+        private static float AmbientLuminance(Color sky, Color ground) => AmbientLuminance(new Vec3(sky.r, sky.g, sky.b), new Vec3(ground.r, ground.g, ground.b));
+
+        private static float AmbientLuminance(Vec3 sky, Vec3 ground)
+        {
+            static float Linear(float v) => v <= 0.04045f ? v / 12.92f : MathF.Pow((v + 0.055f) / 1.055f, 2.4f);
+            static float Luma(Vec3 c) => 0.2126f * Linear(c.X) + 0.7152f * Linear(c.Y) + 0.0722f * Linear(c.Z);
+            return Luma(sky) + Luma(ground);
         }
 
         // Camera.onPreCull of the main camera: puts the light back where we set it, should the game have turned it since.
@@ -164,7 +186,7 @@ namespace CameraTools
         }
 
         // Takes the game's main light, and reads what the game set on it whenever it differs from what we set.
-        private static void Watch(EnviroSky sky)
+        private static void Watch(EnviroSky sky, Vec3 towardSun)
         {
             var main = sky.MainLight;
             if (held != null && (!held || main == null || held.Pointer != main.Pointer))
@@ -179,13 +201,13 @@ namespace CameraTools
                 gameColor = main.color;
                 gameIntensity = main.intensity;
                 var linear = main.color.linear * main.intensity;
-                if (sky.IsNight)
-                    nightLight = new Vec3(linear.r, linear.g, linear.b);
-                else
+                if (!sky.IsNight)
                     dayLight = 0.2126f * linear.r + 0.7152f * linear.g + 0.0722f * linear.b;
             }
+            if (towardSun.Y > DaySun)
+                dayAmbient = AmbientLuminance(RenderSettings.ambientSkyColor, RenderSettings.ambientGroundColor);
             if (fresh)
-                Log($"the main light follows the sky's bodies; the game's day light {dayLight:0.###}, its night light ({nightLight.X:0.###}, {nightLight.Y:0.###}, {nightLight.Z:0.###}).");
+                Log($"the main light follows the sky's bodies; the game's day light {dayLight:0.###}, its day ambient {dayAmbient:0.###}.");
             held = main;
         }
 
@@ -218,12 +240,12 @@ namespace CameraTools
             held = null;
         }
 
-        private static void Push(Vec3 towardSun, CelestialSky? placed)
+        private static EnhancementsCelestial Bodies(Vec3 towardSun, CelestialSky? placed)
         {
             var c = new EnhancementsCelestial
             {
                 SunX = towardSun.X, SunY = towardSun.Y, SunZ = towardSun.Z,
-                DayLight = dayLight, TwilightPower = TwilightPower, NightStops = NightStops, Days = (float)Days,
+                DayLight = dayLight, TwilightPower = TwilightPower, NightStops = NightStops, Days = (float)Days, AmbientScale = 1f,
             };
             if (placed is { } p)
             {
@@ -234,7 +256,7 @@ namespace CameraTools
                 (c.StarsYX, c.StarsYY, c.StarsYZ) = (p.StarsY.X, p.StarsY.Y, p.StarsY.Z);
                 (c.StarsZX, c.StarsZY, c.StarsZZ) = (p.StarsZ.X, p.StarsZ.Y, p.StarsZ.Z);
             }
-            Enhancements.SetCelestial(c);
+            return c;
         }
 
         private static Vec3 ToNumerics(Vector3 v) => new(v.x, v.y, v.z);

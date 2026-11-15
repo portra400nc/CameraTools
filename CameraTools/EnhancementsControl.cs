@@ -109,7 +109,8 @@ namespace CameraTools
         {
             // The physical sky draws its own sun, which the game's flare would double.
             GameFlare.Update(Enhancements.Connected && (EnhancementsModel.FlareRuns(Running) || EnhancementsModel.SkyDrawn(Running)));
-            GameClouds.Update(Enhancements.Connected && EnhancementsModel.CloudsRun(Running));
+            // The game's clouds keep its painted lighting, which the physical sky's contradicts.
+            GameClouds.Update(Enhancements.Connected && (EnhancementsModel.CloudsRun(Running) || EnhancementsModel.SkyDrawn(Running)));
             var now = DepthOfField.Frame;
             if (connections != Enhancements.Connections)
             {

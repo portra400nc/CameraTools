@@ -185,19 +185,17 @@ namespace CameraTools
             return Vec3.Normalize((MathF.Sin((1 - t) * angle) * a + MathF.Sin(t * angle) * b) / MathF.Sin(angle));
         }
 
-        // sunThrough is the air's transmittance toward the sun, zenithThrough toward the zenith, which white-balances the
-        // light; dayLight the luminance the game's day sun shows on a white surface facing it; nightLight the game's own
-        // night light.
-        public static SkyLightState Of(CelestialSky sky, Vec3 sunThrough, Vec3 zenithThrough, float dayLight, Vec3 nightLight)
+        // sunLight and moonLight are each body's direct light on a white surface facing it, in the game's units at the drawn
+        // sky's exposure (the add-on's world light).
+        public static SkyLightState Of(CelestialSky sky, Vec3 sunLight, Vec3 moonLight)
         {
             float sunUp = Elevation(sky.TowardSun), moonUp = Elevation(sky.TowardMoon);
             var sun = sunUp >= LowestSun ? sky.TowardSun : AtElevation(sky.TowardSun, LowestSun);
-            var sunLight = dayLight * sunThrough / Vec3.Max(zenithThrough, new Vec3(1e-6f));
             var moon = moonUp >= MoonTo ? sky.TowardMoon : AtElevation(sky.TowardMoon, MoonTo);
             var overhead = AtElevation(sky.TowardMoon, 90f - OverheadTilt);
             var night = Slerp(overhead, moon, Smooth(MoonFrom, MoonTo, moonUp));
             float w = Smooth(NightFrom, NightTo, sunUp);
-            return new SkyLightState(Slerp(sun, night, w), (1 - w) * sunLight + w * nightLight);
+            return new SkyLightState(Slerp(sun, night, w), (1 - w) * sunLight + w * moonLight);
         }
     }
 }

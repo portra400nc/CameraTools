@@ -352,31 +352,56 @@ namespace enhancements
         return mul(glow, sky_transmittance(a, view));
     }
 
-    float level_illuminance(const Atmosphere &a, const SkyLight &light)
+    float sky_floor(const Atmosphere &a, const SkyLight &light)
     {
         if (light.illuminance <= 0)
             return 0;
         const float sine = std::min(std::max(light.toward[1], -1.0f), 1.0f);
         const float x = std::min(std::max((sine - kIrradianceLow) / (1 - kIrradianceLow), 0.0f), 1.0f) * (kIrradianceSize - 1);
         const uint32_t i0 = std::min(uint32_t(x), kIrradianceSize - 2);
-        const float sky = a.irradiance[i0] + (a.irradiance[i0 + 1] - a.irradiance[i0]) * (x - i0);
-        const float direct = luminance_of(sky_transmittance(a, light.toward)) * std::max(sine, 0.0f);
-        return light.illuminance * (sky + direct);
+        return light.illuminance * (a.irradiance[i0] + (a.irradiance[i0 + 1] - a.irradiance[i0]) * (x - i0));
+    }
+
+    float level_illuminance(const Atmosphere &a, const SkyLight &light)
+    {
+        if (light.illuminance <= 0)
+            return 0;
+        const float direct = luminance_of(sky_transmittance(a, light.toward)) * std::max(light.toward[1], 0.0f);
+        return sky_floor(a, light) + light.illuminance * direct;
+    }
+
+    namespace
+    {
+        // A moonless night's floor gets about pi times the glow's zenith radiance.
+        float night_floor(const Atmosphere &a) { return kPi * luminance_of(night_glow(a, { 0, 1, 0 })); }
+    }
+
+    float exposure_gain(const Atmosphere &a, const SkyLight &sun, const SkyLight &moon, const SkyExposure &exposure)
+    {
+        const float light = level_illuminance(a, sun) + level_illuminance(a, moon) + night_floor(a);
+        const float low_sun = level_illuminance(a, { { 0.98481f, 0.17365f, 0 }, 1 });
+        if (light < low_sun && light > 0)
+            return std::min(std::pow(low_sun / light, std::max(exposure.twilight_power, 0.0f)), std::exp2(std::max(exposure.night_stops, 0.0f)));
+        return 1;
     }
 
     Vec3f sky_scale(const Atmosphere &a, const SkyLight &sun, const SkyLight &moon, const SkyExposure &exposure)
     {
         const Vec3f zenith = sky_transmittance(a, { 0, 1, 0 });
         const float white = luminance_of(zenith);
-        // A moonless night's floor gets about pi times the glow's zenith radiance.
-        const float night = kPi * luminance_of(night_glow(a, { 0, 1, 0 }));
-        const float light = level_illuminance(a, sun) + level_illuminance(a, moon) + night;
-        const float low_sun = level_illuminance(a, { { 0.98481f, 0.17365f, 0 }, 1 });
-        float gain = 1;
-        if (light < low_sun && light > 0)
-            gain = std::min(std::pow(low_sun / light, std::max(exposure.twilight_power, 0.0f)), std::exp2(std::max(exposure.night_stops, 0.0f)));
-        const float k = kPi * std::max(exposure.day_light, 0.0f) / std::max(white, 1e-6f) * gain;
+        const float k = kPi * std::max(exposure.day_light, 0.0f) / std::max(white, 1e-6f) * exposure_gain(a, sun, moon, exposure);
         return { k * white / zenith[0], k * white / zenith[1], k * white / zenith[2] };
+    }
+
+    WorldLight world_light(const Atmosphere &a, const SkyRequest &request)
+    {
+        const Vec3f k = sky_scale(a, request.sun, request.moon, request.exposure);
+        const auto direct = [&](const SkyLight &light) {
+            return light.illuminance > 0 ? scale(mul(sky_transmittance(a, light.toward), k), light.illuminance / kPi) : Vec3f {};
+        };
+        const float day = sky_floor(a, { { 0, 1, 0 }, 1 });
+        const float now = sky_floor(a, request.sun) + sky_floor(a, request.moon) + night_floor(a);
+        return { direct(request.sun), direct(request.moon), day > 0 ? now * exposure_gain(a, request.sun, request.moon, request.exposure) / day : 0 };
     }
 
     Vec3f sky_light(const Atmosphere &a, const Vec3f &view, const SkyRequest &request, const Vec3f &k)

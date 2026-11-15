@@ -744,6 +744,7 @@ namespace enhancements
         const bool ok = SUCCEEDED(device->CreateVertexShader(kFullscreenVs, sizeof kFullscreenVs, nullptr, &made.fullscreen_vs_))
             && SUCCEEDED(device->CreatePixelShader(kAoPs, sizeof kAoPs, nullptr, &made.ao_ps_))
             && SUCCEEDED(device->CreatePixelShader(kAmbientPs, sizeof kAmbientPs, nullptr, &made.ambient_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kAmbientSpecularPs, sizeof kAmbientSpecularPs, nullptr, &made.ambient_specular_ps_))
             && SUCCEEDED(device->CreatePixelShader(kContactPs, sizeof kContactPs, nullptr, &made.contact_ps_))
             && SUCCEEDED(device->CreatePixelShader(kContactShadowsPs, sizeof kContactShadowsPs, nullptr, &made.contact_shadows_ps_))
             && SUCCEEDED(device->CreatePixelShader(kSunPs, sizeof kSunPs, nullptr, &made.sun_ps_))
@@ -1090,7 +1091,7 @@ namespace enhancements
         return trace.copy_for_save(save, normals_.texture(), depth_.texture(), shadow_mask_in_.texture(), irradiance_in_.texture());
     }
 
-    std::optional<GameCall> Gpu::run_ambient(const FrameMap &map, const AmbientSettings &settings, const Camera &camera, bool flip, const SkyMap *physical)
+    std::optional<GameCall> Gpu::run_ambient(const FrameMap &map, const AmbientSettings &settings, const Camera &camera, bool flip, const SkyMap *physical, float reflection_scale)
     {
         const Texture &irradiance = *map[Entry::ambient_diffuse];
         const auto irradiance_format = static_cast<DXGI_FORMAT>(irradiance.format);
@@ -1127,6 +1128,20 @@ namespace enhancements
         draw_fullscreen(ao_ps_.Get(), srvs, 4, ao_.rtv(), map.render);
         draw_fullscreen(ambient_ps_.Get(), srvs, 5, irradiance_out_.rtv(), map.render);
         irradiance_out_.copy_to(c, native(irradiance));
+        // The game's reflections at the physical sky's share of a day's light, through level.
+        const std::optional<Texture> &probes = map[Entry::ambient_specular];
+        if (reflection_scale != 1 && probes)
+        {
+            const auto format = static_cast<DXGI_FORMAT>(probes->format);
+            if (!reflection_in_.sync(device_.Get(), native(*probes), format, false) || !reflection_out_.sync(device_.Get(), native(*probes), format, true))
+                return GameCall::keep;
+            constants.level = reflection_scale;
+            upload(constants);
+            reflection_in_.copy_from(c, native(*probes));
+            ID3D11ShaderResourceView *const reflected[] = { reflection_in_.srv(), normals_.srv(), depth_.srv(), depth_.stencil_srv() };
+            draw_fullscreen(ambient_specular_ps_.Get(), reflected, 4, reflection_out_.rtv(), map.render);
+            reflection_out_.copy_to(c, native(*probes));
+        }
         return GameCall::keep;
     }
 

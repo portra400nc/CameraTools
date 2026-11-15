@@ -43,6 +43,18 @@ namespace enhancements
 {
     namespace
     {
+        // What the physical sky is built for from EnhancementsSetCelestial's bodies; the sun stays zero when they have none.
+        SkyRequest sky_request(const Celestial &bodies, float haze)
+        {
+            SkyRequest r;
+            r.sun = { bodies.toward_sun, 1 };
+            if (bodies.stars)
+                r.moon = { bodies.toward_moon, moon_illuminance(bodies.moon_phase) };
+            r.exposure = { bodies.day_light, bodies.twilight_power, bodies.night_stops };
+            r.haze = std::isfinite(haze) ? std::clamp(haze, 0.0f, 0.5f) : 0.1f;
+            return r;
+        }
+
         // One writer each: the C# thread writes settings and camera, the render thread writes status and armed.
         // A mailbox is a value behind a mutex plus a generation the reader polls without the lock.
         template <class T>
@@ -210,6 +222,19 @@ namespace enhancements
         uint64_t celestial_seen = 0;
         std::optional<SkyDraw> sky_draw;
         bool ambient_physical_said = false;     // the log said the ambient pass took the physical sky's color
+
+        // The ambient pass's and the traced ambient's level: with the physical sky, at its share of a day's sky light.
+        float ambient_level()
+        {
+            return settings.ambient.level * (settings.sky.enabled && celestial ? celestial->ambient_scale : 1.0f);
+        }
+
+        AmbientSettings scaled_ambient()
+        {
+            AmbientSettings a = settings.ambient;
+            a.level = ambient_level();
+            return a;
+        }
 
         // An ENHANCEMENTS_SCENE_TRACE capture's triangles as the writer thread writes its faces.
         struct TraceBuild
@@ -776,7 +801,7 @@ namespace enhancements
                     : std::string("nowhere: there is no sun")) + "; the pushed camera's is " + vec_text(pushed) + (source == "game" && pushed != Vec3 {} ? apart : "") + ".");
                 trace_sun_source = source;
             }
-            std::optional<TraceConstants> constants = trace_constants(settings.trace, settings.ambient.level, camera, settings.flip, map.render,
+            std::optional<TraceConstants> constants = trace_constants(settings.trace, ambient_level(), camera, settings.flip, map.render,
                 trace_scene.reference, toward, static_cast<uint32_t>(trace_gpu.generation()));
             if (!constants)
                 return;
@@ -832,15 +857,9 @@ namespace enhancements
             }
             // The sky's sun from the bodies, or from the camera's sky sun before any came.
             const Celestial bodies = celestial.value_or(Celestial {});
-            SkyRequest live;
-            live.sun.toward = bodies.toward_sun;
+            SkyRequest live = sky_request(bodies, settings.sky.haze);
             if (live.sun.toward == Vec3f {})
                 live.sun.toward = { camera.toward_sky_sun[0], camera.toward_sky_sun[1], camera.toward_sky_sun[2] };
-            live.sun.illuminance = 1;
-            if (bodies.stars)
-                live.moon = { bodies.toward_moon, moon_illuminance(bodies.moon_phase) };
-            live.exposure = { bodies.day_light, bodies.twilight_power, bodies.night_stops };
-            live.haze = settings.sky.haze;
             if (live.sun.toward != Vec3f {} && (!live_sky_asked || sky_request_differs(*live_sky_asked, live)))
             {
                 live_sky_builder.request(live);
@@ -1041,7 +1060,7 @@ namespace enhancements
                     switch (d.pass)  // exhaustive: a new PassId warns here until it has a run function
                     {
                     case PassId::ambient:
-                        call = gpu.run_ambient(map, settings.ambient, camera, settings.flip, live_physical_sky());
+                        call = gpu.run_ambient(map, scaled_ambient(), camera, settings.flip, live_physical_sky(), settings.sky.enabled && celestial ? celestial->ambient_scale : 1.0f);
                         if (call && live_physical_sky() && !ambient_physical_said)
                         {
                             log(reshade::log::level::info, "the ambient pass takes its light's color from the physical sky.");
@@ -2601,15 +2620,31 @@ extern "C" void EnhancementsSetCelestial(const EnhancementsCelestial *raw)
     celestial_box.put(parse_celestial(raw));
 }
 
-extern "C" void EnhancementsSunlight(float toward_y, float haze, float *rgb)
+extern "C" void EnhancementsGetWorldLight(const EnhancementsCelestial *raw, float haze, EnhancementsWorldLight *out)
 {
-    if (rgb == nullptr)
+    const std::optional<Celestial> bodies = parse_celestial(raw);
+    if (!bodies || out == nullptr || out->size < offsetof(EnhancementsWorldLight, sky_share) + sizeof out->sky_share)
         return;
-    SkySettings air;
-    air.aerosol_depth = std::isfinite(haze) ? std::clamp(haze, 0.0f, 0.5f) : 0.1f;
-    const Vec3f through = sun_transmittance(air, std::isfinite(toward_y) ? toward_y : -1.0f);
+    const SkyRequest request = sky_request(*bodies, haze);
+    if (request.sun.toward == Vec3f {})
+        return;
+    // One caller, CameraTools' main thread; the tables are kept while the haze stays.
+    static std::mutex lock;
+    static std::shared_ptr<const Atmosphere> air;
+    std::lock_guard<std::mutex> hold(lock);
+    if (!air || air->settings.aerosol_depth != request.haze)
+    {
+        SkySettings settings;
+        settings.aerosol_depth = request.haze;
+        air = std::make_shared<const Atmosphere>(make_atmosphere(settings));
+    }
+    const WorldLight light = world_light(*air, request);
     for (int k = 0; k < 3; k++)
-        rgb[k] = through[size_t(k)];
+    {
+        out->sun[k] = light.sun[size_t(k)];
+        out->moon[k] = light.moon[size_t(k)];
+    }
+    out->sky_share = light.sky_share;
 }
 
 extern "C" void EnhancementsSetAccumulate(const EnhancementsAccumulate *raw)

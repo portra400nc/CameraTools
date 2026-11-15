@@ -4,7 +4,7 @@ using UnityEngine;
 namespace CameraTools
 {
     // The game's own clouds, the renderers under EnviroSystem whose names hold "Cloud" (the painted layer and the three
-    // emitters' sprites), hidden while the Enhancements add-on draws CameraTools' clouds, and back once that stops.
+    // emitters' sprites), hidden while the Enhancements add-on draws CameraTools' clouds or the physical sky, and back once that stops.
     internal static class GameClouds
     {
         private const string SkyPath = "/StageRoot/EnviroSystem(Clone)";
@@ -14,7 +14,7 @@ namespace CameraTools
         private static readonly List<Renderer> held = new();
         private static float lookAt;
 
-        // Once a frame: whether CameraTools' clouds run.
+        // Once a frame: whether CameraTools' clouds or the physical sky run.
         public static void Update(bool ours)
         {
             if (!ours)
@@ -42,7 +42,7 @@ namespace CameraTools
                     held.Add(renderer);
                     renderer.enabled = false;
                 }
-            Melon<CameraTools>.Logger.Msg($"Enhancements: hid {held.Count} of the game's cloud renderers while CameraTools' clouds run.");
+            Melon<CameraTools>.Logger.Msg($"Enhancements: hid {held.Count} of the game's cloud renderers while CameraTools' clouds or the physical sky run.");
         }
     }
 }

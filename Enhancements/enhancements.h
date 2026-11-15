@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 32
+#define ENHANCEMENTS_VERSION 33
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -833,14 +833,29 @@ typedef struct EnhancementsCelestial
     float twilight_power;       // SkyExposure's; default 0.85, clamped to 0..2
     float night_stops;          // SkyExposure's; default 17, clamped to 0..30
     float days;                 // the day count the moon follows, for the log
+    float ambient_scale;        // multiplies the ambient pass's level and the traced ambient's, so the game's ambient light
+                                // takes the physical sky's level (EnhancementsWorldLight.sky_share over the game's own);
+                                // default 1, clamped to 0..4. Version 33 added it.
 } EnhancementsCelestial;
 
 ENHANCEMENTS_EXPORT void EnhancementsSetCelestial(const EnhancementsCelestial *celestial);
 
-// The share of the sun's light above the atmosphere that reaches the ground through the physical sky's air, per channel
-// into rgb[3], for a sun toward_y (the sine of its elevation) up and the aerosols' optical depth haze (EnhancementsSky.haze).
-// 0 once the planet hides the sun. Computed on the caller's thread, about 0.1 ms. Version 32 added it.
-ENHANCEMENTS_EXPORT void EnhancementsSunlight(float toward_y, float haze, float *rgb);
+// How the physical sky lights the world, in the game's units at the drawn sky's exposure, so the world and the sky agree:
+// each body's direct light on a white surface facing it, and the sky's light on a level floor over its light with the sun
+// overhead at a day's exposure. Version 33 added it.
+typedef struct EnhancementsWorldLight
+{
+    uint32_t size;              // sizeof(EnhancementsWorldLight) as the caller compiled it
+    float sun[3];               // linear rgb; 0 once the planet hides the sun
+    float moon[3];              // linear rgb; 0 while the moon and the stars are unknown or the moon is down
+    float sky_share;
+} EnhancementsWorldLight;
+
+// The world's light for the bodies of celestial (as EnhancementsSetCelestial takes them) and the aerosols' optical depth haze
+// (EnhancementsSky.haze), into out. Computed on the caller's thread: the first call for a haze builds the atmosphere's
+// tables, about 50 ms, and later ones take well under a millisecond. Leaves out untouched when either pointer is null, out
+// is too short, or the sun is zero.
+ENHANCEMENTS_EXPORT void EnhancementsGetWorldLight(const EnhancementsCelestial *celestial, float haze, EnhancementsWorldLight *out);
 
 // Starts a comparison capture: from the next present, the render thread runs each variant's settings in turn, lets 4
 // presents settle, copies the back buffer of the next 2 before ReShade's effects, saves the second as a PNG with the
