@@ -1,3 +1,4 @@
+using Il2CppInterop.Runtime;
 using CameraToolsEnhancements;
 using MelonLoader;
 using MoleMole;
@@ -70,6 +71,7 @@ namespace CameraTools
             if (!on || sky == null)
             {
                 CharacterScale = 1f;
+                Openness.Reset();
                 if (sky != null && sky.Pointer == fogOffIn)
                 {
                     sky.SetFogEnable(true, FogOwner);
@@ -124,11 +126,18 @@ namespace CameraTools
             AmbientScale = bodies.AmbientScale;
             // Characters keep the game's light, its night light and day-bright ambient: they take the share of it the world
             // gets, our direct light and the scaled ambient over the game's direct light and its ambient.
+            // Only the sky's share dims, by the sky the character sees: the game's lamps near it keep lighting it as before.
             var ours = Light.Value.Light;
             float ourDirect = 0.2126f * ours.X + 0.7152f * ours.Y + 0.0722f * ours.Z;
             float gameDirect = Luminance(new Vec3(gameColor.r, gameColor.g, gameColor.b)) * gameIntensity;
-            float gameTotal = gameDirect + gameAmbient;
-            CharacterScale = gameTotal > 1e-4f ? Math.Clamp((ourDirect + AmbientScale * gameAmbient) / gameTotal, 0f, 1f) : 1f;
+            float gameSky = gameDirect + gameAmbient;
+            float outdoors = gameSky > 1e-4f ? Math.Clamp((ourDirect + AmbientScale * gameAmbient) / gameSky, 0f, 1f) : 1f;
+            float open = Openness.Update();
+            float lamps = Lamps.AtCharacter();
+            float skyKept = gameSky * (open * outdoors + (1 - open));
+            CharacterScale = gameSky + lamps > 1e-4f ? Math.Clamp((skyKept + lamps) / (gameSky + lamps), 0f, 1f) : 1f;
+            LampLight = lamps;
+            SkyOpenness = open;
             Enhancements.SetCelestial(bodies);
         }
 
@@ -137,6 +146,9 @@ namespace CameraTools
 
         // The share of the game's light the characters keep this frame: 1 while the physical sky is off.
         public static float CharacterScale { get; private set; } = 1f;
+        // For the probe: the game's lamps' light on the active character, and the share of the sky it sees.
+        public static float LampLight { get; private set; }
+        public static float SkyOpenness { get; private set; } = 1f;
 
         // In C# alone: it also runs in the type's initializer, before any of Unity's calls can be made.
         private static float AmbientLuminance(Color sky, Color ground) => AmbientLuminance(new Vec3(sky.r, sky.g, sky.b), new Vec3(ground.r, ground.g, ground.b));
@@ -278,5 +290,100 @@ namespace CameraTools
         private static Vector3 ToUnity(Vec3 v) => new(v.X, v.Y, v.Z);
 
         private static void Log(string message) => Melon<CameraTools>.Logger.Msg($"Night sky: {message}");
+    }
+
+    // How much of the sky the active character sees: rays over the upper half from above its head, a few each frame, the
+    // share that reaches 80 meters unblocked, eased over about a second. 1 in the open, 0 under a roof.
+    internal static class Openness
+    {
+        private const int Rings = 3, PerRing = 8, PerFrame = 8;
+        private const float Reach = 80f, AboveFeet = 2.2f, EaseRate = 3f;
+        private static readonly Vec3[] Directions = Enumerable.Range(0, Rings * PerRing).Select(i =>
+        {
+            float elevation = (25 + i / PerRing * 25) * MathF.PI / 180, azimuth = (i % PerRing * 45 + i / PerRing * 15) * MathF.PI / 180;
+            return new Vec3(MathF.Cos(elevation) * MathF.Cos(azimuth), MathF.Sin(elevation), MathF.Cos(elevation) * MathF.Sin(azimuth));
+        }).ToArray();
+        private static readonly bool[] open = Enumerable.Repeat(true, Rings * PerRing).ToArray();
+        private static int next;
+        private static float eased = 1f;
+        private static bool fresh = true;
+
+        public static float Update()
+        {
+            var avatar = Character.Active();
+            if (!avatar)
+                return eased;
+            var from = avatar.position + Vector3.up * AboveFeet;
+            int rays = fresh ? Directions.Length : PerFrame;
+            for (int k = 0; k < rays; k++)
+            {
+                var d = Directions[next];
+                open[next] = !Physics.Raycast(from, new Vector3(d.X, d.Y, d.Z), Reach, -1L, QueryTriggerInteraction.Ignore);
+                next = (next + 1) % Directions.Length;
+            }
+            float target = open.Count(o => o) / (float)open.Length;
+            eased = fresh ? target : eased + (target - eased) * Math.Min(1f, Time.unscaledDeltaTime * EaseRate);
+            fresh = false;
+            return eased;
+        }
+
+        public static void Reset()
+        {
+            fresh = true;
+            eased = 1f;
+        }
+    }
+
+    // The game's own lamps near the active character (point and spot Lights), found again each second, and their light on
+    // it as Genshin lights a surface facing them (shaders/local_light.hlsli): color times intensity to the power 2.2, over
+    // 1 + 25 x^2 with x the distance over the range, faded over the last fifth of the range, a spot's cone ramped.
+    internal static class Lamps
+    {
+        private const float Reach = 40f, FindEvery = 1f, AboveFeet = 1.1f;
+        private static readonly List<Light> near = new();
+        private static float findAt;
+
+        public static float AtCharacter()
+        {
+            var avatar = Character.Active();
+            if (!avatar)
+                return 0f;
+            var at = avatar.position + Vector3.up * AboveFeet;
+            if (Time.unscaledTime >= findAt)
+            {
+                findAt = Time.unscaledTime + FindEvery;
+                near.Clear();
+                foreach (var o in UnityEngine.Object.FindObjectsOfType(Il2CppType.Of<Light>()))
+                {
+                    var light = o.Cast<Light>();
+                    if (light.type is LightType.Point or LightType.Spot && !Lights.IsOurs(light)
+                        && Vector3.Distance(light.transform.position, at) <= Math.Max(light.range, 0f) + 1f && light.range <= Reach * 4)
+                        near.Add(light);
+                }
+            }
+            float sum = 0f;
+            foreach (var light in near)
+            {
+                if (light == null || !light.isActiveAndEnabled || light.intensity <= 0 || light.range <= 0)
+                    continue;
+                var v = light.transform.position - at;
+                float d = Math.Max(v.magnitude, 1e-3f), x = d / light.range;
+                if (x >= 1)
+                    continue;
+                float spot = 1f;
+                if (light.type == LightType.Spot)
+                {
+                    float cosOuter = MathF.Cos(light.spotAngle * MathF.PI / 360f), cosInner = MathF.Cos(light.spotInnerAngle * MathF.PI / 360f);
+                    float c = Vector3.Dot(-v / d, light.transform.forward);
+                    spot = Math.Clamp((c - cosOuter) / Math.Max(cosInner - cosOuter, 1e-4f), 0f, 1f);
+                }
+                var color = light.color;
+                float luminance = 0.2126f * Linear(color.r) + 0.7152f * Linear(color.g) + 0.0722f * Linear(color.b);
+                sum += luminance * MathF.Pow(light.intensity, 2.2f) * Math.Clamp((1 - x) * 5f, 0f, 1f) * spot / (1 + 25 * x * x);
+            }
+            return sum;
+        }
+
+        private static float Linear(float v) => v <= 0.04045f ? v / 12.92f : MathF.Pow((v + 0.055f) / 1.055f, 2.4f);
     }
 }

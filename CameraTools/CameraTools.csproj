@@ -26,6 +26,7 @@
     <Reference Include="$(MelonLoaderNet6)\Il2CppInterop.Common.dll" Private="false" />
     <Reference Include="$(Il2CppAssemblies)\Il2Cppmscorlib.dll" Private="false" />
     <Reference Include="$(Il2CppAssemblies)\UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="$(Il2CppAssemblies)\UnityEngine.PhysicsModule.dll" Private="false" />
     <Reference Include="$(Il2CppAssemblies)\UnityEngine.AnimationModule.dll" Private="false" />
     <Reference Include="$(Il2CppAssemblies)\UnityEngine.ParticleSystemModule.dll" Private="false" />
     <Reference Include="$(Il2CppAssemblies)\UnityEngine.IMGUIModule.dll" Private="false" />
