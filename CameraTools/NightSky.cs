@@ -66,7 +66,8 @@ namespace CameraTools
                 Light = null;
                 return;
             }
-            float hour = TimeOfDay.Hour;
+            // The hour the sky shows, which trails a new lock by a moment, so the moon and the stars stay with its sun.
+            float hour = sky.curTimeOfDay24;
             Count(sky, hour);
             var config = sky.skySettings.config;
             var angles = (config.sunAngle, config.sunInclination, config.sunInclinationOffset);
