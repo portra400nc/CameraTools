@@ -305,6 +305,7 @@ namespace CameraToolsEnhancements
     internal struct EnhancementsRain
     {
         public float Amount;                // the share of cells holding a drop, 0 none to 1 a downpour
+        public float Lightning;             // 0 none to 1 a strike about every 7 seconds
     }
 
     // EnhancementsCloudPattern in enhancements.h, field for field.
@@ -627,7 +628,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 40;
+        private const uint Version = 41;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

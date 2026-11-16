@@ -344,13 +344,14 @@ namespace enhancements
         // shafts_view_ for snapshot_light_shafts. Empty when gather_sun copied nothing this frame or a texture of ours failed.
         std::optional<GameCall> run_light_shafts(const FrameMap &map, const LightShaftSettings &settings, const Camera &camera,
             const SunShadowConstants &sun, bool flip, bool view);
+        // Rain over the scene: streaks of falling drops in layers around the camera, amount the share of cells holding one,
+        // on seconds of the game's clock, slanted by the wind, lit by camera's sky color, with splashes on near ground and
+        // the lightning's flash and bolt.
+        std::optional<GameCall> run_rain(const FrameMap &map, float amount, const Lightning &lightning, const Camera &camera, bool flip, float seconds, float wind_radians);
 
         // The atmosphere pass: mirror in the HDR scene and depth; draw out = in * T + (sky + sun * sun_scatter * phase) *
         // (1 - T) on pixels with depth, where T is the transmittance of the height-fading haze along the view ray, and in
         // on the sky; copy out over the game's HDR scene. Empty when a texture of ours failed.
-        // Rain over the scene: streaks of falling drops in layers around the camera, amount the share of cells holding one,
-        // on seconds of the game's clock, slanted by the wind, lit by camera's sky color.
-        std::optional<GameCall> run_rain(const FrameMap &map, float amount, const Camera &camera, bool flip, float seconds, float wind_radians);
         std::optional<GameCall> run_atmosphere(const FrameMap &map, const AtmosphereSettings &settings, const Camera &camera, bool flip);
         // The cloud layer: bake the cells around the camera into cloud_map_, march the slab at half size into cloud_rays_
         // with the game's camera constants gather_sun copied, and lay the result over the sky's pixels. wind is the meters

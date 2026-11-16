@@ -553,4 +553,55 @@ namespace enhancements
             latest_ = std::move(result);
         }
     }
+
+    namespace
+    {
+        // A uniform 0 to 1 from an integer and a stream, by PCG's output mix.
+        float lightning_hash(int64_t n, uint32_t stream)
+        {
+            uint32_t v = static_cast<uint32_t>(n) * 747796405u + 2891336453u + stream * 2654435761u;
+            v ^= static_cast<uint32_t>(static_cast<uint64_t>(n) >> 32) * 1664525u;
+            const uint32_t word = ((v >> ((v >> 28u) + 4u)) ^ v) * 277803737u;
+            return static_cast<float>((word >> 22u) ^ word) / 4294967296.0f;
+        }
+    }
+
+    Lightning lightning_at(double seconds, float rate)
+    {
+        Lightning result;
+        if (!(rate > 0) || !std::isfinite(seconds))
+            return result;
+        // Each second may hold a strike; one lasts under two seconds, so the two before this one may still glow.
+        const int64_t now = static_cast<int64_t>(std::floor(seconds));
+        for (int64_t slot = now - 2; slot <= now; slot++)
+        {
+            if (lightning_hash(slot, 0) >= std::min(rate, 1.0f) / 7)
+                continue;
+            const float near = lightning_hash(slot, 1), shape = lightning_hash(slot, 2);
+            const double start = static_cast<double>(slot) + 0.6 * lightning_hash(slot, 3);
+            const float t = static_cast<float>(seconds - start);
+            if (t < 0)
+                continue;
+            // A return stroke and its restrikes: flickers a tenth of a second or so apart, then a dim afterglow in the clouds.
+            const float flickers[3][2] = { { 0, 1 }, { 0.08f + 0.06f * shape, 0.6f }, { 0.2f + 0.12f * shape, 0.4f + 0.5f * near } };
+            float flash = 0.15f * std::exp(-t / 0.4f);
+            for (const auto &f : flickers)
+                if (t >= f[0])
+                    flash += f[1] * std::exp(-(t - f[0]) / 0.05f);
+            // Some strikes are distant, a dim flash with no bolt in view.
+            flash *= 0.35f + 0.65f * near;
+            if (flash > result.flash)
+            {
+                result.flash = flash;
+                result.bolt = near > 0.35f ? flash : 0;
+                // Most strikes fall ahead, where the camera looks: u |u| crowds the azimuths toward 0.
+                const float u = 2 * lightning_hash(slot, 4) - 1;
+                result.azimuth = 3.1415927f * u * std::fabs(u);
+                result.seed = 100 * lightning_hash(slot, 5);
+            }
+        }
+        result.flash = std::min(result.flash, 1.5f);
+        result.bolt = result.bolt > 0.02f ? std::min(result.bolt, 1.5f) : 0;
+        return result;
+    }
 }

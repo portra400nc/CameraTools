@@ -268,6 +268,30 @@ int main()
         wet.size = offsetof(EnhancementsSettings, rain);
         check("rain reads its amount, clamps it to 1 and a NaN to none, a caller before it has none, and only rain wants its pass at bloom",
             rainy.rain == 0.6f && clamped == 1 && unknown == 0 && parse_settings(wet).rain == 0 && wanted_steps(rainy).has(Step::bloom));
+        EnhancementsSettings storm = wet;
+        storm.size = sizeof storm;
+        storm.rain = { 0, 0.8f };
+        const Settings lit = parse_settings(storm);
+        storm.size = offsetof(EnhancementsSettings, rain) + sizeof(float);
+        check("lightning reads its rate and wants the rain pass without rain; a version 40 caller has none",
+            lit.lightning == 0.8f && lit.rain == 0 && wanted_steps(lit).has(Step::bloom) && parse_settings(storm).lightning == 0);
+        int strikes = 0, bolts = 0;
+        float brightest = 0, struck = -1, bolted = -1;
+        bool dark_without = true, repeats = true;
+        for (int i = 0; i < 700 * 50; i++)
+        {
+            const double t = 1000 + i / 50.0;
+            const Lightning l = lightning_at(t, 1), again = lightning_at(t, 1);
+            if (l.flash > 0.3f && l.azimuth != struck)
+                strikes++, struck = l.azimuth;
+            if (l.bolt > 0 && l.azimuth != bolted)
+                bolts++, bolted = l.azimuth;
+            brightest = std::max(brightest, l.flash);
+            dark_without = dark_without && lightning_at(t, 0).flash == 0;
+            repeats = repeats && l.flash == again.flash && l.azimuth == again.azimuth;
+        }
+        check("lightning at rate 1 strikes about every 7 seconds over 700, most with a bolt, never past 1.5, none at rate 0, and the same at the same time",
+            strikes > 70 && strikes < 140 && bolts > 40 && brightest > 0.8f && brightest <= 1.5f && dark_without && repeats);
     }
     {
         // The world's light at the drawn sky's exposure, for a day light of 1.5 and the default exposure.

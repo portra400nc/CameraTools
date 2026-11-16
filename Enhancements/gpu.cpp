@@ -135,8 +135,12 @@ namespace enhancements
         float rain_amount;
         float rain_time;
         float rain_wind;
+        float rain_flash;
+        float rain_bolt;
+        float rain_bolt_azimuth;
+        float rain_bolt_seed;
     };
-    static_assert(sizeof(Constants) == 912 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
+    static_assert(sizeof(Constants) == 928 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
         && offsetof(Constants, cloud_toward_sun) == 560 && offsetof(Constants, tone_shadows) == 480 && offsetof(Constants, accum_gain) == 488 && offsetof(Constants, flare_sun_uv) == 456 && offsetof(Constants, wetness) == 408 && offsetof(Constants, shafts_anisotropy) == 432 && offsetof(Constants, label) == 272 && offsetof(Constants, sun_color) == 304
         && offsetof(Constants, sky_color) == 320 && offsetof(Constants, bloom_strength) == 352 && offsetof(Constants, sun_cascades) == 368
@@ -1466,7 +1470,7 @@ namespace enhancements
         return GameCall::keep;
     }
 
-    std::optional<GameCall> Gpu::run_rain(const FrameMap &map, float amount, const Camera &camera, bool flip, float seconds, float wind_radians)
+    std::optional<GameCall> Gpu::run_rain(const FrameMap &map, float amount, const Lightning &lightning, const Camera &camera, bool flip, float seconds, float wind_radians)
     {
         const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
         const auto scene_format = static_cast<DXGI_FORMAT>(scene.format);
@@ -1478,6 +1482,10 @@ namespace enhancements
         constants.rain_amount = amount;
         constants.rain_time = seconds;
         constants.rain_wind = wind_radians;
+        constants.rain_flash = lightning.flash;
+        constants.rain_bolt = lightning.bolt;
+        constants.rain_bolt_azimuth = lightning.azimuth;
+        constants.rain_bolt_seed = lightning.seed;
         upload(constants);
         ID3D11DeviceContext1 *c = context_.Get();
         scene_in_.copy_from(c, native(scene));

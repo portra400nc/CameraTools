@@ -118,6 +118,10 @@ cbuffer Constants : register(b0)
     float rain_amount;          // rain_ps.hlsl's: the share of cells holding a drop
     float rain_time;            // seconds on the game's clock
     float rain_wind;            // radians from world +x toward +z, the way the wind blows
+    float rain_flash;           // lightning's flash, 0 to 1.5: Lightning in core/sky.h
+    float rain_bolt;            // its bolt's brightness, 0 while none shows
+    float rain_bolt_azimuth;    // radians from the camera's heading, the way world +x turns toward +z
+    float rain_bolt_seed;       // shapes the bolt's path
 };
 
 SamplerState point_clamp : register(s0);

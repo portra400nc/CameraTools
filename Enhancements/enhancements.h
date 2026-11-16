@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 40
+#define ENHANCEMENTS_VERSION 41
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -593,10 +593,12 @@ typedef struct EnhancementsCloudPattern
 } EnhancementsCloudPattern;
 
 // Rain: streaks of falling drops in layers around the camera, slanted by the clouds' wind, falling on the game's clock and
-// lit by the sky's light, over the scene after the mist. Version 40 added it.
+// lit by the sky's light, over the scene after the mist, with splashes on the ground and a thunderstorm's lightning.
+// Version 40 added it, version 41 lightning.
 typedef struct EnhancementsRain
 {
     float amount;               // the share of the layers' cells that hold a drop: 0 (the default) none, 1 a downpour
+    float lightning;            // 0 (the default) none, 1 a strike about every 7 seconds; clamped
 } EnhancementsRain;
 
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller

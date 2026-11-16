@@ -15,7 +15,7 @@ namespace enhancements
         bool contact_shadows_wanted(const Settings &s) { return s.contact_shadows.enabled; }
         bool atmosphere_wanted(const Settings &s) { return s.atmosphere.enabled; }
         bool clouds_wanted(const Settings &s) { return s.clouds.enabled; }
-        bool rain_wanted(const Settings &s) { return s.rain > 0; }
+        bool rain_wanted(const Settings &s) { return s.rain > 0 || s.lightning > 0; }
         bool sky_wanted(const Settings &s) { return s.sky.enabled; }
         bool traced_lights_wanted(const Settings &s) { return s.traced_lights; }
         bool character_light_wanted(const Settings &s) { return s.character_light.enabled; }
@@ -68,7 +68,7 @@ namespace enhancements
             && offsetof(EnhancementsSettings, ambient_color) == 400 && offsetof(EnhancementsSettings, tones) == 404
             && offsetof(EnhancementsSettings, lens_softness) == 412 && offsetof(EnhancementsSettings, auto_exposure) == 416
             && offsetof(EnhancementsSettings, sky) == 420 && offsetof(EnhancementsSettings, clouds) == 428 && offsetof(EnhancementsSettings, aerial) == 484
-            && offsetof(EnhancementsSettings, water) == 488 && offsetof(EnhancementsSettings, sunset) == 504 && offsetof(EnhancementsSettings, cloud_pattern) == 508 && offsetof(EnhancementsSettings, rain) == 512 && sizeof(EnhancementsSettings) == 516);
+            && offsetof(EnhancementsSettings, water) == 488 && offsetof(EnhancementsSettings, sunset) == 504 && offsetof(EnhancementsSettings, cloud_pattern) == 508 && offsetof(EnhancementsSettings, rain) == 512 && sizeof(EnhancementsSettings) == 520);
         static_assert(ENHANCEMENTS_CLOUD_SHAPE_STREAKS == static_cast<int>(CloudShape::streaks) && ENHANCEMENTS_CLOUD_SHAPE_SHEET == static_cast<int>(CloudShape::sheet)
             && ENHANCEMENTS_CLOUD_SHAPE_COUNT == static_cast<int>(CloudShape::count));
         static_assert(ENHANCEMENTS_CLOUD_PATTERN_STREAKS == static_cast<int>(CloudPattern::streaks)
@@ -522,6 +522,8 @@ namespace enhancements
         }
         if (knows(offsetof(EnhancementsSettings, rain), sizeof raw.rain))
             s.rain = finite_or(raw.rain.amount, 0.0f, 0.0f, 1.0f);
+        if (knows(offsetof(EnhancementsSettings, rain) + offsetof(EnhancementsRain, lightning), sizeof raw.rain.lightning))
+            s.lightning = finite_or(raw.rain.lightning, 0.0f, 0.0f, 1.0f);
         return s;
     }
 

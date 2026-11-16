@@ -155,6 +155,21 @@ namespace enhancements
     // illuminance 1%, the haze or the exposure at all.
     bool sky_request_differs(const SkyRequest &a, const SkyRequest &b);
 
+    // A thunderstorm's lightning at one moment: how bright the flash lights the scene, 0 to 1.5, and its bolt, drawn in the
+    // sky while bolt is above 0, at an azimuth in radians from the camera's heading toward world +z's side, most of them
+    // within the view, with a seed that shapes its path.
+    struct Lightning
+    {
+        float flash = 0;
+        float bolt = 0;
+        float azimuth = 0;
+        float seed = 0;
+    };
+
+    // The lightning at seconds on the game's clock, rate 0 none to 1 a strike about every 7 seconds. It depends on the time
+    // alone, so a paused game holds it and a shot taken again sees the same strike.
+    Lightning lightning_at(double seconds, float rate);
+
     struct SkyResult
     {
         SkyRequest request;
