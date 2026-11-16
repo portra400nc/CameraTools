@@ -283,6 +283,14 @@ int main()
         check("the mist reads its patchiness and clamps its bank size to 500 m; a version 41 caller has an even haze 40 m banks would make",
             banked.atmosphere.patchiness == 0.7f && banked.atmosphere.patch_size == 500 && parse_settings(banks).atmosphere.patchiness == 0
             && parse_settings(banks).atmosphere.patch_size == 40);
+        EnhancementsSettings lifted = banks;
+        lifted.size = sizeof lifted;
+        lifted.atmosphere.enabled = 0;
+        lifted.scene_light = { 9 };
+        const Settings lit_scene = parse_settings(lifted);
+        lifted.size = offsetof(EnhancementsSettings, scene_light);
+        check("the scene's light reads its stops, clamped to 3, and wants the tone map's reader; a version 42 caller has none",
+            lit_scene.scene_light == 3 && wanted_steps(lit_scene).has(Step::tonemap_read) && parse_settings(lifted).scene_light == 0);
         int strikes = 0, bolts = 0;
         float brightest = 0, struck = -1, bolted = -1;
         bool dark_without = true, repeats = true;

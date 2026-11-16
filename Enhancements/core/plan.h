@@ -285,6 +285,7 @@ namespace enhancements
         PhysicalWaterSettings water;
         float rain = 0;                         // EnhancementsRain.amount
         float lightning = 0;                    // EnhancementsRain.lightning
+        float scene_light = 0;                  // EnhancementsSceneLight.exposure_ev
         ContactShadowSettings contact_shadows;
         AtmosphereSettings atmosphere;
         TonemapSettings tonemap;

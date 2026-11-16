@@ -227,6 +227,7 @@ namespace enhancements
         std::optional<SkyDraw> sky_draw;
         uint64_t dome_frame = UINT64_MAX;   // the frame whose dome draw drew the physical sky
         float logged_rain = 0;              // the rain the log last named
+        bool logged_lift = false;           // whether the log last said the scene's light ran
         bool after_dome = false;        // the dome drew the physical sky and no targets were bound since
         bool ambient_physical_said = false;     // the log said the ambient pass took the physical sky's color
 
@@ -1256,6 +1257,21 @@ namespace enhancements
             {
                 accumulate_at_bloom(map);
                 copy_depth_at_bloom(map);
+            }
+            if (step == Step::tonemap_read && settings.scene_light != 0)
+            {
+                bool lifted = false;
+                if (const char *moved = gpu.run_scene_light(map, settings.scene_light, lifted))
+                {
+                    trip(moved);
+                    return false;
+                }
+                if (lifted != logged_lift)
+                {
+                    logged_lift = lifted;
+                    log(reshade::log::level::info, lifted ? "the scene's light lifts the tone map's output." : "the scene's light cannot lift the tone map's output, of format "
+                        + std::to_string(static_cast<unsigned>(map[Entry::tonemap_out]->format)) + ".");
+                }
             }
             if (step == Step::tonemap_read && flare_display && flare_display->settings.place == FlarePlace::scene)
                 run_flare(nullptr, &map);

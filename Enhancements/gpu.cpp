@@ -142,8 +142,10 @@ namespace enhancements
         float mist_patchiness;
         float mist_size;
         float mist_drift[2];
+        float scene_gain;
+        float scene_pad[3];
     };
-    static_assert(sizeof(Constants) == 944 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
+    static_assert(sizeof(Constants) == 960 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
         && offsetof(Constants, cloud_toward_sun) == 560 && offsetof(Constants, tone_shadows) == 480 && offsetof(Constants, accum_gain) == 488 && offsetof(Constants, flare_sun_uv) == 456 && offsetof(Constants, wetness) == 408 && offsetof(Constants, shafts_anisotropy) == 432 && offsetof(Constants, label) == 272 && offsetof(Constants, sun_color) == 304
         && offsetof(Constants, sky_color) == 320 && offsetof(Constants, bloom_strength) == 352 && offsetof(Constants, sun_cascades) == 368
@@ -873,6 +875,7 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kWaterPs, sizeof kWaterPs, nullptr, &made.water_ps_))
             && SUCCEEDED(device->CreatePixelShader(kSkyDomePs, sizeof kSkyDomePs, nullptr, &made.sky_dome_ps_))
             && SUCCEEDED(device->CreatePixelShader(kRainPs, sizeof kRainPs, nullptr, &made.rain_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kSceneLightPs, sizeof kSceneLightPs, nullptr, &made.scene_light_ps_))
             && SUCCEEDED(device->CreateBlendState(&water_blend, &made.water_blend_))
             && SUCCEEDED(device->CreateVertexShader(kStarsVs, sizeof kStarsVs, nullptr, &made.stars_vs_))
             && SUCCEEDED(device->CreatePixelShader(kStarsPs, sizeof kStarsPs, nullptr, &made.stars_ps_))
@@ -2230,6 +2233,31 @@ namespace enhancements
             c->OMSetRenderTargets(0, nullptr, nullptr);
         }
         flare_out_.copy_to(context_.Get(), target);
+        ran = true;
+        return moved;
+    }
+
+    const char *Gpu::run_scene_light(const FrameMap &map, float exposure_ev, bool &ran)
+    {
+        const char *moved = nullptr;
+        ran = false;
+        const Texture &out = *map[Entry::tonemap_out];
+        const auto format = static_cast<DXGI_FORMAT>(out.format);
+        ID3D11Device *d = device_.Get();
+        if (!dof_display_transfer(format) || !flare_in_.sync(d, native(out), format, false) || !flare_out_.sync(d, native(out), format, true))
+            return moved;
+        {
+            StateGuard guard(context_.Get(), moved);
+            Constants constants {};
+            constants.scene_gain = std::exp2(exposure_ev);
+            upload(constants);
+            ID3D11DeviceContext1 *c = context_.Get();
+            flare_in_.copy_from(c, native(out));
+            ID3D11ShaderResourceView *const in[] = { flare_in_.srv() };
+            draw_fullscreen(scene_light_ps_.Get(), in, 1, flare_out_.rtv(), flare_out_.size());
+            c->OMSetRenderTargets(0, nullptr, nullptr);
+        }
+        flare_out_.copy_to(context_.Get(), native(out));
         ran = true;
         return moved;
     }

@@ -2,11 +2,11 @@ using UnityEngine;
 
 namespace CameraTools
 {
-    // Experimental features > Weather at run time: the game's weather, and the look the sky blends to as it changes, over
-    // real time, so a weather picked while the game is paused for a shot still comes in.
+    // Experimental features > Weather at run time: the game's weather, and the look the sky blends to as it changes, in three
+    // seconds of real time, so a weather picked while the game is paused for a shot still comes in.
     internal static class WeatherFollow
     {
-        private const float BlendSeconds = 30f;
+        private const float BlendSeconds = 3f;
 
         private static WeatherKind target = WeatherKind.Sunny;
         private static WeatherLook from;
@@ -38,7 +38,10 @@ namespace CameraTools
                 Changed = before != null;
                 return;
             }
-            var now = WeatherLooks.OfPreset(Weather.RenderedPreset());
+            string preset = Weather.RenderedPreset();
+            var now = WeatherLooks.OfPreset(preset);
+            if (Current == null || now != target)
+                MelonLoader.Melon<CameraTools>.Logger.Msg($"Weather: the sky shows {preset ?? "no preset"}, which looks {WeatherLooks.Name(now)}.");
             if (Current == null)
             {
                 // Switched on: the weather's look at once.

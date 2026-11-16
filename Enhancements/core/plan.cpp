@@ -68,7 +68,7 @@ namespace enhancements
             && offsetof(EnhancementsSettings, ambient_color) == 400 && offsetof(EnhancementsSettings, tones) == 404
             && offsetof(EnhancementsSettings, lens_softness) == 412 && offsetof(EnhancementsSettings, auto_exposure) == 416
             && offsetof(EnhancementsSettings, sky) == 420 && offsetof(EnhancementsSettings, clouds) == 428 && offsetof(EnhancementsSettings, aerial) == 484
-            && offsetof(EnhancementsSettings, water) == 488 && offsetof(EnhancementsSettings, sunset) == 504 && offsetof(EnhancementsSettings, cloud_pattern) == 508 && offsetof(EnhancementsSettings, rain) == 512 && offsetof(EnhancementsSettings, mist) == 520 && sizeof(EnhancementsSettings) == 528);
+            && offsetof(EnhancementsSettings, water) == 488 && offsetof(EnhancementsSettings, sunset) == 504 && offsetof(EnhancementsSettings, cloud_pattern) == 508 && offsetof(EnhancementsSettings, rain) == 512 && offsetof(EnhancementsSettings, mist) == 520 && offsetof(EnhancementsSettings, scene_light) == 528 && sizeof(EnhancementsSettings) == 532);
         static_assert(ENHANCEMENTS_CLOUD_SHAPE_STREAKS == static_cast<int>(CloudShape::streaks) && ENHANCEMENTS_CLOUD_SHAPE_SHEET == static_cast<int>(CloudShape::sheet)
             && ENHANCEMENTS_CLOUD_SHAPE_COUNT == static_cast<int>(CloudShape::count));
         static_assert(ENHANCEMENTS_CLOUD_PATTERN_STREAKS == static_cast<int>(CloudPattern::streaks)
@@ -524,6 +524,8 @@ namespace enhancements
             s.rain = finite_or(raw.rain.amount, 0.0f, 0.0f, 1.0f);
         if (knows(offsetof(EnhancementsSettings, rain) + offsetof(EnhancementsRain, lightning), sizeof raw.rain.lightning))
             s.lightning = finite_or(raw.rain.lightning, 0.0f, 0.0f, 1.0f);
+        if (knows(offsetof(EnhancementsSettings, scene_light), sizeof raw.scene_light))
+            s.scene_light = finite_or(raw.scene_light.exposure_ev, 0.0f, -3.0f, 3.0f);
         if (knows(offsetof(EnhancementsSettings, mist), sizeof raw.mist))
         {
             s.atmosphere.patchiness = finite_or(raw.mist.patchiness, 0.0f, 0.0f, 1.0f);
@@ -909,6 +911,9 @@ namespace enhancements
                 steps.add(spec.at);
         if (settings.view != View::off)
             steps.add(kViews[static_cast<size_t>(settings.view)].snapshot_at);
+        // The scene's light lifts the tone map's output where the next draw reads it.
+        if (settings.scene_light != 0)
+            steps.add(Step::tonemap_read);
         // The character light pass reads the G-buffer copied at the combine step, before the game reuses its targets.
         if (settings.character_light.enabled)
             steps.add(Step::combine);

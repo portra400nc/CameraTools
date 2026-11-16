@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 42
+#define ENHANCEMENTS_VERSION 43
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -609,6 +609,14 @@ typedef struct EnhancementsMist
     float size;                 // meters across a bank; 0 or less the default, 40; clamped to 5 to 500
 } EnhancementsMist;
 
+// The scene's light: a lift of the tone-mapped picture, each channel x to x g / (1 + (g - 1) x) with g = 2 ^ exposure_ev,
+// which keeps black and white, for a weather the game lights darker than it should look. A lift of the HDR scene would not
+// hold: the game's eye adaptation meters it and takes it back. Version 43 added it.
+typedef struct EnhancementsSceneLight
+{
+    float exposure_ev;          // 0 (the default) as the game lights it; clamped to -3 to 3
+} EnhancementsSceneLight;
+
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller
 // knows, and fields past it keep their defaults.
 typedef struct EnhancementsSettings
@@ -641,6 +649,7 @@ typedef struct EnhancementsSettings
     EnhancementsCloudPattern cloud_pattern;
     EnhancementsRain rain;
     EnhancementsMist mist;
+    EnhancementsSceneLight scene_light;
 } EnhancementsSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and

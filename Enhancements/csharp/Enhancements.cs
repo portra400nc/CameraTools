@@ -300,6 +300,13 @@ namespace CameraToolsEnhancements
     // ENHANCEMENTS_CLOUD_PATTERN_* in enhancements.h, in order.
     internal enum EnhancementsCloudPatternKind : uint { Noise, Heaps, Broken, Overcast, Puffs, Patches, Streaks }
 
+    // EnhancementsSceneLight in enhancements.h, field for field.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct EnhancementsSceneLight
+    {
+        public float ExposureEv;            // lifts the tone-mapped picture by 2 ^ this, keeping black and white, -3 to 3
+    }
+
     // EnhancementsMist in enhancements.h, field for field.
     [StructLayout(LayoutKind.Sequential)]
     internal struct EnhancementsMist
@@ -354,6 +361,7 @@ namespace CameraToolsEnhancements
         public EnhancementsCloudPattern CloudPattern;
         public EnhancementsRain Rain;
         public EnhancementsMist Mist;
+        public EnhancementsSceneLight SceneLight;
 
         // The add-on's defaults: everything off, game targets upside down, and when switched on ambient level 0.6, AO
         // strength 0.5 at a 1 m radius, half that strength on grass, vegetation and foliage, full-strength contact
@@ -638,7 +646,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 42;
+        private const uint Version = 43;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
