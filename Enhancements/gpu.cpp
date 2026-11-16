@@ -694,6 +694,10 @@ namespace enhancements
         compare_sampler.ComparisonFunc = D3D11_COMPARISON_GREATER_EQUAL;
         D3D11_SAMPLER_DESC wrap_sampler = linear_sampler;
         wrap_sampler.AddressU = wrap_sampler.AddressV = wrap_sampler.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+        // The painted clouds lie at a slant to almost every ray.
+        D3D11_SAMPLER_DESC anisotropic_sampler = wrap_sampler;
+        anisotropic_sampler.Filter = D3D11_FILTER_ANISOTROPIC;
+        anisotropic_sampler.MaxAnisotropy = 16;
         const std::vector<uint8_t> lattice = noise_lattice();
         D3D11_TEXTURE3D_DESC lattice_desc = {};
         lattice_desc.Width = lattice_desc.Height = lattice_desc.Depth = kNoiseSize;
@@ -809,6 +813,7 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kCloudsPs, sizeof kCloudsPs, nullptr, &made.clouds_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCloudsApplyPs, sizeof kCloudsApplyPs, nullptr, &made.clouds_apply_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCloudsResolvePs, sizeof kCloudsResolvePs, nullptr, &made.clouds_resolve_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kCloudsPaintedPs, sizeof kCloudsPaintedPs, nullptr, &made.clouds_painted_ps_))
             && SUCCEEDED(device->CreateComputeShader(kCloudShapeCs, sizeof kCloudShapeCs, nullptr, &made.cloud_shape_cs_))
             && SUCCEEDED(device->CreateComputeShader(kCloudDetailCs, sizeof kCloudDetailCs, nullptr, &made.cloud_detail_cs_))
             && SUCCEEDED(device->CreatePixelShader(kTonemapPs, sizeof kTonemapPs, nullptr, &made.tonemap_ps_))
@@ -868,6 +873,7 @@ namespace enhancements
             && SUCCEEDED(device->CreateSamplerState(&linear_sampler, &made.linear_))
             && SUCCEEDED(device->CreateSamplerState(&compare_sampler, &made.lit_compare_))
             && SUCCEEDED(device->CreateSamplerState(&wrap_sampler, &made.wrap_))
+            && SUCCEEDED(device->CreateSamplerState(&anisotropic_sampler, &made.anisotropic_wrap_))
             && SUCCEEDED(device->CreateTexture3D(&lattice_desc, &lattice_data, &made.lattice_))
             && SUCCEEDED(device->CreateShaderResourceView(made.lattice_.Get(), nullptr, &made.lattice_srv_))
             && SUCCEEDED(device->CreateBuffer(&buffer, nullptr, &made.constants_))
@@ -950,7 +956,7 @@ namespace enhancements
         UINT target_count, Size size, ID3D11BlendState *blend)
     {
         ID3D11DeviceContext1 *c = context_.Get();
-        ID3D11SamplerState *const samplers[kSamplerSlots] = { point_.Get(), linear_.Get(), lit_compare_.Get(), wrap_.Get() };
+        ID3D11SamplerState *const samplers[kSamplerSlots] = { point_.Get(), linear_.Get(), lit_compare_.Get(), wrap_.Get(), anisotropic_wrap_.Get() };
         ID3D11Buffer *const buffers[1] = { constants_.Get() };
         const D3D11_VIEWPORT viewport = { 0, 0, static_cast<float>(size.width), static_cast<float>(size.height), 0, 1 };
         c->IASetInputLayout(nullptr);
@@ -1604,6 +1610,17 @@ namespace enhancements
         upload(constants);
 
         ID3D11DeviceContext1 *c = context_.Get();
+        if (constants.cloud_pattern > 0)
+        {
+            // The painted layer reads its texture at every pixel and needs no map, march or history.
+            scene_in_.copy_from(c, native(scene));
+            depth_.copy_from(c, native(depth));
+            ID3D11ShaderResourceView *const painted[] = { scene_in_.srv(), nullptr, depth_.srv(), nullptr, nullptr, nullptr, lattice_srv_.Get(), nullptr,
+                nullptr, sky_transmittance_srv_.Get(), sky_multiple_srv_.Get(), cloud_pattern_srv_.Get() };
+            draw_fullscreen(clouds_painted_ps_.Get(), painted, 12, scene_out_.rtv(), map.render);
+            scene_out_.copy_to(c, native(scene));
+            return GameCall::keep;
+        }
         if (!cloud_noise_ready_ && !make_cloud_noise())
             return std::nullopt;
         scene_in_.copy_from(c, native(scene));
@@ -1612,16 +1629,15 @@ namespace enhancements
             settings.coverage, settings.size, settings.stretch, settings.wind_direction, constants.cloud_shape, constants.cloud_pattern };
         if (!(key == cloud_map_key_))
         {
-            ID3D11ShaderResourceView *const bake[] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, lattice_srv_.Get(), nullptr, nullptr, nullptr,
-                nullptr, cloud_pattern_srv_.Get() };
-            draw_fullscreen(cloud_map_ps_.Get(), bake, 12, cloud_map_.rtv(), { kCloudMapSize, kCloudMapSize });
+            ID3D11ShaderResourceView *const bake[] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, lattice_srv_.Get() };
+            draw_fullscreen(cloud_map_ps_.Get(), bake, 7, cloud_map_.rtv(), { kCloudMapSize, kCloudMapSize });
             cloud_map_key_ = key;
         }
         ID3D11Buffer *const game[] = { game_sun_[0].Get(), game_sun_[1].Get(), game_sun_[2].Get(), game_sun_[3].Get() };
         c->PSSetConstantBuffers(1, 4, game);
         ID3D11ShaderResourceView *const march[] = { nullptr, nullptr, depth_.srv(), nullptr, nullptr, cloud_map_.srv(), lattice_srv_.Get(),
-            cloud_shape_srv_.Get(), cloud_detail_srv_.Get(), sky_transmittance_srv_.Get(), sky_multiple_srv_.Get(), cloud_pattern_srv_.Get() };
-        draw_fullscreen(clouds_ps_.Get(), march, 12, cloud_rays_.rtv(), quarter);
+            cloud_shape_srv_.Get(), cloud_detail_srv_.Get(), sky_transmittance_srv_.Get(), sky_multiple_srv_.Get() };
+        draw_fullscreen(clouds_ps_.Get(), march, 11, cloud_rays_.rtv(), quarter);
         Scratch &old = cloud_history_[cloud_history_at_], &now = cloud_history_[cloud_history_at_ ^ 1];
         cloud_history_at_ ^= 1;
         ID3D11ShaderResourceView *const resolve[] = { nullptr, nullptr, nullptr, nullptr, nullptr, cloud_rays_.srv(), old.srv() };
@@ -1733,7 +1749,7 @@ namespace enhancements
         {
             // draw_fullscreen's state with the stars' shaders: a strip of 4 vertices a star, added where the sky shows.
             ID3D11Buffer *const buffers[] = { constants_.Get() };
-            ID3D11SamplerState *const samplers[kSamplerSlots] = { point_.Get(), linear_.Get(), lit_compare_.Get(), wrap_.Get() };
+            ID3D11SamplerState *const samplers[kSamplerSlots] = { point_.Get(), linear_.Get(), lit_compare_.Get(), wrap_.Get(), anisotropic_wrap_.Get() };
             ID3D11ShaderResourceView *const star_in[kSrvSlots] = { stars_srv_.Get(), nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
                 sky_transmittance_srv_.Get(), sky_multiple_srv_.Get() };
             ID3D11ShaderResourceView *const depth_in[] = { nullptr, nullptr, depth_.srv() };

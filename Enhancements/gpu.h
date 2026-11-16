@@ -33,7 +33,7 @@ namespace enhancements
 
     // Our shaders declare registers only inside these ranges, and StateGuard saves and restores exactly these.
     constexpr UINT kSrvSlots = 15;      // t0..t14; the trace kernel uses t0..t6, the gather kernel t0..t8, the reflection kernel all
-    constexpr UINT kSamplerSlots = 4;   // s0..s3
+    constexpr UINT kSamplerSlots = 5;   // s0..s4
     constexpr UINT kCbSlots = 5;        // b0..b4
     constexpr UINT kUavSlots = 6;       // u0..u5, u5 the reflection kernel's sums; before it u0..u4, compute only: the trace kernels' history and counters, the gather's two buffers, and
                                         // the traced lights' visibility
@@ -584,12 +584,12 @@ namespace enhancements
         // The physical sky's tables from atmosphere when it is not the one uploaded. false when a texture failed.
         bool sync_sky_tables(const std::shared_ptr<const Atmosphere> &atmosphere);
         ComPtr<ID3D11ComputeShader> dof_scatter_cs_, cloud_shape_cs_, cloud_detail_cs_;
-        ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, ambient_specular_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_, cloud_map_ps_, clouds_ps_, clouds_apply_ps_, clouds_resolve_ps_,
+        ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, ambient_specular_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_, cloud_map_ps_, clouds_ps_, clouds_apply_ps_, clouds_resolve_ps_, clouds_painted_ps_,
             tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, character_light_ps_, character_shadow_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
             apply_gather_ps_, reflect_apply_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_, dof_soften_ps_, dof_behind_ps_,
             dof_sprite_ps_, dof_lift_ps_, dof_display_in_ps_, dof_display_out_ps_, dof_near_ps_, dof_near_mask_ps_, dof_near_fill_ps_, flare_visibility_ps_, flare_ps_,
             dng_ps_, dng_flare_ps_, exposure_meter_ps_, exposure_adapt_ps_;
-        ComPtr<ID3D11SamplerState> point_, linear_, lit_compare_, wrap_;
+        ComPtr<ID3D11SamplerState> point_, linear_, lit_compare_, wrap_, anisotropic_wrap_;
         ComPtr<ID3D11Texture3D> lattice_;                   // noise_lattice(), R8_UNORM
         ComPtr<ID3D11ShaderResourceView> lattice_srv_;
         ComPtr<ID3D11Buffer> constants_;
@@ -642,7 +642,7 @@ namespace enhancements
         ComPtr<ID3D11Texture3D> cloud_shape_, cloud_detail_;     // 128 and 32 a side, R8G8B8A8_UNORM
         ComPtr<ID3D11ShaderResourceView> cloud_shape_srv_, cloud_detail_srv_;
         bool cloud_noise_ready_ = false;
-        ComPtr<ID3D11ShaderResourceView> cloud_pattern_srv_;    // BC7 with its mips, as the pattern's DDS file holds it
+        ComPtr<ID3D11ShaderResourceView> cloud_pattern_srv_;    // BC7 with its mips, as the pattern's DDS file holds it, for clouds_painted_ps_
         CloudPattern cloud_pattern_ = CloudPattern::noise;      // the one cloud_pattern_srv_ holds
         Scratch cloud_map_;         // kCloudMapSize square, R16_FLOAT: the cloud cells around the camera
         // What cloud_map_ was last baked for; the bake runs again only when any of it changes.

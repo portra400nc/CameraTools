@@ -1,10 +1,12 @@
-// The cloud layer's shape, shared by its three draws: cloud_map_ps.hlsl bakes the cells into a 2D map around the camera
-// each frame, clouds_ps.hlsl marches the slab through it, and clouds_apply_ps.hlsl lays the result over the sky.
+// The cloud layer's shape, shared by its draws: cloud_map_ps.hlsl bakes the cells into a 2D map around the camera each
+// frame, clouds_ps.hlsl marches the slab through it, and clouds_apply_ps.hlsl lays the result over the sky; with a
+// pattern texture, clouds_painted_ps.hlsl draws the layer in their place.
 // Include it after common.hlsli.
 
 Texture3D<float> lattice : register(t6);    // noise_lattice() in core/plan.h, as the light shafts read it
 Texture2D<float4> pattern_texture : register(t11);  // the pattern's Azurite Weathers II texture: painted gray, alpha the cover
 SamplerState linear_wrap : register(s3);
+SamplerState anisotropic_wrap : register(s4);
 
 static const float kCloudNoiseSize = 64;    // kNoiseSize in core/plan.h
 static const uint kCloudMapSize = 2048;     // kCloudMapSize in gpu.cpp
@@ -168,42 +170,27 @@ float stratus_thickness(float2 c)
 // Cloud sizes one pattern texture spans, by ENHANCEMENTS_CLOUD_PATTERN_*: a cloud of the painting about Cloud size across.
 static const float kPatternTile[7] = { 1, 25, 25, 25, 45, 45, 40 };
 
-// The pattern texture at a point of cloud space, its u along the wind, blurred to footprint meters: the cover, 0 to 1, as
-// Coverage grows or thins it, and the painted gray. Two lookups, the second smaller, turned a little and moved, blend by
-// broad noise, so the texture's repeat and its seams do not show.
-float2 pattern_at(float2 c, float footprint)
+// The pattern texture at a point of cloud space, its u along the wind: the cover, 0 to 1, as Coverage grows or thins it,
+// and the painted gray. Two lookups, the second smaller, turned a little and moved, blend by broad noise, so the texture's
+// repeat and its seams do not show. Anisotropic, with the pixel's derivatives: call it before any branch.
+float2 pattern_at(float2 c)
 {
-    uint width, height, levels;
-    pattern_texture.GetDimensions(0, width, height, levels);
     float tile = cloud_size * kPatternTile[min((uint)cloud_pattern, 6u)];
     float2 uv = cloud_wind_space(c) / tile;
     float2 turned = float2(0.990 * uv.x - 0.140 * uv.y, 0.140 * uv.x + 0.990 * uv.y) / 0.62 + float2(0.37, 0.71);
-    float lod = log2(max(footprint * width / tile, 1e-3));
-    float4 a = pattern_texture.SampleLevel(linear_wrap, uv, lod);
-    float4 b = pattern_texture.SampleLevel(linear_wrap, turned, lod + 0.69);
-    float4 p = lerp(a, b, smoothstep(0.35, 0.65, cloud_fbm(float3(uv / 1.3, 4.2), 2)));
+    float4 a = pattern_texture.Sample(anisotropic_wrap, uv);
+    float4 b = pattern_texture.Sample(anisotropic_wrap, turned);
+    float4 p = lerp(a, b, smoothstep(0.4, 0.6, cloud_fbm(float3(uv / 1.3, 4.2), 2)));
     // Over 0.5 the cover thickens without spreading a veil over the painting's clear sky; under it the thin parts go.
     float k = 0.5 - cloud_coverage;
     float cover = k >= 0 ? saturate((p.a - k) / (1 - k)) : saturate(p.a / (1 + k));
     return float2(cover, dot(p.rgb, float3(0.2126, 0.7152, 0.0722)));
 }
 
-// A sheet's optical thickness over its mean from the pattern's painted gray: darker paint is thicker cloud, log-normal
-// around a gray a little over the overcast's middle gray of 0.61, and our fine lumps under the texture's detail as Edge
-// detail sets.
-float sheet_painted_thickness(float2 c, float gray)
-{
-    float fine = cloud_fbm(float3(cloud_wind_space(c) / cloud_size * 4, 7.7), 3);
-    return exp(6 * (0.64 - gray) + 2 * cloud_detail * (fine - 0.5));
-}
-
 // The weather map's value at a point of cloud space (world x and z plus the drift): 0 clear sky to 1 where the clouds are
-// thickest and tallest. The pattern texture's cover, or broad warped patches some six cells across; the 3D noise gives
-// the clouds inside them their shape.
+// thickest and tallest. Broad warped patches some six cells across; the 3D noise gives the clouds inside them their shape.
 float cloud_cells(float2 c)
 {
-    if (cloud_pattern >= 0.5)
-        return pattern_at(c, cloud_map_extent / kCloudMapSize).x;
     if (cloud_shape >= 1.5)
         return stratus_cells(c);
     if (cloud_shape >= 0.5)

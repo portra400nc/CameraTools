@@ -38,7 +38,7 @@ SHADERS = [
     ("kContactPs", "contact_ps.hlsl", "ps_5_0"), ("kContactShadowsPs", "contact_shadows_ps.hlsl", "ps_5_0"),
     ("kSunPs", "sun_ps.hlsl", "ps_5_0"), ("kSunShadowsPs", "sun_shadows_ps.hlsl", "ps_5_0"),
     ("kAtmospherePs", "atmosphere_ps.hlsl", "ps_5_0"),
-    ("kCloudMapPs", "cloud_map_ps.hlsl", "ps_5_0"), ("kCloudsPs", "clouds_ps.hlsl", "ps_5_0"), ("kCloudsApplyPs", "clouds_apply_ps.hlsl", "ps_5_0"), ("kCloudsResolvePs", "clouds_resolve_ps.hlsl", "ps_5_0"), ("kCloudShapeCs", "cloud_shape_cs.hlsl", "cs_5_0"), ("kCloudDetailCs", "cloud_detail_cs.hlsl", "cs_5_0"), ("kTonemapPs", "tonemap_ps.hlsl", "ps_5_0"), ("kExposureMeterPs", "exposure_meter_ps.hlsl", "ps_5_0"),
+    ("kCloudMapPs", "cloud_map_ps.hlsl", "ps_5_0"), ("kCloudsPs", "clouds_ps.hlsl", "ps_5_0"), ("kCloudsApplyPs", "clouds_apply_ps.hlsl", "ps_5_0"), ("kCloudsResolvePs", "clouds_resolve_ps.hlsl", "ps_5_0"), ("kCloudsPaintedPs", "clouds_painted_ps.hlsl", "ps_5_0"), ("kCloudShapeCs", "cloud_shape_cs.hlsl", "cs_5_0"), ("kCloudDetailCs", "cloud_detail_cs.hlsl", "cs_5_0"), ("kTonemapPs", "tonemap_ps.hlsl", "ps_5_0"), ("kExposureMeterPs", "exposure_meter_ps.hlsl", "ps_5_0"),
     ("kExposureAdaptPs", "exposure_adapt_ps.hlsl", "ps_5_0"), ("kViewPs", "view_ps.hlsl", "ps_5_0"),
     ("kAccumulatePs", "accumulate_ps.hlsl", "ps_5_0"), ("kPresentPs", "present_ps.hlsl", "ps_5_0"), ("kWetnessPs", "wetness_ps.hlsl", "ps_5_0"),
     ("kShaftsPs", "shafts_ps.hlsl", "ps_5_0"), ("kLightShaftsPs", "light_shafts_ps.hlsl", "ps_5_0"),

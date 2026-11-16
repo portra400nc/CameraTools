@@ -8,6 +8,7 @@
 #include "clouds.hlsli"
 #include "scatter.hlsli"
 #include "sky.hlsli"
+#include "cloud_light.hlsli"
 
 Texture2D<float> cloud_map : register(t5);      // the weather map
 Texture3D<float4> shape_noise : register(t7);   // cloud_shape_cs.hlsl's
@@ -19,7 +20,6 @@ static const float kDetailTile = 0.8;
 float remap(float x, float a, float b, float c, float d) { return c + (x - a) / (b - a) * (d - c); }
 
 static float2 skew_direction;
-static float pixel_angle;   // radians between neighboring pixels of the cloud history
 static float detail_weight = 1;
 static float coverage_boost = 0;
 
@@ -93,27 +93,6 @@ float depth_toward_light(float3 p, float3 l)
     return depth;
 }
 
-// Multiple scattering after Wrenninge: each octave lets more light through, scatters less and more evenly.
-float scattered(float c, float od)
-{
-    float lit = 0, a = 1, b = 1, g = 1;
-    [unroll] for (int k = 0; k < 4; k++)
-    {
-        lit += b * (0.6 * henyey_greenstein(c, 0.8 * g) + 0.4 * henyey_greenstein(c, -0.15 * g)) * exp(-od * a);
-        a *= 0.25;
-        b *= 0.45;
-        g *= 0.6;
-    }
-    return lit;
-}
-
-// Meters of a layer one pixel of the history spans at distance t along dir: more where the ray grazes the layer, by the
-// square root, between the blur of its long side and the shimmer of its short one.
-float footprint(float t, float3 dir)
-{
-    return t * pixel_angle / sqrt(max(abs(dir.y), 0.02));
-}
-
 // Cirrus is a sheet too thin to march: the ray's crossing of the layer's middle stands in for the whole layer, its
 // tufts thick by the ray's path through it, lit through half the layer toward the light.
 float4 cirrus_ray(float3 origin, float3 dir, float t0, float t1, float3 l, float c, float3 sun, float3 sky)
@@ -123,31 +102,23 @@ float4 cirrus_ray(float3 origin, float3 dir, float t0, float t1, float3 l, float
         return float4(0, 0, 0, 1);
     float3 p = origin + dir * t;
     float2 at = p.xz + cloud_wind;
-    bool painted = cloud_pattern >= 0.5;
-    float weather = painted ? pattern_at(at, footprint(t, dir)).x : cloud_map.SampleLevel(linear_clamp, (at - cloud_map_center) / cloud_map_extent + 0.5, 0);
+    float weather = cloud_map.SampleLevel(linear_clamp, (at - cloud_map_center) / cloud_map_extent + 0.5, 0);
     if (weather <= 0.01)
         return float4(0, 0, 0, 1);
-    float od = (painted ? weather * 2 : cirrus_body(at, weather, t)) * cloud_density * (t1 - t0) * 0.55;
+    float od = cirrus_body(at, weather, t) * cloud_density * (t1 - t0) * 0.55;
     float lit = scattered(c, weather * cloud_density * cloud_thickness * 0.5 / max(l.y, 0.2));
     float taken = (1 - exp(-od)) * exp(-t / cloud_fade);
     return float4(taken * (sun * lit + sky * 0.6), 1 - taken);
 }
 
-// Stratus is a sheet too: its optical thickness where the ray crosses the layer's middle, lit by the light that diffuses
-// through it (two-stream, asymmetry 0.85), so thicker parts are darker, and by sun light scattered once through its
-// thin parts, and by the gray sky light, which also gets through thin parts better. The light through a thick sheet is mostly gray, and the sheet about as bright as the clear sky it hides. Far off it fades into a gray haze rather than the sky,
+// A sheet of optical thickness tau where the ray crosses the layer's middle at distance t: lit by the light that diffuses
+// through it (two-stream, asymmetry 0.85), so thicker parts are darker, by sun light scattered once through its thin
+// parts, and by the gray sky light, which also gets through thin parts better. The light through a thick sheet is mostly
+// gray, and the sheet about as bright as the clear sky it hides. Far off it fades into a gray haze rather than the sky,
 // and it reaches the horizon.
-float4 sheet_ray(float3 origin, float3 dir, float3 l, float c, float3 sun, float3 sky)
+float4 sheet_light(float3 origin, float3 dir, float t, float tau, float3 l, float c, float3 sun, float3 sky)
 {
     float mid = cloud_base + cloud_thickness * 0.5;
-    float t = (mid - origin.y) / (origin.y < mid ? max(dir.y, 0.01) : min(dir.y, -0.01));
-    float2 at = origin.xz + dir.xz * t + cloud_wind;
-    bool painted = cloud_pattern >= 0.5;
-    float2 pattern = painted ? pattern_at(at, footprint(t, dir)) : 0;
-    float weather = painted ? pattern.x : cloud_map.SampleLevel(linear_clamp, (at - cloud_map_center) / cloud_map_extent + 0.5, 0);
-    if (weather <= 0.01)
-        return float4(0, 0, 0, 1);
-    float tau = (painted ? sheet_painted_thickness(at, pattern.y) : stratus_thickness(at)) * weather * cloud_density * cloud_thickness;
     float through = exp(-tau / max(abs(dir.y), 0.03));
     float mu = max(l.y, 0.05);
     float diffuse = mu / (1 + 0.75 * 0.15 * tau * (0.5 + 0.5 / mu));
@@ -160,32 +131,17 @@ float4 sheet_ray(float3 origin, float3 dir, float3 l, float c, float3 sun, float
     return float4((1 - through) * light, through);
 }
 
-// With the physical sky, the light along cloud_toward_sun that reaches world point p through the air above it, on the
-// curved planet below the viewer at origin: clouds stay lit after the sun has set on the ground. The stylized sunset
-// lights them as if they stood up to kSunsetLiftKm higher, so they keep the low sun's pink longer after sunset.
-static const float kSunsetLiftKm = 8;
-float3 physical_sunlight(float3 origin, float3 p)
-{
-    float lift = sky_sunset * kSunsetLiftKm;
-    float3 planet = float3((p.x - origin.x) * 0.001, sky_viewer_radius() + (p.y - origin.y) * 0.001 + lift, (p.z - origin.z) * 0.001);
-    float r = length(planet);
-    return sky_scale * sky_cloud_illuminance * sky_light_at(r, dot(planet / r, cloud_toward_sun)) * cloud_sun;
-}
 
-// The same at the layer's middle where the ray crosses it, for the thin layers lit once a ray.
-float3 layer_sunlight(float3 origin, float3 dir)
+// Stratus is a sheet too: its optical thickness where the ray crosses the layer's middle, lit as sheet_light says.
+float4 sheet_ray(float3 origin, float3 dir, float3 l, float c, float3 sun, float3 sky)
 {
-    float middle = cloud_base + 0.5 * cloud_thickness;
-    float t = abs(dir.y) > 0.01 ? max((middle - origin.y) / dir.y, 0) : 0;
-    return physical_sunlight(origin, origin + dir * min(t, cloud_map_extent * 0.35));
-}
-
-// The stylized sunset's clouds: sunlight the air reddened lights them up to three times as brightly, so they glow pink
-// against the sky as the low sun catches them.
-float3 sunset_glow(float3 sun)
-{
-    float warmth = saturate(1 - sun.b / max(sun.r, 1e-6));
-    return sun * (1 + 2 * sky_sunset * warmth);
+    float mid = cloud_base + cloud_thickness * 0.5;
+    float t = (mid - origin.y) / (origin.y < mid ? max(dir.y, 0.01) : min(dir.y, -0.01));
+    float2 at = origin.xz + dir.xz * t + cloud_wind;
+    float weather = cloud_map.SampleLevel(linear_clamp, (at - cloud_map_center) / cloud_map_extent + 0.5, 0);
+    if (weather <= 0.01)
+        return float4(0, 0, 0, 1);
+    return sheet_light(origin, dir, t, stratus_thickness(at) * weather * cloud_density * cloud_thickness, l, c, sun, sky);
 }
 
 float4 main(float4 position : SV_Position) : SV_Target0
@@ -198,7 +154,6 @@ float4 main(float4 position : SV_Position) : SV_Target0
     float3x3 to_world = transpose((float3x3)world_to_view);
     float3 origin = mul(to_world, -float3(world_to_view[0].w, world_to_view[1].w, world_to_view[2].w));
     float3 dir = normalize(mul(to_world, view_position(uv, 1)));
-    pixel_angle = length(normalize(mul(to_world, view_position(uv + float2(2 * render_size.z, 0), 1))) - dir);
     float top = cloud_base + cloud_thickness;
     skew_direction = float2(cos(radians(cloud_pad)), sin(radians(cloud_pad)));
     bool physical = sky_cloud_physical > 0.5;
