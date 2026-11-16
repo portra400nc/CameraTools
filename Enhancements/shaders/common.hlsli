@@ -125,8 +125,6 @@ cbuffer Constants : register(b0)
     float mist_patchiness;      // EnhancementsMist's, for atmosphere_ps.hlsl
     float mist_size;            // meters across a bank
     float2 mist_drift;          // meters the banks drifted along world x and z
-    float snow_amount;          // rain_ps.hlsl's: the share of cells holding a flake
-    float3 snow_pad;
 };
 
 SamplerState point_clamp : register(s0);

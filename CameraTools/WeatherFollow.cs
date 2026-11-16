@@ -2,11 +2,11 @@ using UnityEngine;
 
 namespace CameraTools
 {
-    // Experimental features > Weather at run time: the game's weather, and the look the sky blends to as it changes, in three
-    // seconds of real time, so a weather picked while the game is paused for a shot still comes in.
+    // Experimental features > Weather at run time: the game's weather, and the look the sky blends to as it changes, over
+    // real time, so a weather picked while the game is paused for a shot still comes in.
     internal static class WeatherFollow
     {
-        private const float BlendSeconds = 3f;
+        private const float BlendSeconds = 30f;
 
         private static WeatherKind target = WeatherKind.Sunny;
         private static WeatherLook from;

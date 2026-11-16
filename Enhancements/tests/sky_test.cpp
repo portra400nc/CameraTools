@@ -283,14 +283,6 @@ int main()
         check("the mist reads its patchiness and clamps its bank size to 500 m; a version 41 caller has an even haze 40 m banks would make",
             banked.atmosphere.patchiness == 0.7f && banked.atmosphere.patch_size == 500 && parse_settings(banks).atmosphere.patchiness == 0
             && parse_settings(banks).atmosphere.patch_size == 40);
-        EnhancementsSettings snowy = banks;
-        snowy.size = sizeof snowy;
-        snowy.rain = {};
-        snowy.snow = { 0.6f };
-        const Settings flakes = parse_settings(snowy);
-        snowy.size = offsetof(EnhancementsSettings, snow);
-        check("snow reads its amount and wants the rain pass without rain; a version 42 caller has none",
-            flakes.snow == 0.6f && flakes.rain == 0 && wanted_steps(flakes).has(Step::bloom) && parse_settings(snowy).snow == 0);
         int strikes = 0, bolts = 0;
         float brightest = 0, struck = -1, bolted = -1;
         bool dark_without = true, repeats = true;

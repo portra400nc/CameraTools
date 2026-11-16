@@ -142,10 +142,8 @@ namespace enhancements
         float mist_patchiness;
         float mist_size;
         float mist_drift[2];
-        float snow_amount;
-        float snow_pad[3];
     };
-    static_assert(sizeof(Constants) == 960 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
+    static_assert(sizeof(Constants) == 944 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
         && offsetof(Constants, cloud_toward_sun) == 560 && offsetof(Constants, tone_shadows) == 480 && offsetof(Constants, accum_gain) == 488 && offsetof(Constants, flare_sun_uv) == 456 && offsetof(Constants, wetness) == 408 && offsetof(Constants, shafts_anisotropy) == 432 && offsetof(Constants, label) == 272 && offsetof(Constants, sun_color) == 304
         && offsetof(Constants, sky_color) == 320 && offsetof(Constants, bloom_strength) == 352 && offsetof(Constants, sun_cascades) == 368
@@ -1479,7 +1477,7 @@ namespace enhancements
         return GameCall::keep;
     }
 
-    std::optional<GameCall> Gpu::run_rain(const FrameMap &map, float amount, float snow, const Lightning &lightning, const Camera &camera, bool flip, float seconds, float wind_radians)
+    std::optional<GameCall> Gpu::run_rain(const FrameMap &map, float amount, const Lightning &lightning, const Camera &camera, bool flip, float seconds, float wind_radians)
     {
         const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
         const auto scene_format = static_cast<DXGI_FORMAT>(scene.format);
@@ -1489,21 +1487,18 @@ namespace enhancements
             || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false) || !pass_constants(camera, map.render, flip, constants))
             return std::nullopt;
         constants.rain_amount = amount;
-        constants.snow_amount = snow;
         constants.rain_time = seconds;
         constants.rain_wind = wind_radians;
         constants.rain_flash = lightning.flash;
         constants.rain_bolt = lightning.bolt;
         constants.rain_bolt_azimuth = lightning.azimuth;
         constants.rain_bolt_seed = lightning.seed;
-        if (snow > 0 && !snow_flakes_srv_ && !make_bc7_texture(kSnowFlakes, sizeof kSnowFlakes, snow_flakes_srv_))
-            constants.snow_amount = 0;
         upload(constants);
         ID3D11DeviceContext1 *c = context_.Get();
         scene_in_.copy_from(c, native(scene));
         depth_.copy_from(c, native(depth));
-        ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), nullptr, depth_.srv(), snow_flakes_srv_.Get() };
-        draw_fullscreen(rain_ps_.Get(), srvs, 4, scene_out_.rtv(), map.render);
+        ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), nullptr, depth_.srv() };
+        draw_fullscreen(rain_ps_.Get(), srvs, 3, scene_out_.rtv(), map.render);
         scene_out_.copy_to(c, native(scene));
         return GameCall::keep;
     }
@@ -1546,12 +1541,7 @@ namespace enhancements
         if (pattern == CloudPattern::noise)
             return false;
         const CloudPatternData &file = kCloudPatterns[static_cast<size_t>(pattern) - 1];
-        return make_bc7_texture(file.bytes, file.size, cloud_pattern_srv_);
-    }
-
-    bool Gpu::make_bc7_texture(const uint8_t *bytes, size_t size, ComPtr<ID3D11ShaderResourceView> &srv)
-    {
-        const std::optional<Bc7Image> image = parse_bc7_dds(bytes, size);
+        const std::optional<Bc7Image> image = parse_bc7_dds(file.bytes, file.size);
         if (!image)
             return false;
         D3D11_SUBRESOURCE_DATA levels[16] = {};
@@ -1571,9 +1561,9 @@ namespace enhancements
         desc.Usage = D3D11_USAGE_IMMUTABLE;
         desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
         ComPtr<ID3D11Texture2D> texture;
-        if (FAILED(device_->CreateTexture2D(&desc, levels, &texture)) || FAILED(device_->CreateShaderResourceView(texture.Get(), nullptr, &srv)))
+        if (FAILED(device_->CreateTexture2D(&desc, levels, &texture)) || FAILED(device_->CreateShaderResourceView(texture.Get(), nullptr, &cloud_pattern_srv_)))
         {
-            srv.Reset();
+            cloud_pattern_srv_.Reset();
             return false;
         }
         return true;

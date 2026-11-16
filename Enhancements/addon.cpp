@@ -1127,7 +1127,7 @@ namespace enhancements
                             logged_rain = settings.rain;
                             log(reshade::log::level::info, "rain at " + std::to_string(static_cast<int>(settings.rain * 100)) + "%.");
                         }
-                        call = gpu.run_rain(map, settings.rain, settings.snow, lightning_at(celestial ? celestial->water_seconds : 0.0, settings.lightning), overcast_camera(sky_camera()), settings.flip, celestial ? celestial->water_seconds : 0.0f,
+                        call = gpu.run_rain(map, settings.rain, lightning_at(celestial ? celestial->water_seconds : 0.0, settings.lightning), overcast_camera(sky_camera()), settings.flip, celestial ? celestial->water_seconds : 0.0f,
                             settings.clouds.wind_direction * 0.01745329f);
                         break;
                     case PassId::atmosphere:

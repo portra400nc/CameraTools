@@ -5,12 +5,11 @@
 // The drops are sparse, thin and faint, as a camera sees rain: the sky's light, sky_color, which small lenses show from the
 // bright sky above, blurred over a twenty-fifth of a second. Drops land on upward ground near
 // the camera as a bright crown and a ring. A thunderstorm's lightning flashes over all of it, brightest in the clouds
-// toward its bolt, which is drawn in the open sky. Snow falls as textured flakes in the same layers.
+// toward its bolt, which is drawn in the open sky.
 #include "common.hlsli"
 
 Texture2D<float3> scene : register(t0);     // mirror of the HDR scene
 Texture2D<float> depth : register(t2);      // mirror of the main depth, reversed Z
-Texture2D<float4> flakes : register(t3);    // Azurite Weathers II's snow atlas, 4x4 clumps, data/azurite/fxsnowsoftsub.dds
 
 static const uint kLayers = 6;
 static const float kNear = 1.5, kStep = 1.7;    // the layers' radii in meters: 1.5, 2.6, 4.3, 7.4, 12.5, 21.3
@@ -20,14 +19,6 @@ static const float kFill = 0.3;                 // the share of cells a downpour
 static const float kDropWidth = 0.002;          // meters
 static const float kSplashReach = 18;           // meters from the camera that splashes show
 static const float kSplashCell = 0.35;          // meters of ground per landing spot
-// Snow after Azurite Weathers II's Sakura_Snow_Medium: 150 to 200 units a second of fall at 70 units a meter, a swirl of
-// 50 to 100 units around the falling center, spun 90 to 230 degrees a second; the swirl is kept within a cell here.
-static const float kSnowFall = 2.5;             // meters per second
-static const float kFlakeSize = 0.06;           // meters across a flake's quad
-static const float kSwirl = 0.15;               // the swirl's radius, a share of the cell
-static const float kSnowFill = 0.85;            // the share of cells a blizzard fills
-static const float kFlakeLight = 5;             // the light on a flake, times the sky's
-static const float kFlakeOpacity = 0.9;
 
 float2 hash2(float2 p)
 {
@@ -140,7 +131,7 @@ float4 main(float4 position : SV_Position) : SV_Target0
     }
 
     float flat = length(dir.xz);
-    if (flat < 0.05 || (rain_amount <= 0 && snow_amount <= 0))
+    if (flat < 0.05 || rain_amount <= 0)
         return float4(color, 1);
     // The wind blows the drops aside as they fall: a slant of up to half a meter a meter.
     float2 wind = float2(cos(rain_wind), sin(rain_wind));
@@ -150,7 +141,7 @@ float4 main(float4 position : SV_Position) : SV_Target0
     [unroll] for (uint i = 0; i < kLayers; i++, radius *= kStep)
     {
         float t = radius / flat;
-        if (t > scene_meters || rain_amount <= 0)
+        if (t > scene_meters)
             break;
         // The layer's columns: drops a few centimeters apart near, wider far, where more of them fall in one pixel. Each
         // column falls at its own speed from its own start, so no two line up.
@@ -177,51 +168,5 @@ float4 main(float4 position : SV_Position) : SV_Target0
         cover += saturate(1 - dx / (width * 0.75)) * taper * share * (0.5 + 0.5 * frac(r2.x * 7.3)) * saturate(1 - radius / 30);
     }
     // A drop bends the bright sky above toward the eye, a few times the light that reaches the air around it.
-    color = lerp(color, drop, saturate(cover) * 0.35);
-
-    // Snow, as Azurite Weathers II's precipitation draws it: each flake a quad of one of the atlas's 16 clumps, turned to an
-    // angle of its own and spinning, swirling around a center that falls. Here the quads sit one to a cell in the same
-    // layers, drawn far to near so nearer flakes cover farther ones.
-    if (snow_amount > 0)
-    {
-        float3 flake_light = dot(sky_color, 1.0 / 3) * kFlakeLight * rain_light;
-        [unroll] for (int j = kLayers - 1; j >= 0; j--)
-        {
-            float layer_radius = kNear * pow(kStep, j);
-            float t = layer_radius / flat;
-            if (t > scene_meters)
-                continue;
-            float cell = 0.2 * sqrt(layer_radius / kNear);
-            float height = dir.y * t;
-            float across = azimuth * layer_radius + height * slant * 2;
-            float down = height + kSnowFall * (0.85 + 0.1 * j) * rain_time + j * 5.3;
-            float2 q = float2(across, down) / cell;
-            float2 c = floor(q), f = q - c;
-            float2 r = hash2(c + j * 29.3 + 11);
-            if (r.x > snow_amount * gust * kSnowFill)
-                continue;
-            float2 r2 = hash2(c.yx * 1.91 + j * 3.7);
-            float2 r3 = hash2(c * 0.73 + j * 17.9 + 4);
-            float side = kFlakeSize * (0.75 + 0.5 * r2.y);
-            // The swirl: around a center inside the cell, at a rate and phase of its own.
-            float swirl_radius = kSwirl * cell * (0.5 + 0.5 * r3.x);
-            float swirl = rain_time * (1 + r3.y) * (r3.x > 0.5 ? 1 : -1) + r2.x * 6.283;
-            float2 margin = side * 0.71 + swirl_radius;
-            float2 center = margin + (cell - 2 * margin) * float2(r.y, r2.x) + swirl_radius * float2(cos(swirl), sin(swirl));
-            float2 d = (f * cell - center) / side;
-            // The spin: a start anywhere in the turn, then 90 to 230 degrees a second either way.
-            float spin = r3.y * 6.283 + rain_time * radians(lerp(90, 230, r.y)) * (r2.y > 0.5 ? 1 : -1);
-            float2 uv = float2(cos(spin) * d.x - sin(spin) * d.y, sin(spin) * d.x + cos(spin) * d.y) + 0.5;
-            if (any(uv < 0) || any(uv > 1))
-                continue;
-            float clump = floor(frac(r3.x * 13.1 + r3.y * 7.7) * 16);
-            float2 atlas = (float2(fmod(clump, 4), floor(clump / 4)) + uv) / 4;
-            // A quad of a few pixels reads a smaller mip; one under a pixel and a half fades by its share of the pixel.
-            float pixels = side / (t * pixel_angle);
-            float4 texel = flakes.SampleLevel(linear_clamp, atlas, max(log2(128 / max(pixels, 1)), 0));
-            float alpha = texel.a * saturate(pixels / 1.5) * saturate(pixels / 1.5) * kFlakeOpacity * saturate(1 - layer_radius / 30);
-            color = lerp(color, texel.rgb * flake_light, alpha);
-        }
-    }
-    return float4(color, 1);
+    return float4(lerp(color, drop, saturate(cover) * 0.35), 1);
 }
