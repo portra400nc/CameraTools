@@ -63,6 +63,9 @@ namespace enhancements
 
     // The moon's angular radius at its mean distance, in radians.
     constexpr float kMoonRadius = 0.004528f;
+    // The drawn moon's width over the real one's, about the game's own moon: its face as bright as the real one's, so it
+    // sends the square of this times the real moon's light.
+    constexpr float kMoonDrawn = 5;
 
     // The sunlit moon's radiance over its albedo (its mean's multiple) and its Lommel-Seeliger shading
     // cos i / (cos i + cos e), in the sun's units, at a phase angle: the disc then sends moon_illuminance's light, the

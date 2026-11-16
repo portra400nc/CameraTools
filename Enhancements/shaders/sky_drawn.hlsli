@@ -13,7 +13,7 @@ SamplerState linear_wrap : register(s3);
 // The sun's radius and its limb darkening per channel, a linear law at about 680, 550 and 440 nm.
 static const float kSunRadius = 0.004654;
 static const float3 kSunLimb = float3(0.47, 0.58, 0.70);
-static const float kMoonRadius = 0.004528;
+static const float kMoonRadius = 0.004528 * 5;   // the drawn moon: core/sky.h's kMoonRadius times kMoonDrawn
 
 // The angle between two unit vectors, accurate when they are close.
 float angle_between(float3 a, float3 b) { return 2 * asin(saturate(length(a - b) * 0.5)); }
