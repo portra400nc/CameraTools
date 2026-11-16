@@ -103,8 +103,8 @@ namespace enhancements
     float exposure_gain(const Atmosphere &atmosphere, const SkyLight &sun, const SkyLight &moon, const SkyExposure &exposure);
 
     // How many stops darker than at the blue hour's end, the sun 6 degrees down, the exposure shows a night: 0 till then,
-    // and with night_power below 1 more the darker the night. Auto exposure aims that far under middle gray, so it keeps
-    // the blue hour bright and leaves the night as dark as Night brightness makes it.
+    // and with night_power below 1 more the darker the night, above 1 brighter. Auto exposure aims that far off middle
+    // gray, so it keeps the blue hour bright and leaves the night as Night brightness makes it.
     float night_stops_under_dusk(const Atmosphere &atmosphere, const SkyLight &sun, const SkyLight &moon, const SkyExposure &exposure);
 
     // Game units per unit of the sun's light above the atmosphere, per channel.

@@ -274,8 +274,8 @@ int main()
         const auto under = [&clear](float sun, float moon, float power) {
             return night_stops_under_dusk(clear, { toward(sun), 1 }, { toward(moon), moon_illuminance(0) }, { 1.5f, power, 30 });
         };
-        check("a night is shown no darker than dusk at a night power of 1, nor any time before dusk",
-            under(-30, -30, 1) == 0 && under(-3, -30, 0.7f) == 0 && under(20, -30, 0.7f) == 0);
+        check("a night is shown as bright as dusk at a night power of 1, brighter above it, and nothing changes before dusk",
+            under(-30, -30, 1) == 0 && under(-30, -30, 1.3f) > 2 && under(-3, -30, 0.7f) == 0 && under(20, -30, 1.3f) == 0);
         check("below 1 a moonless night is shown darker than one under a full moon, and darker the lower the power",
             under(-30, -30, 0.85f) < under(-30, 40, 0.85f) && under(-30, 40, 0.85f) < 0 && under(-30, -30, 0.7f) < under(-30, -30, 0.85f));
     }

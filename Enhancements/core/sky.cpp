@@ -405,7 +405,7 @@ namespace enhancements
     {
         const float light = level_illuminance(a, sun) + level_illuminance(a, moon) + night_floor(a);
         const float dusk = level_illuminance(a, { { 0.99452f, -0.10453f, 0 }, 1 }) + night_floor(a);
-        return light > 0 && light < dusk ? (std::min(exposure.night_power, 1.0f) - 1) * std::log2(dusk / light) : 0.0f;
+        return light > 0 && light < dusk ? (exposure.night_power - 1) * std::log2(dusk / light) : 0.0f;
     }
 
     Vec3f sky_scale(const Atmosphere &a, const SkyLight &sun, const SkyLight &moon, const SkyExposure &exposure)

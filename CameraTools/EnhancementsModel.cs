@@ -275,7 +275,7 @@ namespace CameraTools
             Slider(Enhancement.SkyHaziness, Enhancement.PhysicalSky, "Haziness", 0f, 0.5f, 0.1f, 0.05f, 2),
             Slider(Enhancement.SunsetColor, Enhancement.PhysicalSky, "Sunset color", 0f, 100f, 0f, 5f, 0, "%"),
             Slider(Enhancement.DistanceHaze, Enhancement.PhysicalSky, "Distance haze", 0f, 32f, 8f, 1f, 0, "×"),
-            Slider(Enhancement.NightBrightness, Enhancement.PhysicalSky, "Night brightness", 0f, 100f, 85f, 5f, 0, "%"),
+            Slider(Enhancement.NightBrightness, Enhancement.PhysicalSky, "Night brightness", 0f, 200f, 85f, 5f, 0, "%"),
             Switch(Enhancement.PhysicalWater, "Physical water"),
             Slider(Enhancement.WaterClarity, Enhancement.PhysicalWater, "Clarity", 0.5f, 20f, 6f, 0.5f, 1, " m"),
             Slider(Enhancement.WaterWaves, Enhancement.PhysicalWater, "Wave height", 0f, 300f, 100f, 10f, 0, "%"),
