@@ -736,6 +736,7 @@ namespace CameraTools
                         ResolutionRow resolution => ui.Resolution(tabRows, resolution, y),
                         TextRow text => ui.TextField(tabRows, text, y),
                         BindingRow binding => ui.Binding(tabRows, binding, y),
+                        InfoRow info => ui.Info(tabRows, info, y),
                         _ => throw new InvalidOperationException($"No widget for {row.GetType().Name}."),
                     };
                     built.Top = y;

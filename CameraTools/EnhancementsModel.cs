@@ -23,6 +23,7 @@ namespace CameraTools
         PhysicalWater, WaterClarity, WaterWaves, WaterSize,
         Clouds, CloudType, CloudCoverage, CloudHeight, CloudThickness, CloudSize, CloudDensity, CloudEdgeDetail, CloudSunlight, CloudSkyLight,
         CloudWind, CloudWindDirection, CloudQuality, CloudKind,
+        Weather, WeatherMist,
         DepthOfField, DepthOfFieldFocusMode, DepthOfFieldFocusSpeed, DepthOfFieldFocusDistance, DepthOfFieldAperture, DepthOfFieldFocusX, DepthOfFieldFocusY, DepthOfFieldMaxBlur,
         BokehShape, BladeRoundness, BladeRotation, SoapBubble, BokehChromaticAberration, CatsEye, Swirl, AnamorphicRatio,
         HighlightDiscs, HighlightBoost, HighlightThreshold, BokehContrast,
@@ -294,6 +295,8 @@ namespace CameraTools
             Slider(Enhancement.CloudWindDirection, Enhancement.Clouds, "Wind direction", 0f, 355f, 30f, 5f, 0, "°"),
             Choice(Enhancement.CloudQuality, Enhancement.Clouds, "Quality", 1, "Low", "Medium", "High"),
             Choice(Enhancement.CloudKind, Enhancement.Clouds, "Last type", 0, CloudKinds.Select(kind => kind.Name).ToArray()),
+            Switch(Enhancement.Weather, "Weather"),
+            Slider(Enhancement.WeatherMist, Enhancement.Weather, "Mist", 0f, 200f, 100f, 5f, 0, "%"),
             new(Enhancement.DepthOfField, EnhancementKind.Switch, "Depth of field", Enhancement.DepthOfField, 0f),
             Choice(Enhancement.DepthOfFieldFocusMode, Enhancement.DepthOfField, "Focus mode", FocusPoint, "Focus point", "Manual distance", "Eyes"),
             Slider(Enhancement.DepthOfFieldFocusSpeed, Enhancement.DepthOfField, "Focus speed", 0f, 3f, 0.5f, 0.1f, 1, " s"),
@@ -324,7 +327,7 @@ namespace CameraTools
         // What the add-on runs for these values. The path tracer has no row, so its trace and gather stay off, and every
         // other field without a row keeps the add-on's default. The depth of field runs also while the master switch is
         // off, and then alone.
-        public static EnhancementsSettings Settings(EnhancementValues values, LensView lens)
+        public static EnhancementsSettings Settings(EnhancementValues values, LensView lens, WeatherLook weather = null)
         {
             uint Bit(Enhancement id) => values.On(id) ? 1u : 0u;
             var settings = EnhancementsSettings.Defaults;
@@ -390,6 +393,9 @@ namespace CameraTools
             settings.DepthOfField = DepthOfField(values, lens);
             // The lens softness is the lens's, so it holds with the depth of field switched off, while the free camera is on.
             settings.LensSoftness.Radius = lens.FreeCamera ? values[Enhancement.LensSoftness] : 0f;
+            // Weather's look in place of the user's clouds, haziness and Haze effect, as the game's weather has it now.
+            if (weather != null && WeatherRuns(values))
+                WeatherLooks.Apply(ref settings, weather, values[Enhancement.WeatherMist] / 100f, HazeDensity);
             if (settings.Enabled == 0 && (settings.DepthOfField.Enabled != 0 || settings.LensSoftness.Radius > 0f))
             {
                 settings.Enabled = 1;
@@ -484,7 +490,7 @@ namespace CameraTools
         public static bool SkyDrawn(EnhancementValues values) => values.On(Enhancement.Enabled) && values.On(Enhancement.PhysicalSky);
 
         // The Experimental features group's rows: the physical sky's and the clouds'.
-        public static bool Experimental(EnhancementField field) => field.Id >= Enhancement.PhysicalSky && field.Id <= Enhancement.CloudKind;
+        public static bool Experimental(EnhancementField field) => field.Id >= Enhancement.PhysicalSky && field.Id <= Enhancement.WeatherMist;
 
         // The depth of field's block. The sensor is the one the focal length readout assumes, a full-frame diagonal in the
         // picture's shape, so the readout's millimeters and the blur describe the same lens; N times taller, the whole
@@ -550,6 +556,7 @@ namespace CameraTools
         {
             Enhancement.PhysicalSky => "Real sky, sun, moon and stars that light the world",
             Enhancement.PhysicalWater => "Real reflections and depth for rivers, lakes and the sea",
+            Enhancement.Weather => "Clouds and mist that follow the game's weather",
             Enhancement.CloudType => (int)values[Enhancement.CloudType] < CustomClouds ? CloudKinds[(int)values[Enhancement.CloudType]].Detail : "Your own shape",
             _ => null,
         };
@@ -558,7 +565,11 @@ namespace CameraTools
         // while Physical sky is off, which it draws with.
         public static bool Usable(EnhancementField field, EnhancementValues values)
             => field.Id == Enhancement.Enabled
-            || values.On(Enhancement.Enabled) && (field.Id is not (Enhancement.PhysicalWater or Enhancement.WaterClarity or Enhancement.WaterWaves or Enhancement.WaterSize) || values.On(Enhancement.PhysicalSky));
+            || values.On(Enhancement.Enabled) && (field.Id is not (Enhancement.PhysicalWater or Enhancement.WaterClarity or Enhancement.WaterWaves or Enhancement.WaterSize
+                or Enhancement.Weather or Enhancement.WeatherMist) || values.On(Enhancement.PhysicalSky));
+
+        // Whether Weather's looks run: it draws with the physical sky.
+        public static bool WeatherRuns(EnhancementValues values) => SkyDrawn(values) && values.On(Enhancement.Weather);
 
         // The right of the heading, folded or not: the effects count only while the master switch is on.
         public static string Summary(EnhancementValues values)

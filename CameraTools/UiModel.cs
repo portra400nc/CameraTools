@@ -27,6 +27,7 @@ namespace CameraTools
             ActionRow action => action.Enabled,
             StepperRow stepper => stepper.Enabled,
             TextRow text => text.Enabled,
+            InfoRow info => info.Enabled,
             _ => null,
         })?.Invoke() ?? true;
     }
@@ -100,6 +101,9 @@ namespace CameraTools
     }
 
     public sealed record ResolutionRow(string Label, int Slot) : Row(Label);
+
+    // A line that only reports: its label, and at the right a value read every frame.
+    public sealed record InfoRow(string Label, Func<string> Value, Func<bool> Enabled = null) : Row(Label);
 
     // A value typed on the keyboard, or with Steam+X on the Deck. Allowed lists the characters it takes, in lower case;
     // Commit gets the typed text, and Tint colors the value while it is not being typed. Prefix shows before the text

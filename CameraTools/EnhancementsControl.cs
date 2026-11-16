@@ -25,6 +25,9 @@ namespace CameraTools
         private static LensView lens;
         private static EnhancementsView view;
         private static float? saveAt;
+        // While the weather's look blends, the add-on gets it again at most this often, in real seconds.
+        private const float WeatherEvery = 0.25f;
+        private static float weatherSentAt;
         private static bool unsaved;
         // The heading's text for the values it was made from.
         private static (EnhancementValues Of, string Text) summary;
@@ -77,6 +80,8 @@ namespace CameraTools
                     };
                     yield return plain;
                     yield return plain with { Shown = () => shown() && Graphics.PresetsEnhance, Note = () => Graphics.SwitchNote(field.Id) };
+                    if (field.Id == Enhancement.Weather)
+                        yield return new InfoRow("Now", () => WeatherFollow.Now, usable) { Shown = () => shown() && Values.On(Enhancement.Weather), Sub = true };
                     continue;
                 }
                 yield return field.Kind switch
@@ -131,20 +136,22 @@ namespace CameraTools
             GameFlare.Update(Enhancements.Connected && (EnhancementsModel.FlareRuns(Running) || EnhancementsModel.SkyDrawn(Running)));
             // The game's clouds keep its painted lighting, which the physical sky's contradicts.
             GameClouds.Update(Enhancements.Connected && (EnhancementsModel.CloudsRun(Running) || EnhancementsModel.SkyDrawn(Running)));
+            WeatherFollow.Update(Enhancements.Connected && EnhancementsModel.WeatherRuns(Running), Running);
             var now = DepthOfField.Frame;
             if (connections != Enhancements.Connections)
             {
                 connections = Enhancements.Connections;
                 lens = now;
-                ulong generation = Enhancements.Apply(EnhancementsModel.Settings(Running, lens));
+                ulong generation = Enhancements.Apply(EnhancementsModel.Settings(Running, lens, WeatherFollow.Current));
                 Log($"the add-on connected and runs {Describe(Running)}, as its settings {generation}.");
             }
-            else if (now != lens || view != EnhancementsModel.ProbeView)
+            else if (now != lens || view != EnhancementsModel.ProbeView || WeatherFollow.Changed && Time.unscaledTime >= weatherSentAt + WeatherEvery)
             {
                 lens = now;
                 view = EnhancementsModel.ProbeView;
+                weatherSentAt = Time.unscaledTime;
                 if (Enhancements.Connected)
-                    Enhancements.Apply(EnhancementsModel.Settings(Running, lens));
+                    Enhancements.Apply(EnhancementsModel.Settings(Running, lens, WeatherFollow.Current));
             }
             if (saveAt is not float at || Time.unscaledTime < at)
                 return;
@@ -217,7 +224,7 @@ namespace CameraTools
         {
             saveAt = Time.unscaledTime + SaveDelay;
             if (Enhancements.Connected)
-                Enhancements.Apply(EnhancementsModel.Settings(Running, lens));
+                Enhancements.Apply(EnhancementsModel.Settings(Running, lens, WeatherFollow.Current));
         }
 
         // A field's entry: a switch is true or false, a choice its option's label, and a slider its number.

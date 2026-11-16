@@ -200,10 +200,10 @@ var fresh = EnhancementValues.Defaults;
 var outside = new LensView(false, 1.6f, 1, ShotStage.None);
 var inside = new LensView(true, 1.6f, 1, ShotStage.None);
 EnhancementsSettings Settings(EnhancementValues values) => EnhancementsModel.Settings(values, outside);
-Check("the table holds 101 fields, each at its own id's place, with the master switch and eleven effects' switches, and 21 of the depth of field",
-    EnhancementsModel.Fields.Length == 101 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
+Check("the table holds 103 fields, each at its own id's place, with the master switch and twelve effects' switches, and 21 of the depth of field",
+    EnhancementsModel.Fields.Length == 103 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
     && EnhancementsModel.Fields.Count(field => field.Lens) == 21
-    && string.Join(",", EnhancementsModel.Effects.Select(field => field.Label)) == "Ambient light,Contact shadows,Soft sun shadows,Haze,Light shafts,Wet surfaces,Tone map,Lens flare,Physical sky,Physical water,Clouds");
+    && string.Join(",", EnhancementsModel.Effects.Select(field => field.Label)) == "Ambient light,Contact shadows,Soft sun shadows,Haze,Light shafts,Wet surfaces,Tone map,Lens flare,Physical sky,Physical water,Clouds,Weather");
 {
     var cloudLens = new LensView(false, 1.6f, 1, ShotStage.None);
     var cloudFresh = EnhancementValues.Defaults;
@@ -301,7 +301,39 @@ Check("Ambient light's Color is the game's at 1 and gray at 0, and the tone map'
         && !EnhancementsModel.Experimental(Field(Enhancement.LensFlare)) && !EnhancementsModel.Experimental(Field(Enhancement.DepthOfField))
         && EnhancementsModel.Shown(Field(Enhancement.PhysicalSky), fresh, false, false) && !EnhancementsModel.Shown(Field(Enhancement.Clouds), fresh, false, true)
         && EnhancementsModel.Shown(Field(Enhancement.Haze), fresh, false, true) && EnhancementsModel.Shown(Field(Enhancement.NightBrightness), physical, false, false)
-        && EnhancementsModel.ExperimentalSummary(false) == "" && EnhancementsModel.ExperimentalSummary(true) == "3 sections");
+        && EnhancementsModel.ExperimentalSummary(false) == "" && EnhancementsModel.ExperimentalSummary(true) == "4 sections");
+    {
+        // Weather: the game's climates as ours, Sunny the user's own rows, the looks blended, and the add-on's settings.
+        var weatherLens = new LensView(false, 1.6f, 1, ShotStage.None);
+        var user = physical.With(Enhancement.Enabled, 1).With(Enhancement.Clouds, 1).With(Enhancement.Weather, 1);
+        var sunny = WeatherLooks.Look(WeatherKind.Sunny, user);
+        var rain = WeatherLooks.Look(WeatherKind.Rain, user);
+        Check("the sky's weather presets read as ours by their names, a clear sky and an unknown one as Sunny",
+            WeatherLooks.OfPreset("BigWorld/Weather_ClearSky") == WeatherKind.Sunny && WeatherLooks.OfPreset("BigWorld/Weather_Rain_Light") == WeatherKind.Rain
+            && WeatherLooks.OfPreset("BigWorld/Weather_Storm") == WeatherKind.Thunderstorm && WeatherLooks.OfPreset("BigWorld/Weather_Snow_Heavy") == WeatherKind.Snow
+            && WeatherLooks.OfPreset("BigWorld/Weather_Foggy") == WeatherKind.Mist && WeatherLooks.OfPreset("BigWorld/Weather_Cloudy") == WeatherKind.Cloudy
+            && WeatherLooks.OfPreset(null) == WeatherKind.Sunny && WeatherLooks.OfPreset("Desert/Weather_Sandstorm") == WeatherKind.Mist);
+        Check("Sunny is the user's clouds and haziness, its sun whole; Rain a low stratus with most of the sun held back",
+            sunny.Coverage == user[Enhancement.CloudCoverage] && sunny.Height == user[Enhancement.CloudHeight] && sunny.Haziness == user[Enhancement.SkyHaziness] && sunny.Sun == 1f
+            && rain.Kind == 2 && rain.Coverage > 90f && rain.Height < 1000f && rain.Sun < 0.2f && rain.Mist > 0f);
+        var half = WeatherLooks.Between(sunny, rain, 0.5f);
+        var quarter = WeatherLooks.Between(sunny, rain, 0.25f);
+        Check("blending, the numbers go the share of the way and the clouds' shape changes half way",
+            quarter.Kind == sunny.Kind && half.Kind == rain.Kind && Math.Abs(half.Height - (sunny.Height + rain.Height) / 2f) < 1e-3f && Math.Abs(quarter.Sun - (1f - 0.25f * (1f - rain.Sun))) < 1e-5f);
+        var clear = WeatherLooks.Between(WeatherLooks.Look(WeatherKind.Sunny, user.With(Enhancement.Clouds, 0)), rain, 0.2f);
+        Check("from a sky without clouds the cover grows from nothing", clear.Clouds && Math.Abs(clear.Coverage - 0.2f * rain.Coverage) < 1e-3f);
+        var weathered = EnhancementsModel.Settings(user, weatherLens, rain);
+        var halfMist = EnhancementsModel.Settings(user.With(Enhancement.WeatherMist, 50), weatherLens, rain);
+        Check("with Weather on, Rain's look goes to the add-on: stratus at its height, its haziness, and its mist as the Haze effect, which Mist scales",
+            weathered.Clouds is { Enabled: 1, Base: 900f, Shape: EnhancementsCloudShape.Sheet } && weathered.CloudPattern.Pattern == EnhancementsCloudPatternKind.Overcast
+            && weathered.Sky.Haze == 0.3f && weathered.Atmosphere.Enabled == 1 && weathered.Atmosphere.Density > 0f
+            && Math.Abs(halfMist.Atmosphere.Density - weathered.Atmosphere.Density / 2f) < 1e-9f);
+        Check("with Weather off, or the physical sky off, the user's own clouds go",
+            EnhancementsModel.Settings(user.With(Enhancement.Weather, 0), weatherLens, rain).Clouds.Base == user[Enhancement.CloudHeight]
+            && EnhancementsModel.Settings(user.With(Enhancement.PhysicalSky, 0), weatherLens, rain).Clouds.Base == user[Enhancement.CloudHeight]);
+        Check("Weather's rows need the physical sky", !EnhancementsModel.Usable(Field(Enhancement.Weather), user.With(Enhancement.PhysicalSky, 0))
+            && EnhancementsModel.Usable(Field(Enhancement.WeatherMist), user) && EnhancementsModel.Experimental(Field(Enhancement.WeatherMist)));
+    }
     Check("a preset saved with Ambient light's Sky and Haze reads them as Physical sky and Haziness",
         EnhancementsModel.Parse("AmbientSky=1;AmbientHaze=0.3", new List<string>()) is { } old && old.On(Enhancement.PhysicalSky) && old[Enhancement.SkyHaziness] == 0.3f);
 }
@@ -550,8 +582,8 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     var skipped = new List<string>();
     var saved = Presets.Saved(PresetSlot.Highest, new Dictionary<int, int>(), Overrides.None, null, lens);
     string text = Presets.Text(saved);
-    Check("a saved preset holds none of the depth of field's values: it ends with the clouds'",
-        !text.Contains("DepthOfField") && !text.Contains("SoapBubble") && !text.Contains("BokehContrast") && text.EndsWith(";CloudKind=0")
+    Check("a saved preset holds none of the depth of field's values: it ends with Weather's",
+        !text.Contains("DepthOfField") && !text.Contains("SoapBubble") && !text.Contains("BokehContrast") && text.EndsWith(";CloudKind=0;Weather=0;WeatherMist=100")
         && skipped.Count == 0);
     var userLens = fresh.With(Enhancement.DepthOfField, 1f).With(Enhancement.DepthOfFieldFocusMode, EnhancementsModel.EyeFocus)
         .With(Enhancement.DepthOfFieldFocusSpeed, 1.5f).With(Enhancement.DepthOfFieldAperture, 5f).With(Enhancement.SoapBubble, 0.2f);

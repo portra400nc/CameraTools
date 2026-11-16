@@ -120,7 +120,9 @@ namespace CameraTools
             }
             Sky = known;
             Watch(sky, towardSun);
-            Light = CelestialLight.Of(known, new Vec3(world.SunR, world.SunG, world.SunB), new Vec3(world.MoonR, world.MoonG, world.MoonB));
+            // Weather's cover lets through only its share of the sun's and the moon's direct light.
+            float cover = WeatherFollow.Sun;
+            Light = CelestialLight.Of(known, new Vec3(world.SunR, world.SunG, world.SunB) * cover, new Vec3(world.MoonR, world.MoonG, world.MoonB) * cover);
             Drive();
             // The game keeps its ambient light up through the night, so the ambient pass takes it at the physical sky's
             // share of a day's sky light over the game's own share.

@@ -284,6 +284,25 @@ namespace CameraTools
     }
 
     // A value between a previous and a next arrow.
+    internal sealed class InfoView : ItemView
+    {
+        public Text Value;
+        private (string Value, bool Enabled)? shown;
+
+        public override void Sync(float step)
+        {
+            var info = (InfoRow)Row;
+            string value = info.Value();
+            bool enabled = info.Enabled?.Invoke() ?? true;
+            if (shown == (value, enabled))
+                return;
+            shown = (value, enabled);
+            Value.text = value;
+            if (Group != null)
+                Group.alpha = enabled ? 1f : Style.RowDimmed;
+        }
+    }
+
     internal abstract class ArrowsView : ItemView
     {
         public Text Value;
@@ -942,6 +961,18 @@ namespace CameraTools
                 view.Note = NoteLabel(rect, row);
                 view.Note.text = row.DisabledNote;
             }
+            view.Sync(1f);
+            return view;
+        }
+
+        public InfoView Info(Transform parent, InfoRow row, float y)
+        {
+            var view = new InfoView();
+            var rect = Item(parent, view, row, y, Style.ToggleRowHeight, row.Enabled);
+            var label = Label(rect, "Label", row.Label, Style.RowSize, Style.Text, TextAnchor.MiddleLeft);
+            TopLeft(label.rectTransform, Left(row), 0f, Width(row) / 2f, Style.ToggleRowHeight);
+            view.Value = Label(rect, "Value", "", Style.ValueSize, Style.Text, TextAnchor.MiddleRight);
+            Pin(view.Value.rectTransform, 1f, 1f, -Style.RowRight, 0f, Width(row) / 2f, Style.ToggleRowHeight);
             view.Sync(1f);
             return view;
         }

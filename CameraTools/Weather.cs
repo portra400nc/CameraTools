@@ -123,6 +123,22 @@ namespace CameraTools
                 + $"sky heading to \"{(sky != null ? sky.targetWeatherPresetName : "no sky")}\".");
         }
 
+        // The weather preset the game's sky is heading to, such as "BigWorld/Weather_Rain_Light", ours while the World tab
+        // asks for one, or null without a sky.
+        public static string RenderedPreset()
+        {
+            try
+            {
+                var sky = EnviroSky.Instance;
+                return sky == null ? null : sky.targetWeatherPresetName;
+            }
+            catch (Exception e)
+            {
+                CameraTools.LogOnce($"Weather: reading the sky's weather failed ({e.GetType().Name}: {e.Message}).");
+                return null;
+            }
+        }
+
         // The stored instance, not Instance, which may create a second manager when there is none.
         private static WeatherManager Manager()
         {
