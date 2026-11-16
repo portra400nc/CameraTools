@@ -137,6 +137,7 @@ namespace CameraTools
             // The game's clouds keep its painted lighting, which the physical sky's contradicts.
             GameClouds.Update(Enhancements.Connected && (EnhancementsModel.CloudsRun(Running) || EnhancementsModel.SkyDrawn(Running)));
             WeatherFollow.Update(Enhancements.Connected && EnhancementsModel.WeatherRuns(Running), Running);
+            GameRain.Update(WeatherFollow.Current?.Rain > 0f);
             var now = DepthOfField.Frame;
             if (connections != Enhancements.Connections)
             {
