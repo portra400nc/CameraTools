@@ -17,3 +17,8 @@ azurite/*.dds
     unchanged from its textures/sky/ folder. Its author allows reuse and reupload of its assets. The clouds take their
     alpha as the cover and their painted gray as a sheet's thickness (EnhancementsCloudPattern in enhancements.h); build.py
     embeds them as they are.
+
+azurite/fxsnowsoftsub.dds
+    Azurite Weathers II's snowflake atlas, from its textures/effects/ folder, copied unchanged under the same permission:
+    16 soft flake clumps in a 4x4 grid, BC7 with mips. Its precipitation records (SPGD Sakura_Snow_*) set how the add-on
+    draws them in rain_ps.hlsl: speed, spin, swirl, size and density.

@@ -346,8 +346,8 @@ namespace enhancements
             const SunShadowConstants &sun, bool flip, bool view);
         // Rain over the scene: streaks of falling drops in layers around the camera, amount the share of cells holding one,
         // on seconds of the game's clock, slanted by the wind, lit by camera's sky color, with splashes on near ground and
-        // the lightning's flash and bolt.
-        std::optional<GameCall> run_rain(const FrameMap &map, float amount, const Lightning &lightning, const Camera &camera, bool flip, float seconds, float wind_radians);
+        // the lightning's flash and bolt; and snow's flakes, snow the share of cells holding one.
+        std::optional<GameCall> run_rain(const FrameMap &map, float amount, float snow, const Lightning &lightning, const Camera &camera, bool flip, float seconds, float wind_radians);
 
         // The atmosphere pass: mirror in the HDR scene and depth; draw out = in * T + (sky + sun * sun_scatter * phase) *
         // (1 - T) on pixels with depth, where T is the transmittance of the height-fading haze along the view ray, and in
@@ -362,6 +362,8 @@ namespace enhancements
         // cloud_pattern_ made from the pattern's embedded texture when the pattern changed. false for noise, or when the
         // texture could not be made.
         bool sync_cloud_pattern(CloudPattern pattern);
+        // A texture from a BC7 DDS file with its mips into srv; false, srv empty, when the file is not one or D3D fails.
+        bool make_bc7_texture(const uint8_t *bytes, size_t size, ComPtr<ID3D11ShaderResourceView> &srv);
         // With physical, the clouds take its sunlight or moonlight at their height in place of the camera's sun.
         std::optional<GameCall> run_clouds(const FrameMap &map, const CloudSettings &settings, const Camera &camera,
             const float wind[2], uint64_t frame, bool flip, const SkyDraw *physical);
@@ -648,6 +650,7 @@ namespace enhancements
         ComPtr<ID3D11Texture3D> cloud_shape_, cloud_detail_;     // 128 and 32 a side, R8G8B8A8_UNORM
         ComPtr<ID3D11ShaderResourceView> cloud_shape_srv_, cloud_detail_srv_;
         bool cloud_noise_ready_ = false;
+        ComPtr<ID3D11ShaderResourceView> snow_flakes_srv_;      // kSnowFlakes, BC7 with its mips, made the first time snow falls
         ComPtr<ID3D11ShaderResourceView> cloud_pattern_srv_;    // BC7 with its mips, as the pattern's DDS file holds it, for clouds_painted_ps_
         CloudPattern cloud_pattern_ = CloudPattern::noise;      // the one cloud_pattern_srv_ holds
         Scratch cloud_map_;         // kCloudMapSize square, R16_FLOAT: the cloud cells around the camera

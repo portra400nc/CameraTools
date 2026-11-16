@@ -142,6 +142,9 @@ def embed_data(work):
     lines += ["#pragma clang diagnostic pop", "struct CloudPatternData { const unsigned char *bytes; unsigned long long size; };",
               "static const CloudPatternData kCloudPatterns[] = {",
               *[f"    {{ kCloudPattern{k}, sizeof kCloudPattern{k} }}," for k in range(len(CLOUD_PATTERNS))], "};", ""]
+    flakes = (HERE / "data" / "azurite" / "fxsnowsoftsub.dds").resolve().as_posix()
+    lines += ['#pragma clang diagnostic push', '#pragma clang diagnostic ignored "-Wc23-extensions"',
+              "static const unsigned char kSnowFlakes[] = {", f'#embed "{flakes}"', "};", "#pragma clang diagnostic pop", ""]
     (work / "enhancements_data.h").write_text("\n".join(lines))
 
 
