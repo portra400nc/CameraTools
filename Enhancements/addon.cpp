@@ -1443,9 +1443,12 @@ namespace enhancements
             return feed(cmd_list, Draw { native });
         }
 
-        // The game's water pixel shaders, as a FrameCensus capture of 2026-11-15 found them drawing rivers and the sea after
-        // the deferred lighting: each reads the scene's depth and a reflection cubemap.
-        static constexpr uint64_t kWaterShaders[] = { 0xd0cbb44c71ad2188ull, 0x9a78a24d5649b66aull, 0xbf3f16de3240e952ull, 0xa90d4039bf47bcdeull };
+        // The game's water pixel shaders, as FrameCensus captures of 2026-11-15 and 16 found them drawing rivers, lakes and
+        // the sea after the deferred lighting: each reads the scene's depth and a reflection cubemap. Their vertex shaders
+        // drew nothing else in any capture, so a variant of the pixel shaders not seen yet is known by them.
+        static constexpr uint64_t kWaterShaders[] = { 0xd0cbb44c71ad2188ull, 0x9a78a24d5649b66aull, 0xbf3f16de3240e952ull, 0xa90d4039bf47bcdeull,
+            0x7d0d356e359a7d33ull };
+        static constexpr uint64_t kWaterVertexShaders[] = { 0xf33198578260cbc6ull, 0x4f8bfd2796105d86ull, 0x65aaa919ea82fe42ull };
         // The game's sky dome. The sky objects, its sun, moon and stars, are the draws after it until the game binds other
         // targets; the see-through things it draws later, such as the giant tree over Snezhnaya, are drawn over the sky at
         // depth 0 too and stay.
@@ -1453,6 +1456,8 @@ namespace enhancements
         enum class GameShader : uint8_t { other, water, dome };
         uint64_t shader_checked = 0;    // the pixel shader object last looked up, and what it draws
         GameShader shader_kind = GameShader::other;
+        uint64_t vertex_checked = 0;    // the vertex shader object last looked up, and whether it is water's
+        bool vertex_water = false;
 
         GameShader bound_shader()
         {
@@ -1466,7 +1471,16 @@ namespace enhancements
                     : hash == kSkyDome ? GameShader::dome
                     : GameShader::other;
             }
-            return shader_kind;
+            if (shader_kind != GameShader::other)
+                return shader_kind;
+            const uint64_t vertex = gpu.bound_vertex_shader();
+            if (vertex != vertex_checked)
+            {
+                vertex_checked = vertex;
+                const std::optional<ShaderCode> code = shaders.find(vertex);
+                vertex_water = code && std::find(std::begin(kWaterVertexShaders), std::end(kWaterVertexShaders), code->hash) != std::end(kWaterVertexShaders);
+            }
+            return vertex_water ? GameShader::water : GameShader::other;
         }
 
         // A draw of the game's sky or water, past the combine step with the physical sky on: its dome drawn with the

@@ -2325,6 +2325,13 @@ namespace enhancements
         return reinterpret_cast<uintptr_t>(shader.Get());
     }
 
+    uint64_t Gpu::bound_vertex_shader() const
+    {
+        ComPtr<ID3D11VertexShader> shader;
+        context_->VSGetShader(&shader, nullptr, nullptr);
+        return reinterpret_cast<uintptr_t>(shader.Get());
+    }
+
     bool Gpu::copy_game_grade(const GradeLayout &layout)
     {
         ComPtr<ID3D11Buffer> game;

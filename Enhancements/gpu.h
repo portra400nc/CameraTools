@@ -424,8 +424,9 @@ namespace enhancements
         // That copy once the GPU has it, read without waiting: RGBA floats, rows as stored. not_ready until then.
         Readback::Read read_dng(std::vector<float> &rgba);
 
-        // The pixel shader bound now, as the handle ReShade's pipeline events name it by, or 0.
+        // The pixel and the vertex shader bound now, as the handles ReShade's pipeline events name them by, or 0.
         uint64_t bound_pixel_shader() const;
+        uint64_t bound_vertex_shader() const;
         // The HDR scene physical water sees through and mirrors, copied at the forward step of frame.
         void copy_water_scene(const FrameMap &map, uint64_t frame);
         // A draw of the game's, to draw again with a pixel shader of ours.
