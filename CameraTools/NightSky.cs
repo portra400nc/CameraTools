@@ -21,8 +21,10 @@ namespace CameraTools
         private const float DaySun = 0.342f;
 
         // The provisional exposure (core/sky.h, SkyExposure) until the night has its own. Probe items tune them.
-        // Night brightness: how far the exposure follows the light as it fails after sunset, 1 all the way.
-        private static float TwilightPower => EnhancementsControl.RunningValues[Enhancement.NightBrightness] / 100f;
+        // Night brightness: how far the exposure follows the light as it fails past the sun at 6 degrees down, the end of
+        // the blue hour. 0% follows it 0.7 of the way, a dark night, and 100% all the way, a night as bright as the blue
+        // hour's end.
+        private static float TwilightPower => 0.7f + 0.3f * EnhancementsControl.RunningValues[Enhancement.NightBrightness] / 100f;
         // The add-on's most, so Night brightness alone sets how bright a night is, a moonless one too.
         public static float NightStops { get; set; } = 30f;
 

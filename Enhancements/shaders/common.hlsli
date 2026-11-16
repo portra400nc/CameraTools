@@ -112,7 +112,8 @@ cbuffer Constants : register(b0)
     float water_wind;           // radians from world +x toward +z, the way the wind blows the waves
     float water_size;           // EnhancementsWater.size
     float sky_moon_face;        // a full moon's face at the sky's scale, on average
-    float2 water_pad;
+    float auto_night_ev;        // stops under middle gray auto exposure aims for: the physical sky's night
+    float water_pad;
 };
 
 SamplerState point_clamp : register(s0);

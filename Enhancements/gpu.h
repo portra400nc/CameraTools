@@ -53,6 +53,7 @@ namespace enhancements
         SkyLight cloud_light;       // cloud_light's at the clouds' base
         float aerial = 0;           // PhysicalSkySettings::aerial
         float vegetation = 1;       // Celestial::vegetation_scale
+        float night_ev = 0;         // night_stops_under_dusk's
     };
 
     // Captures, on construction, the pipeline state our work can change, nulls the stages we never use (GS, HS, DS and

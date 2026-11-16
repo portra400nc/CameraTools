@@ -22,6 +22,7 @@ namespace enhancements
         float ground_albedo = 0.3f; // the planet's ground below the horizon
         float altitude_km = 0.2f;   // the viewer's height above the ground
         float ozone = 1;            // multiplies the ozone layer's absorption: 1 the earth's, which keeps the twilight sky blue
+        float sunset = 0;           // turns light the air reddened toward pink, 0 not at all to 1: the stylized sunset
     };
 
     // The atmosphere's lookup tables for a setting: the transmittance to the atmosphere's top, and the multiple
@@ -65,8 +66,6 @@ namespace enhancements
     constexpr float kMoonRadius = 0.004528f;
     // The drawn moon's width over the real one's, about 9 degrees across as games draw it.
     constexpr float kMoonDrawn = 20;
-    // The moonlight over the real moon's, so moonlit nights stand apart from moonless ones under Night brightness.
-    constexpr float kMoonLight = 25;
 
     // The sunlit moon's radiance over its albedo (its mean's multiple) and its Lommel-Seeliger shading
     // cos i / (cos i + cos e), in the sun's units, at a phase angle: the disc then sends moon_illuminance's light, the
@@ -91,17 +90,22 @@ namespace enhancements
     // How the physical sky shows in the game's units until the night has an exposure of its own: the sun straight
     // overhead lights a white surface facing it as the game's day light does, white, so the sun's color through the air
     // at the zenith is the white balance. Once the light on a level floor falls below the sun's at 10 degrees up, the
-    // exposure follows it by twilight_power (1 would keep a floor as bright as then) for at most night_stops stops, so
-    // the blue hour stays blue and the stars show.
+    // exposure follows it by 0.85 (1 would keep a floor as bright as then), so the blue hour stays blue, and once it falls
+    // below the sun's at 6 degrees down, by night_power, which Night brightness sets; for at most night_stops stops.
     struct SkyExposure
     {
         float day_light = 1.5f;     // the luminance the game's day sun shows on a white surface facing it
-        float twilight_power = 0.85f;
+        float night_power = 0.85f;
         float night_stops = 17;
     };
 
     // The provisional exposure's multiple over a day's: 1 until the light on a level floor falls below the sun's at 10 degrees.
     float exposure_gain(const Atmosphere &atmosphere, const SkyLight &sun, const SkyLight &moon, const SkyExposure &exposure);
+
+    // How many stops darker than at the blue hour's end, the sun 6 degrees down, the exposure shows a night: 0 till then,
+    // and with night_power below 1 more the darker the night. Auto exposure aims that far under middle gray, so it keeps
+    // the blue hour bright and leaves the night as dark as Night brightness makes it.
+    float night_stops_under_dusk(const Atmosphere &atmosphere, const SkyLight &sun, const SkyLight &moon, const SkyExposure &exposure);
 
     // Game units per unit of the sun's light above the atmosphere, per channel.
     Vec3f sky_scale(const Atmosphere &atmosphere, const SkyLight &sun, const SkyLight &moon, const SkyExposure &exposure);
@@ -115,6 +119,7 @@ namespace enhancements
         SkyLight sun, moon;
         SkyExposure exposure;
         float haze = 0.1f;          // SkySettings::aerosol_depth
+        float sunset = 0;           // SkySettings::sunset
     };
 
     // How the physical sky lights the world, in the game's units at sky_scale, so the world takes the drawn sky's exposure.

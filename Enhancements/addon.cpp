@@ -44,12 +44,16 @@ namespace enhancements
     namespace
     {
         // What the physical sky is built for from EnhancementsSetCelestial's bodies; the sun stays zero when they have none.
-        SkyRequest sky_request(const Celestial &bodies, float haze)
+        // The sunset's strength the add-on runs, for EnhancementsGetWorldLight, which its caller asks without the settings.
+        std::atomic<float> running_sunset { 0.0f };
+
+        SkyRequest sky_request(const Celestial &bodies, float haze, float sunset)
         {
             SkyRequest r;
+            r.sunset = std::clamp(sunset, 0.0f, 1.0f);
             r.sun = { bodies.toward_sun, 1 };
             if (bodies.stars)
-                r.moon = { bodies.toward_moon, moon_illuminance(bodies.moon_phase) * kMoonLight };
+                r.moon = { bodies.toward_moon, moon_illuminance(bodies.moon_phase) };
             r.exposure = { bodies.day_light, bodies.twilight_power, bodies.night_stops };
             r.haze = std::isfinite(haze) ? std::clamp(haze, 0.0f, 0.5f) : 0.1f;
             return r;
@@ -859,7 +863,8 @@ namespace enhancements
             }
             // The sky's sun from the bodies, or from the camera's sky sun before any came.
             const Celestial bodies = celestial.value_or(Celestial {});
-            SkyRequest live = sky_request(bodies, settings.sky.haze);
+            running_sunset = settings.sky.sunset;
+            SkyRequest live = sky_request(bodies, settings.sky.haze, settings.sky.sunset);
             if (live.sun.toward == Vec3f {})
                 live.sun.toward = { camera.toward_sky_sun[0], camera.toward_sky_sun[1], camera.toward_sky_sun[2] };
             if (live.sun.toward != Vec3f {} && (!live_sky_asked || sky_request_differs(*live_sky_asked, live)))
@@ -891,6 +896,7 @@ namespace enhancements
             draw.cloud_light = cloud_light(*draw.atmosphere, live, settings.clouds.base * 0.001f);
             draw.aerial = settings.sky.aerial;
             draw.vegetation = bodies.vegetation_scale;
+            draw.night_ev = night_stops_under_dusk(*draw.atmosphere, live.sun, live.moon, live.exposure);
             game_lights_box.take(game_lights, game_lights_seen);
             sky_draw = draw;
             if (live_sky->version != trace_gpu.sky_version() && trace_gpu.set_sky(live_sky->map, live_sky->version))
@@ -1114,7 +1120,12 @@ namespace enhancements
                             report.view == View::light_shafts);
                         break;
                     case PassId::tonemap:
-                        call = gpu.run_tonemap(map, settings.tonemap, grade.copied, grade.bloom, frame_seconds, frames);
+                    {
+                        // Auto exposure aims under middle gray at night, as far as Night brightness darkens it.
+                        TonemapSettings tonemap = settings.tonemap;
+                        tonemap.night_ev = sky_draw ? sky_draw->night_ev : 0.0f;
+                        call = gpu.run_tonemap(map, tonemap, grade.copied, grade.bloom, frame_seconds, frames);
+                    }
                         break;
                     case PassId::depth_of_field:
                         switch (dof_at_bloom(settings.depth_of_field.place, accumulate.mode))
@@ -2699,17 +2710,18 @@ extern "C" void EnhancementsGetWorldLight(const EnhancementsCelestial *raw, floa
     const std::optional<Celestial> bodies = parse_celestial(raw);
     if (!bodies || out == nullptr || out->size < offsetof(EnhancementsWorldLight, sky_share) + sizeof out->sky_share)
         return;
-    const SkyRequest request = sky_request(*bodies, haze);
+    const SkyRequest request = sky_request(*bodies, haze, running_sunset.load());
     if (request.sun.toward == Vec3f {})
         return;
-    // One caller, CameraTools' main thread; the tables are kept while the haze stays.
+    // One caller, CameraTools' main thread; the tables are kept while the haze and the sunset stay.
     static std::mutex lock;
     static std::shared_ptr<const Atmosphere> air;
     std::lock_guard<std::mutex> hold(lock);
-    if (!air || air->settings.aerosol_depth != request.haze)
+    if (!air || air->settings.aerosol_depth != request.haze || air->settings.sunset != request.sunset)
     {
         SkySettings settings;
         settings.aerosol_depth = request.haze;
+        settings.sunset = request.sunset;
         air = std::make_shared<const Atmosphere>(make_atmosphere(settings));
     }
     const WorldLight light = world_light(*air, request);

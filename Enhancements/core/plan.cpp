@@ -67,7 +67,7 @@ namespace enhancements
             && offsetof(EnhancementsSettings, ambient_color) == 400 && offsetof(EnhancementsSettings, tones) == 404
             && offsetof(EnhancementsSettings, lens_softness) == 412 && offsetof(EnhancementsSettings, auto_exposure) == 416
             && offsetof(EnhancementsSettings, sky) == 420 && offsetof(EnhancementsSettings, clouds) == 428 && offsetof(EnhancementsSettings, aerial) == 484
-            && offsetof(EnhancementsSettings, water) == 488 && sizeof(EnhancementsSettings) == 504);
+            && offsetof(EnhancementsSettings, water) == 488 && offsetof(EnhancementsSettings, sunset) == 504 && sizeof(EnhancementsSettings) == 508);
         static_assert(ENHANCEMENTS_CLOUD_SHAPE_STREAKS == static_cast<int>(CloudShape::streaks) && ENHANCEMENTS_CLOUD_SHAPE_SHEET == static_cast<int>(CloudShape::sheet)
             && ENHANCEMENTS_CLOUD_SHAPE_COUNT == static_cast<int>(CloudShape::count));
         static_assert(ENHANCEMENTS_FLARE_SOURCE_MANUAL == static_cast<int>(FlareSource::manual)
@@ -488,6 +488,8 @@ namespace enhancements
         }
         if (knows(offsetof(EnhancementsSettings, water) + offsetof(EnhancementsWater, size), sizeof raw.water.size))
             s.water.size = finite_or(raw.water.size, PhysicalWaterSettings {}.size, 0.25f, 4.0f);
+        if (knows(offsetof(EnhancementsSettings, sunset), sizeof raw.sunset))
+            s.sky.sunset = finite_or(raw.sunset.strength, 0.0f, 0.0f, 1.0f);
         if (knows(offsetof(EnhancementsSettings, clouds), offsetof(EnhancementsClouds, shape)))
         {
             const CloudSettings d;

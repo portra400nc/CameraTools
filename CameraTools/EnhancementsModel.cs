@@ -19,7 +19,7 @@ namespace CameraTools
         ToneMap, ToneMapCurve, ToneMapExposure, ToneMapAutoExposure, ToneMapBloom, ToneMapSaturation, ToneMapContrast, ToneMapShadows, ToneMapHighlights,
         LensFlare, LensFlareSource, LensFlareX, LensFlareY, LensFlareStrength, LensFlareArcs, LensFlareRainbow, LensFlareFilledArcs, LensFlareGhosts, LensFlareStreaks,
         LensFlareGlare, LensFlareSize, LensFlareWarmth, LensFlareRedFringe, LensFlareTexture,
-        PhysicalSky, SkyHaziness, DistanceHaze, NightBrightness,
+        PhysicalSky, SkyHaziness, SunsetColor, DistanceHaze, NightBrightness,
         PhysicalWater, WaterClarity, WaterWaves, WaterSize,
         Clouds, CloudType, CloudCoverage, CloudHeight, CloudThickness, CloudSize, CloudDensity, CloudEdgeDetail, CloudSunlight, CloudSkyLight,
         CloudWind, CloudWindDirection, CloudQuality, CloudKind,
@@ -273,6 +273,7 @@ namespace CameraTools
             Slider(Enhancement.LensFlareTexture, Enhancement.LensFlare, "Texture", 0f, 2f, 1f, 0.05f, 2),
             Switch(Enhancement.PhysicalSky, "Physical sky"),
             Slider(Enhancement.SkyHaziness, Enhancement.PhysicalSky, "Haziness", 0f, 0.5f, 0.1f, 0.05f, 2),
+            Slider(Enhancement.SunsetColor, Enhancement.PhysicalSky, "Sunset color", 0f, 100f, 0f, 5f, 0, "%"),
             Slider(Enhancement.DistanceHaze, Enhancement.PhysicalSky, "Distance haze", 0f, 32f, 8f, 1f, 0, "×"),
             Slider(Enhancement.NightBrightness, Enhancement.PhysicalSky, "Night brightness", 0f, 100f, 85f, 5f, 0, "%"),
             Switch(Enhancement.PhysicalWater, "Physical water"),
@@ -337,6 +338,7 @@ namespace CameraTools
             settings.Sky.Physical = sky ? 1u : 0u;
             settings.Sky.Haze = values[Enhancement.SkyHaziness];
             settings.Aerial.Distance = sky ? values[Enhancement.DistanceHaze] : 0f;
+            settings.Sunset.Strength = sky ? values[Enhancement.SunsetColor] / 100f : 0f;
             settings.View = ProbeView;
             settings.Water.Enabled = sky && values.On(Enhancement.PhysicalWater) ? 1u : 0u;
             settings.Water.Clarity = values[Enhancement.WaterClarity];
@@ -532,9 +534,14 @@ namespace CameraTools
             && field.Id != Enhancement.CloudKind
             && (field.Id != Enhancement.AmbientColor || !values.On(Enhancement.PhysicalSky));
 
-        // A slider's value as its row shows it, or null for the field's format: Distance haze's 0 is Off.
-        public static Func<float, string> ValueText(EnhancementField field)
-            => field.Id == Enhancement.DistanceHaze ? value => value == 0f ? "Off" : value.ToString(field.Format, CultureInfo.InvariantCulture) : null;
+        // A slider's value as its row shows it, or null for the field's format: Distance haze's 0 is Off, Sunset color's
+        // Natural.
+        public static Func<float, string> ValueText(EnhancementField field) => field.Id switch
+        {
+            Enhancement.DistanceHaze => value => value == 0f ? "Off" : value.ToString(field.Format, CultureInfo.InvariantCulture),
+            Enhancement.SunsetColor => value => value == 0f ? "Natural" : value.ToString(field.Format, CultureInfo.InvariantCulture),
+            _ => null,
+        };
 
         // The line under a row's label, or null for none: the physical sky says what it does, and the clouds' Type what
         // they look like.

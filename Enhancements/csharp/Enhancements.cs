@@ -260,6 +260,13 @@ namespace CameraToolsEnhancements
         public float Size;                  // the waves' length, 0.25 to 4
     }
 
+    // EnhancementsSunset in enhancements.h, field for field.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct EnhancementsSunset
+    {
+        public float Strength;              // 0 the real atmosphere, 1 the pinkest sunset
+    }
+
     // EnhancementsAerial in enhancements.h, field for field.
     [StructLayout(LayoutKind.Sequential)]
     internal struct EnhancementsAerial
@@ -317,6 +324,7 @@ namespace CameraToolsEnhancements
         public EnhancementsClouds Clouds;
         public EnhancementsAerial Aerial;
         public EnhancementsWater Water;
+        public EnhancementsSunset Sunset;
 
         // The add-on's defaults: everything off, game targets upside down, and when switched on ambient level 0.6, AO
         // strength 0.5 at a 1 m radius, half that strength on grass, vegetation and foliage, full-strength contact
@@ -600,7 +608,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 37;
+        private const uint Version = 38;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

@@ -12,10 +12,11 @@ float exposure_log_luminance(float3 hdr)
     return log2(max(dot(hdr, float3(0.2126, 0.7152, 0.0722)), 1e-4));
 }
 
-// The stops the metering adds to the game's exposure: strength 0 none, 1 all the way to middle gray.
-float exposure_target_ev(float mean_log2, float game_exposure, float strength)
+// The stops the metering adds to the game's exposure: strength 0 none, 1 all the way to middle gray, or night_ev stops
+// under it at night.
+float exposure_target_ev(float mean_log2, float game_exposure, float strength, float night_ev)
 {
-    float full = log2(kExposureMiddleGray / game_exposure) - mean_log2;
+    float full = log2(kExposureMiddleGray / game_exposure) + night_ev - mean_log2;
     return clamp(full * strength, kExposureLeast, kExposureMost);
 }
 

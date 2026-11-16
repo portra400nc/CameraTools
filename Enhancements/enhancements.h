@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 37
+#define ENHANCEMENTS_VERSION 38
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -533,6 +533,14 @@ typedef struct EnhancementsWater
     float size;                 // the waves' length, 1 the default; clamped to 0.25..4. Version 37 added it.
 } EnhancementsWater;
 
+// The stylized sunset under the physical sky: light the air reddened turns toward pink, by how much its blue fell behind
+// its red, so the low sun, the sky around it, the clouds, the haze and the land it lights turn pink and the sky above
+// lavender, while the day's white sun keeps its color. Version 38 added it.
+typedef struct EnhancementsSunset
+{
+    float strength;             // 0 (the default) the real atmosphere, 1 the most; clamped to 0..1
+} EnhancementsSunset;
+
 // The clouds' shape, values of EnhancementsClouds.shape.
 enum
 {
@@ -590,6 +598,7 @@ typedef struct EnhancementsSettings
     EnhancementsClouds clouds;
     EnhancementsAerial aerial;
     EnhancementsWater water;
+    EnhancementsSunset sunset;
 } EnhancementsSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and
@@ -853,7 +862,7 @@ typedef struct EnhancementsCelestial
     float stars_y[4];           // north celestial pole, so a star at right ascension a and declination d lies along
     float stars_z[4];           // cos d cos a x + cos d sin a y + sin d z; w unused
     float day_light;            // the luminance the game's day sun shows on a white surface facing it; default 1.5
-    float twilight_power;       // SkyExposure's; default 0.85, clamped to 0..2
+    float twilight_power;       // SkyExposure's night_power, past the sun at 6 degrees down; default 0.85, clamped to 0..2
     float night_stops;          // SkyExposure's; default 17, clamped to 0..30
     float days;                 // the day count the moon follows, for the log
     float ambient_scale;        // multiplies the ambient pass's level and the traced ambient's, so the game's ambient light

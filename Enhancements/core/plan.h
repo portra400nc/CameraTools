@@ -66,6 +66,7 @@ namespace enhancements
         bool enabled = false;
         float haze = 0.1f;
         float aerial = 0;           // EnhancementsAerial.distance
+        float sunset = 0;           // EnhancementsSunset.strength
     };
 
     struct PhysicalWaterSettings
@@ -109,6 +110,7 @@ namespace enhancements
         float shadows = 0.0f;       // EnhancementsTones'
         float highlights = 0.0f;
         float auto_exposure = 0.0f; // EnhancementsAutoExposure.strength
+        float night_ev = 0.0f;      // stops under middle gray auto exposure aims for: the physical sky's night; not a setting
     };
 
     struct SunShadowSettings

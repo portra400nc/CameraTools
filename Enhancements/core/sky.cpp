@@ -145,6 +145,16 @@ namespace enhancements
             return exp_of(scale(depth, -1));
         }
 
+        // The stylized sunset: light the air reddened, by how much its blue fell behind its red, gains blue from its red
+        // and loses some green, so an orange sun turns pink; white light keeps its color.
+        Vec3f rose(const SkySettings &s, const Vec3f &t)
+        {
+            if (s.sunset <= 0 || t[0] <= 0)
+                return t;
+            const float w = clamp01(1 - t[2] / t[0]), k = s.sunset * w * w;
+            return { t[0], t[1] * (1 - 0.25f * k), std::min(t[2] + 0.5f * k * t[0], 1.0f) };
+        }
+
         void make_transmittance(Atmosphere &a)
         {
             a.transmittance.resize(size_t(kTransmittanceWidth) * kTransmittanceHeight);
@@ -153,7 +163,7 @@ namespace enhancements
                 {
                     float r, mu;
                     transmittance_r_mu((x + 0.5f) / kTransmittanceWidth, (y + 0.5f) / kTransmittanceHeight, r, mu);
-                    a.transmittance[size_t(y) * kTransmittanceWidth + x] = integrate_transmittance(a.settings, r, mu);
+                    a.transmittance[size_t(y) * kTransmittanceWidth + x] = rose(a.settings, integrate_transmittance(a.settings, r, mu));
                 }
         }
 
@@ -251,6 +261,7 @@ namespace enhancements
         a.settings.ground_albedo = clamp01(settings.ground_albedo);
         a.settings.altitude_km = std::min(std::max(settings.altitude_km, 0.001f), 50.0f);
         a.settings.ozone = std::min(std::max(settings.ozone, 0.0f), 10.0f);
+        a.settings.sunset = clamp01(settings.sunset);
         make_transmittance(a);
         make_multiple(a);
         make_irradiance(a);
@@ -262,7 +273,7 @@ namespace enhancements
         const float r = kGround + std::min(std::max(settings.altitude_km, 0.001f), 50.0f), mu = std::min(std::max(toward_y, -1.0f), 1.0f);
         SkySettings clamped = settings;
         clamped.aerosol_depth = std::min(std::max(settings.aerosol_depth, 0.0f), 2.0f);
-        return scale(integrate_transmittance(clamped, r, mu), light_visible(r, mu));
+        return scale(rose(clamped, integrate_transmittance(clamped, r, mu)), light_visible(r, mu));
     }
 
     Vec3f sky_transmittance(const Atmosphere &atmosphere, const Vec3f &toward_light)
@@ -381,9 +392,20 @@ namespace enhancements
     {
         const float light = level_illuminance(a, sun) + level_illuminance(a, moon) + night_floor(a);
         const float low_sun = level_illuminance(a, { { 0.98481f, 0.17365f, 0 }, 1 });
-        if (light < low_sun && light > 0)
-            return std::min(std::pow(low_sun / light, std::max(exposure.twilight_power, 0.0f)), std::exp2(std::max(exposure.night_stops, 0.0f)));
-        return 1;
+        if (!(light < low_sun && light > 0))
+            return 1;
+        const float dusk = level_illuminance(a, { { 0.99452f, -0.10453f, 0 }, 1 }) + night_floor(a);
+        float gain = std::pow(low_sun / std::max(light, dusk), 0.85f);
+        if (light < dusk)
+            gain *= std::pow(dusk / light, std::max(exposure.night_power, 0.0f));
+        return std::min(gain, std::exp2(std::max(exposure.night_stops, 0.0f)));
+    }
+
+    float night_stops_under_dusk(const Atmosphere &a, const SkyLight &sun, const SkyLight &moon, const SkyExposure &exposure)
+    {
+        const float light = level_illuminance(a, sun) + level_illuminance(a, moon) + night_floor(a);
+        const float dusk = level_illuminance(a, { { 0.99452f, -0.10453f, 0 }, 1 }) + night_floor(a);
+        return light > 0 && light < dusk ? (std::min(exposure.night_power, 1.0f) - 1) * std::log2(dusk / light) : 0.0f;
     }
 
     Vec3f sky_scale(const Atmosphere &a, const SkyLight &sun, const SkyLight &moon, const SkyExposure &exposure)
@@ -465,8 +487,8 @@ namespace enhancements
         {
             return dot(x.toward, y.toward) < 0.9999905f || std::fabs(x.illuminance - y.illuminance) > 0.01f * std::max(x.illuminance, y.illuminance);
         };
-        return light_differs(a.sun, b.sun) || light_differs(a.moon, b.moon) || a.haze != b.haze || a.exposure.day_light != b.exposure.day_light
-            || a.exposure.twilight_power != b.exposure.twilight_power || a.exposure.night_stops != b.exposure.night_stops;
+        return light_differs(a.sun, b.sun) || light_differs(a.moon, b.moon) || a.haze != b.haze || a.sunset != b.sunset || a.exposure.day_light != b.exposure.day_light
+            || a.exposure.night_power != b.exposure.night_power || a.exposure.night_stops != b.exposure.night_stops;
     }
 
     SkyBuilder::SkyBuilder() : thread_([this] { run(); }) {}
@@ -511,10 +533,11 @@ namespace enhancements
                 request = *pending_;
                 pending_.reset();
             }
-            if (!air || air->settings.aerosol_depth != std::min(std::max(request.haze, 0.0f), 2.0f))
+            if (!air || air->settings.aerosol_depth != std::min(std::max(request.haze, 0.0f), 2.0f) || air->settings.sunset != request.sunset)
             {
                 SkySettings settings;
                 settings.aerosol_depth = request.haze;
+                settings.sunset = request.sunset;
                 air = std::make_shared<const Atmosphere>(make_atmosphere(settings));
             }
             auto result = std::make_shared<SkyResult>();
