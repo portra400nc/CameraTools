@@ -200,15 +200,15 @@ if [ -n "$frames" ] && [ -f "$arm/frame.tsv" ]; then
 else
     echo "SKIP the arm: no .work/dof/frames/frame-20261029-210604"
 fi
-# The harbor, frame-20261024-134128, written as a DNG with frame_dng's test EXIF: byte for byte the prototype's compressed
-# file (.work/dng/lightroom-test/harbor-exif.dng, the layout the user opened in Lightroom on 2026-10-29), which sips must
-# decode at the frame's size.
+# The harbor, frame-20261024-134128, written as a DNG with frame_dng's test EXIF: byte for byte the reference file
+# (.work/dng/lightroom-test/harbor-look.dng, the layout the user opened in Lightroom on 2026-10-29 with the white at the
+# game's and the look table of 2026-11-16), which sips must decode at the frame's size.
 harbor=$frames/frame-20261024-134128
-prototype=${frames%/dof/frames}/dng/lightroom-test/harbor-exif.dng
+prototype=${frames%/dof/frames}/dng/lightroom-test/harbor-look.dng
 if [ -n "$frames" ] && [ -f "$harbor/frame.tsv" ] && [ -f "$prototype" ]; then
     "$out/frame_dng" "$harbor" "$out/harbor.dng" exif > /dev/null
-    cmp -s "$out/harbor.dng" "$prototype" || { echo "FAIL frame_dng's DNG of the harbor differs from the prototype's compressed file"; exit 1; }
-    echo "PASS frame_dng writes the harbor's DNG byte for byte as the prototype's compressed file"
+    cmp -s "$out/harbor.dng" "$prototype" || { echo "FAIL frame_dng's DNG of the harbor differs from the reference file"; exit 1; }
+    echo "PASS frame_dng writes the harbor's DNG byte for byte as the reference file"
     if command -v sips > /dev/null; then
         sips -s format png "$out/harbor.dng" --out "$out/harbor.png" > /dev/null 2>&1 || true
         python3 -c "$png_size" "$out/harbor.png" 1152 720 2> /dev/null || { echo "FAIL sips does not decode the harbor's DNG into a 1152x720 PNG"; exit 1; }
@@ -216,7 +216,7 @@ if [ -n "$frames" ] && [ -f "$harbor/frame.tsv" ] && [ -f "$prototype" ]; then
     fi
     rm -f "$out/harbor.dng" "$out/harbor.png"
 else
-    echo "SKIP the harbor's DNG: no .work/dof/frames/frame-20261024-134128 or .work/dng/lightroom-test/harbor-exif.dng"
+    echo "SKIP the harbor's DNG: no .work/dof/frames/frame-20261024-134128 or .work/dng/lightroom-test/harbor-look.dng"
 fi
 python3 check_kernel_conditions.py ../shaders
 vkd3d=${ENHANCEMENTS_VKD3D_COMPILER:-}

@@ -264,17 +264,164 @@ namespace enhancements
         return headroom;
     }
 
+    double dng_white()
+    {
+        // game_tone(x) = 1 is 0.43x^2 - 0.513x - 0.14 = 0.
+        return (0.513 + std::sqrt(0.513 * 0.513 + 4 * 0.43 * 0.14)) / (2 * 0.43);
+    }
+
     std::vector<std::pair<float, float>> dng_tone_curve()
     {
         std::vector<std::pair<float, float>> curve;
-        const double top = game_tone(1.0);
+        const double white = dng_white();
         for (int i = 0; i <= 256; i++)
         {
             const double t = i / 256.0;
             const double x = t * t;
-            curve.emplace_back(static_cast<float>(x), static_cast<float>(std::min(1.0, game_tone(x) / top)));
+            curve.emplace_back(static_cast<float>(x), static_cast<float>(std::min(1.0, game_tone(white * x))));
         }
         return curve;
+    }
+
+    namespace
+    {
+        using Rgb = std::array<double, 3>;
+        using Matrix = std::array<Rgb, 3>;
+
+        Rgb times(const Matrix &m, const Rgb &v)
+        {
+            return { m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2], m[1][0] * v[0] + m[1][1] * v[1] + m[1][2] * v[2],
+                m[2][0] * v[0] + m[2][1] * v[1] + m[2][2] * v[2] };
+        }
+
+        Matrix product(const Matrix &a, const Matrix &b)
+        {
+            Matrix m {};
+            for (int i = 0; i < 3; i++)
+                for (int j = 0; j < 3; j++)
+                    m[i][j] = a[i][0] * b[0][j] + a[i][1] * b[1][j] + a[i][2] * b[2][j];
+            return m;
+        }
+
+        Matrix inverse(const Matrix &m)
+        {
+            const double det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+                + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+            Matrix r {};
+            r[0] = { (m[1][1] * m[2][2] - m[1][2] * m[2][1]) / det, (m[0][2] * m[2][1] - m[0][1] * m[2][2]) / det, (m[0][1] * m[1][2] - m[0][2] * m[1][1]) / det };
+            r[1] = { (m[1][2] * m[2][0] - m[1][0] * m[2][2]) / det, (m[0][0] * m[2][2] - m[0][2] * m[2][0]) / det, (m[0][2] * m[1][0] - m[0][0] * m[1][2]) / det };
+            r[2] = { (m[1][0] * m[2][1] - m[1][1] * m[2][0]) / det, (m[0][1] * m[2][0] - m[0][0] * m[2][1]) / det, (m[0][0] * m[1][1] - m[0][1] * m[1][0]) / det };
+            return r;
+        }
+
+        // Linear Rec. 709 (D65) to ProPhoto linear (D50), through XYZ and Bradford's adaptation, as Adobe's raw processing
+        // takes the file's camera space with its ColorMatrix1 for D65.
+        Matrix rec709_to_prophoto()
+        {
+            const Matrix rec709_xyz = { Rgb { 0.4124564, 0.3575761, 0.1804375 }, Rgb { 0.2126729, 0.7151522, 0.0721750 }, Rgb { 0.0193339, 0.1191920, 0.9503041 } };
+            const Matrix bradford = { Rgb { 0.8951, 0.2664, -0.1614 }, Rgb { -0.7502, 1.7135, 0.0367 }, Rgb { 0.0389, -0.0685, 1.0296 } };
+            const Rgb d65 = times(bradford, { 0.95047, 1.0, 1.08883 }), d50 = times(bradford, { 0.96422, 1.0, 0.82521 });
+            const Matrix scale = { Rgb { d50[0] / d65[0], 0, 0 }, Rgb { 0, d50[1] / d65[1], 0 }, Rgb { 0, 0, d50[2] / d65[2] } };
+            const Matrix prophoto_xyz = { Rgb { 0.7976749, 0.1351917, 0.0313534 }, Rgb { 0.2880402, 0.7118741, 0.0000857 }, Rgb { 0.0, 0.0, 0.8252100 } };
+            return product(inverse(prophoto_xyz), product(inverse(bradford), product(scale, product(bradford, rec709_xyz))));
+        }
+
+        // The DNG SDK's RefRGBtoHSV and RefHSVtoRGB: hue 0 to 6, saturation the spread over the largest, value the largest.
+        Rgb to_hsv(const Rgb &c)
+        {
+            const double hi = std::max({ c[0], c[1], c[2] }), lo = std::min({ c[0], c[1], c[2] }), d = hi - lo;
+            double h = 0;
+            if (d > 0)
+                h = c[0] == hi ? (c[1] - c[2]) / d : c[1] == hi ? 2 + (c[2] - c[0]) / d : 4 + (c[0] - c[1]) / d;
+            if (h < 0)
+                h += 6;
+            return { h, hi > 0 ? d / hi : 0, hi };
+        }
+
+        Rgb from_hsv(double h, double s, double v)
+        {
+            h = std::fmod(std::fmod(h, 6) + 6, 6);
+            const int i = std::min(static_cast<int>(h), 5);
+            const double f = h - i, p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
+            switch (i)
+            {
+            case 0: return { v, t, p };
+            case 1: return { q, v, p };
+            case 2: return { p, v, t };
+            case 3: return { p, q, v };
+            case 4: return { t, p, v };
+            default: return { v, p, q };
+            }
+        }
+
+        // The file value the profile's curve turns into y, by halving: the curve rises.
+        double curve_input(double y, double white)
+        {
+            double lo = 0, hi = 1;
+            for (int i = 0; i < 48; i++)
+            {
+                const double mid = 0.5 * (lo + hi);
+                (std::min(1.0, game_tone(white * mid)) < y ? lo : hi) = mid;
+            }
+            return 0.5 * (lo + hi);
+        }
+    }
+
+    std::vector<float> dng_look_table()
+    {
+        const Matrix to_prophoto = rec709_to_prophoto(), to_rec709 = inverse(to_prophoto);
+        const double white = dng_white();
+        // Each node's change, and the value it is for, by its place: value, hue, saturation.
+        std::vector<float> table;
+        table.reserve(size_t(kDngLookHues) * kDngLookSats * kDngLookVals * 3);
+        std::vector<Rgb> row(size_t(kDngLookHues) * kDngLookSats);
+        for (uint32_t vi = 0; vi < kDngLookVals; vi++)
+        {
+            const double encoded = double(vi) / (kDngLookVals - 1);
+            const double v = encoded <= 0.04045 ? encoded / 12.92 : std::pow((encoded + 0.055) / 1.055, 2.4);
+            for (uint32_t hi = 0; hi < kDngLookHues; hi++)
+                for (uint32_t si = 0; si < kDngLookSats; si++)
+                {
+                    const double h = 6.0 * hi / kDngLookHues, s = double(si) / (kDngLookSats - 1);
+                    Rgb node = { 0, 1, 1 };
+                    if (s > 0 && v > 0)
+                    {
+                        // What the game shows of this color, as ProPhoto light.
+                        const Rgb scene = times(to_rec709, from_hsv(h, s, v));
+                        Rgb shown {};
+                        for (int k = 0; k < 3; k++)
+                            shown[k] = std::min(1.0, game_tone(std::max(scene[k], 0.0) * white));
+                        Rgb want = times(to_prophoto, shown);
+                        for (double &c : want)
+                            c = std::clamp(c, 0.0, 1.0);
+                        // The color the hue-preserving curve takes there: the largest and smallest through the curve's
+                        // inverse, the middle at the same share between them.
+                        std::array<int, 3> order = { 0, 1, 2 };
+                        std::sort(order.begin(), order.end(), [&want](int a, int b) { return want[a] < want[b]; });
+                        const double lo = want[order[0]], mid = want[order[1]], top = want[order[2]];
+                        const double lo2 = curve_input(lo, white), top2 = curve_input(top, white);
+                        Rgb before {};
+                        before[order[0]] = lo2;
+                        before[order[2]] = top2;
+                        before[order[1]] = top > lo ? lo2 + (top2 - lo2) * (mid - lo) / (top - lo) : lo2;
+                        const Rgb got = to_hsv(before);
+                        const double shift = std::fmod(got[0] - h + 9, 6) - 3;
+                        node = { shift * 60, got[1] / s, got[2] / v };
+                    }
+                    row[size_t(hi) * kDngLookSats + si] = node;
+                }
+            // Black has no hue: its nodes take the hue and saturation of the next value's, at its own value.
+            if (vi == 0)
+                continue;
+            if (vi == 1)
+                for (const Rgb &n : row)
+                    for (const double c : { n[0], n[1], 1.0 })
+                        table.push_back(static_cast<float>(c));
+            for (const Rgb &n : row)
+                for (const double c : n)
+                    table.push_back(static_cast<float>(c));
+        }
+        return table;
     }
 
     std::vector<uint8_t> dng_lossless_jpeg(const uint16_t *samples, uint32_t width, uint32_t height)
@@ -393,6 +540,15 @@ namespace enhancements
                 std::memcpy(&bits, &v, sizeof bits);
                 put32(curve.data, bits);
             }
+        IfdEntry look { 50982, kFloat, {} };
+        for (const float v : dng_look_table())
+        {
+            uint32_t bits;
+            std::memcpy(&bits, &v, sizeof bits);
+            put32(look.data, bits);
+        }
+        // The file's 1 is the scene's dng_white, the light the game shows as white.
+        const double exposure = stops - std::log2(dng_white());
         IfdEntry tile_offsets { 324, kLong, {} }, tile_bytes { 325, kLong, {} };
         for (const std::vector<uint8_t> &t : tiles)
         {
@@ -428,11 +584,14 @@ namespace enhancements
             rationals(50721, kSrational, { { 3240454, 1000000 }, { -1537138, 1000000 }, { -498531, 1000000 }, { -969266, 1000000 },
                 { 1876011, 1000000 }, { 41556, 1000000 }, { 55643, 1000000 }, { -204026, 1000000 }, { 1057225, 1000000 } }),
             rationals(50728, kRational, { { 1, 1 }, { 1, 1 }, { 1, 1 } }),     // AsShotNeutral
-            rationals(50730, kSrational, { { static_cast<int32_t>(stops * 1000), 1000 } }),  // BaselineExposure
+            rationals(50730, kSrational, { { static_cast<int32_t>(std::lround(exposure * 1000)), 1000 } }),  // BaselineExposure
             shorts(50778, { 21 }),              // CalibrationIlluminant1: D65
             ascii(50936, "CameraTools Game"),   // ProfileName
             std::move(curve),                   // ProfileToneCurve
             longs(50941, { 0 }),                // ProfileEmbedPolicy: allow copying
+            longs(50981, { kDngLookHues, kDngLookSats, kDngLookVals }),   // ProfileLookTableDims
+            std::move(look),                    // ProfileLookTableData
+            longs(51108, { 1 }),                // ProfileLookTableEncoding: the value divisions sRGB-encoded
         };
         const std::vector<IfdEntry> exif_entries = exif_ifd(exif);
 
