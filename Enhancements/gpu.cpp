@@ -129,7 +129,7 @@ namespace enhancements
         float water_size;
         float sky_moon_face;
         float auto_night_ev;
-        float water_pad;
+        float sky_sunset;
     };
     static_assert(sizeof(Constants) == 896 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
@@ -176,6 +176,7 @@ namespace enhancements
             c.sky_cloud_physical = 0;
             c.sky_cloud_illuminance = 0;
             c.sky_aerial = sky.aerial;
+            c.sky_sunset = sky.request.sunset;
             c.sky_vegetation = sky.vegetation;
         }
 
@@ -1450,8 +1451,8 @@ namespace enhancements
         return true;
     }
 
-    std::optional<GameCall> Gpu::run_clouds(const FrameMap &map, const CloudSettings &settings, const Camera &camera, const SunShadowConstants &sun,
-        const float wind[2], uint64_t frame, bool flip, const SkyDraw *physical)
+    std::optional<GameCall> Gpu::run_clouds(const FrameMap &map, const CloudSettings &settings, const Camera &camera, const float wind[2], uint64_t frame,
+        bool flip, const SkyDraw *physical)
     {
         constexpr uint32_t kCloudMapSize = 2048;    // kCloudMapSize in shaders/clouds.hlsli
         const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
@@ -1459,12 +1460,17 @@ namespace enhancements
         const Size half = { (map.render.width + 1) / 2, (map.render.height + 1) / 2 }, quarter = { (half.width + 1) / 2, (half.height + 1) / 2 };
         ID3D11Device *d = device_.Get();
         Constants constants;
-        if (!sun_ready_ || !scene_in_.sync(d, native(scene), scene_format, false) || !scene_out_.sync(d, native(scene), scene_format, true)
+        if (!scene_in_.sync(d, native(scene), scene_format, false) || !scene_out_.sync(d, native(scene), scene_format, true)
             || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false)
             || !cloud_map_.sync(d, { kCloudMapSize, kCloudMapSize }, DXGI_FORMAT_R16_FLOAT) || !cloud_rays_.sync(d, quarter, DXGI_FORMAT_R16G16B16A16_FLOAT)
             || !cloud_history_[0].sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT) || !cloud_history_[1].sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT)
             || !pass_constants(camera, map.render, flip, constants))
             return std::nullopt;
+        // The camera's place in the world, from its world-to-view matrix's rotation and translation.
+        const float *m = camera.world_to_view;
+        float eye[3];
+        for (int k = 0; k < 3; k++)
+            eye[k] = -(m[k] * m[3] + m[4 + k] * m[7] + m[8 + k] * m[11]);
         constants.cloud_coverage = settings.coverage;
         constants.cloud_base = settings.base;
         constants.cloud_thickness = settings.thickness;
@@ -1482,12 +1488,12 @@ namespace enhancements
         // The map reaches the rays that leave the layer's base about 3 degrees above the horizon, at 8 to 16 texels a cell,
         // in quarter octaves so the map is baked again only when the layer or the camera's height moves it far. Its center
         // moves in steps of 64 texels, and the fade has fallen to e^-2.8 at its edge.
-        const float above = std::max(settings.base - sun.camera[1], settings.thickness);
+        const float above = std::max(settings.base - eye[1], settings.thickness);
         const float wanted = std::clamp(40.0f * above, settings.size * kCloudMapSize / 16, settings.size * kCloudMapSize / 8);
         constants.cloud_map_extent = std::exp2(std::round(std::log2(wanted) * 4) / 4);
         constants.cloud_fade = constants.cloud_map_extent * 0.18f;
         const float step = constants.cloud_map_extent / kCloudMapSize * 64;
-        const float camera_x = sun.camera[0], camera_z = sun.camera[2];
+        const float camera_x = eye[0], camera_z = eye[2];
         constants.cloud_map_center[0] = std::round((camera_x + wind[0]) / step) * step;
         constants.cloud_map_center[1] = std::round((camera_z + wind[1]) / step) * step;
         // The march's sample offsets turn by the golden ratio each frame, and the history follows the camera's turn and keeps
@@ -1506,7 +1512,7 @@ namespace enhancements
         cloud_still_ = still ? cloud_still_ + 1 : 0;
         constants.cloud_wind_step[0] = continues ? wind[0] - cloud_prev_wind_[0] : 0.0f;
         constants.cloud_wind_step[1] = continues ? wind[1] - cloud_prev_wind_[1] : 0.0f;
-        constants.cloud_camera_height = sun.camera[1];
+        constants.cloud_camera_height = eye[1];
         cloud_prev_wind_[0] = wind[0];
         cloud_prev_wind_[1] = wind[1];
         constants.cloud_blend = !continues ? 1.0f : std::max(0.3f / (1.0f + static_cast<float>(cloud_still_) / 16.0f), 0.03f);

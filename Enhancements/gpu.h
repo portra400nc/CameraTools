@@ -354,7 +354,7 @@ namespace enhancements
         // The volume clouds' two noise textures, generated once on the GPU. false when one could not be made.
         bool make_cloud_noise();
         // With physical, the clouds take its sunlight or moonlight at their height in place of the camera's sun.
-        std::optional<GameCall> run_clouds(const FrameMap &map, const CloudSettings &settings, const Camera &camera, const SunShadowConstants &sun,
+        std::optional<GameCall> run_clouds(const FrameMap &map, const CloudSettings &settings, const Camera &camera,
             const float wind[2], uint64_t frame, bool flip, const SkyDraw *physical);
         // The physical sky over the sky's pixels: the air's tables uploaded when the atmosphere is new, the view tables
         // drawn for this frame's lights, the sky, the sun and the moon drawn over the mirrored HDR scene, the stars added

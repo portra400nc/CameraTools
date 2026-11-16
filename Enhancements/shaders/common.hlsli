@@ -113,7 +113,7 @@ cbuffer Constants : register(b0)
     float water_size;           // EnhancementsWater.size
     float sky_moon_face;        // a full moon's face at the sky's scale, on average
     float auto_night_ev;        // stops under middle gray auto exposure aims for: the physical sky's night
-    float water_pad;
+    float sky_sunset;           // EnhancementsSunset.strength
 };
 
 SamplerState point_clamp : register(s0);

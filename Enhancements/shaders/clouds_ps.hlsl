@@ -150,10 +150,13 @@ float4 sheet_ray(float3 origin, float3 dir, float3 l, float c, float3 sun, float
 }
 
 // With the physical sky, the light along cloud_toward_sun that reaches world point p through the air above it, on the
-// curved planet below the viewer at origin: clouds stay lit after the sun has set on the ground.
+// curved planet below the viewer at origin: clouds stay lit after the sun has set on the ground. The stylized sunset
+// lights them as if they stood up to kSunsetLiftKm higher, so they keep the low sun's pink longer after sunset.
+static const float kSunsetLiftKm = 8;
 float3 physical_sunlight(float3 origin, float3 p)
 {
-    float3 planet = float3((p.x - origin.x) * 0.001, sky_viewer_radius() + (p.y - origin.y) * 0.001, (p.z - origin.z) * 0.001);
+    float lift = sky_sunset * kSunsetLiftKm;
+    float3 planet = float3((p.x - origin.x) * 0.001, sky_viewer_radius() + (p.y - origin.y) * 0.001 + lift, (p.z - origin.z) * 0.001);
     float r = length(planet);
     return sky_scale * sky_cloud_illuminance * sky_light_at(r, dot(planet / r, cloud_toward_sun)) * cloud_sun;
 }
@@ -166,19 +169,29 @@ float3 layer_sunlight(float3 origin, float3 dir)
     return physical_sunlight(origin, origin + dir * min(t, cloud_map_extent * 0.35));
 }
 
+// The stylized sunset's clouds: sunlight the air reddened lights them up to three times as brightly, so they glow pink
+// against the sky as the low sun catches them.
+float3 sunset_glow(float3 sun)
+{
+    float warmth = saturate(1 - sun.b / max(sun.r, 1e-6));
+    return sun * (1 + 2 * sky_sunset * warmth);
+}
+
 float4 main(float4 position : SV_Position) : SV_Target0
 {
     // This frame's pixel of the 2x2 block of the half-size history that this quarter-size pixel covers.
     uint block = (uint)cloud_block;
     float2 pixel = floor(position.xy) * 2 + float2(block & 1, block >> 1) + 0.5;
     float2 uv = pixel * 2 * render_size.zw;
-    float3 origin = game_b1[5].xyz;
-    float3 dir = normalize(game_world(game_view_at(uv, 1)) - origin);
+    // The camera from our own constants, so the clouds draw also when the game renders no sun shadows, as after sunset.
+    float3x3 to_world = transpose((float3x3)world_to_view);
+    float3 origin = mul(to_world, -float3(world_to_view[0].w, world_to_view[1].w, world_to_view[2].w));
+    float3 dir = normalize(mul(to_world, view_position(uv, 1)));
     float top = cloud_base + cloud_thickness;
     skew_direction = float2(cos(radians(cloud_pad)), sin(radians(cloud_pad)));
     bool physical = sky_cloud_physical > 0.5;
     if (cloud_shape >= 1.5)
-        return sheet_ray(origin, dir, cloud_toward_sun, dot(dir, cloud_toward_sun), physical ? layer_sunlight(origin, dir) : kPi * sun_color * cloud_sun,
+        return sheet_ray(origin, dir, cloud_toward_sun, dot(dir, cloud_toward_sun), physical ? sunset_glow(layer_sunlight(origin, dir)) : kPi * sun_color * cloud_sun,
             sky_color * cloud_ambient);
     float t0, t1;
     if (origin.y < cloud_base)
@@ -215,7 +228,7 @@ float4 main(float4 position : SV_Position) : SV_Target0
 
     float3 l = cloud_toward_sun;
     float c = dot(dir, l);
-    float3 sun = physical ? layer_sunlight(origin, dir) : kPi * sun_color * cloud_sun;
+    float3 sun = physical ? sunset_glow(layer_sunlight(origin, dir)) : kPi * sun_color * cloud_sun;
     float3 sky = sky_color * cloud_ambient;
     if (cloud_shape >= 0.5)
         return cirrus_ray(origin, dir, t0, t1, l, c, sun, sky);

@@ -135,7 +135,8 @@ namespace enhancements
     Vec3f sky_light(const Atmosphere &atmosphere, const Vec3f &view, const SkyRequest &request, const Vec3f &scale);
 
     // The light that lights clouds altitude_km above the ground: the sun while its light there passes the moon's, else
-    // the moon.
+    // the moon. The stylized sunset lights them as if they stood up to kSunsetLiftKm higher, as shaders/clouds_ps.hlsl does.
+    constexpr float kSunsetLiftKm = 8;
     SkyLight cloud_light(const Atmosphere &atmosphere, const SkyRequest &request, float altitude_km);
 
     // The physical sky as the tracer's sky map, at sky_scale. Every texel is real.

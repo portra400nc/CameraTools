@@ -146,13 +146,13 @@ namespace enhancements
         }
 
         // The stylized sunset: light the air reddened, by how much its blue fell behind its red, gains blue from its red
-        // and loses some green, so an orange sun turns pink; white light keeps its color.
+        // and loses some green, so a peach or orange sun turns pink; white light keeps its color.
         Vec3f rose(const SkySettings &s, const Vec3f &t)
         {
             if (s.sunset <= 0 || t[0] <= 0)
                 return t;
-            const float w = clamp01(1 - t[2] / t[0]), k = s.sunset * w * w;
-            return { t[0], t[1] * (1 - 0.25f * k), std::min(t[2] + 0.5f * k * t[0], 1.0f) };
+            const float k = s.sunset * clamp01(1 - t[2] / t[0]);
+            return { t[0], t[1] * (1 - 0.35f * k), std::min(t[2] + 0.6f * k * t[0], 1.0f) };
         }
 
         void make_transmittance(Atmosphere &a)
@@ -343,6 +343,7 @@ namespace enhancements
 
     SkyLight cloud_light(const Atmosphere &a, const SkyRequest &request, float altitude_km)
     {
+        altitude_km += request.sunset * kSunsetLiftKm;
         const float sun = request.sun.illuminance * luminance_of(transmittance_at(a, altitude_km, request.sun.toward));
         const float moon = request.moon.illuminance * luminance_of(transmittance_at(a, altitude_km, request.moon.toward));
         return sun >= moon ? request.sun : request.moon;

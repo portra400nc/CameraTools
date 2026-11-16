@@ -132,7 +132,7 @@ namespace enhancements
         // The sun's atlas shades the distance haze where the main light does not reach the air.
         { PassId::sky, "sky", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::optional, sky_wanted },
         // Before the haze and the mist, which lie in front of it. The game's camera constants place the camera in the world.
-        { PassId::clouds, "clouds", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::required, clouds_wanted },
+        { PassId::clouds, "clouds", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::none, clouds_wanted },
         { PassId::atmosphere, "atmosphere", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::none, atmosphere_wanted },
         // After atmosphere, so the haze lies behind the mist. The atlas and the game's camera constants place every step of
         // the march, and the camera brings the sun's direction and the sun and sky colors.
