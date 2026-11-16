@@ -229,6 +229,15 @@ namespace enhancements
         bool after_dome = false;        // the dome drew the physical sky and no targets were bound since
         bool ambient_physical_said = false;     // the log said the ambient pass took the physical sky's color
 
+        // How overcast the physical sky's clouds make it, 0 to 1: nothing at 60% coverage and below, all of it at 100%.
+        float overcast()
+        {
+            if (!settings.sky.enabled || !settings.clouds.enabled)
+                return 0;
+            const float t = std::clamp((settings.clouds.coverage - 0.6f) / 0.4f, 0.0f, 1.0f);
+            return t * t * (3 - 2 * t);
+        }
+
         // The ambient pass's and the traced ambient's level: with the physical sky, at its share of a day's sky light.
         float ambient_level()
         {
@@ -1075,7 +1084,8 @@ namespace enhancements
                     switch (d.pass)  // exhaustive: a new PassId warns here until it has a run function
                     {
                     case PassId::ambient:
-                        call = gpu.run_ambient(map, scaled_ambient(), camera, settings.flip, live_physical_sky(), settings.sky.enabled && celestial ? celestial->ambient_scale : 1.0f);
+                        call = gpu.run_ambient(map, scaled_ambient(), camera, settings.flip, live_physical_sky(), settings.sky.enabled && celestial ? celestial->ambient_scale : 1.0f,
+                            overcast());
                         if (call && live_physical_sky() && !ambient_physical_said)
                         {
                             log(reshade::log::level::info, "the ambient pass takes its light's color from the physical sky.");

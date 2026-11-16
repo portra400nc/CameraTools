@@ -112,7 +112,7 @@ cbuffer Constants : register(b0)
     float water_wind;           // radians from world +x toward +z, the way the wind blows the waves
     float water_size;           // EnhancementsWater.size
     float sky_moon_face;        // a full moon's face at the sky's scale, on average
-    float auto_pad;
+    float reflection_overcast;  // how far the ambient pass grays the game's reflections, 0 to 1, by the clouds' cover
     float sky_sunset;           // EnhancementsSunset.strength
 };
 

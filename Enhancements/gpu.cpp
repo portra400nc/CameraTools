@@ -129,7 +129,7 @@ namespace enhancements
         float water_wind;
         float water_size;
         float sky_moon_face;
-        float auto_pad;
+        float reflection_overcast;
         float sky_sunset;
     };
     static_assert(sizeof(Constants) == 896 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
@@ -1157,7 +1157,8 @@ namespace enhancements
         return trace.copy_for_save(save, normals_.texture(), depth_.texture(), shadow_mask_in_.texture(), irradiance_in_.texture());
     }
 
-    std::optional<GameCall> Gpu::run_ambient(const FrameMap &map, const AmbientSettings &settings, const Camera &camera, bool flip, const SkyMap *physical, float reflection_scale)
+    std::optional<GameCall> Gpu::run_ambient(const FrameMap &map, const AmbientSettings &settings, const Camera &camera, bool flip, const SkyMap *physical, float reflection_scale,
+        float overcast)
     {
         const Texture &irradiance = *map[Entry::ambient_diffuse];
         const auto irradiance_format = static_cast<DXGI_FORMAT>(irradiance.format);
@@ -1194,14 +1195,15 @@ namespace enhancements
         draw_fullscreen(ao_ps_.Get(), srvs, 4, ao_.rtv(), map.render);
         draw_fullscreen(ambient_ps_.Get(), srvs, 5, irradiance_out_.rtv(), map.render);
         irradiance_out_.copy_to(c, native(irradiance));
-        // The game's reflections at the physical sky's share of a day's light, through level.
+        // The game's reflections at the physical sky's share of a day's light, through level, grayed by the overcast.
         const std::optional<Texture> &probes = map[Entry::ambient_specular];
-        if (reflection_scale != 1 && probes)
+        if ((reflection_scale != 1 || overcast > 0) && probes)
         {
             const auto format = static_cast<DXGI_FORMAT>(probes->format);
             if (!reflection_in_.sync(device_.Get(), native(*probes), format, false) || !reflection_out_.sync(device_.Get(), native(*probes), format, true))
                 return GameCall::keep;
             constants.level = reflection_scale;
+            constants.reflection_overcast = overcast;
             upload(constants);
             reflection_in_.copy_from(c, native(*probes));
             ID3D11ShaderResourceView *const reflected[] = { reflection_in_.srv(), normals_.srv(), depth_.srv(), depth_.stencil_srv() };

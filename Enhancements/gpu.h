@@ -286,9 +286,9 @@ namespace enhancements
         // out = in * level * lerp(1, blurred ao, strength) on world pixels and in elsewhere, where strength is
         // ao_strength, times foliage_ao_strength on grass, vegetation and foliage; copy out over the game's irradiance.
         // With physical, in's color is the physical sky's for the pixel's normal at in's luminance. Empty when a texture of
-        // ours failed.
+        // ours failed. overcast, 0 to 1, grays the game's reflections on world pixels, whose probes see no clouds.
         std::optional<GameCall> run_ambient(const FrameMap &map, const AmbientSettings &settings, const Camera &camera, bool flip,
-            const SkyMap *physical = nullptr, float reflection_scale = 1);
+            const SkyMap *physical = nullptr, float reflection_scale = 1, float overcast = 0);
 
         // At the game's shadow-mask draw, before it runs: copies the draw's pixel shader constants b0 to b3 into our own
         // buffers for this frame's sun-shadow pass and into frame's staging buffer for sun_constants, and the atlas into
