@@ -115,7 +115,9 @@ cbuffer Constants : register(b0)
     float reflection_overcast;  // how far the ambient pass grays the game's reflections, 0 to 1, by the clouds' cover
     float sky_sunset;           // EnhancementsSunset.strength
     float sky_overcast;         // how overcast the clouds make the sky, 0 to 1: the air scatters less sunlight and grays
-    float3 overcast_pad;
+    float rain_amount;          // rain_ps.hlsl's: the share of cells holding a drop
+    float rain_time;            // seconds on the game's clock
+    float rain_wind;            // radians from world +x toward +z, the way the wind blows
 };
 
 SamplerState point_clamp : register(s0);

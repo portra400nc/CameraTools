@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 39
+#define ENHANCEMENTS_VERSION 40
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -103,6 +103,7 @@ enum
     ENHANCEMENTS_PASS_CHARACTER_LIGHT = 1u << 11,
     ENHANCEMENTS_PASS_CLOUDS = 1u << 12,
     ENHANCEMENTS_PASS_SKY = 1u << 13,
+    ENHANCEMENTS_PASS_RAIN = 1u << 14,
 };
 
 // The tonemap pass's curves, values of EnhancementsTonemap.curve.
@@ -591,6 +592,13 @@ typedef struct EnhancementsCloudPattern
     uint32_t pattern;           // ENHANCEMENTS_CLOUD_PATTERN_*; unknown values read as NOISE
 } EnhancementsCloudPattern;
 
+// Rain: streaks of falling drops in layers around the camera, slanted by the clouds' wind, falling on the game's clock and
+// lit by the sky's light, over the scene after the mist. Version 40 added it.
+typedef struct EnhancementsRain
+{
+    float amount;               // the share of the layers' cells that hold a drop: 0 (the default) none, 1 a downpour
+} EnhancementsRain;
+
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller
 // knows, and fields past it keep their defaults.
 typedef struct EnhancementsSettings
@@ -621,6 +629,7 @@ typedef struct EnhancementsSettings
     EnhancementsWater water;
     EnhancementsSunset sunset;
     EnhancementsCloudPattern cloud_pattern;
+    EnhancementsRain rain;
 } EnhancementsSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and

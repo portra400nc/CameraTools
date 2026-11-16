@@ -132,7 +132,9 @@ namespace enhancements
         float reflection_overcast;
         float sky_sunset;
         float sky_overcast;     // how overcast the clouds make the sky, 0 to 1: the air scatters less sunlight and grays
-        float overcast_pad[3];
+        float rain_amount;
+        float rain_time;
+        float rain_wind;
     };
     static_assert(sizeof(Constants) == 912 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
@@ -863,6 +865,7 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kAerialLitPs, sizeof kAerialLitPs, nullptr, &made.aerial_lit_ps_))
             && SUCCEEDED(device->CreatePixelShader(kWaterPs, sizeof kWaterPs, nullptr, &made.water_ps_))
             && SUCCEEDED(device->CreatePixelShader(kSkyDomePs, sizeof kSkyDomePs, nullptr, &made.sky_dome_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kRainPs, sizeof kRainPs, nullptr, &made.rain_ps_))
             && SUCCEEDED(device->CreateBlendState(&water_blend, &made.water_blend_))
             && SUCCEEDED(device->CreateVertexShader(kStarsVs, sizeof kStarsVs, nullptr, &made.stars_vs_))
             && SUCCEEDED(device->CreatePixelShader(kStarsPs, sizeof kStarsPs, nullptr, &made.stars_ps_))
@@ -1459,6 +1462,28 @@ namespace enhancements
         depth_.copy_from(c, native(depth));
         ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), nullptr, depth_.srv() };
         draw_fullscreen(atmosphere_ps_.Get(), srvs, 3, scene_out_.rtv(), map.render);
+        scene_out_.copy_to(c, native(scene));
+        return GameCall::keep;
+    }
+
+    std::optional<GameCall> Gpu::run_rain(const FrameMap &map, float amount, const Camera &camera, bool flip, float seconds, float wind_radians)
+    {
+        const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
+        const auto scene_format = static_cast<DXGI_FORMAT>(scene.format);
+        ID3D11Device *d = device_.Get();
+        Constants constants;
+        if (!scene_in_.sync(d, native(scene), scene_format, false) || !scene_out_.sync(d, native(scene), scene_format, true)
+            || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false) || !pass_constants(camera, map.render, flip, constants))
+            return std::nullopt;
+        constants.rain_amount = amount;
+        constants.rain_time = seconds;
+        constants.rain_wind = wind_radians;
+        upload(constants);
+        ID3D11DeviceContext1 *c = context_.Get();
+        scene_in_.copy_from(c, native(scene));
+        depth_.copy_from(c, native(depth));
+        ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), nullptr, depth_.srv() };
+        draw_fullscreen(rain_ps_.Get(), srvs, 3, scene_out_.rtv(), map.render);
         scene_out_.copy_to(c, native(scene));
         return GameCall::keep;
     }

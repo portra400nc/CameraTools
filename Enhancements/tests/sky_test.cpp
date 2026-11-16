@@ -256,6 +256,20 @@ int main()
     raw.size = offsetof(EnhancementsSettings, clouds);
     check("a caller built before the clouds draws none", !parse_settings(raw).clouds.enabled && parse_settings(raw).clouds.coverage == 0.5f);
     {
+        EnhancementsSettings wet {};
+        wet.size = sizeof wet;
+        wet.enabled = 1;
+        wet.rain.amount = 0.6f;
+        const Settings rainy = parse_settings(wet);
+        wet.rain.amount = 7;
+        const float clamped = parse_settings(wet).rain;
+        wet.rain.amount = NAN;
+        const float unknown = parse_settings(wet).rain;
+        wet.size = offsetof(EnhancementsSettings, rain);
+        check("rain reads its amount, clamps it to 1 and a NaN to none, a caller before it has none, and only rain wants its pass at bloom",
+            rainy.rain == 0.6f && clamped == 1 && unknown == 0 && parse_settings(wet).rain == 0 && wanted_steps(rainy).has(Step::bloom));
+    }
+    {
         // The world's light at the drawn sky's exposure, for a day light of 1.5 and the default exposure.
         const Atmosphere clear = make_atmosphere(SkySettings {});
         const auto lit = [&clear](float sun, float moon, float phase) {

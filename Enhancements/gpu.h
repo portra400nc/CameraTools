@@ -348,6 +348,9 @@ namespace enhancements
         // The atmosphere pass: mirror in the HDR scene and depth; draw out = in * T + (sky + sun * sun_scatter * phase) *
         // (1 - T) on pixels with depth, where T is the transmittance of the height-fading haze along the view ray, and in
         // on the sky; copy out over the game's HDR scene. Empty when a texture of ours failed.
+        // Rain over the scene: streaks of falling drops in layers around the camera, amount the share of cells holding one,
+        // on seconds of the game's clock, slanted by the wind, lit by camera's sky color.
+        std::optional<GameCall> run_rain(const FrameMap &map, float amount, const Camera &camera, bool flip, float seconds, float wind_radians);
         std::optional<GameCall> run_atmosphere(const FrameMap &map, const AtmosphereSettings &settings, const Camera &camera, bool flip);
         // The cloud layer: bake the cells around the camera into cloud_map_, march the slab at half size into cloud_rays_
         // with the game's camera constants gather_sun copied, and lay the result over the sky's pixels. wind is the meters
@@ -571,7 +574,7 @@ namespace enhancements
         ComPtr<ID3D11Device> device_;
         ComPtr<ID3D11DeviceContext1> context_;
         ComPtr<ID3D11VertexShader> fullscreen_vs_, dof_sprite_vs_, stars_vs_;
-        ComPtr<ID3D11PixelShader> sky_view_ps_, sky_ps_, sky_dome_ps_, stars_ps_, aerial_lit_ps_, water_ps_;
+        ComPtr<ID3D11PixelShader> sky_view_ps_, sky_ps_, sky_dome_ps_, stars_ps_, aerial_lit_ps_, water_ps_, rain_ps_;
         ComPtr<ID3D11BlendState> water_blend_;  // target 0: the color added; the others untouched
         ComPtr<ID3D11Buffer> night_lamps_constants_;  // core/night_lamps.h NightLamps at b4
         // The physical sky's air tables, R32G32B32A32_FLOAT, uploaded from sky_air_; the moon's face, R8G8B8A8_UNORM 512 a side;

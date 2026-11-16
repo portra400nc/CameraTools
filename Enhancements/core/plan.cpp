@@ -15,6 +15,7 @@ namespace enhancements
         bool contact_shadows_wanted(const Settings &s) { return s.contact_shadows.enabled; }
         bool atmosphere_wanted(const Settings &s) { return s.atmosphere.enabled; }
         bool clouds_wanted(const Settings &s) { return s.clouds.enabled; }
+        bool rain_wanted(const Settings &s) { return s.rain > 0; }
         bool sky_wanted(const Settings &s) { return s.sky.enabled; }
         bool traced_lights_wanted(const Settings &s) { return s.traced_lights; }
         bool character_light_wanted(const Settings &s) { return s.character_light.enabled; }
@@ -39,7 +40,7 @@ namespace enhancements
             && ENHANCEMENTS_PASS_LIGHT_SHAFTS == bit(PassId::light_shafts) && ENHANCEMENTS_PASS_TRACE == bit(PassId::trace)
             && ENHANCEMENTS_PASS_DEPTH_OF_FIELD == bit(PassId::depth_of_field) && ENHANCEMENTS_PASS_LENS_FLARE == bit(PassId::lens_flare)
             && ENHANCEMENTS_PASS_TRACED_LIGHTS == bit(PassId::traced_lights) && ENHANCEMENTS_PASS_CHARACTER_LIGHT == bit(PassId::character_light)
-            && ENHANCEMENTS_PASS_CLOUDS == bit(PassId::clouds) && ENHANCEMENTS_PASS_SKY == bit(PassId::sky) && static_cast<int>(PassId::count) == 14);
+            && ENHANCEMENTS_PASS_CLOUDS == bit(PassId::clouds) && ENHANCEMENTS_PASS_SKY == bit(PassId::sky) && ENHANCEMENTS_PASS_RAIN == bit(PassId::rain) && static_cast<int>(PassId::count) == 15);
         static_assert(ENHANCEMENTS_TRACE_STATE_FAILED == static_cast<int>(TraceState::failed) && static_cast<int>(TraceState::count) == 6);
         static_assert(ENHANCEMENTS_CURVE_AGX == static_cast<int>(Curve::agx) && ENHANCEMENTS_CURVE_COUNT == static_cast<int>(Curve::count));
         static_assert(ENHANCEMENTS_VIEW_COUNT == static_cast<int>(View::count) && ENHANCEMENTS_VIEW_STENCIL == static_cast<int>(View::stencil)
@@ -67,7 +68,7 @@ namespace enhancements
             && offsetof(EnhancementsSettings, ambient_color) == 400 && offsetof(EnhancementsSettings, tones) == 404
             && offsetof(EnhancementsSettings, lens_softness) == 412 && offsetof(EnhancementsSettings, auto_exposure) == 416
             && offsetof(EnhancementsSettings, sky) == 420 && offsetof(EnhancementsSettings, clouds) == 428 && offsetof(EnhancementsSettings, aerial) == 484
-            && offsetof(EnhancementsSettings, water) == 488 && offsetof(EnhancementsSettings, sunset) == 504 && offsetof(EnhancementsSettings, cloud_pattern) == 508 && sizeof(EnhancementsSettings) == 512);
+            && offsetof(EnhancementsSettings, water) == 488 && offsetof(EnhancementsSettings, sunset) == 504 && offsetof(EnhancementsSettings, cloud_pattern) == 508 && offsetof(EnhancementsSettings, rain) == 512 && sizeof(EnhancementsSettings) == 516);
         static_assert(ENHANCEMENTS_CLOUD_SHAPE_STREAKS == static_cast<int>(CloudShape::streaks) && ENHANCEMENTS_CLOUD_SHAPE_SHEET == static_cast<int>(CloudShape::sheet)
             && ENHANCEMENTS_CLOUD_SHAPE_COUNT == static_cast<int>(CloudShape::count));
         static_assert(ENHANCEMENTS_CLOUD_PATTERN_STREAKS == static_cast<int>(CloudPattern::streaks)
@@ -140,6 +141,8 @@ namespace enhancements
         // the march, and the camera brings the sun's direction and the sun and sky colors.
         { PassId::light_shafts, "light-shafts", Step::bloom, { Entry::depth, Entry::hdr_scene, Entry::sun_atlas }, true, SunUse::required,
           light_shafts_wanted },
+        // In front of the mist and the shafts, and blurred with the rest by the depth of field.
+        { PassId::rain, "rain", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::none, rain_wanted },
         // Last at bloom, so haze and mist blur with what lies behind them; the camera's projection gives the focal length.
         { PassId::depth_of_field, "depth-of-field", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::none, depth_of_field_wanted },
         // At bloom only the sun's visibility, from the depth and, off the picture, the atlas when this frame's passed their
@@ -517,6 +520,8 @@ namespace enhancements
             const uint32_t p = raw.cloud_pattern.pattern;
             s.clouds.pattern = p < static_cast<uint32_t>(CloudPattern::count) ? static_cast<CloudPattern>(p) : CloudPattern::noise;
         }
+        if (knows(offsetof(EnhancementsSettings, rain), sizeof raw.rain))
+            s.rain = finite_or(raw.rain.amount, 0.0f, 0.0f, 1.0f);
         return s;
     }
 

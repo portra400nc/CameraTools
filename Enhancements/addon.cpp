@@ -226,6 +226,7 @@ namespace enhancements
         uint64_t celestial_seen = 0;
         std::optional<SkyDraw> sky_draw;
         uint64_t dome_frame = UINT64_MAX;   // the frame whose dome draw drew the physical sky
+        float logged_rain = 0;              // the rain the log last named
         bool after_dome = false;        // the dome drew the physical sky and no targets were bound since
         bool ambient_physical_said = false;     // the log said the ambient pass took the physical sky's color
 
@@ -1119,6 +1120,15 @@ namespace enhancements
                         break;
                     case PassId::wetness:
                         call = gpu.run_wetness(map, settings.wetness, wetness_amount(settings.wetness, camera), camera, settings.flip);
+                        break;
+                    case PassId::rain:
+                        if (std::fabs(settings.rain - logged_rain) > 0.1f)
+                        {
+                            logged_rain = settings.rain;
+                            log(reshade::log::level::info, "rain at " + std::to_string(static_cast<int>(settings.rain * 100)) + "%.");
+                        }
+                        call = gpu.run_rain(map, settings.rain, overcast_camera(sky_camera()), settings.flip, celestial ? celestial->water_seconds : 0.0f,
+                            settings.clouds.wind_direction * 0.01745329f);
                         break;
                     case PassId::atmosphere:
                         call = gpu.run_atmosphere(map, settings.atmosphere, overcast_camera(sky_camera()), settings.flip);
