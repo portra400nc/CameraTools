@@ -353,6 +353,9 @@ namespace enhancements
         // the clouds drifted. Empty when gather_sun copied nothing this frame or a texture of ours failed.
         // The volume clouds' two noise textures, generated once on the GPU. false when one could not be made.
         bool make_cloud_noise();
+        // cloud_pattern_ made from the pattern's embedded texture when the pattern changed. false for noise, or when the
+        // texture could not be made.
+        bool sync_cloud_pattern(CloudPattern pattern);
         // With physical, the clouds take its sunlight or moonlight at their height in place of the camera's sun.
         std::optional<GameCall> run_clouds(const FrameMap &map, const CloudSettings &settings, const Camera &camera,
             const float wind[2], uint64_t frame, bool flip, const SkyDraw *physical);
@@ -639,17 +642,19 @@ namespace enhancements
         ComPtr<ID3D11Texture3D> cloud_shape_, cloud_detail_;     // 128 and 32 a side, R8G8B8A8_UNORM
         ComPtr<ID3D11ShaderResourceView> cloud_shape_srv_, cloud_detail_srv_;
         bool cloud_noise_ready_ = false;
+        ComPtr<ID3D11ShaderResourceView> cloud_pattern_srv_;    // BC7 with its mips, as the pattern's DDS file holds it
+        CloudPattern cloud_pattern_ = CloudPattern::noise;      // the one cloud_pattern_srv_ holds
         Scratch cloud_map_;         // kCloudMapSize square, R16_FLOAT: the cloud cells around the camera
         // What cloud_map_ was last baked for; the bake runs again only when any of it changes.
         struct CloudMapKey
         {
             ID3D11Texture2D *texture = nullptr;
             float center[2] = {};
-            float extent = 0, coverage = 0, size = 0, stretch = 0, wind_direction = 0, shape = 0;
+            float extent = 0, coverage = 0, size = 0, stretch = 0, wind_direction = 0, shape = 0, pattern = 0;
             bool operator==(const CloudMapKey &o) const
             {
                 return texture == o.texture && center[0] == o.center[0] && center[1] == o.center[1] && extent == o.extent && coverage == o.coverage
-                    && size == o.size && stretch == o.stretch && wind_direction == o.wind_direction && shape == o.shape;
+                    && size == o.size && stretch == o.stretch && wind_direction == o.wind_direction && shape == o.shape && pattern == o.pattern;
             }
         } cloud_map_key_;
         Scratch cloud_rays_;        // half size, R16G16B16A16_FLOAT: rgb the clouds' in-scatter, a their transmittance
@@ -663,12 +668,13 @@ namespace enhancements
         struct CloudLook
         {
             float coverage = 0, base = 0, thickness = 0, size = 0, stretch = 0, density = 0, detail = 0, sun = 0, ambient = 0, wind_direction = 0;
-            uint32_t steps = 0, shape = 0;
+            uint32_t steps = 0, shape = 0, pattern = 0;
             ID3D11Texture2D *texture = nullptr;
             bool operator==(const CloudLook &o) const
             {
                 return coverage == o.coverage && base == o.base && thickness == o.thickness && size == o.size && stretch == o.stretch && density == o.density
-                    && detail == o.detail && sun == o.sun && ambient == o.ambient && wind_direction == o.wind_direction && steps == o.steps && shape == o.shape && texture == o.texture;
+                    && detail == o.detail && sun == o.sun && ambient == o.ambient && wind_direction == o.wind_direction && steps == o.steps && shape == o.shape
+                    && pattern == o.pattern && texture == o.texture;
             }
         } cloud_look_;
         Scratch trace_view_;        // R8G8B8A8_UNORM: the trace's averages, for the trace view

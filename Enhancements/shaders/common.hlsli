@@ -87,7 +87,7 @@ cbuffer Constants : register(b0)
     float cloud_shape;          // 0 heaps, 1 streaks, 2 sheet
     float2 cloud_wind_step;     // meters the clouds drifted since last frame
     float cloud_camera_height;  // world meters
-    float cloud_pad4;
+    float cloud_pattern;        // 0 our noise, 1 to 6 the pattern texture's ENHANCEMENTS_CLOUD_PATTERN_*
     float3 sky_toward_sun;      // the physical sky's sun, unit, world
     float sky_haze;             // the aerosols' optical depth straight up
     float3 sky_toward_moon;     // unit, world

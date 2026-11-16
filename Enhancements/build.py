@@ -60,6 +60,10 @@ SHADERS = [
 ]
 # The night sky's tables (data/SOURCES.txt), embedded as they are.
 DATA = [("kStarData", "data/stars.bin"), ("kMoonData", "data/moon.bin")]
+# The clouds' pattern textures (data/SOURCES.txt), in ENHANCEMENTS_CLOUD_PATTERN_* order from HEAPS. #embed reads their
+# 21 MB whole, where a list of bytes would have the compiler parse each one.
+CLOUD_PATTERNS = ["skyrimcloudslower01", "skyrimcloudslower02", "skyrimclouds01", "skyrimcloudsupper04", "skyrimcloudsupper02",
+                  "skyrimcloudsupper01"]
 WORKSPACE_VKD3D = Path(".work/build/reshade/vkd3d/vkd3d-compiler")
 DEPS = HERE / ".deps"
 # Where Homebrew's llvm and lld formulas put the tools, for a PATH that does not have them.
@@ -131,6 +135,13 @@ def embed_data(work):
         data = (HERE / source).read_bytes()
         rows = [",".join(str(byte) for byte in data[i:i + 64]) for i in range(0, len(data), 64)]
         lines += [f"static const unsigned char {symbol}[] = {{", *[f"{row}," for row in rows], "};", ""]
+    lines += ["#pragma clang diagnostic push", '#pragma clang diagnostic ignored "-Wc23-extensions"']
+    for k, name in enumerate(CLOUD_PATTERNS):
+        path = (HERE / "data" / "azurite" / f"{name}.dds").resolve().as_posix()
+        lines += [f"static const unsigned char kCloudPattern{k}[] = {{", f'#embed "{path}"', "};"]
+    lines += ["#pragma clang diagnostic pop", "struct CloudPatternData { const unsigned char *bytes; unsigned long long size; };",
+              "static const CloudPatternData kCloudPatterns[] = {",
+              *[f"    {{ kCloudPattern{k}, sizeof kCloudPattern{k} }}," for k in range(len(CLOUD_PATTERNS))], "};", ""]
     (work / "enhancements_data.h").write_text("\n".join(lines))
 
 

@@ -19,6 +19,7 @@ static const float kDetailTile = 0.8;
 float remap(float x, float a, float b, float c, float d) { return c + (x - a) / (b - a) * (d - c); }
 
 static float2 skew_direction;
+static float pixel_angle;   // radians between neighboring pixels of the cloud history
 static float detail_weight = 1;
 static float coverage_boost = 0;
 
@@ -106,6 +107,13 @@ float scattered(float c, float od)
     return lit;
 }
 
+// Meters of a layer one pixel of the history spans at distance t along dir: more where the ray grazes the layer, by the
+// square root, between the blur of its long side and the shimmer of its short one.
+float footprint(float t, float3 dir)
+{
+    return t * pixel_angle / sqrt(max(abs(dir.y), 0.02));
+}
+
 // Cirrus is a sheet too thin to march: the ray's crossing of the layer's middle stands in for the whole layer, its
 // tufts thick by the ray's path through it, lit through half the layer toward the light.
 float4 cirrus_ray(float3 origin, float3 dir, float t0, float t1, float3 l, float c, float3 sun, float3 sky)
@@ -115,10 +123,11 @@ float4 cirrus_ray(float3 origin, float3 dir, float t0, float t1, float3 l, float
         return float4(0, 0, 0, 1);
     float3 p = origin + dir * t;
     float2 at = p.xz + cloud_wind;
-    float weather = cloud_map.SampleLevel(linear_clamp, (at - cloud_map_center) / cloud_map_extent + 0.5, 0);
+    bool painted = cloud_pattern >= 0.5;
+    float weather = painted ? pattern_at(at, footprint(t, dir)).x : cloud_map.SampleLevel(linear_clamp, (at - cloud_map_center) / cloud_map_extent + 0.5, 0);
     if (weather <= 0.01)
         return float4(0, 0, 0, 1);
-    float od = cirrus_body(at, weather, t) * cloud_density * (t1 - t0) * 0.55;
+    float od = (painted ? weather * 2 : cirrus_body(at, weather, t)) * cloud_density * (t1 - t0) * 0.55;
     float lit = scattered(c, weather * cloud_density * cloud_thickness * 0.5 / max(l.y, 0.2));
     float taken = (1 - exp(-od)) * exp(-t / cloud_fade);
     return float4(taken * (sun * lit + sky * 0.6), 1 - taken);
@@ -133,10 +142,12 @@ float4 sheet_ray(float3 origin, float3 dir, float3 l, float c, float3 sun, float
     float mid = cloud_base + cloud_thickness * 0.5;
     float t = (mid - origin.y) / (origin.y < mid ? max(dir.y, 0.01) : min(dir.y, -0.01));
     float2 at = origin.xz + dir.xz * t + cloud_wind;
-    float weather = cloud_map.SampleLevel(linear_clamp, (at - cloud_map_center) / cloud_map_extent + 0.5, 0);
+    bool painted = cloud_pattern >= 0.5;
+    float2 pattern = painted ? pattern_at(at, footprint(t, dir)) : 0;
+    float weather = painted ? pattern.x : cloud_map.SampleLevel(linear_clamp, (at - cloud_map_center) / cloud_map_extent + 0.5, 0);
     if (weather <= 0.01)
         return float4(0, 0, 0, 1);
-    float tau = stratus_thickness(at) * weather * cloud_density * cloud_thickness;
+    float tau = (painted ? sheet_painted_thickness(at, pattern.y) : stratus_thickness(at)) * weather * cloud_density * cloud_thickness;
     float through = exp(-tau / max(abs(dir.y), 0.03));
     float mu = max(l.y, 0.05);
     float diffuse = mu / (1 + 0.75 * 0.15 * tau * (0.5 + 0.5 / mu));
@@ -187,6 +198,7 @@ float4 main(float4 position : SV_Position) : SV_Target0
     float3x3 to_world = transpose((float3x3)world_to_view);
     float3 origin = mul(to_world, -float3(world_to_view[0].w, world_to_view[1].w, world_to_view[2].w));
     float3 dir = normalize(mul(to_world, view_position(uv, 1)));
+    pixel_angle = length(normalize(mul(to_world, view_position(uv + float2(2 * render_size.z, 0), 1))) - dir);
     float top = cloud_base + cloud_thickness;
     skew_direction = float2(cos(radians(cloud_pad)), sin(radians(cloud_pad)));
     bool physical = sky_cloud_physical > 0.5;

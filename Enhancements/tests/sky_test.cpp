@@ -239,6 +239,15 @@ int main()
             && clouds.ambient == 0.5f && clouds.steps == 64 && clouds.shape == CloudShape::streaks && kPasses[8].id == PassId::clouds && kPasses[8].wanted(parse_settings(raw)));
     raw.clouds.shape = 2;
     check("shape 2 reads as a sheet", parse_settings(raw).clouds.shape == CloudShape::sheet);
+    raw.cloud_pattern.pattern = ENHANCEMENTS_CLOUD_PATTERN_OVERCAST;
+    check("pattern 3 reads as the painted overcast", parse_settings(raw).clouds.pattern == CloudPattern::overcast);
+    raw.cloud_pattern.pattern = 9;
+    check("an unknown pattern reads as our noise", parse_settings(raw).clouds.pattern == CloudPattern::noise);
+    raw.cloud_pattern.pattern = ENHANCEMENTS_CLOUD_PATTERN_STREAKS;
+    raw.size = offsetof(EnhancementsSettings, cloud_pattern);
+    check("a caller from before the pattern gets our noise", parse_settings(raw).clouds.pattern == CloudPattern::noise);
+    raw.size = sizeof raw;
+    raw.cloud_pattern.pattern = 0;
     raw.clouds.shape = 7;
     check("an unknown shape reads as heaps", parse_settings(raw).clouds.shape == CloudShape::heaps);
     raw.clouds.shape = 1;

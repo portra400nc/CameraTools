@@ -11,3 +11,9 @@ moon.bin
     Studio, from the Lunar Reconnaissance Orbiter Camera's Wide Angle Camera mosaic.
     Downloaded 2026-11-15 from https://svs.gsfc.nasa.gov/vis/a000000/a004700/a004720/lroc_color_poles_2k.tif
     (https://svs.gsfc.nasa.gov/4720). Public domain as NASA imagery; credit NASA's Scientific Visualization Studio.
+
+azurite/*.dds
+    Six cloud textures of Azurite Weathers II, a weather mod for The Elder Scrolls V: Skyrim Special Edition, copied
+    unchanged from its textures/sky/ folder. Its author allows reuse and reupload of its assets. The clouds take their
+    alpha as the cover and their painted gray as a sheet's thickness (EnhancementsCloudPattern in enhancements.h); build.py
+    embeds them as they are.

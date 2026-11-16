@@ -67,9 +67,11 @@ namespace enhancements
             && offsetof(EnhancementsSettings, ambient_color) == 400 && offsetof(EnhancementsSettings, tones) == 404
             && offsetof(EnhancementsSettings, lens_softness) == 412 && offsetof(EnhancementsSettings, auto_exposure) == 416
             && offsetof(EnhancementsSettings, sky) == 420 && offsetof(EnhancementsSettings, clouds) == 428 && offsetof(EnhancementsSettings, aerial) == 484
-            && offsetof(EnhancementsSettings, water) == 488 && offsetof(EnhancementsSettings, sunset) == 504 && sizeof(EnhancementsSettings) == 508);
+            && offsetof(EnhancementsSettings, water) == 488 && offsetof(EnhancementsSettings, sunset) == 504 && offsetof(EnhancementsSettings, cloud_pattern) == 508 && sizeof(EnhancementsSettings) == 512);
         static_assert(ENHANCEMENTS_CLOUD_SHAPE_STREAKS == static_cast<int>(CloudShape::streaks) && ENHANCEMENTS_CLOUD_SHAPE_SHEET == static_cast<int>(CloudShape::sheet)
             && ENHANCEMENTS_CLOUD_SHAPE_COUNT == static_cast<int>(CloudShape::count));
+        static_assert(ENHANCEMENTS_CLOUD_PATTERN_STREAKS == static_cast<int>(CloudPattern::streaks)
+            && ENHANCEMENTS_CLOUD_PATTERN_COUNT == static_cast<int>(CloudPattern::count));
         static_assert(ENHANCEMENTS_FLARE_SOURCE_MANUAL == static_cast<int>(FlareSource::manual)
             && ENHANCEMENTS_FLARE_SOURCE_COUNT == static_cast<int>(FlareSource::count));
         static_assert(ENHANCEMENTS_FLARE_PLACE_DISPLAY == static_cast<int>(FlarePlace::display)
@@ -509,6 +511,11 @@ namespace enhancements
             s.clouds.steps = std::clamp<uint32_t>(c.steps, 8, 64);
             if (knows(offsetof(EnhancementsSettings, clouds) + offsetof(EnhancementsClouds, shape), sizeof c.shape))
                 s.clouds.shape = c.shape < static_cast<uint32_t>(CloudShape::count) ? static_cast<CloudShape>(c.shape) : CloudShape::heaps;
+        }
+        if (knows(offsetof(EnhancementsSettings, cloud_pattern), sizeof raw.cloud_pattern))
+        {
+            const uint32_t p = raw.cloud_pattern.pattern;
+            s.clouds.pattern = p < static_cast<uint32_t>(CloudPattern::count) ? static_cast<CloudPattern>(p) : CloudPattern::noise;
         }
         return s;
     }

@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 38
+#define ENHANCEMENTS_VERSION 39
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -570,6 +570,27 @@ typedef struct EnhancementsClouds
     uint32_t shape;             // ENHANCEMENTS_CLOUD_SHAPE_*; unknown values read as HEAPS, the default
 } EnhancementsClouds;
 
+// Where the clouds' cover comes from, values of EnhancementsCloudPattern.pattern: our noise, or a painted cloud texture of
+// Azurite Weathers II (data/SOURCES.txt). A texture's alpha is the cover: the weather map of HEAPS, and where STREAKS and
+// SHEET are; its painted gray is how thick a SHEET is. Coverage grows or thins the painted cover, as painted at 0.5.
+enum
+{
+    ENHANCEMENTS_CLOUD_PATTERN_NOISE = 0,  // our noise, the default
+    ENHANCEMENTS_CLOUD_PATTERN_HEAPS,      // skyrimcloudslower01: heaps with blue between them
+    ENHANCEMENTS_CLOUD_PATTERN_BROKEN,     // skyrimcloudslower02: a layer broken by blue gaps
+    ENHANCEMENTS_CLOUD_PATTERN_OVERCAST,   // skyrimclouds01: an overcast, thicker in darker patches
+    ENHANCEMENTS_CLOUD_PATTERN_PUFFS,      // skyrimcloudsupper04: small puffs in rows
+    ENHANCEMENTS_CLOUD_PATTERN_PATCHES,    // skyrimcloudsupper02: small patches and wisps
+    ENHANCEMENTS_CLOUD_PATTERN_STREAKS,    // skyrimcloudsupper01: feathery cirrus streaks along the wind
+    ENHANCEMENTS_CLOUD_PATTERN_COUNT,
+};
+
+// The clouds' pattern. Version 39 added it.
+typedef struct EnhancementsCloudPattern
+{
+    uint32_t pattern;           // ENHANCEMENTS_CLOUD_PATTERN_*; unknown values read as NOISE
+} EnhancementsCloudPattern;
+
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller
 // knows, and fields past it keep their defaults.
 typedef struct EnhancementsSettings
@@ -599,6 +620,7 @@ typedef struct EnhancementsSettings
     EnhancementsAerial aerial;
     EnhancementsWater water;
     EnhancementsSunset sunset;
+    EnhancementsCloudPattern cloud_pattern;
 } EnhancementsSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and

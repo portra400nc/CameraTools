@@ -48,7 +48,7 @@ Check("the binding's shot is 40 bytes with its strength at 16, its outputs at 20
     && Marshal.SizeOf<EnhancementsCharacterLights>() == 296 && Offset<EnhancementsCharacterLights>(nameof(EnhancementsCharacterLights.Count)) == 36
     && Offset<EnhancementsCharacterLights>(nameof(EnhancementsCharacterLights.Lights)) == 40
     && Offset<EnhancementsShot>(nameof(EnhancementsShot.BudgetMs)) == 12 && Offset<EnhancementsShot>(nameof(EnhancementsShot.Outputs)) == 20
-    && Offset<EnhancementsShot>(nameof(EnhancementsShot.Strength)) == 16 && Marshal.SizeOf<EnhancementsSettings>() == 508 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Aerial)) == 484
+    && Offset<EnhancementsShot>(nameof(EnhancementsShot.Strength)) == 16 && Marshal.SizeOf<EnhancementsSettings>() == 512 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.CloudPattern)) == 508 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Aerial)) == 484
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Water)) == 488
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.AmbientColor)) == 400 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Tones)) == 404
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.LensSoftness)) == 412 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.AutoExposure)) == 416 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Sky)) == 420
@@ -215,16 +215,17 @@ Check("the table holds 101 fields, each at its own id's place, with the master s
     var cloudOn = EnhancementsModel.Edit(EnhancementsModel.Edit(cloudFresh, Enhancement.Enabled, 1f), Enhancement.Clouds, 1f);
     var cloudCirrus = EnhancementsModel.Edit(cloudOn, Enhancement.CloudType, 5f);
     var cloudStreaks = EnhancementsModel.Settings(cloudCirrus, cloudLens).Clouds;
-    Check("Cirrus sets the shape rows and runs streaks 8000 m up, stretched 3 times along the wind",
-        cloudStreaks is { Enabled: 1, Coverage: 0.55f, Base: 8000f, Thickness: 300f, Size: 800f, Density: 0.002f, Detail: 1f, Stretch: 3f, Shape: EnhancementsCloudShape.Streaks }
+    Check("Cirrus sets the shape rows and runs Azurite's painted streaks 8000 m up, stretched 3 times along the wind",
+        EnhancementsModel.Settings(cloudCirrus, cloudLens).CloudPattern.Pattern == EnhancementsCloudPatternKind.Streaks && cloudStreaks is { Enabled: 1, Coverage: 0.55f, Base: 8000f, Thickness: 300f, Size: 800f, Density: 0.002f, Detail: 1f, Stretch: 3f, Shape: EnhancementsCloudShape.Streaks }
         && EnhancementsModel.CloudsRun(cloudCirrus) && !EnhancementsModel.CloudsRun(EnhancementsModel.Edit(cloudCirrus, Enhancement.Enabled, 0f)));
     var cloudCustom = EnhancementsModel.Edit(cloudCirrus, Enhancement.CloudHeight, 9000f);
     Check("moving a shape row makes Type Custom and keeps the last type's streaks",
         (int)cloudCustom[Enhancement.CloudType] == EnhancementsModel.CustomClouds && EnhancementsModel.Settings(cloudCustom, cloudLens).Clouds is { Base: 9000f, Stretch: 3f, Shape: EnhancementsCloudShape.Streaks }
         && EnhancementsModel.Detail(EnhancementsModel.Field(Enhancement.CloudType), cloudCustom) == "Your own shape");
     var cloudStratus = EnhancementsModel.Edit(cloudCustom, Enhancement.CloudType, 2f);
-    Check("Stratus after Custom sets its own rows and draws a sheet",
-        EnhancementsModel.Settings(cloudStratus, cloudLens).Clouds is { Coverage: 0.88f, Base: 1000f, Size: 1000f, Detail: 0.5f, Shape: EnhancementsCloudShape.Sheet }
+    Check("Stratus after Custom sets its own rows and draws a sheet of Azurite's painted overcast",
+        EnhancementsModel.Settings(cloudStratus, cloudLens).CloudPattern.Pattern == EnhancementsCloudPatternKind.Overcast
+        && EnhancementsModel.Settings(cloudStratus, cloudLens).Clouds is { Coverage: 0.88f, Base: 1000f, Size: 1000f, Detail: 0.5f, Shape: EnhancementsCloudShape.Sheet }
         && (int)cloudStratus[Enhancement.CloudType] == 2);
     Check("moving Sunlight or Wind leaves Type as it is",
         (int)EnhancementsModel.Edit(cloudStratus, Enhancement.CloudSunlight, 3f)[Enhancement.CloudType] == 2 && (int)EnhancementsModel.Edit(cloudStratus, Enhancement.CloudWind, 20f)[Enhancement.CloudType] == 2);
