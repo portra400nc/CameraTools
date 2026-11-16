@@ -228,6 +228,7 @@ namespace enhancements
         uint64_t dome_frame = UINT64_MAX;   // the frame whose dome draw drew the physical sky
         float logged_rain = 0;              // the rain the log last named
         bool logged_lift = false;           // whether the log last said the scene's light ran
+        bool water_scene_stale = false;     // whether the game drew since physical water's copy of the scene
         bool after_dome = false;        // the dome drew the physical sky and no targets were bound since
         bool ambient_physical_said = false;     // the log said the ambient pass took the physical sky's color
 
@@ -1066,7 +1067,10 @@ namespace enhancements
             // The lit opaque scene before the game draws anything see-through over it, which it sorts anew each frame: what
             // physical water sees through and mirrors.
             if (step == Step::forward && settings.enabled && settings.sky.enabled && settings.water.enabled)
+            {
                 gpu.copy_water_scene(map, frames);
+                water_scene_stale = false;
+            }
             // The HDR scene before any pass of ours: a LIGHT capture's face's, and a trace save's.
             if (step == Step::bloom)
             {
@@ -1566,12 +1570,21 @@ namespace enhancements
             {
                 if (!settings.water.enabled)
                     return false;
+                // A water draw after other draws sees what they drew under it, such as the far sea a map's edge draws before
+                // its water: our water adds its change to the copy, which would otherwise subtract a sky the scene no longer
+                // shows there.
+                if (water_scene_stale && tracker.matched().has(Step::forward))
+                {
+                    gpu.copy_water_scene(tracker.map(), frames);
+                    water_scene_stale = false;
+                }
                 // The game's own time, so the waves stand still while it is paused.
                 const float seconds = celestial ? celestial->water_seconds : 0.0f;
                 return gpu.draw_water(draw, tracker.map(), *sky_draw, settings.water, camera, settings.flip, frames, seconds,
                     settings.clouds.wind_direction * 0.01745329f);
             }
             default:
+                water_scene_stale = true;
                 return false;
             }
         }

@@ -69,7 +69,12 @@ float3 drawn_sky(float2 position)
     float3 near = view_position(position * render_size.zw, 1);
     float3 view = normalize(mul(normalize(near), (float3x3)world_to_view));
     float pixel_angle = max(length(ddx(view)), length(ddy(view)));
-    float3 light = air_light(view) + sky_night_glow(view);
+    // Below the horizon the tables hold the planet's dark ground, which the game's world covers; where the world ends short
+    // of the horizon, as past a map's edge seen from high up, the horizon's haze carries on down instead.
+    float r = sky_viewer_radius();
+    float lowest = -sqrt(max(1 - (kSkyGround / r) * (kSkyGround / r), 0)) + 0.002;
+    float3 air_view = view.y < lowest ? float3(normalize(view.xz + 1e-6) * sqrt(1 - lowest * lowest), lowest).xzy : view;
+    float3 light = air_light(air_view) + sky_night_glow(air_view);
     float3 through = sky_view_transmittance(view);
     float sun_apart = angle_between(view, sky_toward_sun);
     if (sun_apart < kSunRadius + 2 * pixel_angle)

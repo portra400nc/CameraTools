@@ -188,6 +188,10 @@ float4 main(float4 position : SV_Position) : SV_Target0
     // The bed through the water: the opaque scene behind, dimmed by the water between.
     float bed_depth = game_depth.Load(int3(pixel, 0));
     float path = bed_depth > 0 ? max(length(view_position(uv, bed_depth)) - length(at), 0) : 100;
+    // Far out the depth buffer cannot part the bed from the surface, and the water read a few centimeters deep in bands,
+    // showing the sunlit bed through it; past a hundred meters the water is taken to be at least a twentieth as deep as
+    // it is far, which a sea's floor is at such a slant anyway.
+    path = max(path, max(length(at) - 100, 0) * 0.05);
     float3 absorb = float3(0.45, 0.07, 0.035) * (6 / water_clarity) + 0.01;
     float3 through = exp(-absorb * path);
     // The water's own color: the sky's and the sun's light scattered back by the water it lies in.
