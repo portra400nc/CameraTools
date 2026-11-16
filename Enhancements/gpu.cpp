@@ -127,7 +127,8 @@ namespace enhancements
         float water_time;
         float water_wind;
         float water_size;
-        float water_pad[3];
+        float sky_moon_face;
+        float water_pad[2];
     };
     static_assert(sizeof(Constants) == 896 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
@@ -169,6 +170,8 @@ namespace enhancements
             c.sky_moon_illuminance = sky.request.moon.illuminance;
             c.sky_moon_radiance = sky.stars ? moon_radiance(sky.moon_phase) : 0;
             c.sky_earthshine = sky.stars ? earthshine_radiance(sky.moon_phase) : 0;
+            // A full moon's face at the sky's scale, on average: its Lommel-Seeliger shading is a half at the center.
+            c.sky_moon_face = 0.5f * moon_radiance(0) * (0.2126f * sky.scale[0] + 0.7152f * sky.scale[1] + 0.0722f * sky.scale[2]);
             c.sky_cloud_physical = 0;
             c.sky_cloud_illuminance = 0;
             c.sky_aerial = sky.aerial;
@@ -1648,7 +1651,7 @@ namespace enhancements
         draw_fullscreen(sky_view_ps_.Get(), tables, kSrvSlots, view_out, 5, kView);
         ID3D11ShaderResourceView *const drawn[kSrvSlots] = { scene_in_.srv(), sky_view_[0].srv(), depth_.srv(), sky_view_[1].srv(), sky_view_[2].srv(),
             sky_view_[3].srv(), sky_view_[4].srv(), moon_face_srv_.Get(), shaded ? aerial_lit_.srv() : nullptr, sky_transmittance_srv_.Get(), sky_multiple_srv_.Get(),
-            vegetation ? depth_.stencil_srv() : nullptr, vegetation ? normals_.srv() : nullptr, vegetation ? albedo_.srv() : nullptr };
+            vegetation ? depth_.stencil_srv() : nullptr, vegetation ? normals_.srv() : nullptr, vegetation ? albedo_.srv() : nullptr, last_auto_exposure() };
         draw_fullscreen(sky_ps_.Get(), drawn, kSrvSlots, scene_out_.rtv(), map.render);
         if (sky.stars && star_count_ > 0)
         {
@@ -2254,6 +2257,7 @@ namespace enhancements
         ours[7] = moon_face_srv_.Get();
         ours[9] = sky_transmittance_srv_.Get();
         ours[10] = sky_multiple_srv_.Get();
+        ours[14] = last_auto_exposure();
         draw_in_place(w, sky_dome_ps_.Get(), ours, nullptr);
         return true;
     }

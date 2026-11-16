@@ -270,7 +270,7 @@ int main()
         check("a full moon 40 degrees up lights a white surface 0.0456 at the night's exposure, the sky's share 0.0284",
             near(luminance(full.moon), 0.045579f) && near(full.sky_share, 0.028441f));
         const WorldLight moonless = lit(-30, -30, 0);
-        check("with no moon only the night's glow is left, the sky's share 0.00314", luminance(moonless.moon) == 0 && near(moonless.sky_share, 0.0031357f));
+        check("with no moon only the night's glow is left, the sky's share 0.00323", luminance(moonless.moon) == 0 && near(moonless.sky_share, 0.0032304f));
     }
     {
         EnhancementsCelestial raw {};

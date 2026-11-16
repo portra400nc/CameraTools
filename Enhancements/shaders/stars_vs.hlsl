@@ -7,7 +7,7 @@
 Buffer<float4> stars : register(t0);    // two a star: its J2000 direction, then its light in sun units
 
 static const float kStarSpread = 0.6;  // the Gaussian's sigma, in pixels
-static const float kMoonCover = 0.004528 * 5;     // the drawn moon's radius, as in sky_drawn.hlsli
+static const float kMoonCover = 0.004528 * 20;     // the drawn moon's radius, as in sky_drawn.hlsli
 
 struct Star
 {

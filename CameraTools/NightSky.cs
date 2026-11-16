@@ -23,7 +23,8 @@ namespace CameraTools
         // The provisional exposure (core/sky.h, SkyExposure) until the night has its own. Probe items tune them.
         // Night brightness: how far the exposure follows the light as it fails after sunset, 1 all the way.
         private static float TwilightPower => EnhancementsControl.RunningValues[Enhancement.NightBrightness] / 100f;
-        public static float NightStops { get; set; } = 17f;
+        // The add-on's most, so Night brightness alone sets how bright a night is, a moonless one too.
+        public static float NightStops { get; set; } = 30f;
 
         private static MelonPreferences_Entry<int> savedDays;
         private static int days;

@@ -49,7 +49,7 @@ namespace enhancements
             SkyRequest r;
             r.sun = { bodies.toward_sun, 1 };
             if (bodies.stars)
-                r.moon = { bodies.toward_moon, moon_illuminance(bodies.moon_phase) * kMoonDrawn * kMoonDrawn };
+                r.moon = { bodies.toward_moon, moon_illuminance(bodies.moon_phase) * kMoonLight };
             r.exposure = { bodies.day_light, bodies.twilight_power, bodies.night_stops };
             r.haze = std::isfinite(haze) ? std::clamp(haze, 0.0f, 0.5f) : 0.1f;
             return r;

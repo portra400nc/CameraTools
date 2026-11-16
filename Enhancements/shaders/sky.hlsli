@@ -105,7 +105,7 @@ float3 sky_night_glow(float3 view)
     if (view.y <= 0)
         return 0;
     const float kZenith = 1.35e-9, kAirglow = 0.6;
-    const float3 kAirglowColor = float3(0.62, 1.07, 0.52);
+    const float3 kAirglowColor = float3(0.80, 1.0, 1.45);
     float ratio = kSkyGround / (kSkyGround + 90), edge_on = rsqrt(max(1 - ratio * ratio * (1 - view.y * view.y), 1e-4));
     return (kAirglowColor * (kZenith * kAirglow * edge_on) + kZenith * (1 - kAirglow)) * sky_view_transmittance(view);
 }

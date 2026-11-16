@@ -344,8 +344,9 @@ namespace enhancements
         // 22 magnitudes per square arcsecond, a little over half of it airglow, over the sun's -26.74 and a square
         // arcsecond's 2.35e-11 steradians.
         constexpr float kZenith = 1.35e-9f, kAirglow = 0.6f;
-        // Green from oxygen's 557.7 nm line over red from its 630 nm and the hydroxyl bands, at luminance 1.
-        constexpr Vec3f kAirglowColor = { 0.62f, 1.07f, 0.52f };
+        // A night blue at luminance 1, as the eye sees a moonless sky: a camera finds oxygen's green 557.7 nm line, which
+        // Night brightness's exposure turned into an olive sky.
+        constexpr Vec3f kAirglowColor = { 0.80f, 1.0f, 1.45f };
         const float ratio = kGround / (kGround + 90), edge_on = 1 / std::sqrt(std::max(1 - ratio * ratio * (1 - view[1] * view[1]), 1e-4f));
         const float background = kZenith * (1 - kAirglow);
         const Vec3f glow = add(scale(kAirglowColor, kZenith * kAirglow * edge_on), Vec3f { background, background, background });

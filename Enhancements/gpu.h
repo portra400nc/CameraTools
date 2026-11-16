@@ -32,7 +32,7 @@ namespace enhancements
     struct TraceSave;   // core/trace_files.h
 
     // Our shaders declare registers only inside these ranges, and StateGuard saves and restores exactly these.
-    constexpr UINT kSrvSlots = 14;      // t0..t13; the trace kernel uses t0..t6, the gather kernel t0..t8, the reflection kernel all
+    constexpr UINT kSrvSlots = 15;      // t0..t14; the trace kernel uses t0..t6, the gather kernel t0..t8, the reflection kernel all
     constexpr UINT kSamplerSlots = 4;   // s0..s3
     constexpr UINT kCbSlots = 5;        // b0..b4
     constexpr UINT kUavSlots = 6;       // u0..u5, u5 the reflection kernel's sums; before it u0..u4, compute only: the trace kernels' history and counters, the gather's two buffers, and
@@ -534,6 +534,8 @@ namespace enhancements
     private:
         // The pixel shader resource slots a draw of the game's binds, which draw_in_place saves and puts back.
         static constexpr UINT kGameSlots = 22;
+        // The stops the last tone map added, or null when it metered none.
+        ID3D11ShaderResourceView *last_auto_exposure() const { return exposure_kept_ ? exposure_[exposure_at_ ^ 1].srv() : nullptr; }
         // Draws the game's draw with ps and srvs (kGameSlots of them) and our samplers and constants, at blend, or at the
         // game's own blend when null, and binds the game's pixel shader, its resources, samplers and b0 again after.
         void draw_in_place(const GameDraw &draw, ID3D11PixelShader *ps, ID3D11ShaderResourceView *const *srvs, ID3D11BlendState *blend);

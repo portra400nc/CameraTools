@@ -9,11 +9,16 @@ Texture2D<float4> view_rest : register(t6);
 Texture2D<float4> moon_face : register(t7);         // the near side: rgb its color over its luminance, halved; a its albedo over
                                                     // its mean, over 3, gamma 2.2
 SamplerState linear_wrap : register(s3);
+Texture2D<float> auto_ev : register(t14);           // the auto exposure's last stops; unbound, 0, while it is off
+
+// The most a full moon's face shows on average after the exposure, below the tone map's white: the real face is some 11
+// stops over the ground it lights and would show as a white disc.
+static const float kMoonFaceShown = 1.4;
 
 // The sun's radius and its limb darkening per channel, a linear law at about 680, 550 and 440 nm.
 static const float kSunRadius = 0.004654;
 static const float3 kSunLimb = float3(0.47, 0.58, 0.70);
-static const float kMoonRadius = 0.004528 * 5;   // the drawn moon: core/sky.h's kMoonRadius times kMoonDrawn
+static const float kMoonRadius = 0.004528 * 20;   // the drawn moon: core/sky.h's kMoonRadius times kMoonDrawn
 
 // The angle between two unit vectors, accurate when they are close.
 float angle_between(float3 a, float3 b) { return 2 * asin(saturate(length(a - b) * 0.5)); }
@@ -40,7 +45,9 @@ float3 moon_light(float3 view, float pixel)
     float3 color = face.rgb * 2;
     float lit = dot(normal, sky_toward_sun);
     float shading = lit > 0 ? lit / (lit + facing) : 0;
-    return (sky_moon_radiance * shading + sky_earthshine) * albedo * color * coverage;
+    float shown = sky_moon_face * exp2(auto_ev.Load(int3(0, 0, 0)));
+    float dim = shown > kMoonFaceShown ? kMoonFaceShown / shown : 1;
+    return (sky_moon_radiance * shading + sky_earthshine) * albedo * color * coverage * dim;
 }
 
 // The air's light along view: the tables' with each light's phase at this angle.
