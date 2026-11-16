@@ -267,17 +267,13 @@ int main()
         check("with the sun 6 degrees down there is no sunlight and the exposed sky keeps a quarter of a day's, 0.247",
             luminance(blue_hour.sun) == 0 && near(blue_hour.sky_share, 0.24674f));
         const WorldLight full = lit(-30, 40, 0);
-        check("a full moon 40 degrees up lights a white surface 0.0456 at the night's exposure, the sky's share 0.0284",
-            near(luminance(full.moon), 0.045579f) && near(full.sky_share, 0.028441f));
+        check("a full moon 40 degrees up lights a white surface 3 times its real 0.0456 at the night's exposure, lifted 3 stops, as the sky's share of 0.0284",
+            near(luminance(full.moon), 3 * 8 * 0.045579f) && near(full.sky_share, 8 * 0.028441f));
         const WorldLight moonless = lit(-30, -30, 0);
-        check("with no moon only the night's glow is left, the sky's share 0.00323", luminance(moonless.moon) == 0 && near(moonless.sky_share, 0.0032304f));
-        const auto under = [&clear](float sun, float moon, float power) {
-            return night_stops_under_dusk(clear, { toward(sun), 1 }, { toward(moon), moon_illuminance(0) }, { 1.5f, power, 30 });
-        };
-        check("a night is shown as bright as dusk at a night power of 1, brighter above it, and nothing changes before dusk",
-            under(-30, -30, 1) == 0 && under(-30, -30, 1.3f) > 2 && under(-3, -30, 0.7f) == 0 && under(20, -30, 1.3f) == 0);
-        check("below 1 a moonless night is shown darker than one under a full moon, and darker the lower the power",
-            under(-30, -30, 0.85f) < under(-30, 40, 0.85f) && under(-30, 40, 0.85f) < 0 && under(-30, -30, 0.7f) < under(-30, -30, 0.85f));
+        check("with no moon only the night's glow is left, the sky's share 0.00323, held by the 17 stops' limit", luminance(moonless.moon) == 0 && near(moonless.sky_share, 0.0032304f));
+        check("auto exposure works fully till the sun is 6 degrees down, half at 9 and not at all from 12",
+            auto_exposure_share({ toward(20), 1 }) == 1 && auto_exposure_share({ toward(-6), 1 }) == 1
+            && near(auto_exposure_share({ toward(-9), 1 }), 0.5f) && auto_exposure_share({ toward(-12), 1 }) == 0 && auto_exposure_share({ toward(-40), 1 }) == 0);
     }
     {
         EnhancementsCelestial raw {};

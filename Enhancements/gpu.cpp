@@ -128,7 +128,7 @@ namespace enhancements
         float water_wind;
         float water_size;
         float sky_moon_face;
-        float auto_night_ev;
+        float auto_pad;
         float sky_sunset;
     };
     static_assert(sizeof(Constants) == 896 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
@@ -2413,7 +2413,6 @@ namespace enhancements
         constants.tone_shadows = settings.shadows;
         constants.tone_highlights = settings.highlights;
         constants.auto_exposure = settings.auto_exposure;
-        constants.auto_night_ev = settings.night_ev;
         constants.auto_ease = exposure_frame_ == frame ? flare_ease(kAutoExposureSeconds, frame_seconds) : 1.0f;
         upload(constants);
 

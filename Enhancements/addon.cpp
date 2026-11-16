@@ -896,7 +896,7 @@ namespace enhancements
             draw.cloud_light = cloud_light(*draw.atmosphere, live, settings.clouds.base * 0.001f);
             draw.aerial = settings.sky.aerial;
             draw.vegetation = bodies.vegetation_scale;
-            draw.night_ev = night_stops_under_dusk(*draw.atmosphere, live.sun, live.moon, live.exposure);
+            draw.auto_share = auto_exposure_share(live.sun);
             game_lights_box.take(game_lights, game_lights_seen);
             sky_draw = draw;
             if (live_sky->version != trace_gpu.sky_version() && trace_gpu.set_sky(live_sky->map, live_sky->version))
@@ -1121,9 +1121,9 @@ namespace enhancements
                         break;
                     case PassId::tonemap:
                     {
-                        // Auto exposure aims under middle gray at night, as far as Night brightness darkens it.
+                        // Auto exposure fades out at night, where Night brightness alone sets how bright it is.
                         TonemapSettings tonemap = settings.tonemap;
-                        tonemap.night_ev = sky_draw ? sky_draw->night_ev : 0.0f;
+                        tonemap.auto_exposure *= sky_draw ? sky_draw->auto_share : 1.0f;
                         call = gpu.run_tonemap(map, tonemap, grade.copied, grade.bloom, frame_seconds, frames);
                     }
                         break;

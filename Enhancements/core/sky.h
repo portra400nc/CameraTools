@@ -102,10 +102,11 @@ namespace enhancements
     // The provisional exposure's multiple over a day's: 1 until the light on a level floor falls below the sun's at 10 degrees.
     float exposure_gain(const Atmosphere &atmosphere, const SkyLight &sun, const SkyLight &moon, const SkyExposure &exposure);
 
-    // How many stops darker than at the blue hour's end, the sun 6 degrees down, the exposure shows a night: 0 till then,
-    // and with night_power below 1 more the darker the night, above 1 brighter. Auto exposure aims that far off middle
-    // gray, so it keeps the blue hour bright and leaves the night as Night brightness makes it.
-    float night_stops_under_dusk(const Atmosphere &atmosphere, const SkyLight &sun, const SkyLight &moon, const SkyExposure &exposure);
+    // The share of auto exposure the night leaves: all of it till the sun is 6 degrees down, none once it is 12 down. At
+    // night auto exposure aimed for a day's middle gray and showed the night as day; Night brightness alone sets it.
+    float auto_exposure_share(const SkyLight &sun);
+    // The stops auto exposure lifted the blue hour by, which the provisional exposure takes over as auto exposure fades.
+    constexpr float kNightLiftStops = 3;
 
     // Game units per unit of the sun's light above the atmosphere, per channel.
     Vec3f sky_scale(const Atmosphere &atmosphere, const SkyLight &sun, const SkyLight &moon, const SkyExposure &exposure);
@@ -122,7 +123,12 @@ namespace enhancements
         float sunset = 0;           // SkySettings::sunset
     };
 
+    // The moon's direct light on the world over its real light: at its real light the moonlit ground showed black under a
+    // bright moonlit sky, so the world takes more of it, which the drawn sky and the exposure do not.
+    constexpr float kMoonOnWorld = 3;
+
     // How the physical sky lights the world, in the game's units at sky_scale, so the world takes the drawn sky's exposure.
+    // The moon's direct light is kMoonOnWorld times its real light.
     struct WorldLight
     {
         Vec3f sun, moon;            // each body's direct light on a white surface facing it

@@ -399,14 +399,15 @@ namespace enhancements
         float gain = std::pow(low_sun / std::max(light, dusk), 0.85f);
         if (light < dusk)
             gain *= std::pow(dusk / light, std::max(exposure.night_power, 0.0f));
+        // The lift auto exposure gave the blue hour, taken over as it fades out, so the night follows on without a jump.
+        gain *= std::exp2(kNightLiftStops * (1 - auto_exposure_share(sun)));
         return std::min(gain, std::exp2(std::max(exposure.night_stops, 0.0f)));
     }
 
-    float night_stops_under_dusk(const Atmosphere &a, const SkyLight &sun, const SkyLight &moon, const SkyExposure &exposure)
+    float auto_exposure_share(const SkyLight &sun)
     {
-        const float light = level_illuminance(a, sun) + level_illuminance(a, moon) + night_floor(a);
-        const float dusk = level_illuminance(a, { { 0.99452f, -0.10453f, 0 }, 1 }) + night_floor(a);
-        return light > 0 && light < dusk ? (exposure.night_power - 1) * std::log2(dusk / light) : 0.0f;
+        const float degrees = std::asin(std::min(std::max(sun.toward[1], -1.0f), 1.0f)) * 180 / kPi;
+        return clamp01((degrees + 12) / 6);
     }
 
     Vec3f sky_scale(const Atmosphere &a, const SkyLight &sun, const SkyLight &moon, const SkyExposure &exposure)
@@ -425,7 +426,7 @@ namespace enhancements
         };
         const float day = sky_floor(a, { { 0, 1, 0 }, 1 });
         const float now = sky_floor(a, request.sun) + sky_floor(a, request.moon) + night_floor(a);
-        return { direct(request.sun), direct(request.moon), day > 0 ? now * exposure_gain(a, request.sun, request.moon, request.exposure) / day : 0 };
+        return { direct(request.sun), scale(direct(request.moon), kMoonOnWorld), day > 0 ? now * exposure_gain(a, request.sun, request.moon, request.exposure) / day : 0 };
     }
 
     Vec3f sky_light(const Atmosphere &a, const Vec3f &view, const SkyRequest &request, const Vec3f &k)

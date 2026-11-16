@@ -14,6 +14,6 @@ float main(float4 position : SV_Position) : SV_Target0
     float2 mean = meter.Load(int3(0, 0, levels - 1));
     float last = previous.Load(int3(0, 0, 0));
     // A frame of nothing but sky keeps the last frame's.
-    float target = mean.y > 0 ? exposure_target_ev(mean.x / mean.y, game_grade().exposure, auto_exposure, auto_night_ev) : last;
+    float target = mean.y > 0 ? exposure_target_ev(mean.x / mean.y, game_grade().exposure, auto_exposure) : last;
     return exposure_next_ev(last, target, auto_ease);
 }

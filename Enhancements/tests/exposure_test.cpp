@@ -37,8 +37,6 @@ int main()
     check("a scene already at middle gray stays", near(exposure_target_ev(std::log2(0.18f / 0.985f), 0.985f, 1), 0));
     check("a night scene is raised 3 stops at most", exposure_target_ev(-12, 0.985f, 1) == 3);
     check("a bright scene is lowered 2 stops at most", exposure_target_ev(4, 0.985f, 1) == -2);
-    check("at night it aims as far under middle gray as the night's stops under dusk: a snowy town 2 stops darker stays",
-        near(exposure_target_ev(snow - 2, 0.985f, 1, -2), 2.3678f, 1e-3f));
 
     check("one frame moves the ease's share of the way", near(exposure_next_ev(0, 2, 0.25f), 0.5f));
     check("an ease of 1 jumps", exposure_next_ev(-1, 2, 1) == 2);
