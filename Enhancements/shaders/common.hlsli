@@ -114,6 +114,8 @@ cbuffer Constants : register(b0)
     float sky_moon_face;        // a full moon's face at the sky's scale, on average
     float reflection_overcast;  // how far the ambient pass grays the game's reflections, 0 to 1, by the clouds' cover
     float sky_sunset;           // EnhancementsSunset.strength
+    float sky_overcast;         // how overcast the clouds make the sky, 0 to 1: the air scatters less sunlight and grays
+    float3 overcast_pad;
 };
 
 SamplerState point_clamp : register(s0);

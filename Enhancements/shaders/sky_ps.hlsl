@@ -34,7 +34,9 @@ float3 aerial(float3 color, float meters, float3 view, float lit)
     float3 once = sun * (m.rayleigh * sky_rayleigh_phase(cs) + m.mie * sky_mie_phase(cs))
         + moon * (m.rayleigh * sky_rayleigh_phase(cm) + m.mie * sky_mie_phase(cm));
     float3 again = (m.rayleigh + m.mie) * (sky_multiple_at(r, sky_toward_sun.y) + sky_multiple_at(r, sky_toward_moon.y) * sky_moon_illuminance);
-    float3 inscatter = (lit * once + again) * (1 - through) / max(m.extinction, 1e-6);
+    // Under an overcast the clouds take most of the sunlight the air would scatter, and the rest grays.
+    float3 inscatter = (lit * once * (1 - 0.9 * sky_overcast) + again * (1 - 0.5 * sky_overcast)) * (1 - through) / max(m.extinction, 1e-6);
+    inscatter = lerp(inscatter, dot(inscatter, float3(0.2126, 0.7152, 0.0722)), sky_overcast);
     return color * through + inscatter * sky_scale;
 }
 

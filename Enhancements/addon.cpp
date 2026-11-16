@@ -238,6 +238,24 @@ namespace enhancements
             return t * t * (3 - 2 * t);
         }
 
+        // The camera's sun and sky light as an overcast lets them light the mist: a tenth of the sun under a whole one, and
+        // the physical horizon's own light, at the drawn sky's exposure, grayed and halved, so a thick weather mist fades
+        // into the sky it stands against rather than into the game's sky color, which no overcast dims.
+        Camera overcast_camera(Camera c)
+        {
+            const float o = overcast();
+            if (o <= 0 || !live_sky)
+                return c;
+            const Vec3f &h = live_sky->horizon;
+            const float gray = (0.2126f * h[0] + 0.7152f * h[1] + 0.0722f * h[2]) * 0.5f;
+            for (int k = 0; k < 3; k++)
+            {
+                c.sun_color[k] *= 1 - 0.9f * o;
+                c.sky_color[k] += (gray - c.sky_color[k]) * o;
+            }
+            return c;
+        }
+
         // The ambient pass's and the traced ambient's level: with the physical sky, at its share of a day's sky light.
         float ambient_level()
         {
@@ -906,6 +924,7 @@ namespace enhancements
             draw.aerial = settings.sky.aerial;
             draw.vegetation = bodies.vegetation_scale;
             draw.auto_share = auto_exposure_share(live.sun);
+            draw.overcast = overcast();
             game_lights_box.take(game_lights, game_lights_seen);
             sky_draw = draw;
             if (live_sky->version != trace_gpu.sky_version() && trace_gpu.set_sky(live_sky->map, live_sky->version))
@@ -1102,7 +1121,7 @@ namespace enhancements
                         call = gpu.run_wetness(map, settings.wetness, wetness_amount(settings.wetness, camera), camera, settings.flip);
                         break;
                     case PassId::atmosphere:
-                        call = gpu.run_atmosphere(map, settings.atmosphere, sky_camera(), settings.flip);
+                        call = gpu.run_atmosphere(map, settings.atmosphere, overcast_camera(sky_camera()), settings.flip);
                         break;
                     case PassId::clouds:
                     {

@@ -131,8 +131,10 @@ namespace enhancements
         float sky_moon_face;
         float reflection_overcast;
         float sky_sunset;
+        float sky_overcast;     // how overcast the clouds make the sky, 0 to 1: the air scatters less sunlight and grays
+        float overcast_pad[3];
     };
-    static_assert(sizeof(Constants) == 896 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
+    static_assert(sizeof(Constants) == 912 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
         && offsetof(Constants, cloud_toward_sun) == 560 && offsetof(Constants, tone_shadows) == 480 && offsetof(Constants, accum_gain) == 488 && offsetof(Constants, flare_sun_uv) == 456 && offsetof(Constants, wetness) == 408 && offsetof(Constants, shafts_anisotropy) == 432 && offsetof(Constants, label) == 272 && offsetof(Constants, sun_color) == 304
         && offsetof(Constants, sky_color) == 320 && offsetof(Constants, bloom_strength) == 352 && offsetof(Constants, sun_cascades) == 368
@@ -207,6 +209,7 @@ namespace enhancements
             c.sky_cloud_illuminance = 0;
             c.sky_aerial = sky.aerial;
             c.sky_sunset = sky.request.sunset;
+            c.sky_overcast = sky.overcast;
             c.sky_vegetation = sky.vegetation;
         }
 

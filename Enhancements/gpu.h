@@ -54,6 +54,7 @@ namespace enhancements
         float aerial = 0;           // PhysicalSkySettings::aerial
         float vegetation = 1;       // Celestial::vegetation_scale
         float auto_share = 1;       // auto_exposure_share's
+        float overcast = 0;         // how overcast the clouds make the sky, 0 to 1
     };
 
     // Captures, on construction, the pipeline state our work can change, nulls the stages we never use (GS, HS, DS and
