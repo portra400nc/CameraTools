@@ -275,6 +275,14 @@ int main()
         storm.size = offsetof(EnhancementsSettings, rain) + sizeof(float);
         check("lightning reads its rate and wants the rain pass without rain; a version 40 caller has none",
             lit.lightning == 0.8f && lit.rain == 0 && wanted_steps(lit).has(Step::bloom) && parse_settings(storm).lightning == 0);
+        EnhancementsSettings banks = storm;
+        banks.size = sizeof banks;
+        banks.mist = { 0.7f, 2000 };
+        const Settings banked = parse_settings(banks);
+        banks.size = offsetof(EnhancementsSettings, mist);
+        check("the mist reads its patchiness and clamps its bank size to 500 m; a version 41 caller has an even haze 40 m banks would make",
+            banked.atmosphere.patchiness == 0.7f && banked.atmosphere.patch_size == 500 && parse_settings(banks).atmosphere.patchiness == 0
+            && parse_settings(banks).atmosphere.patch_size == 40);
         int strikes = 0, bolts = 0;
         float brightest = 0, struck = -1, bolted = -1;
         bool dark_without = true, repeats = true;

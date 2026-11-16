@@ -300,6 +300,14 @@ namespace CameraToolsEnhancements
     // ENHANCEMENTS_CLOUD_PATTERN_* in enhancements.h, in order.
     internal enum EnhancementsCloudPatternKind : uint { Noise, Heaps, Broken, Overcast, Puffs, Patches, Streaks }
 
+    // EnhancementsMist in enhancements.h, field for field.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct EnhancementsMist
+    {
+        public float Patchiness;            // 0 an even haze to 1 banks with clear air between them
+        public float Size;                  // meters across a bank, 5 to 500
+    }
+
     // EnhancementsRain in enhancements.h, field for field.
     [StructLayout(LayoutKind.Sequential)]
     internal struct EnhancementsRain
@@ -345,6 +353,7 @@ namespace CameraToolsEnhancements
         public EnhancementsSunset Sunset;
         public EnhancementsCloudPattern CloudPattern;
         public EnhancementsRain Rain;
+        public EnhancementsMist Mist;
 
         // The add-on's defaults: everything off, game targets upside down, and when switched on ambient level 0.6, AO
         // strength 0.5 at a 1 m radius, half that strength on grass, vegetation and foliage, full-strength contact
@@ -396,6 +405,7 @@ namespace CameraToolsEnhancements
             },
             Sky = new EnhancementsSky { Physical = 0, Haze = 0.1f },
             Water = new EnhancementsWater { Enabled = 0, Clarity = 6f, Waves = 1f, Size = 1f },
+            Mist = new EnhancementsMist { Patchiness = 0, Size = 40 },
             Clouds = new EnhancementsClouds
             {
                 Enabled = 0, Coverage = 0.5f, Base = 2500, Thickness = 400, Size = 380, Stretch = 1.5f, Density = 0.06f, Detail = 0.8f,
@@ -628,7 +638,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 41;
+        private const uint Version = 42;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

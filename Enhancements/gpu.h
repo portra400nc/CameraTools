@@ -351,8 +351,9 @@ namespace enhancements
 
         // The atmosphere pass: mirror in the HDR scene and depth; draw out = in * T + (sky + sun * sun_scatter * phase) *
         // (1 - T) on pixels with depth, where T is the transmittance of the height-fading haze along the view ray, and in
-        // on the sky; copy out over the game's HDR scene. Empty when a texture of ours failed.
-        std::optional<GameCall> run_atmosphere(const FrameMap &map, const AtmosphereSettings &settings, const Camera &camera, bool flip);
+        // on the sky; copy out over the game's HDR scene. The mist's banks have drifted drift_x and drift_z meters along world
+        // x and z. Empty when a texture of ours failed.
+        std::optional<GameCall> run_atmosphere(const FrameMap &map, const AtmosphereSettings &settings, const Camera &camera, bool flip, float drift_x, float drift_z);
         // The cloud layer: bake the cells around the camera into cloud_map_, march the slab at half size into cloud_rays_
         // with the game's camera constants gather_sun copied, and lay the result over the sky's pixels. wind is the meters
         // the clouds drifted. Empty when gather_sun copied nothing this frame or a texture of ours failed.

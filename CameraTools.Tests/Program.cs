@@ -48,7 +48,7 @@ Check("the binding's shot is 40 bytes with its strength at 16, its outputs at 20
     && Marshal.SizeOf<EnhancementsCharacterLights>() == 296 && Offset<EnhancementsCharacterLights>(nameof(EnhancementsCharacterLights.Count)) == 36
     && Offset<EnhancementsCharacterLights>(nameof(EnhancementsCharacterLights.Lights)) == 40
     && Offset<EnhancementsShot>(nameof(EnhancementsShot.BudgetMs)) == 12 && Offset<EnhancementsShot>(nameof(EnhancementsShot.Outputs)) == 20
-    && Offset<EnhancementsShot>(nameof(EnhancementsShot.Strength)) == 16 && Marshal.SizeOf<EnhancementsSettings>() == 520 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.CloudPattern)) == 508 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Rain)) == 512 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Aerial)) == 484
+    && Offset<EnhancementsShot>(nameof(EnhancementsShot.Strength)) == 16 && Marshal.SizeOf<EnhancementsSettings>() == 528 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Mist)) == 520 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.CloudPattern)) == 508 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Rain)) == 512 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Aerial)) == 484
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Water)) == 488
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.AmbientColor)) == 400 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Tones)) == 404
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.LensSoftness)) == 412 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.AutoExposure)) == 416 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Sky)) == 420
@@ -327,7 +327,7 @@ Check("Ambient light's Color is the game's at 1 and gray at 0, and the tone map'
         Check("with Weather on, Rain's look goes to the add-on: stratus at its height, its haziness, and its mist as the Haze effect, which Mist scales",
             weathered.Clouds is { Enabled: 1, Base: 900f, Shape: EnhancementsCloudShape.Sheet } && weathered.CloudPattern.Pattern == EnhancementsCloudPatternKind.Overcast
             && weathered.Sky.Haze == 0.3f && weathered.Atmosphere.Enabled == 1 && weathered.Atmosphere.Density > 0f && weathered.Rain.Amount == 0.5f
-            && EnhancementsModel.Settings(user, weatherLens, WeatherLooks.Look(WeatherKind.Thunderstorm, user)).Rain.Amount == 1f && EnhancementsModel.Settings(user, weatherLens, WeatherLooks.Look(WeatherKind.Thunderstorm, user)).Rain.Lightning == 1f && weathered.Rain.Lightning == 0f && EnhancementsModel.Settings(user, weatherLens, sunny).Rain.Amount == 0f
+            && EnhancementsModel.Settings(user, weatherLens, WeatherLooks.Look(WeatherKind.Thunderstorm, user)).Rain.Amount == 1f && EnhancementsModel.Settings(user, weatherLens, WeatherLooks.Look(WeatherKind.Thunderstorm, user)).Rain.Lightning == 1f && weathered.Rain.Lightning == 0f && weathered.Mist.Patchiness == 0.6f && weathered.Mist.Size == 40f && EnhancementsModel.Settings(user, weatherLens, sunny).Mist.Patchiness == 0f && EnhancementsModel.Settings(user, weatherLens, sunny).Rain.Amount == 0f
             && Math.Abs(halfMist.Atmosphere.Density - weathered.Atmosphere.Density / 2f) < 1e-9f);
         Check("with Weather off, or the physical sky off, the user's own clouds go",
             EnhancementsModel.Settings(user.With(Enhancement.Weather, 0), weatherLens, rain).Clouds.Base == user[Enhancement.CloudHeight]

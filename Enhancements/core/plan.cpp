@@ -68,7 +68,7 @@ namespace enhancements
             && offsetof(EnhancementsSettings, ambient_color) == 400 && offsetof(EnhancementsSettings, tones) == 404
             && offsetof(EnhancementsSettings, lens_softness) == 412 && offsetof(EnhancementsSettings, auto_exposure) == 416
             && offsetof(EnhancementsSettings, sky) == 420 && offsetof(EnhancementsSettings, clouds) == 428 && offsetof(EnhancementsSettings, aerial) == 484
-            && offsetof(EnhancementsSettings, water) == 488 && offsetof(EnhancementsSettings, sunset) == 504 && offsetof(EnhancementsSettings, cloud_pattern) == 508 && offsetof(EnhancementsSettings, rain) == 512 && sizeof(EnhancementsSettings) == 520);
+            && offsetof(EnhancementsSettings, water) == 488 && offsetof(EnhancementsSettings, sunset) == 504 && offsetof(EnhancementsSettings, cloud_pattern) == 508 && offsetof(EnhancementsSettings, rain) == 512 && offsetof(EnhancementsSettings, mist) == 520 && sizeof(EnhancementsSettings) == 528);
         static_assert(ENHANCEMENTS_CLOUD_SHAPE_STREAKS == static_cast<int>(CloudShape::streaks) && ENHANCEMENTS_CLOUD_SHAPE_SHEET == static_cast<int>(CloudShape::sheet)
             && ENHANCEMENTS_CLOUD_SHAPE_COUNT == static_cast<int>(CloudShape::count));
         static_assert(ENHANCEMENTS_CLOUD_PATTERN_STREAKS == static_cast<int>(CloudPattern::streaks)
@@ -524,6 +524,12 @@ namespace enhancements
             s.rain = finite_or(raw.rain.amount, 0.0f, 0.0f, 1.0f);
         if (knows(offsetof(EnhancementsSettings, rain) + offsetof(EnhancementsRain, lightning), sizeof raw.rain.lightning))
             s.lightning = finite_or(raw.rain.lightning, 0.0f, 0.0f, 1.0f);
+        if (knows(offsetof(EnhancementsSettings, mist), sizeof raw.mist))
+        {
+            s.atmosphere.patchiness = finite_or(raw.mist.patchiness, 0.0f, 0.0f, 1.0f);
+            // A caller that zeroes the block gets 40 m banks rather than the smallest.
+            s.atmosphere.patch_size = raw.mist.size > 0 ? finite_or(raw.mist.size, atmosphere_defaults.patch_size, 5.0f, 500.0f) : atmosphere_defaults.patch_size;
+        }
         return s;
     }
 

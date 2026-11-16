@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 41
+#define ENHANCEMENTS_VERSION 42
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -601,6 +601,14 @@ typedef struct EnhancementsRain
     float lightning;            // 0 (the default) none, 1 a strike about every 7 seconds; clamped
 } EnhancementsRain;
 
+// The mist's banks: the atmosphere pass's haze, near the camera, thick in patches and thin between them, drifting with the
+// clouds' wind; on average as dense as the haze without them. Version 42 added it.
+typedef struct EnhancementsMist
+{
+    float patchiness;           // 0 (the default) an even haze, 1 banks with clear air between them; clamped
+    float size;                 // meters across a bank; 0 or less the default, 40; clamped to 5 to 500
+} EnhancementsMist;
+
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller
 // knows, and fields past it keep their defaults.
 typedef struct EnhancementsSettings
@@ -632,6 +640,7 @@ typedef struct EnhancementsSettings
     EnhancementsSunset sunset;
     EnhancementsCloudPattern cloud_pattern;
     EnhancementsRain rain;
+    EnhancementsMist mist;
 } EnhancementsSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and

@@ -122,6 +122,9 @@ cbuffer Constants : register(b0)
     float rain_bolt;            // its bolt's brightness, 0 while none shows
     float rain_bolt_azimuth;    // radians from the camera's heading, the way world +x turns toward +z
     float rain_bolt_seed;       // shapes the bolt's path
+    float mist_patchiness;      // EnhancementsMist's, for atmosphere_ps.hlsl
+    float mist_size;            // meters across a bank
+    float2 mist_drift;          // meters the banks drifted along world x and z
 };
 
 SamplerState point_clamp : register(s0);

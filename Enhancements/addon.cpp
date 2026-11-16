@@ -1131,7 +1131,11 @@ namespace enhancements
                             settings.clouds.wind_direction * 0.01745329f);
                         break;
                     case PassId::atmosphere:
-                        call = gpu.run_atmosphere(map, settings.atmosphere, overcast_camera(sky_camera()), settings.flip);
+                    {
+                        // The mist's banks drift a meter and a half a second on the clouds' wind, on the game's clock.
+                        const float drift = 1.5f * (celestial ? celestial->water_seconds : 0.0f), wind = settings.clouds.wind_direction * 0.01745329f;
+                        call = gpu.run_atmosphere(map, settings.atmosphere, overcast_camera(sky_camera()), settings.flip, drift * std::cos(wind), drift * std::sin(wind));
+                    }
                         break;
                     case PassId::clouds:
                     {

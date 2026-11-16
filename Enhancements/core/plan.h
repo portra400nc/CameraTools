@@ -95,6 +95,8 @@ namespace enhancements
         float height_falloff = 0.02f;
         float sun_scatter = 1.0f;
         float anisotropy = 0.7f;
+        float patchiness = 0;                   // EnhancementsMist
+        float patch_size = 40;
     };
 
     enum class Curve : uint8_t { game, agx, neutral, count };  // ENHANCEMENTS_CURVE_*, one branch each in shaders/tonemap_ps.hlsl

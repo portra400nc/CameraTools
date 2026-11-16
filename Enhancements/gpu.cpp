@@ -139,8 +139,11 @@ namespace enhancements
         float rain_bolt;
         float rain_bolt_azimuth;
         float rain_bolt_seed;
+        float mist_patchiness;
+        float mist_size;
+        float mist_drift[2];
     };
-    static_assert(sizeof(Constants) == 928 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
+    static_assert(sizeof(Constants) == 944 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
         && offsetof(Constants, cloud_toward_sun) == 560 && offsetof(Constants, tone_shadows) == 480 && offsetof(Constants, accum_gain) == 488 && offsetof(Constants, flare_sun_uv) == 456 && offsetof(Constants, wetness) == 408 && offsetof(Constants, shafts_anisotropy) == 432 && offsetof(Constants, label) == 272 && offsetof(Constants, sun_color) == 304
         && offsetof(Constants, sky_color) == 320 && offsetof(Constants, bloom_strength) == 352 && offsetof(Constants, sun_cascades) == 368
@@ -1446,7 +1449,7 @@ namespace enhancements
         return GameCall::keep;
     }
 
-    std::optional<GameCall> Gpu::run_atmosphere(const FrameMap &map, const AtmosphereSettings &settings, const Camera &camera, bool flip)
+    std::optional<GameCall> Gpu::run_atmosphere(const FrameMap &map, const AtmosphereSettings &settings, const Camera &camera, bool flip, float drift_x, float drift_z)
     {
         const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
         const auto scene_format = static_cast<DXGI_FORMAT>(scene.format);
@@ -1459,13 +1462,17 @@ namespace enhancements
         constants.height_falloff = settings.height_falloff;
         constants.sun_scatter = settings.sun_scatter;
         constants.anisotropy = settings.anisotropy;
+        constants.mist_patchiness = settings.patchiness;
+        constants.mist_size = settings.patch_size;
+        constants.mist_drift[0] = drift_x;
+        constants.mist_drift[1] = drift_z;
         upload(constants);
 
         ID3D11DeviceContext1 *c = context_.Get();
         scene_in_.copy_from(c, native(scene));
         depth_.copy_from(c, native(depth));
-        ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), nullptr, depth_.srv() };
-        draw_fullscreen(atmosphere_ps_.Get(), srvs, 3, scene_out_.rtv(), map.render);
+        ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), nullptr, depth_.srv(), nullptr, nullptr, nullptr, lattice_srv_.Get() };
+        draw_fullscreen(atmosphere_ps_.Get(), srvs, 7, scene_out_.rtv(), map.render);
         scene_out_.copy_to(c, native(scene));
         return GameCall::keep;
     }
