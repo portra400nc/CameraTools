@@ -32,7 +32,7 @@ struct Targets
     float2 mask : SV_Target0;
     float3 irradiance : SV_Target1;
     float4 view : SV_Target2;
-    float foliage : SV_Target3;
+    float2 foliage : SV_Target3;    // the shade, and 1 where the traced foliage pass blurs it (grass)
 };
 
 // The share of the traced sun's shadow that the foliage shade takes. Grass takes a little, as blades shading blades drew
@@ -82,7 +82,7 @@ Targets main(float4 position : SV_Position)
     o.irradiance = irradiance.Load(int3(pixel, 0));
     float4 h = history_at(pixel);
     o.view = float4(h.z > 0 ? h.x / h.z : 0, h.w > 0 ? h.y / h.w : 0, h.z > 0 || h.w > 0 ? 0 : 1, 1);
-    o.foliage = 1;
+    o.foliage = float2(1, 0);
     uint s = stencil.Load(int3(pixel, 0)).g;
     if (!is_world(s))
         return o;
@@ -105,6 +105,9 @@ Targets main(float4 position : SV_Position)
     if (h.z > 0)
         o.irradiance *= trace_params.w * lerp(1, averages.x, trace_params.y);
     if (foliage)
-        o.foliage = min(lerp(1, h.z > 0 ? averages.x : 1, trace_params.y) * lerp(1, h.w > 0 ? averages.y : 1, trace_params.z * (is_grass(s) || (uint(material.Load(int3(pixel, 0)) * 255 + 0.5) & 0x3Fu) == kTallGrassMaterial ? kGrassSunShare : kLeafSunShare)), 0.99);
+    {
+        bool grass = is_grass(s) || (uint(material.Load(int3(pixel, 0)) * 255 + 0.5) & 0x3Fu) == kTallGrassMaterial;
+        o.foliage = float2(min(lerp(1, h.z > 0 ? averages.x : 1, trace_params.y) * lerp(1, h.w > 0 ? averages.y : 1, trace_params.z * (grass ? kGrassSunShare : kLeafSunShare)), 0.99), grass);
+    }
     return o;
 }

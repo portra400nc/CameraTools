@@ -1067,7 +1067,7 @@ namespace enhancements
         ID3D11Buffer *const traced[] = { trace.constants() };
         c->PSSetConstantBuffers(1, 1, traced);
         // Grass's and leaves' shade for the traced foliage pass at bloom.
-        traced_foliage_fresh_ = frame.traced && (settings.ao || settings.sun) && traced_foliage_.sync(d, map.render, DXGI_FORMAT_R8_UNORM);
+        traced_foliage_fresh_ = frame.traced && (settings.ao || settings.sun) && traced_foliage_.sync(d, map.render, DXGI_FORMAT_R8G8_UNORM);
         if (write_sun || write_ao || view == View::trace || traced_foliage_fresh_)
         {
             ID3D11ShaderResourceView *const srvs[] = { mask ? shadow_mask_in_.srv() : nullptr, normals_.srv(), depth_.srv(), depth_.stencil_srv(), nullptr, trace.history_srv(),
