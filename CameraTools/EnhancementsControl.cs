@@ -120,6 +120,14 @@ namespace CameraTools
                 writers[(int)Enhancement.PhysicalSky](1f);
                 Log("Ambient light's Sky was Physical, so Physical sky is on.");
             }
+            // Light through leaves came after the user's settings: the first time, it is on where the enhancements are.
+            var leavesSeen = category.CreateEntry("LightThroughLeavesSeen", false, is_hidden: true);
+            if (!leavesSeen.Value)
+            {
+                leavesSeen.Value = true;
+                if (readers[(int)Enhancement.Enabled]() == 1f)
+                    writers[(int)Enhancement.LightThroughLeaves](1f);
+            }
             run = new EnhancementRun(EnhancementValues.From(field => readers[(int)field.Id]()));
             // An entry may hold what its row cannot, such as a number past the row's range, and then says what was read.
             foreach (var field in EnhancementsModel.Fields)

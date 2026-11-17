@@ -200,10 +200,10 @@ var fresh = EnhancementValues.Defaults;
 var outside = new LensView(false, 1.6f, 1, ShotStage.None);
 var inside = new LensView(true, 1.6f, 1, ShotStage.None);
 EnhancementsSettings Settings(EnhancementValues values) => EnhancementsModel.Settings(values, outside);
-Check("the table holds 103 fields, each at its own id's place, with the master switch and twelve effects' switches, and 21 of the depth of field",
-    EnhancementsModel.Fields.Length == 103 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
+Check("the table holds 105 fields, each at its own id's place, with the master switch and thirteen effects' switches, and 21 of the depth of field",
+    EnhancementsModel.Fields.Length == 105 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
     && EnhancementsModel.Fields.Count(field => field.Lens) == 21
-    && string.Join(",", EnhancementsModel.Effects.Select(field => field.Label)) == "Ambient light,Contact shadows,Soft sun shadows,Haze,Light shafts,Wet surfaces,Tone map,Lens flare,Physical sky,Physical water,Clouds,Weather");
+    && string.Join(",", EnhancementsModel.Effects.Select(field => field.Label)) == "Ambient light,Contact shadows,Light through leaves,Soft sun shadows,Haze,Light shafts,Wet surfaces,Tone map,Lens flare,Physical sky,Physical water,Clouds,Weather");
 {
     var cloudLens = new LensView(false, 1.6f, 1, ShotStage.None);
     var cloudFresh = EnhancementValues.Defaults;
@@ -439,6 +439,10 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
         && EnhancementsModel.Summary(running) == "On · 1 effect" && EnhancementsModel.Summary(running.With(Enhancement.LightShafts, 1f).With(Enhancement.ToneMap, 1f)) == "On · 3 effects");
     Check("the log names the effects that are switched on", EnhancementsModel.Names(fresh) == "no effect"
         && EnhancementsModel.Names(running.With(Enhancement.ToneMap, 1f)) == "Haze, Tone map");
+    var leaves = running.With(Enhancement.LightThroughLeaves, 1f);
+    Check("Light through leaves sends its strength in hundredths while it is on, and nothing while it is off",
+        EnhancementsModel.Settings(leaves, outside).Transmission.Strength == 1f && EnhancementsModel.Settings(leaves.With(Enhancement.LightThroughLeavesStrength, 50f), outside).Transmission.Strength == 0.5f
+        && EnhancementsModel.Settings(running, outside).Transmission.Strength == 0f);
 }
 
 // CameraTools' own depth of field: its rows' values and the add-on's depth of field block.

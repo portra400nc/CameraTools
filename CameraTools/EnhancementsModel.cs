@@ -11,6 +11,7 @@ namespace CameraTools
         Enabled,
         AmbientLight, AmbientLevel, AmbientColor, AmbientOcclusion, AmbientOcclusionRadius, AmbientFoliageOcclusion,
         ContactShadows, ContactShadowLength, ContactShadowStrength, ContactShadowFoliage,
+        LightThroughLeaves, LightThroughLeavesStrength,
         SoftSunShadows, SunShadowSoftness, SunShadowStrength,
         Haze, HazeDensity, HazeHeightFalloff, HazeSunGlow, HazeGlowTowardSun,
         LightShafts, LightShaftStrength, MistDensity, MistHeight, LightShaftGlowTowardSun, LightShaftDistance, MistPatchiness, MistPatchSize,
@@ -226,6 +227,8 @@ namespace CameraTools
             Slider(Enhancement.ContactShadowLength, Enhancement.ContactShadows, "Length", 0.05f, 5f, 0.6f, 0.05f, 2, " m"),
             Slider(Enhancement.ContactShadowStrength, Enhancement.ContactShadows, "Strength", 0f, 1f, 1f, 0.05f, 2),
             Slider(Enhancement.ContactShadowFoliage, Enhancement.ContactShadows, "On grass and leaves", 0f, 1f, 0f, 0.05f, 2),
+            Switch(Enhancement.LightThroughLeaves, "Light through leaves"),
+            Slider(Enhancement.LightThroughLeavesStrength, Enhancement.LightThroughLeaves, "Strength", 0f, 200f, 100f, 5f, 0, "%"),
             Switch(Enhancement.SoftSunShadows, "Soft sun shadows"),
             Slider(Enhancement.SunShadowSoftness, Enhancement.SoftSunShadows, "Softness", 0.005f, 0.2f, 0.03f, 0.005f, 3),
             Slider(Enhancement.SunShadowStrength, Enhancement.SoftSunShadows, "Strength", 0f, 1f, 1f, 0.05f, 2),
@@ -350,8 +353,7 @@ namespace CameraTools
             settings.Ambient.AoStrength = forced ? 0f : values[Enhancement.AmbientOcclusion];
             settings.Ambient.AoRadius = values[Enhancement.AmbientOcclusionRadius];
             settings.Ambient.FoliageAoStrength = forced ? 0f : values[Enhancement.AmbientFoliageOcclusion];
-            // Light through leaves goes with Ambient light until it has a row of its own.
-            settings.Transmission.Strength = values.On(Enhancement.AmbientLight) ? 1f : 0f;
+            settings.Transmission.Strength = values.On(Enhancement.LightThroughLeaves) ? values[Enhancement.LightThroughLeavesStrength] / 100f : 0f;
             settings.ContactShadows.Enabled = Bit(Enhancement.ContactShadows);
             settings.ContactShadows.Length = values[Enhancement.ContactShadowLength];
             settings.ContactShadows.Strength = values[Enhancement.ContactShadowStrength];
