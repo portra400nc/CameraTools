@@ -784,6 +784,8 @@ enum
     ENHANCEMENTS_SCENE_LIGHT = 1u << 6,        // with TRACE: each face also copies its G-buffer albedo, stencil and HDR scene, and the
                                             // traced scene gets its triangles' albedo, a sky map, the game's ambient light and
                                             // sun, for EnhancementsGather; with GBUFFER, each face writes those copies too
+    ENHANCEMENTS_SCENE_NO_FILES = 1u << 7,     // write only the folder's tables: no pictures, depth, meshes, trace-scene.bin or the
+                                            // light's files, for a shot that only traces, so its capture does not wait on the disk
 };
 
 // A scene capture: the geometry of every G-buffer draw, replayed with stream output, in world space, from each face.

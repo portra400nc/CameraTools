@@ -100,6 +100,7 @@ namespace enhancements
             r.ply = (copy.flags & ENHANCEMENTS_SCENE_PLY) != 0;
             r.trace = (copy.flags & ENHANCEMENTS_SCENE_TRACE) != 0;
             r.no_meshes = (copy.flags & ENHANCEMENTS_SCENE_NO_MESHES) != 0;
+            r.no_files = (copy.flags & ENHANCEMENTS_SCENE_NO_FILES) != 0;
             r.gbuffer = (copy.flags & ENHANCEMENTS_SCENE_GBUFFER) != 0;
             r.release = (copy.flags & ENHANCEMENTS_SCENE_RELEASE) != 0;
             r.light = (copy.flags & ENHANCEMENTS_SCENE_LIGHT) != 0 && r.trace;

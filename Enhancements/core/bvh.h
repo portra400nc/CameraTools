@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <thread>
 #include <vector>
 
 namespace enhancements
@@ -53,12 +54,19 @@ namespace enhancements
         double sah = 0;                         // the surface area heuristic's cost, traversal and intersection costing 1 each
     };
 
+    // Every core but one, at least 3: the build's threads, and the alpha bake's and the light's, while the game keeps one.
+    inline uint32_t default_tasks()
+    {
+        const uint32_t cores = std::thread::hardware_concurrency();
+        return cores > 4 ? cores - 1 : 3;
+    }
+
     struct BvhOptions
     {
         uint32_t bins = 16;     // per axis, over the centroids' extent; 2 to 64
         uint32_t max_leaf = 4;  // a node of at most this many triangles is a leaf; up to kMaxLeaf when splitting costs more
-        uint32_t tasks = 3;     // the first log2(tasks) + 2 levels build their left child on a thread of its own; the result does
-                                // not depend on it
+        uint32_t tasks = default_tasks();   // the first log2(tasks) + 2 levels build their left child on a thread of its own;
+                                            // the result does not depend on it
     };
 
     // Splits on the cheapest of bins - 1 planes per axis by the surface area heuristic, a node whose centroids coincide in

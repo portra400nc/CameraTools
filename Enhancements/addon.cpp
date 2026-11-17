@@ -1371,12 +1371,13 @@ namespace enhancements
         // trace-scene.bin in its folder, bakes the programs into the masks the trace kernel fetches (core/alpha_bake.h),
         // builds the triangles' BVH, and hands both to the render thread through trace_box. Never throws.
         void build_trace(std::vector<TraceTriangle> triangles, std::vector<uint32_t> alpha, TraceScene scene, const fs::path &folder,
-            const std::vector<EnhancementsShotLight> &game_lights = {})
+            const std::vector<EnhancementsShotLight> &game_lights = {}, bool files = true)
         {
             TraceBuilt built;
             try
             {
-                write_file(folder / "trace-scene.bin", trace_scene_bytes(triangles, scene.reference, alpha));
+                if (files)
+                    write_file(folder / "trace-scene.bin", trace_scene_bytes(triangles, scene.reference, alpha));
                 if (!alpha.empty())
                 {
                     const auto baking = std::chrono::steady_clock::now();
@@ -1392,7 +1393,8 @@ namespace enhancements
                 if (!game_lights.empty() && !bvh.nodes.empty())
                 {
                     const auto baking = std::chrono::steady_clock::now();
-                    write_file(folder / "game-lights.bin", std::string(reinterpret_cast<const char *>(game_lights.data()), game_lights.size() * sizeof game_lights[0]));
+                    if (files)
+                        write_file(folder / "game-lights.bin", std::string(reinterpret_cast<const char *>(game_lights.data()), game_lights.size() * sizeof game_lights[0]));
                     const std::vector<TraceLight> lights = parse_trace_lights(game_lights.data(), static_cast<uint32_t>(game_lights.size()), ENHANCEMENTS_MAX_GAME_LIGHTS);
                     scene.game_lights = bake_game_lights(bvh, lights, scene.reference, built.alpha.get(), BvhOptions {}.tasks);
                     scene.game_light_count = lights.size();
@@ -1859,7 +1861,7 @@ namespace enhancements
                 light.pushed_sun_direction = { camera.toward_sun[0], camera.toward_sun[1], camera.toward_sun[2] };
                 light.pushed_sky = { camera.sky_color[0], camera.sky_color[1], camera.sky_color[2] };
                 game_lights_box.take(game_lights, game_lights_seen);
-                worker.push([this_build = run.trace, folder = run.folder->path, cap, light, asked = trace_asked, game_lights = game_lights] {
+                worker.push([this_build = run.trace, folder = run.folder->path, cap, light, asked = trace_asked, game_lights = game_lights, files = !run.schedule.request.no_files] {
                     TraceScene scene;
                     scene.asked = asked;
                     scene.folder = folder.filename().u8string();
@@ -1882,7 +1884,8 @@ namespace enhancements
                             const auto start = std::chrono::steady_clock::now();
                             auto built = std::make_shared<SceneLight>(build_light(triangles, materials, inputs, scene.reference, BvhOptions {}.tasks));
                             scene.light_seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
-                            write_file(folder / "trace-light.bin", light_bytes(triangles, materials, *built, inputs.faces));
+                            if (files)
+                                write_file(folder / "trace-light.bin", light_bytes(triangles, materials, *built, inputs.faces));
                             scene.light = std::move(built);
                         }
                     }
@@ -1895,7 +1898,7 @@ namespace enhancements
                         return;
                     }
                     scene.counts = this_build->builder.counts();
-                    build_trace(std::move(triangles), std::move(alpha), std::move(scene), folder, game_lights);
+                    build_trace(std::move(triangles), std::move(alpha), std::move(scene), folder, game_lights, files);
                 });
             }
             scene_gpu.end();

@@ -311,7 +311,7 @@ namespace CameraTools
                     if (Enhancements.CaptureScene(new EnhancementsSceneRequest
                         {
                             Faces = TracedShot.AllFaces, Settle = TracedShot.FaceSettle, Flags = EnhancementsSceneFlags.Trace | EnhancementsSceneFlags.Light | EnhancementsSceneFlags.NoMeshes
-                                | (saveScene.Value ? EnhancementsSceneFlags.GBuffer : EnhancementsSceneFlags.None),
+                                | (saveScene.Value ? EnhancementsSceneFlags.GBuffer : EnhancementsSceneFlags.NoFiles),
                         }))
                     {
                         run.Facts = Facts(status.TraceGeneration);

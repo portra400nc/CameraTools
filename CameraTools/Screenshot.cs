@@ -87,7 +87,8 @@ namespace CameraTools
         private const ulong PresentFrames = 4;
 
         // Name completes "timed out waiting for ...".
-        private sealed record Condition(string Name, Func<ShotState.Settling, BridgeStatus, bool> Met);
+        // Sizing: a condition about the window's size, which a traced shot's capture does not wait for.
+        private sealed record Condition(string Name, Func<ShotState.Settling, BridgeStatus, bool> Met, bool Sizing = false);
 
         // In the order they are reported: the first unmet one is named when the wait times out. A new window size makes
         // ReShade build its runtime and compile its effects again, which can take many seconds the first time at a size.
@@ -98,9 +99,9 @@ namespace CameraTools
             new("ReShade to compile its effects", (_, bridge) => bridge.EffectsReady == 1),
             new("ReShade to turn its effects on", (_, bridge) => bridge.EffectsEnabled == 1),
             new("the depth of field's focus paint to clear", (_, _) => !DepthOfField.Painting),
-            new("ReShade to save its preset before the resize", (_, _) => resize == null),
-            new("ReShade to reach the window's size", (_, bridge) => bridge.Width == Screen.width && bridge.Height == Screen.height),
-            new("the render resolution to follow the window", (_, _) => !Graphics.SizePending),
+            new("ReShade to save its preset before the resize", (_, _) => resize == null && laterSize == null, Sizing: true),
+            new("ReShade to reach the window's size", (_, bridge) => bridge.Width == Screen.width && bridge.Height == Screen.height, Sizing: true),
+            new("the render resolution to follow the window", (_, _) => !Graphics.SizePending, Sizing: true),
             new("the depth of field to focus", (_, _) => focusing is float since && DepthOfField.Focused(Time.unscaledTime - since)),
             new("the graphics settings to settle",
                 (settling, _) => Time.unscaledTime - Math.Max(settling.Started, Graphics.Changed) >= SettleSeconds),
@@ -154,6 +155,9 @@ namespace CameraTools
         private static MelonPreferences_Entry<float> settle;
         // The size to change to once the bridge has presented After frames.
         private static (ScreenSize Size, ulong After)? resize;
+        // A traced shot's size, kept until its scene is captured: the capture renders every face at the window's size, about
+        // four times faster at the Deck's 1280x800 than at 4K, and its scene serves the shot at any size.
+        private static ScreenSize? laterSize;
         // Since when ReShade has drawn its effects at the screenshot's size without a break. The depth of field's
         // autofocus only moves while it is drawn, and starts again when ReShade loads its effects again.
         private static float? focusing;
@@ -235,7 +239,9 @@ namespace CameraTools
                     preset += $"; supersampling {Supersampling.Samples} samples, {Graphics.AntiAliasingOff()}";
                 else if (shot != null)
                     preset += $"; {Graphics.AntiAliasingOff()}";
-                if (resized)
+                if (resized && before.Traced)
+                    laterSize = slot;
+                else if (resized)
                     resize = (slot, bridge.Presents + SaveFrames);
                 ReShade.SetEffects(true);
                 if (before.Traced)
@@ -273,6 +279,11 @@ namespace CameraTools
                 {
                     Finish(busy, stopped);
                     return;
+                }
+                if (laterSize is { } later && EnhancementsShot.SceneCaptured)
+                {
+                    resize = (later, ReShade.Status.Presents + SaveFrames);
+                    laterSize = null;
                 }
                 if (resize is var (size, after) && ReShade.Status.Presents >= after)
                 {
@@ -354,7 +365,9 @@ namespace CameraTools
                 State = settling;
             }
             bool traced = settling.Before.Traced;
-            if (traced && EnhancementsShot.Step(Array.FindIndex(Conditions, 0, Plain, condition => !condition.Met(settling, bridge)) < 0, bridge.Presents) is var (toast, detail))
+            // While its size waits for the capture, the capture waits for the rest only.
+            bool settledForStep = Array.FindIndex(Conditions, 0, Plain, condition => !condition.Met(settling, bridge) && !(laterSize != null && condition.Sizing)) < 0;
+            if (traced && EnhancementsShot.Step(settledForStep, bridge.Presents) is var (toast, detail))
             {
                 Finish(settling, toast, detail);
                 return;
@@ -603,6 +616,7 @@ namespace CameraTools
         {
             State = new ShotState.Idle();
             resize = null;
+            laterSize = null;
             focusing = null;
             var log = Melon<CameraTools>.Logger;
             foreach (var (what, run) in Restores)

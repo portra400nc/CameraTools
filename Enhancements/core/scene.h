@@ -49,6 +49,7 @@ namespace enhancements
         bool gbuffer = false;           // ENHANCEMENTS_SCENE_GBUFFER
         bool release = false;           // ENHANCEMENTS_SCENE_RELEASE
         bool light = false;             // ENHANCEMENTS_SCENE_LIGHT, with trace: the faces' albedo, stencil and HDR, and the scene's light
+        bool no_files = false;          // ENHANCEMENTS_SCENE_NO_FILES
         uint32_t max_triangles = 4000000;
 
         // A trace request with no faces: the self-test scene, captured from nothing.

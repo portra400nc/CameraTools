@@ -530,7 +530,7 @@ namespace CameraToolsEnhancements
     [Flags]
     internal enum EnhancementsSceneFlags : uint
     {
-        None = 0, Raw = 1 << 0, Ply = 1 << 1, Trace = 1 << 2, NoMeshes = 1 << 3, GBuffer = 1 << 4, Release = 1 << 5, Light = 1 << 6,
+        None = 0, Raw = 1 << 0, Ply = 1 << 1, Trace = 1 << 2, NoMeshes = 1 << 3, GBuffer = 1 << 4, Release = 1 << 5, Light = 1 << 6, NoFiles = 1 << 7,
     }
 
     // EnhancementsSceneRequest in enhancements.h, field for field. Zero fields read as the add-on's defaults: all seven faces

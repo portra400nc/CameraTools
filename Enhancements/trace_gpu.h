@@ -47,7 +47,7 @@ namespace enhancements
     };
 
     // Bytes of the scene uploaded at each present.
-    constexpr uint64_t kTraceUploadBytes = 32ull << 20;
+    constexpr uint64_t kTraceUploadBytes = 128ull << 20;
 
     class TraceGpu
     {

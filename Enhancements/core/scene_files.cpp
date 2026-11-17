@@ -396,7 +396,7 @@ namespace enhancements
         std::vector<std::string> failed;
         const std::string prefix = "face-" + std::to_string(d.face);
         MeshStats mesh;
-        if (!request.no_meshes)
+        if (!request.no_meshes && !request.no_files)
         {
             const fs::path path = folder.path / mesh_name(d.face, request.ply);
             std::ofstream out(path, std::ios::binary | std::ios::trunc);
@@ -405,24 +405,26 @@ namespace enhancements
             if (!out)
                 failed.push_back(path.filename().u8string());
         }
-        if (!d.rgb.empty() && d.picture.width != 0 && d.picture.height != 0)
+        // A shot that only traces keeps the folder's tables alone.
+        const bool files = !request.no_files;
+        if (files && !d.rgb.empty() && d.picture.width != 0 && d.picture.height != 0)
         {
             Size half;
             const std::vector<uint8_t> small = half_size(d.rgb, d.picture, &half);
             write_text(failed, folder.path / (prefix + ".png"), encode_png(small.data(), half.width, half.height));
         }
-        if (!d.depth.empty() && !write_bytes(folder.path / (prefix + "-depth.r32"), d.depth.data(), d.depth.size() * sizeof(float)))
+        if (files && !d.depth.empty() && !write_bytes(folder.path / (prefix + "-depth.r32"), d.depth.data(), d.depth.size() * sizeof(float)))
             failed.push_back(prefix + "-depth.r32");
-        if (request.raw && !write_bytes(folder.path / (prefix + ".so"), d.clip.data(), d.clip.size() * sizeof(float)))
+        if (files && request.raw && !write_bytes(folder.path / (prefix + ".so"), d.clip.data(), d.clip.size() * sizeof(float)))
             failed.push_back(prefix + ".so");
-        if (d.sun && !write_bytes(folder.path / (prefix + "-sun.bin"), d.sun->data(), d.sun->size()))
+        if (files && d.sun && !write_bytes(folder.path / (prefix + "-sun.bin"), d.sun->data(), d.sun->size()))
             failed.push_back(prefix + "-sun.bin");
         const std::pair<const std::vector<uint8_t> *, const char *> gbuffer[] = { { &d.stencil, "-stencil.r8" }, { &d.normals, "-normals.r10g10b10a2" },
             { &d.mask, "-mask.r8g8" }, { &d.irradiance, "-irradiance.r11g11b10" }, { &d.albedo, "-albedo.rgba8" } };
         for (const auto &[bytes, suffix] : gbuffer)
-            if (request.gbuffer && !bytes->empty() && !write_bytes(folder.path / (prefix + suffix), bytes->data(), bytes->size()))
+            if (files && request.gbuffer && !bytes->empty() && !write_bytes(folder.path / (prefix + suffix), bytes->data(), bytes->size()))
                 failed.push_back(prefix + suffix);
-        if (request.gbuffer && !d.hdr.empty() && !write_bytes(folder.path / (prefix + "-hdr.r11g11b10"), d.hdr.data(), d.hdr.size() * 4))
+        if (files && request.gbuffer && !d.hdr.empty() && !write_bytes(folder.path / (prefix + "-hdr.r11g11b10"), d.hdr.data(), d.hdr.size() * 4))
             failed.push_back(prefix + "-hdr.r11g11b10");
 
         folder.faces.push_back(scene_row(d, mesh, check_depth(d.camera, d.records, d.clip, d.render, d.depth)));
