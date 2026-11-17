@@ -69,8 +69,10 @@ namespace CameraTools
         // GPU time a frame for the shot's rays, the add-on's most: nothing else needs the frames while it waits, and each frame
         // also costs the game's own, about 175 ms at 4K on the Deck, which took most of a shot at 100 ms a frame.
         public const float BudgetMs = 2000f;
-        // How long ReShade's effects run again before the picture, for those that build up over frames.
+        // How long ReShade's effects run again before the picture, for those that build up over frames, and at least how many
+        // frames: at 4K on the Deck a frame takes 0.8 s, so the render size's 10 cost 9 s here.
         public const float EffectsSettle = 1.5f;
+        public const ulong EffectsPresents = 3;
         // The Bounce strength row: 1 is the physical amount for the game's colors, and the default makes up for Genshin's
         // painted colors being darker than real materials.
         public const float DefaultBounceStrength = 3f, MaxBounceStrength = 4f;

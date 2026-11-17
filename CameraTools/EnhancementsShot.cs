@@ -380,7 +380,7 @@ namespace CameraTools
                     }
                     break;
             }
-            if (run.Phase == ShotPhase.Finishing && presents - run.RestoredAt >= TracedShot.SettledPresents && now - run.PhaseBegan >= TracedShot.EffectsSettle)
+            if (run.Phase == ShotPhase.Finishing && presents - run.RestoredAt >= TracedShot.EffectsPresents && now - run.PhaseBegan >= TracedShot.EffectsSettle)
             {
                 CameraUi.ClearToast();
                 Enter(ShotPhase.Done, now);
