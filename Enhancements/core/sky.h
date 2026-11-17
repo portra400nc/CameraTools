@@ -99,7 +99,13 @@ namespace enhancements
         float night_stops = 17;
     };
 
-    // The provisional exposure's multiple over a day's: 1 until the light on a level floor falls below the sun's at 10 degrees.
+    // How far the exposure follows the day's light on a level floor below the noon sun's: 0 not at all, 1 holding it as bright.
+    constexpr float kDayAdaptation = 0.5f;
+    // The sun's direct light on the world over the white balance's white: about 5200 K, its luminance 1.
+    constexpr Vec3f kSunWarmth = { 1.066f, 0.991f, 0.895f };
+
+    // The provisional exposure's multiple over a day's: 1 with the sun overhead, more as the light on a level floor falls by
+    // kDayAdaptation, then from the sun's at 10 degrees on as below.
     float exposure_gain(const Atmosphere &atmosphere, const SkyLight &sun, const SkyLight &moon, const SkyExposure &exposure);
 
     // The share of auto exposure the night leaves: all of it till the sun is 6 degrees down, none once it is 12 down. At

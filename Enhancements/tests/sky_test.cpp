@@ -124,10 +124,13 @@ int main()
     SkyExposure exposure;
     exposure.day_light = 1.5f;
     const SkyLight no_moon = { { 0, -1, 0 }, full };
-    const Vec3f day_scale = sky_scale(air, { noon, 1 }, no_moon, exposure);
+    const Vec3f day_scale = sky_scale(air, { { 0, 1, 0 }, 1 }, no_moon, exposure);
     check("by day the sun overhead lights a white surface white at the game's day light",
         std::fabs(day_scale[0] * ground_zenith[0] / 3.14159265f - 1.5f) < 0.01f && std::fabs(day_scale[2] * ground_zenith[2] / 3.14159265f - 1.5f) < 0.01f);
-    check("and the scale holds down to the sun 10 degrees up", sky_scale(air, { toward(11), 1 }, no_moon, exposure) == day_scale);
+    const float morning = sky_scale(air, { toward(20), 1 }, no_moon, exposure)[1] / day_scale[1], afternoon_gain = sky_scale(air, { noon, 1 }, no_moon, exposure)[1] / day_scale[1];
+    std::printf("INFO exposure over the overhead sun's: %.4f with the sun 60 degrees up, %.4f at 20\n", afternoon_gain, morning);
+    check("a lower sun lifts the exposure by the square root of the fallen light, so a morning keeps its brightness: 1.08 at 60 degrees, 1.89 at 20",
+        std::fabs(afternoon_gain - 1.08f) < 0.02f && std::fabs(morning - 1.89f) < 0.03f);
     const Vec3f dusk_scale = sky_scale(air, { toward(-6), 1 }, no_moon, exposure);
     check("past it the exposure follows the falling light", dusk_scale[1] > 20 * day_scale[1]);
     exposure.night_stops = 15;
@@ -328,17 +331,21 @@ int main()
         };
         const auto near = [](float a, float b) { return std::fabs(a - b) <= 0.01f * std::fabs(b); };
         const WorldLight overhead = lit(90, -90, 3.14f);
-        check("with the sun overhead its light on a white surface is the day light, white, and the sky's share is 1",
-            std::fabs(overhead.sun[0] - 1.5f) < 1e-3f && std::fabs(overhead.sun[2] - 1.5f) < 1e-3f && std::fabs(overhead.sky_share - 1) < 1e-5f);
+        check("with the sun overhead its light on a white surface is the day light, about 5200 K warm, and the sky's share is 1",
+            std::fabs(luminance(overhead.sun) - 1.5f) < 2e-3f && std::fabs(overhead.sun[0] - 1.5f * 1.066f) < 2e-3f && std::fabs(overhead.sun[2] - 1.5f * 0.895f) < 2e-3f
+            && std::fabs(overhead.sky_share - 1) < 1e-5f);
         const WorldLight afternoon = lit(30, -90, 3.14f);
-        check("with the sun 30 degrees up its light is 1.219 and warmer, the sky's share 0.730",
-            near(luminance(afternoon.sun), 1.2192f) && afternoon.sun[0] > afternoon.sun[2] && near(afternoon.sky_share, 0.72958f));
+        check("with the sun 30 degrees up its light is 1.811, lifted by the morning's exposure, and warmer, the sky's share 1.082",
+            near(luminance(afternoon.sun), 1.8107f) && afternoon.sun[0] > afternoon.sun[2] && near(afternoon.sky_share, 1.08161f));
         const WorldLight blue_hour = lit(-6, -90, 3.14f);
         check("with the sun 6 degrees down there is no sunlight and the exposed sky keeps a quarter of a day's, 0.247",
             luminance(blue_hour.sun) == 0 && near(blue_hour.sky_share, 0.24674f));
         const WorldLight full = lit(-30, 40, 0);
         check("a full moon 40 degrees up lights a white surface 3 times its real 0.0456 at the night's exposure, lifted 3 stops, as the sky's share of 0.0284",
             near(luminance(full.moon), 3 * 8 * 0.045579f) && near(full.sky_share, 8 * 0.028441f));
+        const WorldLight rising = lit(-30, 4, 0), high = lit(-30, 60, 0);
+        check("a full moon 4 degrees up lights what faces it less than one 60 degrees up, through more air: 0.143 against 0.894",
+            near(luminance(rising.moon), 0.14262f) && near(luminance(high.moon), 0.89372f));
         const WorldLight moonless = lit(-30, -30, 0);
         check("with no moon only the night's glow is left, the sky's share 0.00323, held by the 17 stops' limit", luminance(moonless.moon) == 0 && near(moonless.sky_share, 0.0032304f));
         check("auto exposure works fully till the sun is 6 degrees down, half at 9 and not at all from 12",

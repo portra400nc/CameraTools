@@ -393,10 +393,18 @@ namespace enhancements
     {
         const float light = level_illuminance(a, sun) + level_illuminance(a, moon) + night_floor(a);
         const float low_sun = level_illuminance(a, { { 0.98481f, 0.17365f, 0 }, 1 });
-        if (!(light < low_sun && light > 0))
+        const float noon = level_illuminance(a, { { 0, 1, 0 }, 1 });
+        if (!(light > 0))
             return 1;
+        // Through the day the exposure follows the light by kDayAdaptation, as an eye or a camera does, so a morning sun
+        // does not leave the picture dark without the auto exposure; the noon sun keeps the day's exposure.
+        if (light >= low_sun)
+            return std::max(std::pow(noon / light, kDayAdaptation), 1.0f);
+        // Below it the day's lift fades out by the light's fall toward the sun's at 6 degrees down, so the blue hour and the
+        // night keep the exposure they were tuned with.
         const float dusk = level_illuminance(a, { { 0.99452f, -0.10453f, 0 }, 1 }) + night_floor(a);
-        float gain = std::pow(low_sun / std::max(light, dusk), 0.85f);
+        const float fade = clamp01(std::log(std::max(light, dusk) / dusk) / std::log(low_sun / dusk));
+        float gain = std::pow(noon / low_sun, kDayAdaptation * fade) * std::pow(low_sun / std::max(light, dusk), 0.85f);
         if (light < dusk)
             gain *= std::pow(dusk / light, std::max(exposure.night_power, 0.0f));
         // The lift auto exposure gave the blue hour, taken over as it fades out, so the night follows on without a jump.
@@ -424,9 +432,11 @@ namespace enhancements
         const auto direct = [&](const SkyLight &light) {
             return light.illuminance > 0 ? scale(mul(sky_transmittance(a, light.toward), k), light.illuminance / kPi) : Vec3f {};
         };
+        // The sun lights the world a little warmer than the white balance, about 5200 K, its luminance kept.
+        const Vec3f sun = mul(direct(request.sun), kSunWarmth);
         const float day = sky_floor(a, { { 0, 1, 0 }, 1 });
         const float now = sky_floor(a, request.sun) + sky_floor(a, request.moon) + night_floor(a);
-        return { direct(request.sun), scale(direct(request.moon), kMoonOnWorld), day > 0 ? now * exposure_gain(a, request.sun, request.moon, request.exposure) / day : 0 };
+        return { sun, scale(direct(request.moon), kMoonOnWorld), day > 0 ? now * exposure_gain(a, request.sun, request.moon, request.exposure) / day : 0 };
     }
 
     Vec3f sky_light(const Atmosphere &a, const Vec3f &view, const SkyRequest &request, const Vec3f &k)
