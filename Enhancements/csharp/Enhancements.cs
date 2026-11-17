@@ -478,6 +478,7 @@ namespace CameraToolsEnhancements
         public float Gloss;
         public float ReflectedLight;
         public uint Bounces;
+        public uint Live;           // 1: the camera may move, and the samples follow it
     }
 
     // EnhancementsShotLight in enhancements.h, field for field.
@@ -657,7 +658,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 44;
+        private const uint Version = 45;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -873,14 +874,15 @@ namespace CameraToolsEnhancements
         // are not 0. Status.ShotActive follows a frame later; Status.TraceConverged then says when the frame is written from
         // all its samples.
         public static void SetShot(bool active, uint samples = 0, float budgetMs = 0, float strength = float.NaN,
-            EnhancementsTraceOutputs outputs = EnhancementsTraceOutputs.None, bool reflections = false, float gloss = 0.5f, float reflectedLight = 16f, uint bounces = 1)
+            EnhancementsTraceOutputs outputs = EnhancementsTraceOutputs.None, bool reflections = false, float gloss = 0.5f, float reflectedLight = 16f, uint bounces = 1,
+            bool live = false)
         {
             if (addOn == null)
                 return;
             var shot = new EnhancementsShot
             {
                 Size = (uint)Marshal.SizeOf<EnhancementsShot>(), Active = active ? 1u : 0u, Samples = samples, BudgetMs = budgetMs, Strength = strength, Outputs = outputs,
-                Reflections = reflections ? 1u : 0u, Gloss = gloss, ReflectedLight = reflectedLight, Bounces = bounces,
+                Reflections = reflections ? 1u : 0u, Gloss = gloss, ReflectedLight = reflectedLight, Bounces = bounces, Live = live ? 1u : 0u,
             };
             addOn.SetShot(ref shot);
         }

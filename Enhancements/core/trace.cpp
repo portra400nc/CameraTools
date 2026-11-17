@@ -473,6 +473,33 @@ namespace enhancements
     const std::array<const char *, static_cast<size_t>(TraceRestart::count)> kTraceRestartNames = { "none", "scene", "render size", "settings", "camera",
         "sun direction", "light" };
 
+    std::optional<ReprojectConstants> reproject_constants(const TraceConstants &from, const TraceConstants &to)
+    {
+        Mat4d rows {};
+        for (int r = 0; r < 4; r++)
+            for (int k = 0; k < 4; k++)
+                rows[r * 4 + k] = from.clip_rows[r][k];
+        const std::optional<Mat4d> inverse = invert(rows);
+        if (!inverse)
+            return std::nullopt;
+        ReprojectConstants c {};
+        for (int r = 0; r < 4; r++)
+            for (int k = 0; k < 4; k++)
+            {
+                c.to_rows[r][k] = to.clip_rows[r][k];
+                c.from_rows[r][k] = from.clip_rows[r][k];
+                c.from_clip[r][k] = static_cast<float>((*inverse)[r * 4 + k]);
+                if (!std::isfinite(c.from_clip[r][k]))
+                    return std::nullopt;
+            }
+        for (int k = 0; k < 3; k++)
+            c.eye[k] = to.eye_position[k];
+        c.eye[3] = 0.02f;
+        for (int k = 0; k < 3; k++)
+            c.render[k] = to.trace_render[k];
+        return c;
+    }
+
     TraceRestart trace_restart(const TraceKey &a, const TraceKey &b)
     {
         const auto apart = [&](size_t first, size_t count) {

@@ -89,7 +89,7 @@ namespace enhancements
         static_assert(offsetof(EnhancementsCharacterLights, head) == 20 && offsetof(EnhancementsCharacterLights, count) == 36
             && offsetof(EnhancementsCharacterLights, lights) == 40 && sizeof(EnhancementsCharacterLights) == 296);
         static_assert(offsetof(EnhancementsShot, active) == 4 && offsetof(EnhancementsShot, budget_ms) == 12 && offsetof(EnhancementsShot, strength) == 16
-            && offsetof(EnhancementsShot, outputs) == 20 && sizeof(EnhancementsShot) == 40);
+            && offsetof(EnhancementsShot, outputs) == 20 && offsetof(EnhancementsShot, live) == 40 && sizeof(EnhancementsShot) == 44);
 
     namespace hlsl
     {
@@ -721,6 +721,11 @@ namespace enhancements
         }
         if (knows(offsetof(EnhancementsShot, bounces), sizeof raw->bounces))
             shot.bounces = std::clamp<uint32_t>(raw->bounces, 1, 15);
+        if (knows(offsetof(EnhancementsShot, live), sizeof raw->live))
+            shot.live = raw->live != 0;
+        // A live shot's view moves, and reflections depend on it.
+        if (shot.live)
+            shot.reflect.enabled = false;
         return shot;
     }
 
@@ -751,6 +756,7 @@ namespace enhancements
         }
         s.reflect = shot.reflect;
         s.gather.bounces = shot.bounces;
+        s.trace.reproject = shot.live;
         return s;
     }
 

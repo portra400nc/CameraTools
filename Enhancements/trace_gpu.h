@@ -31,6 +31,8 @@ namespace enhancements
         TraceSchedule schedule;                 // after this frame's tiles
         std::optional<TraceDispatch> dispatch;  // none on the frame the samples start again, and once every pixel has them
         bool reset = false;                     // the samples start again: the history is cleared first
+        bool reproject = false;                 // a live shot's camera moved: the samples are carried to its new view first
+        bool live = false;                      // a live shot's: the depth the samples are traced over is kept for a move
         TraceRestart restart = TraceRestart::none;  // and why
         bool traced = false;                    // every traced pixel has a sample after this frame's tiles
         TraceConstants constants {};            // tiles left 0; dispatch sets them
@@ -161,6 +163,13 @@ namespace enhancements
     private:
         void free_scene();
         bool make_shader();
+        // A live shot's move: the samples carried from the view they were traced from to frame's, over the depth kept for
+        // them and the new depth; reflections cleared. false when a buffer could not be made.
+        bool reproject(const TraceFrame &frame, ID3D11ShaderResourceView *depth);
+        // The depth the samples are traced over, copied from depth for the next move.
+        bool keep_depth(ID3D11ShaderResourceView *depth);
+        // Frees a move's copies and the kept depth, which follow the history's size.
+        void free_moves();
         bool sync(Size render, bool gathering, bool lit, bool reflecting);
 
         // One dispatch's measurements in flight.
@@ -231,6 +240,13 @@ namespace enhancements
         uint64_t generation_ = 0;
         uint32_t triangles_ = 0, node_count_ = 0;
         uint64_t hash_ = 0;
+        ComPtr<ID3D11ComputeShader> reproject_cs_;
+        ComPtr<ID3D11Buffer> reproject_constants_;
+        ComPtr<ID3D11Buffer> old_history_, old_hit_, old_sky_, old_lights_;     // a move's copies of the sums it carries
+        ComPtr<ID3D11UnorderedAccessView> old_history_uav_, old_hit_uav_, old_sky_uav_, old_lights_uav_;
+        ComPtr<ID3D11ShaderResourceView> old_history_srv_, old_hit_srv_, old_sky_srv_, old_lights_srv_;
+        ComPtr<ID3D11Texture2D> kept_depth_;    // the depth the samples are traced over
+        ComPtr<ID3D11ShaderResourceView> kept_depth_srv_;
         std::optional<TraceKey> key_;           // what the samples started with
         std::optional<TraceConstants> started_constants_;   // the constants of the frame that started them, and its gather's,
         GatherConstants started_gather_ {};                 // which every later frame's camera, sun and light are
@@ -239,6 +255,7 @@ namespace enhancements
         GatherConstants uploaded_gather_ {};    // what the last gathering dispatch put in the gather's
         TraceSchedule schedule_;
         uint64_t epoch_ = 0;
+        uint64_t moves_ = 0;                    // a live shot's moves that carried the samples over
         TraceRestart restart_ = TraceRestart::none;
         TraceCounts totals_ {};
         TraceCounts window_ {};                 // since the last pass the consistency grid judged

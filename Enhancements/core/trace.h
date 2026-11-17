@@ -42,6 +42,21 @@ namespace enhancements
     std::optional<TraceConstants> trace_constants(const TraceSettings &settings, float level, const Camera &camera, bool flip, Size render,
         const Vec3d &reference, const Vec3 &toward_sun, uint32_t seed);
 
+    // A live shot's move: what trace_reproject_cs.hlsl needs to carry each pixel's samples from the camera they were traced with
+    // to the new one, both in the scene's frame.
+    struct ReprojectConstants
+    {
+        float to_rows[4][4];        // the new camera's clip_rows: a pixel and its depth to the scene
+        float from_rows[4][4];      // the old camera's
+        float from_clip[4][4];      // the old camera's scene to clip, the inverse of from_rows
+        float eye[4];               // xyz: the new camera in the scene; w: the share of a point's distance it may move and match
+        uint32_t render[4];         // width, height, 1 when targets are stored upside down, 0
+    };
+    static_assert(sizeof(ReprojectConstants) == 224);
+
+    // From the constants the samples were traced with to the new camera's. Empty when from's rows do not invert.
+    std::optional<ReprojectConstants> reproject_constants(const TraceConstants &from, const TraceConstants &to);
+
     // The camera's position in the world, from its world_to_view, in double.
     Vec3d camera_position(const Camera &camera);
 

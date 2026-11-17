@@ -1346,7 +1346,7 @@ int main()
         const Settings on = parse_settings(raw);
         raw.enabled = 0;
         const Settings off = parse_settings(raw);
-        EnhancementsShot shot = { sizeof shot, 1, 0, 0, NAN, 0, 0, 0, 0, 0 };
+        EnhancementsShot shot = { sizeof shot, 1, 0, 0, NAN, 0, 0, 0, 0, 0, 0 };
         const Settings same = with_shot(on, parse_shot(nullptr)), plain = with_shot(on, parse_shot(&shot));
         check("no shot leaves the applied settings as they are", !same.trace.enabled && !same.gather.enabled && same.view == View::normals && same.ambient.enabled);
         check("a shot switches the trace and the gather on over applied settings that are on, and keeps their passes, view, samples and budget",
@@ -1396,15 +1396,21 @@ int main()
         check("an 8-byte shot is active with the applied samples and budget", parse_shot(&shot).active && parse_shot(&shot).samples == 0);
         shot.size = 4;
         check("a shot too short for active, an inactive one and a null one are no shot", !parse_shot(&shot).active && !parse_shot(nullptr).active
-            && (shot = { sizeof shot, 0, 64, 100, 1, 0, 0, 0, 0, 0 }, !with_shot(on, parse_shot(&shot)).trace.enabled));
-        shot = { sizeof shot, 1, 0, 0, NAN, 0, 1, 5, 99, 0 };
+            && (shot = { sizeof shot, 0, 64, 100, 1, 0, 0, 0, 0, 0, 0 }, !with_shot(on, parse_shot(&shot)).trace.enabled));
+        shot = { sizeof shot, 1, 0, 0, NAN, 0, 1, 5, 99, 0, 0 };
         const ShotSettings reflecting = parse_shot(&shot);
         check("reflections: off unless asked for, and the gloss and the reflected light clamped", !parse_shot(nullptr).reflect.enabled && reflecting.reflect.enabled
             && reflecting.reflect.gloss == 1 && reflecting.reflect.reflected_light == 32 && with_shot(on, reflecting).reflect.enabled);
         shot.size = offsetof(EnhancementsShot, reflections);
         check("a caller from before them keeps the game's", !parse_shot(&shot).reflect.enabled);
-        shot = { sizeof shot, 1, 0, 0, NAN, 0, 0, 0, 1, 99 };
+        shot = { sizeof shot, 1, 0, 0, NAN, 0, 0, 0, 1, 99, 0 };
         check("bounces clamp to 15 and reach the gather", with_shot(on, parse_shot(&shot)).gather.bounces == 15);
+        shot = { sizeof shot, 1, 0, 0, NAN, 0, 1, 0.5f, 16, 4, 1 };
+        const Settings live = with_shot(on, parse_shot(&shot));
+        shot.size = offsetof(EnhancementsShot, live);
+        check("a live shot carries its samples over a move and traces no reflections; a version 44 caller's shot is not live",
+            live.trace.reproject && !live.reflect.enabled && !with_shot(on, parse_shot(&shot)).trace.reproject && with_shot(on, parse_shot(&shot)).reflect.enabled);
+        shot.size = sizeof shot;
         shot.bounces = 0;
         check("0 bounces count as 1", with_shot(on, parse_shot(&shot)).gather.bounces == 1);
         shot.bounces = 4;
@@ -1412,14 +1418,14 @@ int main()
         check("a caller from before them bounces once", with_shot(on, parse_shot(&shot)).gather.bounces == 1);
         // The status as a caller of each version reads it: it gets the bytes of its own size.
         check("the status is 168 bytes: the restarts at 132, in a version 9 caller's padding, their reason at 136, the shot at 140, the saved frames "
-              "at 144, the focus at 148, the flare's visibility at 152 and the DNG's id, in a version 17 caller's padding, its state and failure at 156, 160 and 164, and the shot is 24 with its strength at 16 and its outputs at 20, and the DNG's camera is 44 with its date at 16, its shutter time at 36 and its ISO at 40, in version 21, the shot's strength in version 22 and its outputs in 23, and the version is 44",
+              "at 144, the focus at 148, the flare's visibility at 152 and the DNG's id, in a version 17 caller's padding, its state and failure at 156, 160 and 164, and the shot is 24 with its strength at 16 and its outputs at 20, and the DNG's camera is 44 with its date at 16, its shutter time at 36 and its ISO at 40, in version 21, the shot's strength in version 22 and its outputs in 23, and the version is 45",
             sizeof(EnhancementsStatus) == 168 && offsetof(EnhancementsStatus, dng_id) == 156 && offsetof(EnhancementsStatus, dng_state) == 160
             && offsetof(EnhancementsStatus, dng_failure) == 164 && offsetof(EnhancementsStatus, flare_visibility) == 152 && offsetof(EnhancementsStatus, trace_light) == 128 && offsetof(EnhancementsStatus, trace_restarts) == 132
             && offsetof(EnhancementsStatus, trace_restart_reason) == 136 && offsetof(EnhancementsStatus, shot_active) == 140
-            && offsetof(EnhancementsStatus, frames_saved) == 144 && offsetof(EnhancementsStatus, dof_focus_meters) == 148 && sizeof(EnhancementsShot) == 40
+            && offsetof(EnhancementsStatus, frames_saved) == 144 && offsetof(EnhancementsStatus, dof_focus_meters) == 148 && sizeof(EnhancementsShot) == 44
             && offsetof(EnhancementsShot, strength) == 16 && offsetof(EnhancementsShot, outputs) == 20
             && sizeof(EnhancementsDngInfo) == 44 && offsetof(EnhancementsDngInfo, date_time) == 16 && offsetof(EnhancementsDngInfo, exposure_time_s) == 36
-            && offsetof(EnhancementsDngInfo, iso) == 40 && ENHANCEMENTS_VERSION == 44);
+            && offsetof(EnhancementsDngInfo, iso) == 40 && ENHANCEMENTS_VERSION == 45);
     }
     {
         // Unity's GL.GetGPUProjectionMatrix for a 60 degree, 16:10 camera with near 0.1 and far 1000, reversed Z.

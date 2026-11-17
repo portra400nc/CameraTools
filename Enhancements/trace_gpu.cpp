@@ -138,6 +138,7 @@ namespace enhancements
     void TraceGpu::release()
     {
         free_scene();
+        free_moves();
         history_.Reset();
         history_uav_.Reset();
         history_srv_.Reset();
@@ -169,11 +170,110 @@ namespace enhancements
         why_ = why;
     }
 
+    void TraceGpu::free_moves()
+    {
+        old_history_.Reset();
+        old_hit_.Reset();
+        old_sky_.Reset();
+        old_lights_.Reset();
+        old_history_uav_.Reset();
+        old_hit_uav_.Reset();
+        old_sky_uav_.Reset();
+        old_lights_uav_.Reset();
+        old_history_srv_.Reset();
+        old_hit_srv_.Reset();
+        old_sky_srv_.Reset();
+        old_lights_srv_.Reset();
+        kept_depth_srv_.Reset();
+        kept_depth_.Reset();
+    }
+
+    bool TraceGpu::keep_depth(ID3D11ShaderResourceView *depth)
+    {
+        if (!depth)
+            return false;
+        ComPtr<ID3D11Resource> resource;
+        depth->GetResource(&resource);
+        ComPtr<ID3D11Texture2D> texture;
+        if (FAILED(resource.As(&texture)))
+            return false;
+        D3D11_TEXTURE2D_DESC desc;
+        texture->GetDesc(&desc);
+        D3D11_TEXTURE2D_DESC kept {};
+        if (kept_depth_)
+            kept_depth_->GetDesc(&kept);
+        if (!kept_depth_ || kept.Width != desc.Width || kept.Height != desc.Height || kept.Format != desc.Format)
+        {
+            D3D11_SHADER_RESOURCE_VIEW_DESC view;
+            depth->GetDesc(&view);
+            kept_depth_srv_.Reset();
+            if (FAILED(device_->CreateTexture2D(&desc, nullptr, kept_depth_.ReleaseAndGetAddressOf()))
+                || FAILED(device_->CreateShaderResourceView(kept_depth_.Get(), &view, kept_depth_srv_.ReleaseAndGetAddressOf())))
+            {
+                kept_depth_.Reset();
+                kept_depth_srv_.Reset();
+                return false;
+            }
+        }
+        context_->CopyResource(kept_depth_.Get(), texture.Get());
+        return true;
+    }
+
+    bool TraceGpu::reproject(const TraceFrame &frame, ID3D11ShaderResourceView *depth)
+    {
+        const std::optional<ReprojectConstants> constants = started_constants_ ? reproject_constants(*started_constants_, frame.constants) : std::nullopt;
+        if (!constants || !reproject_cs_)
+            return false;
+        const UINT pixels = size_.width * size_.height;
+        const auto copy = [&](const ComPtr<ID3D11Buffer> &from, ComPtr<ID3D11Buffer> &to, ComPtr<ID3D11UnorderedAccessView> &uav,
+                              ComPtr<ID3D11ShaderResourceView> &srv) {
+            if (!from)
+                return true;
+            if (!to && FAILED(structured_buffer(device_.Get(), 16, pixels, to, uav, &srv)))
+                return false;
+            context_->CopyResource(to.Get(), from.Get());
+            return true;
+        };
+        if (!copy(history_, old_history_, old_history_uav_, old_history_srv_) || !copy(gather_hit_, old_hit_, old_hit_uav_, old_hit_srv_)
+            || !copy(gather_sky_, old_sky_, old_sky_uav_, old_sky_srv_) || !copy(light_history_, old_lights_, old_lights_uav_, old_lights_srv_))
+        {
+            fail("a live shot's move could not copy the samples");
+            return false;
+        }
+        ID3D11DeviceContext1 *c = context_.Get();
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        if (FAILED(c->Map(reproject_constants_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+            return false;
+        std::memcpy(mapped.pData, &*constants, sizeof *constants);
+        c->Unmap(reproject_constants_.Get(), 0);
+        ID3D11Buffer *const buffers[] = { reproject_constants_.Get() };
+        ID3D11ShaderResourceView *const srvs[] = { old_history_srv_.Get(), gather_hit_ ? old_hit_srv_.Get() : nullptr, gather_sky_ ? old_sky_srv_.Get() : nullptr,
+            light_history_ ? old_lights_srv_.Get() : nullptr, kept_depth_srv_.Get(), depth };
+        ID3D11UnorderedAccessView *const uavs[] = { history_uav_.Get(), gather_hit_uav_.Get(), gather_sky_uav_.Get(), light_history_uav_.Get() };
+        c->CSSetShader(reproject_cs_.Get(), nullptr, 0);
+        c->CSSetConstantBuffers(0, 1, buffers);
+        c->CSSetShaderResources(0, static_cast<UINT>(std::size(srvs)), srvs);
+        c->CSSetUnorderedAccessViews(0, static_cast<UINT>(std::size(uavs)), uavs, nullptr);
+        c->Dispatch((size_.width + 7) / 8, (size_.height + 7) / 8, 1);
+        ID3D11ShaderResourceView *const no_srvs[6] = {};
+        ID3D11UnorderedAccessView *const no_uavs[4] = {};
+        c->CSSetShaderResources(0, 6, no_srvs);
+        c->CSSetUnorderedAccessViews(0, 4, no_uavs, nullptr);
+        if (reflect_sum_)
+        {
+            const UINT zero[4] = {};
+            c->ClearUnorderedAccessViewUint(reflect_sum_uav_.Get(), zero);
+        }
+        return true;
+    }
+
     bool TraceGpu::make_shader()
     {
-        if (cs_ && gather_cs_ && reflect_cs_ && constants_ && gather_constants_ && lights_constants_ && reflect_constants_)
+        if (cs_ && gather_cs_ && reflect_cs_ && reproject_cs_ && constants_ && gather_constants_ && lights_constants_ && reflect_constants_ && reproject_constants_)
             return true;
         HRESULT hr = device_->CreateComputeShader(kTraceCs, sizeof kTraceCs, nullptr, cs_.ReleaseAndGetAddressOf());
+        if (SUCCEEDED(hr))
+            hr = device_->CreateComputeShader(kTraceReprojectCs, sizeof kTraceReprojectCs, nullptr, reproject_cs_.ReleaseAndGetAddressOf());
         if (SUCCEEDED(hr))
             hr = device_->CreateComputeShader(kGatherCs, sizeof kGatherCs, nullptr, gather_cs_.ReleaseAndGetAddressOf());
         if (SUCCEEDED(hr))
@@ -198,6 +298,9 @@ namespace enhancements
         desc.ByteWidth = sizeof(GatherLights);
         if (SUCCEEDED(hr))
             hr = device_->CreateBuffer(&desc, nullptr, lights_constants_.ReleaseAndGetAddressOf());
+        desc.ByteWidth = sizeof(ReprojectConstants);
+        if (SUCCEEDED(hr))
+            hr = device_->CreateBuffer(&desc, nullptr, reproject_constants_.ReleaseAndGetAddressOf());
         if (FAILED(hr))
         {
             fail("the trace's constant buffers could not be made (" + hresult_text("CreateBuffer", hr) + ")");
@@ -380,15 +483,28 @@ namespace enhancements
         f.restart = !key_ ? TraceRestart::scene : trace_restart(*key_, key);
         if (f.restart == TraceRestart::none && schedule_.tiles != tiles)
             f.restart = TraceRestart::render;
-        f.reset = f.restart != TraceRestart::none;
+        f.live = settings.reproject;
+        // A live shot carries its samples over a camera move, where the history and the depth they were traced over are
+        // this size's; reflections, which depend on the view, are off in a live shot.
+        f.reproject = f.restart == TraceRestart::camera && settings.reproject && started_constants_ && history_ && kept_depth_srv_ && size_ == key.render
+            && !f.reflecting;
+        f.reset = f.restart != TraceRestart::none && !f.reproject;
         if (f.reset)
         {
             f.schedule.tiles = tiles;
             f.schedule.visits = 0;
             return f;
         }
-        // The samples go on with the camera, sun and light they started with.
-        if (started_constants_)
+        // A move's pixels go on from the samples carried over, under the new camera, and every tile is visited again for the
+        // pixels that lack them. The carried samples count as a pass, so their light shows from the move's first frame on
+        // instead of the raster passes' until a whole pass has been traced again, which flickered between the two.
+        if (f.reproject)
+        {
+            f.schedule.tiles = tiles;
+            f.schedule.visits = std::min<uint64_t>(f.schedule.visits, tiles);
+        }
+        // Else the samples go on with the camera, sun and light they started with.
+        else if (started_constants_)
         {
             f.constants = held_constants(*started_constants_, f.constants);
             if (f.gathering)
@@ -405,6 +521,7 @@ namespace enhancements
     {
         if (!history_ || render != size_)
         {
+            free_moves();
             reflect_sum_.Reset();
             gather_hit_.Reset();
             gather_sky_.Reset();
@@ -502,6 +619,18 @@ namespace enhancements
             settled_ms_ = 0;
             settled_frames_ = 0;
             // What these samples started with: every later frame's key is held against it, and its constants are theirs.
+            key_ = frame.key;
+            started_constants_ = frame.constants;
+            started_gather_ = frame.gather;
+            if (frame.live && !keep_depth(depth))
+                return false;
+        }
+        else if (frame.reproject)
+        {
+            if (!reproject(frame, depth) || !keep_depth(depth))
+                return false;
+            restart_ = frame.restart;
+            moves_++;
             key_ = frame.key;
             started_constants_ = frame.constants;
             started_gather_ = frame.gather;

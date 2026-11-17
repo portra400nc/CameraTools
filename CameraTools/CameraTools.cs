@@ -136,6 +136,7 @@ namespace CameraTools
 
             // After the hotkeys, so the key that closes the settings panel does not also fire its camera action.
             CameraUi.Update();
+            LiveTrace.Update();
             // After the UI, so the B press that cancels a screenshot does not also close the panel that cancelling reopens.
             Screenshot.Update();
             GameHud.Update(freecamActive || uiHidden);

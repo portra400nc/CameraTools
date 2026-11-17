@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 44
+#define ENHANCEMENTS_VERSION 45
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -706,6 +706,9 @@ typedef struct EnhancementsShot
     float reflected_light;      // how much brighter light sources are in reflections; clamped to 1..32
     uint32_t bounces;           // how many surfaces the gather's light may bounce between; clamped to 1..15; 0, and a caller
                                 // without it, 1. Version 27 added it.
+    uint32_t live;              // 1: the camera may move while it traces, and each move carries the samples over to the new view
+                                // where it still shows the same surfaces instead of starting them again; reflections, which
+                                // depend on the view, stay off. 0, and a caller without it, start again. Version 45 added it.
 } EnhancementsShot;
 
 // A light a traced shot traces: one of CameraTools' own, which the caller switches off in the game while the shot traces. The

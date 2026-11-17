@@ -486,6 +486,31 @@ int main(int argc, char **argv)
             && std::memcmp(held.eye_position, start.eye_position, sizeof held.eye_position) == 0 && std::memcmp(held.sun_cone, start.sun_cone, sizeof held.sun_cone) == 0
             && held.trace_params[0] == start.trace_params[0] && held.trace_counts[2] == start.trace_counts[2] && held.trace_params[1] == 0.5f
             && held.trace_params[3] == 0.8f && held.trace_counts[1] == 48 && held.trace_render[0] == 64);
+        {
+            // A live shot's move: a point the moved camera sees at a pixel and depth goes through the old camera's scene-to-clip
+            // to a clip point the old camera's rows bring back to the same point of the scene.
+            const TraceConstants from = *trace_constants(settings, 0.6f, camera, true, { 64, 64 }, {}, { 0, 1, 0 }, 1);
+            const TraceConstants to = *trace_constants(settings, 0.6f, moved, true, { 64, 64 }, {}, { 0, 1, 0 }, 1);
+            const std::optional<ReprojectConstants> r = reproject_constants(from, to);
+            const auto apply = [](const float rows[4][4], const std::array<double, 4> &v) {
+                std::array<double, 4> out {};
+                for (int i = 0; i < 4; i++)
+                    for (int k = 0; k < 4; k++)
+                        out[i] += double(rows[i][k]) * v[k];
+                return out;
+            };
+            const std::array<double, 4> clip = { 0.25, -0.4, 0.3, 1 };
+            std::array<double, 4> p = apply(r->to_rows, clip);
+            for (double &x : p)
+                x /= p[3];
+            std::array<double, 4> back = apply(r->from_rows, apply(r->from_clip, p));
+            double off = 0;
+            for (int k = 0; k < 3; k++)
+                off = std::max(off, std::fabs(back[k] / back[3] - p[k]));
+            check("a live shot's move: a point through the old camera's inverse rows and back lands where it was, and the constants are the new camera's",
+                r && off < 1e-3 && r->render[0] == 64 && r->render[2] == 1 && r->eye[0] == to.eye_position[0] && r->eye[3] > 0
+                && std::memcmp(r->to_rows, to.clip_rows, sizeof r->to_rows) == 0 && std::memcmp(r->from_rows, from.clip_rows, sizeof r->from_rows) == 0);
+        }
         check("the classes a ray sees, with the alpha tests", caster_classes(settings) == (0x1F | kAlphaTests) && caster_classes(other) == (0x0F | kAlphaTests));
         other.alpha_cards = false;
         check("without cards and characters only the world and other", caster_classes(other) == (0x09 | kAlphaTests));
@@ -815,8 +840,8 @@ int main(int argc, char **argv)
         check("the lights' cbuffer: the position less the reference, the range, the color times intensity to the power 2.2, the cones, its luminance and the count",
             g.rows[0][0][0] == 0.0f && g.rows[0][0][1] == 1.0f && g.rows[0][0][3] == 8.0f && std::abs(g.rows[0][1][0] - 4.5947f) < 1e-3f && g.rows[0][1][2] == 1.0f
                 && g.rows[1][1][3] == 0.7f && g.rows[1][2][1] == -1.0f && std::abs(g.rows[0][3][1] - (0.9278f * 4.5947f + 0.0722f)) < 1e-3f && g.info[0] == 4);
-        check("the traced light is 64 bytes, its reserved words at 48, and the version is 44", sizeof(EnhancementsShotLight) == 64
-            && offsetof(EnhancementsShotLight, reserved) == 48 && ENHANCEMENTS_VERSION == 44);
+        check("the traced light is 64 bytes, its reserved words at 48, and the version is 45", sizeof(EnhancementsShotLight) == 64
+            && offsetof(EnhancementsShotLight, reserved) == 48 && ENHANCEMENTS_VERSION == 45);
     }
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;

@@ -154,6 +154,7 @@ namespace enhancements
         bool ao = true, sun = true;                 // EnhancementsTrace.outputs
         bool characters = true, alpha_cards = true; // EnhancementsTrace.casters
         bool whole_cards = false;                   // ENHANCEMENTS_TRACE_CAST_WHOLE_CARDS: the alpha tests off
+        bool reproject = false;                     // a live shot's: a camera move carries the samples over; not in the key
         float ao_distance = 2.0f;
         float ao_strength = 1.0f;
         float sun_size = 0.0093f;
@@ -389,6 +390,7 @@ namespace enhancements
         std::optional<ShotOutputs> outputs; // none: the applied trace's
         ReflectSettings reflect;
         uint32_t bounces = 1;
+        bool live = false;          // EnhancementsShot.live
     };
 
     // Honors size like parse_settings. A null pointer is no shot. samples clamps to 4096, budget_ms to 2..2000 and strength
