@@ -1,5 +1,5 @@
-// The character light pass's second draw, at the bloom step before the traced lights: CameraTools' lights light the
-// characters as studio lamps. A character pixel keeps params.x of the game's light and takes each light's albedo-weighted
+// The character light pass's last draw, at the bloom step before the traced lights: the world's light scales the game's
+// on characters when it is on, and CameraTools' lights light them as studio lamps. A character pixel keeps params.x of the game's light and takes each light's albedo-weighted
 // key, a toon step or a soft falloff across its normal, behind character_shadow_ps.hlsl's visibility averaged over the 4x4
 // window, and a rim where the light stands behind it. Writes the whole target, because the result is copied over the
 // game's HDR scene whole.
@@ -7,12 +7,13 @@
 
 Texture2D<float3> scene : register(t0);     // mirror of the game's HDR scene
 Texture2D<float4> shadow : register(t7);    // the first draw's raw visibility, a light a channel
+Texture2D<float> sun : register(t8);        // character_sun_ps.hlsl's raw sun visibility
 
 float3 srgb_to_linear(float3 c) { return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4); }
 
 // The raw visibility over one whole period of pattern(), so a smooth surface averages its 16 offsets. Taps off the
 // character, and across a depth jump or a sharp normal change, fade out, as gbuffer.hlsli's blurred() weighs them.
-float4 shadow_at(int2 pixel, float z, float3 n)
+float4 shadow_at(int2 pixel, float z, float3 n, bool of_sun)
 {
     float4 sum = 0;
     float total = 0;
@@ -26,7 +27,7 @@ float4 shadow_at(int2 pixel, float z, float3 n)
             float depth_weight = saturate(1 - abs(view_position_at(q).z - z) / (max(-z, 0.05) * kDepthTolerance));
             float facing = dot(n, view_normal_at(q)) * 0.5 + 0.5;
             float weight = depth_weight * facing * facing;
-            sum += shadow.Load(int3(q, 0)) * weight;
+            sum += (of_sun ? sun.Load(int3(q, 0)).xxxx : shadow.Load(int3(q, 0))) * weight;
             total += weight;
         }
     }
@@ -43,7 +44,13 @@ float3 main(float4 position : SV_Position) : SV_Target0
     bool face = is_face(pixel);
     float3 n = character_normal(pixel, p, face);
     float3 v = normalize(-p);
-    float4 seen = shadow_at(pixel, p.z, view_normal_at(pixel));
+    float4 seen = shadow_at(pixel, p.z, view_normal_at(pixel), false);
+    // The world's light: the game's light on the character, scaled to the sun's and the sky's here.
+    if (params.w > 0.5)
+    {
+        float lit = world_sun.w > 0.5 ? shadow_at(pixel, p.z, view_normal_at(pixel), true).x : 1;
+        color *= (lit * world_sun.rgb + world_sky.rgb) / world_game.rgb;
+    }
     float3 base = srgb_to_linear(albedo.Load(int3(pixel, 0)).rgb);
     float facing = 1 - saturate(dot(n, v));
     float fresnel = facing * sqrt(facing);

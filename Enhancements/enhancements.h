@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 45
+#define ENHANCEMENTS_VERSION 46
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -754,6 +754,16 @@ typedef struct EnhancementsCharacterLights
     uint32_t head_known;        // 0: no head, and the face shades from its stored normals
     uint32_t count;             // lights, the first ENHANCEMENTS_MAX_CHARACTER_LIGHTS of them
     EnhancementsShotLight lights[ENHANCEMENTS_MAX_CHARACTER_LIGHTS];
+    // The world's light on characters: while world is not 0, every character pixel's color is first scaled, channel by
+    // channel, by (v world_sun + world_sky) / world_game, v the sun's visibility at the pixel from the game's sun shadow
+    // atlas, looked up past the character's own body. game_light and the lights then apply to the scaled color. All three
+    // are in the game's light units: world_game the game's whole light on a character in the open facing the sun (its
+    // direct light, its ambient and its lamps), world_sun the direct light of our sun or moon, world_sky everything else.
+    // Version 46 added it.
+    uint32_t world;
+    float world_sun[3];
+    float world_sky[3];
+    float world_game[3];
 } EnhancementsCharacterLights;
 
 // The directions a scene capture turns the camera to: world-axis cube faces in D3D cube-map order, each with its own up
@@ -1047,7 +1057,8 @@ ENHANCEMENTS_EXPORT void EnhancementsSetShotLights(const EnhancementsShotLight *
 #define ENHANCEMENTS_MAX_GAME_LIGHTS 256
 ENHANCEMENTS_EXPORT void EnhancementsSetGameLights(const EnhancementsShotLight *lights, uint32_t count);
 
-// Sets studio lighting for characters (EnhancementsCharacterLights); null or disabled turns it off. Version 28 added it.
+// Sets studio lighting and the world's light for characters (EnhancementsCharacterLights); null or disabled turns both off.
+// Version 28 added it.
 ENHANCEMENTS_EXPORT void EnhancementsSetCharacterLights(const EnhancementsCharacterLights *lights);
 
 // Asks for the view-space depth in meters (the distance along the camera's forward axis) at a point on the screen, u and

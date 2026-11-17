@@ -512,7 +512,14 @@ namespace CameraToolsEnhancements
         public uint Count;
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = EnhancementsShotLight.Max)]
         public EnhancementsShotLight[] Lights;
+        public uint World;
+        public float WorldSunR, WorldSunG, WorldSunB;
+        public float WorldSkyR, WorldSkyG, WorldSkyB;
+        public float WorldGameR, WorldGameG, WorldGameB;
     }
+
+    // The world's light on characters, EnhancementsCharacterLights' world fields: colors in the game's light units.
+    internal readonly record struct CharacterWorldLight(Vector3 Sun, Vector3 Sky, Vector3 Game);
 
     // EnhancementsDngInfo in enhancements.h, field for field: the camera a DNG's EXIF names, 0 or an empty date for none.
     [StructLayout(LayoutKind.Sequential)]
@@ -658,7 +665,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 45;
+        private const uint Version = 46;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -889,15 +896,19 @@ namespace CameraToolsEnhancements
 
         // Studio lighting for characters: the first EnhancementsShotLight.Max lights shape the characters, which keep gameLight of
         // the game's light; head is the center of the active character's head, null when it is not known. Off when enabled is false.
-        public static void SetCharacterLights(bool enabled, bool soft, float gameLight, float rim, Vector3? head, IReadOnlyList<EnhancementsShotLight> lights)
+        public static void SetCharacterLights(bool enabled, bool soft, float gameLight, float rim, Vector3? head, IReadOnlyList<EnhancementsShotLight> lights,
+            CharacterWorldLight? world = null)
         {
             if (addOn == null)
                 return;
+            var w = world ?? default;
             var raw = new EnhancementsCharacterLights
             {
                 Size = (uint)Marshal.SizeOf<EnhancementsCharacterLights>(), Enabled = enabled ? 1u : 0u, Shading = soft ? 1u : 0u, GameLight = gameLight, Rim = rim,
                 HeadX = head?.x ?? 0, HeadY = head?.y ?? 0, HeadZ = head?.z ?? 0, HeadKnown = head.HasValue ? 1u : 0u,
                 Count = (uint)Math.Min(lights?.Count ?? 0, EnhancementsShotLight.Max), Lights = new EnhancementsShotLight[EnhancementsShotLight.Max],
+                World = world.HasValue ? 1u : 0u, WorldSunR = w.Sun.x, WorldSunG = w.Sun.y, WorldSunB = w.Sun.z, WorldSkyR = w.Sky.x, WorldSkyG = w.Sky.y,
+                WorldSkyB = w.Sky.z, WorldGameR = w.Game.x, WorldGameG = w.Game.y, WorldGameB = w.Game.z,
             };
             for (int i = 0; i < raw.Count; i++)
                 raw.Lights[i] = lights[i];

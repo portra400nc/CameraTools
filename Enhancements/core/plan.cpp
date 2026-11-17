@@ -87,7 +87,8 @@ namespace enhancements
             && ENHANCEMENTS_ACCUMULATE_COUNT == static_cast<int>(AccumulateMode::count));
         static_assert(offsetof(EnhancementsAccumulate, mode) == 4 && offsetof(EnhancementsAccumulate, gain) == 20 && sizeof(EnhancementsAccumulate) == 24);
         static_assert(offsetof(EnhancementsCharacterLights, head) == 20 && offsetof(EnhancementsCharacterLights, count) == 36
-            && offsetof(EnhancementsCharacterLights, lights) == 40 && sizeof(EnhancementsCharacterLights) == 296);
+            && offsetof(EnhancementsCharacterLights, lights) == 40 && offsetof(EnhancementsCharacterLights, world) == 296
+            && sizeof(EnhancementsCharacterLights) == 336);
         static_assert(offsetof(EnhancementsShot, active) == 4 && offsetof(EnhancementsShot, budget_ms) == 12 && offsetof(EnhancementsShot, strength) == 16
             && offsetof(EnhancementsShot, outputs) == 20 && offsetof(EnhancementsShot, live) == 40 && sizeof(EnhancementsShot) == 44);
 
@@ -130,7 +131,7 @@ namespace enhancements
         { PassId::ambient, "ambient", Step::combine, { Entry::normals, Entry::depth, Entry::ambient_diffuse }, true, SunUse::none, ambient_wanted },
         // First at bloom, so haze, mist and the depth of field take its light like the game's own.
         { PassId::character_light, "character-light", Step::bloom, { Entry::depth, Entry::hdr_scene, Entry::albedo, Entry::normals, Entry::material_id },
-          true, SunUse::none, character_light_wanted },
+          true, SunUse::optional, character_light_wanted },
         { PassId::traced_lights, "traced-lights", Step::bloom, { Entry::depth, Entry::hdr_scene, Entry::albedo, Entry::normals }, true, SunUse::none,
           traced_lights_wanted },
         // After the traced lights, which light the foliage it shades, and before the haze in front of it.
@@ -795,6 +796,21 @@ namespace enhancements
                 lamp.cos_inner = l.cos_inner;
                 light.lights.push_back(lamp);
             }
+        }
+        if (knows(offsetof(EnhancementsCharacterLights, world_game), sizeof raw->world_game) && raw->world != 0)
+        {
+            CharacterWorldLight world;
+            bool valid = true;
+            for (int k = 0; k < 3; k++)
+            {
+                world.sun[k] = raw->world_sun[k];
+                world.sky[k] = raw->world_sky[k];
+                world.game[k] = raw->world_game[k];
+                valid &= std::isfinite(world.sun[k]) && std::isfinite(world.sky[k]) && std::isfinite(world.game[k]) && world.sun[k] >= 0 && world.sky[k] >= 0
+                    && world.game[k] > 0;
+            }
+            if (valid)
+                light.world = world;
         }
         return light;
     }

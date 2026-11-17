@@ -847,6 +847,7 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kTransmissionPs, sizeof kTransmissionPs, nullptr, &made.transmission_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCharacterLightPs, sizeof kCharacterLightPs, nullptr, &made.character_light_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCharacterShadowPs, sizeof kCharacterShadowPs, nullptr, &made.character_shadow_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kCharacterSunPs, sizeof kCharacterSunPs, nullptr, &made.character_sun_ps_))
             && SUCCEEDED(device->CreatePixelShader(kGatherAveragePs, sizeof kGatherAveragePs, nullptr, &made.gather_average_ps_))
             && SUCCEEDED(device->CreatePixelShader(kGatherFilterPs, sizeof kGatherFilterPs, nullptr, &made.gather_filter_ps_))
             && SUCCEEDED(device->CreatePixelShader(kApplyGatherPs, sizeof kApplyGatherPs, nullptr, &made.apply_gather_ps_))
@@ -1933,7 +1934,8 @@ namespace enhancements
         return true;
     }
 
-    std::optional<GameCall> Gpu::run_character_light(const FrameMap &map, const CharacterLightConstants &light, const Camera &camera, bool flip)
+    std::optional<GameCall> Gpu::run_character_light(const FrameMap &map, CharacterLightConstants light, const Camera &camera, bool flip,
+        const SunShadowConstants *sun)
     {
         const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
         const auto scene_format = static_cast<DXGI_FORMAT>(scene.format);
@@ -1946,8 +1948,28 @@ namespace enhancements
             || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false) || !character_shadow_.sync(d, map.render, DXGI_FORMAT_R8G8B8A8_UNORM)
             || !pass_constants(camera, map.render, flip, constants))
             return std::nullopt;
-        upload(constants);
         ID3D11DeviceContext1 *c = context_.Get();
+        depth_.copy_from(c, native(depth));
+        // The sun's shade on characters, from the atlas the shadow-mask step copied, with its constants at b1 to b4.
+        const bool shade = light.params[3] > 0 && sun && sun_ready_ && character_sun_.sync(d, map.render, DXGI_FORMAT_R8_UNORM);
+        if (shade)
+        {
+            constants.sun_cascades = sun->cascades;
+            constants.sun_columns = sun->columns;
+            constants.sun_rows = sun->rows;
+            const SunShadowSettings soft;
+            constants.sun_light_size = soft.light_size;
+            constants.sun_min_penumbra = soft.min_penumbra;
+            constants.sun_strength = 1;
+            upload(constants);
+            ID3D11Buffer *const game[] = { game_sun_[0].Get(), game_sun_[1].Get(), game_sun_[2].Get(), game_sun_[3].Get() };
+            c->PSSetConstantBuffers(1, 4, game);
+            ID3D11ShaderResourceView *const raw[] = { nullptr, nullptr, depth_.srv(), depth_.stencil_srv(), nullptr, sun_atlas_.srv() };
+            draw_fullscreen(character_sun_ps_.Get(), raw, 6, character_sun_.rtv(), map.render);
+        }
+        else
+            upload(constants);
+        light.world_sun[3] = shade ? 1.0f : 0.0f;
         D3D11_MAPPED_SUBRESOURCE mapped;
         if (FAILED(c->Map(character_light_constants_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
             return std::nullopt;
@@ -1956,12 +1978,11 @@ namespace enhancements
         ID3D11Buffer *const own[] = { character_light_constants_.Get() };
         c->PSSetConstantBuffers(1, 1, own);
         scene_in_.copy_from(c, native(scene));
-        depth_.copy_from(c, native(depth));
         // The second draw's target change unbinds character_shadow_ as a target before it is bound at t7.
         ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), character_normals_.srv(), depth_.srv(), depth_.stencil_srv(), nullptr, character_albedo_.srv(),
-            character_material_.srv(), character_shadow_.srv() };
+            character_material_.srv(), character_shadow_.srv(), shade ? character_sun_.srv() : nullptr };
         draw_fullscreen(character_shadow_ps_.Get(), srvs, 7, character_shadow_.rtv(), map.render);
-        draw_fullscreen(character_light_ps_.Get(), srvs, 8, scene_out_.rtv(), map.render);
+        draw_fullscreen(character_light_ps_.Get(), srvs, 9, scene_out_.rtv(), map.render);
         scene_out_.copy_to(c, native(scene));
         return GameCall::keep;
     }

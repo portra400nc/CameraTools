@@ -1171,7 +1171,8 @@ namespace enhancements
                             : std::optional<GameCall>(GameCall::keep);
                         break;
                     case PassId::character_light:
-                        call = gpu.run_character_light(map, character_light_constants(settings.character_light, camera), camera, settings.flip);
+                        call = gpu.run_character_light(map, character_light_constants(settings.character_light, camera), camera, settings.flip,
+                            d.uses_sun ? &sun_parse.constants : nullptr);
                         break;
                     case PassId::light_shafts:
                         call = gpu.run_light_shafts(map, settings.light_shafts, sky_camera(), sun_parse.constants, settings.flip,

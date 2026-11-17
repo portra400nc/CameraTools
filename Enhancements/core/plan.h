@@ -258,6 +258,14 @@ namespace enhancements
     };
 
     // EnhancementsCharacterLights'.
+    // EnhancementsCharacterLights' world light, each value a color in the game's light units.
+    struct CharacterWorldLight
+    {
+        std::array<float, 3> sun {};
+        std::array<float, 3> sky {};
+        std::array<float, 3> game {};
+    };
+
     struct CharacterLightSettings
     {
         bool enabled = false;
@@ -266,11 +274,13 @@ namespace enhancements
         float rim = 1.5f;
         std::optional<std::array<float, 3>> head;
         std::vector<CharacterLamp> lights;
+        std::optional<CharacterWorldLight> world;
     };
 
     // Honors size like parse_settings. A null pointer is off. game_light clamps to 0..1 and rim to 0..3, and a value that
     // is not finite takes the default; a head that is not finite is unknown; past ENHANCEMENTS_MAX_CHARACTER_LIGHTS the
-    // lights are left out.
+    // lights are left out. The world light needs every value finite and at least 0 and the game's above 0 in each channel,
+    // or it is left out.
     CharacterLightSettings parse_character_lights(const EnhancementsCharacterLights *raw);
 
     // The domain form of EnhancementsSettings. Built only by parse_settings, so every value in it is in range.

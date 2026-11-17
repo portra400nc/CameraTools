@@ -38,6 +38,22 @@ int main()
     const CharacterLightSettings parsed = parse_character_lights(&raw);
     check("a soft setup with the game light clamped to 1, the rim's NaN at its default 1.5, the head, and at most 4 lights",
         parsed.enabled && parsed.soft && parsed.game_light == 1 && parsed.rim == 1.5f && parsed.head && (*parsed.head)[2] == 3 && parsed.lights.size() == 4);
+    check("without world set, no world light", !parsed.world);
+    raw.world = 1;
+    raw.world_sun[0] = 2, raw.world_sun[1] = 1.5f, raw.world_sun[2] = 1;
+    raw.world_sky[0] = raw.world_sky[1] = raw.world_sky[2] = 0.5f;
+    raw.world_game[0] = raw.world_game[1] = raw.world_game[2] = 3;
+    const CharacterLightSettings lit = parse_character_lights(&raw);
+    check("the world light parses each color as sent", lit.world && lit.world->sun[1] == 1.5f && lit.world->sky[2] == 0.5f && lit.world->game[0] == 3);
+    raw.world_game[1] = 0;
+    check("a game light of 0 in a channel leaves the world light out", !parse_character_lights(&raw).world);
+    raw.world_game[1] = 3;
+    raw.world_sun[2] = NAN;
+    check("so does a value that is not finite", !parse_character_lights(&raw).world);
+    raw.world_sun[2] = 1;
+    raw.size = offsetof(EnhancementsCharacterLights, world);
+    check("a caller from before version 46 sends none", !parse_character_lights(&raw).world && parse_character_lights(&raw).lights.size() == 4);
+    raw.world = 0;
     raw.size = offsetof(EnhancementsCharacterLights, head);
     check("a caller that knows no head and no lights still turns it on", parse_character_lights(&raw).enabled && !parse_character_lights(&raw).head
         && parse_character_lights(&raw).lights.empty());
@@ -64,7 +80,9 @@ int main()
     check("the lights and the head move into view space, a point light's radiance is its color to the power 2.2",
         c.lights.info[0] == 4 && near(c.lights.rows[0][0][1], 1) && near(c.lights.rows[0][0][2], -7) && near(c.lights.rows[0][0][3], 8)
             && near(c.lights.rows[0][1][0], 1) && c.lights.rows[0][1][3] < -1 && near(c.lights.rows[0][2][2], 1) && near(c.head[2], -2) && c.head[3] == 1);
-    check("the parameters: game light, rim, soft", c.params[0] == 1 && c.params[1] == 1.5f && c.params[2] == 1);
+    check("the parameters: game light, rim, soft, no world light", c.params[0] == 1 && c.params[1] == 1.5f && c.params[2] == 1 && c.params[3] == 0);
+    const CharacterLightConstants w = character_light_constants(lit, camera);
+    check("with the world light, its colors and params.w 1", w.params[3] == 1 && w.world_sun[0] == 2 && w.world_sky[1] == 0.5f && w.world_game[2] == 3);
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;
 }

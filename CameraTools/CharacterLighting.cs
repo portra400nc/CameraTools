@@ -57,16 +57,19 @@ namespace CameraTools
 
         public static bool Active => Enabled && Enhancements.Connected;
 
+        // Whether characters take the world's light while Enhancements is on; the probe switches it for comparisons.
+        public static bool WorldLight { get; set; } = true;
+
         // After the lights are placed.
         public static void Update()
         {
-            // The physical sky's night dims the game's light on characters as on the world, through the same pass with no lamps.
-            float night = NightSky.CharacterScale;
+            // The world's light on characters: the game's light scaled to our sun's and sky's, and the sun's shade.
+            var world = WorldLight && Enhancements.Connected && EnhancementsControl.RunningValues[Enhancement.Enabled] > 0.5f ? NightSky.CharacterWorld : null;
             if (!Active)
             {
-                if (night < 0.999f && Enhancements.Connected)
+                if (world != null)
                 {
-                    Enhancements.SetCharacterLights(true, false, night, 0, null, NoLights);
+                    Enhancements.SetCharacterLights(true, false, 1f, 0, null, NoLights, world);
                     sent = true;
                 }
                 else if (sent)
@@ -77,7 +80,7 @@ namespace CameraTools
                 return;
             }
             var lights = Lights.CharacterLights().Take(EnhancementsShotLight.Max).Select(light => EnhancementsShot.ToShotLight(light, 0)).ToList();
-            Enhancements.SetCharacterLights(true, Soft, GameLight * night, Rim, HeadCenter(), lights);
+            Enhancements.SetCharacterLights(true, Soft, GameLight, Rim, HeadCenter(), lights, world);
             sent = true;
         }
 

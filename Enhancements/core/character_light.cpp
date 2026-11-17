@@ -58,6 +58,16 @@ namespace enhancements
         c.params[0] = settings.game_light;
         c.params[1] = settings.rim;
         c.params[2] = settings.soft ? 1.0f : 0.0f;
+        if (settings.world)
+        {
+            c.params[3] = 1;
+            for (int k = 0; k < 3; k++)
+            {
+                c.world_sun[k] = settings.world->sun[k];
+                c.world_sky[k] = settings.world->sky[k];
+                c.world_game[k] = settings.world->game[k];
+            }
+        }
         return c;
     }
 }

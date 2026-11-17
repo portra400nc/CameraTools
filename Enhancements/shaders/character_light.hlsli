@@ -8,7 +8,10 @@ cbuffer CharacterLight : register(b1)
     float4 light_rows[16];  // core/trace.h's GatherLights rows in view space
     uint4 light_info;
     float4 head;            // view space; w 1 when CameraTools found the character's head
-    float4 params;          // the game light's share, the rim's strength, 1 for soft shading, 0
+    float4 params;          // the game light's share, the rim's strength, 1 for soft shading, 1 with the world's light
+    float4 world_sun;       // EnhancementsCharacterLights' world light; world_sun.w 1 when the sun draw ran
+    float4 world_sky;
+    float4 world_game;
 };
 
 #include "local_light.hlsli"

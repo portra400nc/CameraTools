@@ -75,7 +75,18 @@ namespace CameraTools
             if (!on || sky == null)
             {
                 CharacterScale = 1f;
-                Openness.Reset();
+                // The game's own light, which the characters keep but for the sun's shade.
+                if (sky != null && sky.MainLight is { } main)
+                {
+                    var direct = Linear(main.color) * main.intensity;
+                    var ambient = GameAmbient();
+                    CharacterWorld = WorldOnCharacter(direct, ambient, direct, ambient, Lamps.AtCharacter(), Openness.Update());
+                }
+                else
+                {
+                    CharacterWorld = null;
+                    Openness.Reset();
+                }
                 if (sky != null && sky.Pointer == fogOffIn)
                 {
                     sky.SetFogEnable(true, FogOwner);
@@ -115,6 +126,7 @@ namespace CameraTools
                 Release();
                 Sky = null;
                 Light = null;
+                CharacterWorld = null;
                 Enhancements.SetCelestial(bodies);
                 return;
             }
@@ -147,6 +159,8 @@ namespace CameraTools
             float lamps = Lamps.AtCharacter();
             float skyKept = gameSky * (open * outdoors + (1 - open));
             CharacterScale = gameSky + lamps > 1e-4f ? Math.Clamp((skyKept + lamps) / (gameSky + lamps), 0f, 1f) : 1f;
+            var gameAmbientColor = GameAmbient();
+            CharacterWorld = WorldOnCharacter(ours, gameAmbientColor * AmbientScale, Linear(gameColor) * gameIntensity, gameAmbientColor, lamps, open);
             LampLight = lamps;
             SkyOpenness = open;
             Enhancements.SetCelestial(bodies);
@@ -204,6 +218,25 @@ namespace CameraTools
         // For the probe: the game's lamps' light on the active character, and the share of the sky it sees.
         public static float LampLight { get; private set; }
         public static float SkyOpenness { get; private set; } = 1f;
+
+        // The world's light on characters this frame, for the character pass: null without a sky to read.
+        public static CharacterWorldLight? CharacterWorld { get; private set; }
+
+        // Out in the open the character takes our sun, our sky and the lamps near it in place of the game's light; under a
+        // roof it keeps the game's, as the game lights its interiors itself.
+        private static CharacterWorldLight WorldOnCharacter(Vec3 sun, Vec3 sky, Vec3 gameDirect, Vec3 gameAmbient, float lamps, float open)
+        {
+            var game = gameDirect + gameAmbient + new Vec3(lamps);
+            return new CharacterWorldLight(ToUnity(sun * open), ToUnity((sky + new Vec3(lamps)) * open + game * (1 - open)), ToUnity(game));
+        }
+
+        private static Vec3 Linear(Color c)
+        {
+            var l = c.linear;
+            return new Vec3(l.r, l.g, l.b);
+        }
+
+        private static Vec3 GameAmbient() => Linear(RenderSettings.ambientSkyColor) + Linear(RenderSettings.ambientGroundColor);
 
         // In C# alone: it also runs in the type's initializer, before any of Unity's calls can be made.
         private static float AmbientLuminance(Color sky, Color ground) => AmbientLuminance(new Vec3(sky.r, sky.g, sky.b), new Vec3(ground.r, ground.g, ground.b));
