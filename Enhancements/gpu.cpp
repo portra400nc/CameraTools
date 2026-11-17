@@ -1029,6 +1029,8 @@ namespace enhancements
             return std::nullopt;
         const std::optional<Texture> &probes = map[Entry::ambient_specular], &smoothness = map[Entry::smoothness], &material = map[Entry::material_id];
         const bool reflecting = frame.reflecting && probes && smoothness && material;
+        // The foliage shade tells tall grass, which the game draws under the leaves' stencil, from leaves by its material id.
+        const bool materials = material && material_id_.sync(d, native(*material), static_cast<DXGI_FORMAT>(material->format), false);
         if (reflecting
             && (!reflection_in_.sync(d, native(*probes), static_cast<DXGI_FORMAT>(probes->format), false)
                 || !reflection_out_.sync(d, native(*probes), static_cast<DXGI_FORMAT>(probes->format), true)
@@ -1047,11 +1049,12 @@ namespace enhancements
         if (mask)
             shadow_mask_in_.copy_from(c, native(*mask));
         irradiance_in_.copy_from(c, native(irradiance));
+        if (materials)
+            material_id_.copy_from(c, native(*material));
         if (reflecting)
         {
             reflection_in_.copy_from(c, native(*probes));
             smoothness_in_.copy_from(c, native(*smoothness));
-            material_id_.copy_from(c, native(*material));
         }
         if (!trace.dispatch(frame, map.render, normals_.srv(), depth_.srv(), depth_.stencil_srv(), reflecting ? smoothness_in_.srv() : nullptr,
                 reflecting ? material_id_.srv() : nullptr))
@@ -1068,10 +1071,10 @@ namespace enhancements
         if (write_sun || write_ao || view == View::trace || traced_foliage_fresh_)
         {
             ID3D11ShaderResourceView *const srvs[] = { mask ? shadow_mask_in_.srv() : nullptr, normals_.srv(), depth_.srv(), depth_.stencil_srv(), nullptr, trace.history_srv(),
-                irradiance_in_.srv() };
+                irradiance_in_.srv(), materials ? material_id_.srv() : nullptr };
             ID3D11RenderTargetView *const targets[] = { write_sun ? shadow_mask_out_.rtv() : nullptr, write_ao ? irradiance_out_.rtv() : nullptr,
                 view == View::trace ? trace_view_.rtv() : nullptr, traced_foliage_fresh_ ? traced_foliage_.rtv() : nullptr };
-            draw_fullscreen(apply_trace_ps_.Get(), srvs, 7, targets, 4, map.render);
+            draw_fullscreen(apply_trace_ps_.Get(), srvs, 8, targets, 4, map.render);
         }
         if (write_gather || shown != GatherView::none)
         {

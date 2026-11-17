@@ -21,6 +21,9 @@ cbuffer Trace : register(b1)
 Texture2D<float2> shadow_mask : register(t0);       // mirror of the game's shadow mask: .x sun visibility, .y untouched
 StructuredBuffer<float4> history : register(t5);    // the trace's: occlusion sum, sun sum, their counts, row by row
 Texture2D<float3> irradiance : register(t6);        // mirror of the game's diffuse irradiance
+Texture2D<float> material : register(t7);           // mirror of rt3, the material id / 255; unbound, 0
+
+static const uint kTallGrassMaterial = 3;           // tall grass, which the game draws under the leaves' stencil 137
 
 static const float kBlurBelow = 16;
 
@@ -102,6 +105,6 @@ Targets main(float4 position : SV_Position)
     if (h.z > 0)
         o.irradiance *= trace_params.w * lerp(1, averages.x, trace_params.y);
     if (foliage)
-        o.foliage = min(lerp(1, h.z > 0 ? averages.x : 1, trace_params.y) * lerp(1, h.w > 0 ? averages.y : 1, trace_params.z * (is_grass(s) ? kGrassSunShare : kLeafSunShare)), 0.99);
+        o.foliage = min(lerp(1, h.z > 0 ? averages.x : 1, trace_params.y) * lerp(1, h.w > 0 ? averages.y : 1, trace_params.z * (is_grass(s) || (uint(material.Load(int3(pixel, 0)) * 255 + 0.5) & 0x3Fu) == kTallGrassMaterial ? kGrassSunShare : kLeafSunShare)), 0.99);
     return o;
 }
