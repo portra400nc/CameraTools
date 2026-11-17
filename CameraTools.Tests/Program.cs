@@ -256,7 +256,7 @@ Check("the table holds 105 fields, each at its own id's place, with the master s
             Warmth: 0.5f, Chromatic: 1f, VisibilitySeconds: 0.15f, Texture: 1f }
         && MathF.Abs(off.LensFlare.X - 0.8f) < 1e-6f && MathF.Abs(off.LensFlare.Y - 0.12f) < 1e-6f && !EnhancementsModel.FlareRuns(fresh));
     Check("a field without a row keeps the add-on's default", off.ContactShadows.Thickness == 0.25f && off.SunShadows.MinPenumbra == 0.02f
-        && off.Trace is { AoSamples: 64, SunSamples: 16, BudgetMs: 100f } && off.Gather is { Samples: 2, Filter: 3 });
+        && off.Trace is { AoSamples: 64, SunSamples: 16, BudgetMs: 100f } && off.Gather is { Samples: 8, Filter: 3 });
 }
 {
     var set = fresh.With(Enhancement.Enabled, 1).With(Enhancement.AmbientLight, 1).With(Enhancement.AmbientLevel, 1.25f).With(Enhancement.AmbientColor, 0.25f).With(Enhancement.AmbientOcclusion, 0.8f)

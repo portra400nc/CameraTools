@@ -408,10 +408,10 @@ namespace CameraToolsEnhancements
                 Outputs = EnhancementsTraceOutputs.Ao | EnhancementsTraceOutputs.Sun, Casters = EnhancementsTraceCasters.Characters | EnhancementsTraceCasters.AlphaCards,
                 AoDistance = 2, AoStrength = 1, SunSize = 0.0093f, SunStrength = 1, AoSamples = 64, SunSamples = 16, BudgetMs = 100,
             },
-            // 2 samples through three filter passes, each twice as wide: a thirty-second of the bounce rays of 64 through two, and
-            // with the filter's pooling about what a half-resolution bounce traces. On a sunny meadow 8, 4, 2 and 1 looked the same at
-            // 4K on the Deck (build 483); 2 keeps a margin for shade, where the bounce is more of the light.
-            Gather = new EnhancementsGather { Samples = 2, Sky = EnhancementsGatherSky.Visibility, Filter = 3, Strength = 1, HitAmbient = 0.5f },
+            // 8 samples through three filter passes, each twice as wide: an eighth of the bounce rays of 64 through two. On a sunny
+            // meadow 8, 4, 2 and 1 looked the same at 4K on the Deck, but in shade, where the bounce is most of the light, 2 left
+            // the rocks grainy (build 487).
+            Gather = new EnhancementsGather { Samples = 8, Sky = EnhancementsGatherSky.Visibility, Filter = 3, Strength = 1, HitAmbient = 0.5f },
             DepthOfField = new EnhancementsDepthOfField
             {
                 FNumber = 2.8f, SensorHeightMm = 24, FocusX = 0.5f, FocusY = 0.5f, FocusSeconds = 2, MaxBlur = 0.03f, BladeRoundness = 0.5f,

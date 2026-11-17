@@ -32,8 +32,10 @@ struct Targets
     float foliage : SV_Target3;
 };
 
-// The share of the sun's shadow that the foliage shade takes: its light is part of what a leaf shows, the sky's the rest.
-static const float kFoliageSunShare = 0.35;
+// The share of the traced sun's shadow that the foliage shade takes. Grass takes a little, as blades shading blades drew
+// dark lines; bushes and trees most, as the game lights their leaves its own way, past the shadow mask, so a bush in traced
+// shade otherwise stayed as bright as one in the sun beside darkened grass.
+static const float kGrassSunShare = 0.35, kLeafSunShare = 0.8;
 // How deep the traced sun's shadow on grass and leaves goes in the mask, against 1 elsewhere.
 static const float kFoliageSunShadow = 0.5;
 
@@ -100,6 +102,6 @@ Targets main(float4 position : SV_Position)
     if (h.z > 0)
         o.irradiance *= trace_params.w * lerp(1, averages.x, trace_params.y);
     if (foliage)
-        o.foliage = min(lerp(1, h.z > 0 ? averages.x : 1, trace_params.y) * lerp(1, h.w > 0 ? averages.y : 1, trace_params.z * kFoliageSunShare), 0.99);
+        o.foliage = min(lerp(1, h.z > 0 ? averages.x : 1, trace_params.y) * lerp(1, h.w > 0 ? averages.y : 1, trace_params.z * (is_grass(s) ? kGrassSunShare : kLeafSunShare)), 0.99);
     return o;
 }
