@@ -708,7 +708,8 @@ typedef struct EnhancementsShot
                                 // without it, 1. Version 27 added it.
     uint32_t live;              // 1: the camera may move while it traces, and each move carries the samples over to the new view
                                 // where it still shows the same surfaces instead of starting them again; reflections, which
-                                // depend on the view, stay off. 0, and a caller without it, start again. Version 45 added it.
+                                // depend on the view, stay off, and characters, which move once the game runs, cast nothing.
+                                // 0, and a caller without it, start again. Version 45 added it.
 } EnhancementsShot;
 
 // A light a traced shot traces: one of CameraTools' own, which the caller switches off in the game while the shot traces. The

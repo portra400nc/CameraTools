@@ -794,6 +794,10 @@ namespace enhancements
             if (!logged_origin || origin_moved(*logged_origin, now))
                 log(reshade::log::level::info, "b1 row 10, the game's floating origin, is " + vec_text(now) + " in frame " + std::to_string(frames) + ".");
             logged_origin = now;
+            // While the game runs, the row reads all zero: it then holds no origin. A real shift moves it to another place,
+            // and the consistency grid still finds a scene that no longer matches the depth.
+            if (now[0] == 0 && now[1] == 0 && now[2] == 0)
+                return;
             if (!trace_scene.floating_origin)
                 trace_scene.floating_origin = now;
             else if (origin_moved(*trace_scene.floating_origin, now))

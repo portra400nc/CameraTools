@@ -757,6 +757,9 @@ namespace enhancements
         s.reflect = shot.reflect;
         s.gather.bounces = shot.bounces;
         s.trace.reproject = shot.live;
+        // Characters move once a live shot's game runs again, and the scene holds them where its capture saw them.
+        if (shot.live)
+            s.trace.characters = false;
         return s;
     }
 

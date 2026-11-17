@@ -1409,7 +1409,7 @@ int main()
         const Settings live = with_shot(on, parse_shot(&shot));
         shot.size = offsetof(EnhancementsShot, live);
         check("a live shot carries its samples over a move and traces no reflections; a version 44 caller's shot is not live",
-            live.trace.reproject && !live.reflect.enabled && !with_shot(on, parse_shot(&shot)).trace.reproject && with_shot(on, parse_shot(&shot)).reflect.enabled);
+            live.trace.reproject && !live.reflect.enabled && !live.trace.characters && !with_shot(on, parse_shot(&shot)).trace.reproject && with_shot(on, parse_shot(&shot)).reflect.enabled);
         shot.size = sizeof shot;
         shot.bounces = 0;
         check("0 bounces count as 1", with_shot(on, parse_shot(&shot)).gather.bounces == 1);

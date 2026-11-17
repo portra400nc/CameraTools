@@ -96,6 +96,13 @@ namespace CameraTools
                         Shown = shown, Sub = true,
                     },
                 };
+                // Last in Experimental features, once the hidden traced shot is unlocked.
+                if (field.Id == Enhancement.WeatherMist)
+                    yield return new ToggleRow("Live path tracing", () => LiveTrace.On, on => { if (on != LiveTrace.On) LiveTrace.Toggle(); })
+                    {
+                        Shown = () => !Folded && !ExperimentalFolded && EnhancementsShot.Shown,
+                        Detail = () => LiveTrace.On ? "Traced light that follows the camera" : "Pause the game to start",
+                    };
                 if (field.Id == Enhancement.NightBrightness)
                     yield return new StepperRow("Moon day", () => NightSky.MoonDays, () => NightSky.MoonDay, NightSky.SetMoonDay, NightSky.MoonPhase, usable)
                     {
