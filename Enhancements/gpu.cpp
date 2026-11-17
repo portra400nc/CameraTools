@@ -841,6 +841,7 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kLightShaftsPs, sizeof kLightShaftsPs, nullptr, &made.light_shafts_ps_))
             && SUCCEEDED(device->CreatePixelShader(kApplyTracePs, sizeof kApplyTracePs, nullptr, &made.apply_trace_ps_))
             && SUCCEEDED(device->CreatePixelShader(kTracedLightsPs, sizeof kTracedLightsPs, nullptr, &made.traced_lights_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kTracedFoliagePs, sizeof kTracedFoliagePs, nullptr, &made.traced_foliage_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCharacterLightPs, sizeof kCharacterLightPs, nullptr, &made.character_light_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCharacterShadowPs, sizeof kCharacterShadowPs, nullptr, &made.character_shadow_ps_))
             && SUCCEEDED(device->CreatePixelShader(kGatherAveragePs, sizeof kGatherAveragePs, nullptr, &made.gather_average_ps_))
@@ -1059,13 +1060,15 @@ namespace enhancements
         const bool write_ao = frame.traced && settings.ao && !frame.gathering, write_gather = frame.traced && settings.ao && frame.gathering;
         ID3D11Buffer *const traced[] = { trace.constants() };
         c->PSSetConstantBuffers(1, 1, traced);
-        if (write_sun || write_ao || view == View::trace)
+        // Grass's and leaves' shade for the traced foliage pass at bloom.
+        traced_foliage_fresh_ = frame.traced && (settings.ao || settings.sun) && traced_foliage_.sync(d, map.render, DXGI_FORMAT_R8_UNORM);
+        if (write_sun || write_ao || view == View::trace || traced_foliage_fresh_)
         {
             ID3D11ShaderResourceView *const srvs[] = { mask ? shadow_mask_in_.srv() : nullptr, normals_.srv(), depth_.srv(), depth_.stencil_srv(), nullptr, trace.history_srv(),
                 irradiance_in_.srv() };
             ID3D11RenderTargetView *const targets[] = { write_sun ? shadow_mask_out_.rtv() : nullptr, write_ao ? irradiance_out_.rtv() : nullptr,
-                view == View::trace ? trace_view_.rtv() : nullptr };
-            draw_fullscreen(apply_trace_ps_.Get(), srvs, 7, targets, 3, map.render);
+                view == View::trace ? trace_view_.rtv() : nullptr, traced_foliage_fresh_ ? traced_foliage_.rtv() : nullptr };
+            draw_fullscreen(apply_trace_ps_.Get(), srvs, 7, targets, 4, map.render);
         }
         if (write_gather || shown != GatherView::none)
         {
@@ -1477,6 +1480,28 @@ namespace enhancements
         depth_.copy_from(c, native(depth));
         ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), nullptr, depth_.srv(), nullptr, nullptr, nullptr, lattice_srv_.Get() };
         draw_fullscreen(atmosphere_ps_.Get(), srvs, 7, scene_out_.rtv(), map.render);
+        scene_out_.copy_to(c, native(scene));
+        return GameCall::keep;
+    }
+
+    std::optional<GameCall> Gpu::run_traced_foliage(const FrameMap &map, const Camera &camera, bool flip)
+    {
+        // The shade the trace's apply draw wrote at this frame's combine step, once.
+        if (!traced_foliage_fresh_)
+            return GameCall::keep;
+        traced_foliage_fresh_ = false;
+        const Texture &scene = *map[Entry::hdr_scene];
+        const auto scene_format = static_cast<DXGI_FORMAT>(scene.format);
+        ID3D11Device *d = device_.Get();
+        Constants constants;
+        if (!scene_in_.sync(d, native(scene), scene_format, false) || !scene_out_.sync(d, native(scene), scene_format, true)
+            || !pass_constants(camera, map.render, flip, constants))
+            return std::nullopt;
+        upload(constants);
+        ID3D11DeviceContext1 *c = context_.Get();
+        scene_in_.copy_from(c, native(scene));
+        ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), nullptr, nullptr, nullptr, traced_foliage_.srv() };
+        draw_fullscreen(traced_foliage_ps_.Get(), srvs, 5, scene_out_.rtv(), map.render);
         scene_out_.copy_to(c, native(scene));
         return GameCall::keep;
     }

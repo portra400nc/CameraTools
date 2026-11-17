@@ -9,4 +9,4 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 bin=${CHECK_BVH_BIN:-$out/check_bvh}
 [ -n "$CHECK_BVH_BIN" ] || c++ -std=c++17 -O2 -pthread -Wall -Wextra -Werror -I .. check_bvh.cpp ../core/*.cpp -o "$bin"
-"$bin" "$1" 5acc3b0243e8c541
+"$bin" "$1" d9e4cc848f92e21d

@@ -471,7 +471,7 @@ namespace enhancements
         extra.clear();
         r.stride = kCornerBytes;
         const DrawClass cls = draw_class(r);
-        if (cls == DrawClass::s133 || cls == DrawClass::s165 || cls == DrawClass::s129)
+        if (cls == DrawClass::s133 || cls == DrawClass::s165)
         {
             r.alpha = DrawAlpha::character;
             return;

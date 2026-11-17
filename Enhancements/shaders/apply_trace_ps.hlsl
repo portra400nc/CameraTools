@@ -3,6 +3,8 @@
 // everywhere else, because each result is copied over the game's buffer whole. Below 16 samples a pixel takes the
 // edge-aware 4x4 blur of its neighbors' averages, so the first passes' noise does not show; from 16 on its own. The third
 // target, bound only for the trace view, gets the raw averages: occlusion red, sun green, blue where there is no sample.
+// The fourth gets grass's and leaves' shade for the traced foliage pass at bloom, which the game's foliage lighting does
+// not take from the irradiance and the mask: just under 1 at the most on foliage, and 1 elsewhere.
 #include "gbuffer.hlsli"
 
 cbuffer Trace : register(b1)
@@ -27,7 +29,11 @@ struct Targets
     float2 mask : SV_Target0;
     float3 irradiance : SV_Target1;
     float4 view : SV_Target2;
+    float foliage : SV_Target3;
 };
+
+// The share of the sun's shadow that the foliage shade takes: its light is part of what a leaf shows, the sky's the rest.
+static const float kFoliageSunShare = 0.6;
 
 float4 history_at(int2 q) { return history[uint(q.y) * trace_render.x + uint(q.x)]; }
 
@@ -69,7 +75,9 @@ Targets main(float4 position : SV_Position)
     o.irradiance = irradiance.Load(int3(pixel, 0));
     float4 h = history_at(pixel);
     o.view = float4(h.z > 0 ? h.x / h.z : 0, h.w > 0 ? h.y / h.w : 0, h.z > 0 || h.w > 0 ? 0 : 1, 1);
-    if (!is_world(stencil.Load(int3(pixel, 0)).g))
+    o.foliage = 1;
+    uint s = stencil.Load(int3(pixel, 0)).g;
+    if (!is_world(s))
         return o;
     float2 averages = float2(h.z > 0 ? h.x / h.z : 1, h.w > 0 ? h.y / h.w : 1);
     if ((h.z > 0 && h.z < kBlurBelow) || (h.w > 0 && h.w < kBlurBelow))
@@ -81,5 +89,7 @@ Targets main(float4 position : SV_Position)
         o.mask = float2(lerp(1, averages.y, trace_params.z), game_mask.y);
     if (h.z > 0)
         o.irradiance *= trace_params.w * lerp(1, averages.x, trace_params.y);
+    if (is_foliage(s))
+        o.foliage = min(lerp(1, h.z > 0 ? averages.x : 1, trace_params.y) * lerp(1, h.w > 0 ? averages.y : 1, trace_params.z * kFoliageSunShare), 0.99);
     return o;
 }

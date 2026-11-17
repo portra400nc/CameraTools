@@ -103,7 +103,7 @@ int main()
         std::printf("INFO fixture BVH: %zu triangles, %zu nodes, %u leaves, SAH cost %.3f, hash %016llx\n", bvh.triangles.size(), bvh.nodes.size(), bvh.leaves,
             bvh.sah, static_cast<unsigned long long>(bvh.hash));
         check("the fixture's BVH has its literal shape and hash", bvh.triangles.size() == 14165 && bvh.nodes.size() == 4621 && bvh.leaves == 4622
-            && bvh.hash == 0x5acc3b0243e8c541ull);
+            && bvh.hash == 0xd9e4cc848f92e21dull);
         check("3 and 8 build threads give the same nodes and triangles as 1", b3.hash == bvh.hash && b8.hash == bvh.hash && b3.nodes.size() == bvh.nodes.size()
             && std::memcmp(b8.nodes.data(), bvh.nodes.data(), bvh.nodes.size() * sizeof(BvhNode)) == 0 && b8.source == bvh.source);
         bool leaves_ok = true, order_ok = true;

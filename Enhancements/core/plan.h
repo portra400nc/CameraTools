@@ -448,7 +448,7 @@ namespace enhancements
     enum class GameCall : bool { keep, skip };
 
     // The ENHANCEMENTS_PASS_* bit order, not the run order.
-    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, wetness, light_shafts, trace, depth_of_field, lens_flare, traced_lights, character_light, clouds, sky, rain, count };
+    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, wetness, light_shafts, trace, depth_of_field, lens_flare, traced_lights, character_light, clouds, sky, rain, traced_foliage, count };
 
     // ENHANCEMENTS_TRACE_STATE_*: where the traced scene the trace pass needs is. The names follow in kTraceStateNames.
     enum class TraceState : uint8_t { none, building, uploading, ready, stale, failed, count };

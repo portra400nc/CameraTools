@@ -53,15 +53,14 @@ namespace enhancements
 
     std::optional<TraceClass> trace_class(const SceneDrawRecord &record)
     {
-        if (record.analysis && record.analysis->material == kTallGrassMaterial)
-            return std::nullopt;
+        // Grass and tall grass cast and take shade like other foliage, cut by their alpha programs: the capped rays that once
+        // left them out came from corrupt geometry, since fixed (docs/genshin-port-status.md, build 208).
         switch (draw_class(record))
         {
         case DrawClass::s128: case DrawClass::s144: return TraceClass::world;
         case DrawClass::s136: return TraceClass::vegetation;
-        case DrawClass::s137: return TraceClass::foliage;
+        case DrawClass::s129: case DrawClass::s137: return TraceClass::foliage;
         case DrawClass::s133: case DrawClass::s165: return TraceClass::character;
-        case DrawClass::s129: return std::nullopt;
         case DrawClass::pre: case DrawClass::other: case DrawClass::count: break;
         }
         return TraceClass::other;

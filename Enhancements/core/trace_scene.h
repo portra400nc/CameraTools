@@ -29,11 +29,8 @@ namespace enhancements
     };
     extern const std::array<const char *, static_cast<size_t>(TraceClass::count)> kTraceClassNames;
 
-    // The G-buffer material id of tall grass, which the game draws as alpha-tested cards under the foliage stencil (137).
-    constexpr uint32_t kTallGrassMaterial = 3;
-
-    // The class a draw's triangles get, or empty for grass, which never casts, as for contact shadows: stencil 129, and
-    // tall grass, a draw whose pixel shader writes kTallGrassMaterial.
+    // The class a draw's triangles get by its stencil: grass (129) is foliage, as tall grass under the foliage stencil
+    // (137) is. Empty for a draw the scene leaves out, which no stencil is now.
     std::optional<TraceClass> trace_class(const SceneDrawRecord &record);
 
     // Whether a draw leaves surfaces in the depth buffer: it writes depth, or it draws the prepass's surfaces again at
@@ -96,7 +93,7 @@ namespace enhancements
             uint64_t in = 0;                    // triangles offered
             uint64_t unique = 0;                // kept, one per key
             uint64_t replaced = 0;              // kept copies a later copy of a higher kind replaced
-            uint64_t dropped_class = 0;         // grass
+            uint64_t dropped_class = 0;         // left out by class
             uint64_t dropped_no_depth = 0;      // draws that leave no surface in the depth buffer
             uint64_t dropped_degenerate = 0;    // a corner at infinity, out of range, or merged with another on the grid
             uint64_t dropped_equal_alone = 0;   // equal-depth copies with no earlier copy to replace

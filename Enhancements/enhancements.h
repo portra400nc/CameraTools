@@ -104,6 +104,7 @@ enum
     ENHANCEMENTS_PASS_CLOUDS = 1u << 12,
     ENHANCEMENTS_PASS_SKY = 1u << 13,
     ENHANCEMENTS_PASS_RAIN = 1u << 14,
+    ENHANCEMENTS_PASS_TRACED_FOLIAGE = 1u << 15,
 };
 
 // The tonemap pass's curves, values of EnhancementsTonemap.curve.

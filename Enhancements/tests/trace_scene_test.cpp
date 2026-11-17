@@ -158,8 +158,9 @@ int main()
         b.add_draw(draw("main", 129), { kA, kB });
         b.add_draw(draw("main", 165), { kC, { kA[0], kA[0], kA[1] } });
         const SceneBuilder::Counts c = b.counts();
-        check("grass is left out and a degenerate triangle dropped; a character casts", c.in == 4 && c.dropped_class == 2 && c.dropped_degenerate == 1
-            && c.unique == 1 && info_class(b.take(10)[0].info) == TraceClass::character);
+        const std::vector<TraceTriangle> cast = b.take(10);
+        check("grass casts as foliage and a degenerate triangle is dropped; a character casts", c.in == 4 && c.dropped_class == 0 && c.dropped_degenerate == 1
+            && c.unique == 3 && cast.size() == 3 && info_class(cast[0].info) == TraceClass::foliage && info_class(cast[2].info) == TraceClass::character);
         SceneDrawRecord volume = draw("main", 38);
         volume.depth_func = 8;
         volume.depth_write = false;
@@ -188,15 +189,15 @@ int main()
             && trace_class(draw("main", 200)) == TraceClass::other && trace_class(draw("pre", 0)) == TraceClass::other);
         SceneDrawRecord tall = draw("main", 137), leaf = draw("main", 137);
         AlphaAnalysis grass_shader, leaf_shader;
-        grass_shader.material = kTallGrassMaterial;
+        grass_shader.material = 3;     // tall grass
         leaf_shader.material = 2;
         tall.analysis = std::make_shared<const AlphaAnalysis>(grass_shader);
         leaf.analysis = std::make_shared<const AlphaAnalysis>(leaf_shader);
         SceneBuilder meadow;
         meadow.add_draw(tall, { kA });
         meadow.add_draw(leaf, { kB });
-        check("tall grass under the foliage stencil, a pixel shader writing material 3, is left out like stencil 129; leaves stay foliage",
-            !trace_class(tall) && trace_class(leaf) == TraceClass::foliage && meadow.counts().dropped_class == 1 && meadow.counts().unique == 1);
+        check("tall grass under the foliage stencil, a pixel shader writing material 3, casts as foliage like the leaves",
+            trace_class(tall) == TraceClass::foliage && trace_class(leaf) == TraceClass::foliage && meadow.counts().dropped_class == 0 && meadow.counts().unique == 2);
     }
     {
         SceneBuilder b;
@@ -344,11 +345,12 @@ int main()
             run.clear();
         }
         const SceneBuilder::Counts c = b.counts();
-        std::printf("INFO fixture: in %llu, grass %llu, degenerate %llu, unique %llu, replaced %llu, prepass only %llu\n",
+        std::printf("INFO fixture: in %llu, left out by class %llu, degenerate %llu, unique %llu, replaced %llu, prepass only %llu\n",
             static_cast<unsigned long long>(c.in), static_cast<unsigned long long>(c.dropped_class), static_cast<unsigned long long>(c.dropped_degenerate),
             static_cast<unsigned long long>(c.unique), static_cast<unsigned long long>(c.replaced), static_cast<unsigned long long>(c.pre_only));
-        check("the fixture's counts match make_trace_fixture.py's", c.in == 48894 && c.dropped_class == 5158 && c.dropped_degenerate == 392
-            && c.unique == 14165 && c.replaced == 539 && c.pre_only == 1346);
+        // With grass in, its main draws' triangles replace the prepass copies make_trace_fixture.py counts as prepass only.
+        check("the fixture's counts match make_trace_fixture.py's, its grass kept", c.in == 48894 && c.dropped_class == 0 && c.dropped_degenerate == 392
+            && c.unique == 14165 && c.replaced == 1885 && c.pre_only == 0);
     }
     {
         // Build 207's meadow (scene-20261012-161003, frame trace-20261012-161041): the 24 occlusion rays of one tile that

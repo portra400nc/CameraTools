@@ -1126,6 +1126,9 @@ namespace enhancements
                     case PassId::wetness:
                         call = gpu.run_wetness(map, settings.wetness, wetness_amount(settings.wetness, camera), camera, settings.flip);
                         break;
+                    case PassId::traced_foliage:
+                        call = gpu.run_traced_foliage(map, sky_camera(), settings.flip);
+                        break;
                     case PassId::rain:
                         if (std::fabs(settings.rain - logged_rain) > 0.1f)
                         {

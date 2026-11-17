@@ -18,6 +18,7 @@ namespace enhancements
         bool rain_wanted(const Settings &s) { return s.rain > 0 || s.lightning > 0; }
         bool sky_wanted(const Settings &s) { return s.sky.enabled; }
         bool traced_lights_wanted(const Settings &s) { return s.traced_lights; }
+        bool traced_foliage_wanted(const Settings &s) { return s.trace.enabled; }
         bool character_light_wanted(const Settings &s) { return s.character_light.enabled; }
         bool tonemap_wanted(const Settings &s) { return s.tonemap.enabled; }
         bool sun_shadows_wanted(const Settings &s) { return s.sun_shadows.enabled; }
@@ -40,7 +41,7 @@ namespace enhancements
             && ENHANCEMENTS_PASS_LIGHT_SHAFTS == bit(PassId::light_shafts) && ENHANCEMENTS_PASS_TRACE == bit(PassId::trace)
             && ENHANCEMENTS_PASS_DEPTH_OF_FIELD == bit(PassId::depth_of_field) && ENHANCEMENTS_PASS_LENS_FLARE == bit(PassId::lens_flare)
             && ENHANCEMENTS_PASS_TRACED_LIGHTS == bit(PassId::traced_lights) && ENHANCEMENTS_PASS_CHARACTER_LIGHT == bit(PassId::character_light)
-            && ENHANCEMENTS_PASS_CLOUDS == bit(PassId::clouds) && ENHANCEMENTS_PASS_SKY == bit(PassId::sky) && ENHANCEMENTS_PASS_RAIN == bit(PassId::rain) && static_cast<int>(PassId::count) == 15);
+            && ENHANCEMENTS_PASS_CLOUDS == bit(PassId::clouds) && ENHANCEMENTS_PASS_SKY == bit(PassId::sky) && ENHANCEMENTS_PASS_RAIN == bit(PassId::rain) && ENHANCEMENTS_PASS_TRACED_FOLIAGE == bit(PassId::traced_foliage) && static_cast<int>(PassId::count) == 16);
         static_assert(ENHANCEMENTS_TRACE_STATE_FAILED == static_cast<int>(TraceState::failed) && static_cast<int>(TraceState::count) == 6);
         static_assert(ENHANCEMENTS_CURVE_AGX == static_cast<int>(Curve::agx) && ENHANCEMENTS_CURVE_COUNT == static_cast<int>(Curve::count));
         static_assert(ENHANCEMENTS_VIEW_COUNT == static_cast<int>(View::count) && ENHANCEMENTS_VIEW_STENCIL == static_cast<int>(View::stencil)
@@ -131,6 +132,8 @@ namespace enhancements
           true, SunUse::none, character_light_wanted },
         { PassId::traced_lights, "traced-lights", Step::bloom, { Entry::depth, Entry::hdr_scene, Entry::albedo, Entry::normals }, true, SunUse::none,
           traced_lights_wanted },
+        // After the traced lights, which light the foliage it shades, and before the haze in front of it.
+        { PassId::traced_foliage, "traced-foliage", Step::bloom, { Entry::hdr_scene }, true, SunUse::none, traced_foliage_wanted },
         // Over the sky's pixels before the clouds, which lie in front of it, and the haze.
         // The sun's atlas shades the distance haze where the main light does not reach the air.
         { PassId::sky, "sky", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::optional, sky_wanted },
@@ -874,9 +877,11 @@ namespace enhancements
             if (spec.at != step)
                 continue;
             Decision d { Decision::Kind::off, spec.id, {}, false, SunCheck::ok, false, TraceState::ready };
-            if (settings.enabled && spec.wanted(settings) && inputs.traced && replaced_by_trace(spec.id, settings.trace))
+            // The traced foliage carries what the trace wrote this frame, and stays off in a frame it wrote nothing.
+            const bool wanted = settings.enabled && spec.wanted(settings) && (spec.id != PassId::traced_foliage || inputs.traced);
+            if (wanted && inputs.traced && replaced_by_trace(spec.id, settings.trace))
                 d.kind = Decision::Kind::replaced;
-            else if (settings.enabled && spec.wanted(settings))
+            else if (wanted)
             {
                 d.missing = spec.needs.minus(found);
                 d.camera_missing = spec.needs_camera && !inputs.camera;

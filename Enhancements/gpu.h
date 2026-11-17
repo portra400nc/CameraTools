@@ -356,6 +356,10 @@ namespace enhancements
         // (1 - T) on pixels with depth, where T is the transmittance of the height-fading haze along the view ray, and in
         // on the sky; copy out over the game's HDR scene. The mist's banks have drifted drift_x and drift_z meters along world
         // x and z. Empty when a texture of ours failed.
+        // The traced foliage pass: the HDR scene's grass and leaves times the shade the trace's apply draw wrote at this
+        // frame's combine step, which the game's foliage lighting does not take from the irradiance and the mask. Keeps the
+        // scene when the trace wrote none this frame. Empty when a texture of ours failed.
+        std::optional<GameCall> run_traced_foliage(const FrameMap &map, const Camera &camera, bool flip);
         std::optional<GameCall> run_atmosphere(const FrameMap &map, const AtmosphereSettings &settings, const Camera &camera, bool flip, float drift_x, float drift_z);
         // The cloud layer: bake the cells around the camera into cloud_map_, march the slab at half size into cloud_rays_
         // with the game's camera constants gather_sun copied, and lay the result over the sky's pixels. wind is the meters
@@ -579,7 +583,7 @@ namespace enhancements
         ComPtr<ID3D11Device> device_;
         ComPtr<ID3D11DeviceContext1> context_;
         ComPtr<ID3D11VertexShader> fullscreen_vs_, dof_sprite_vs_, stars_vs_;
-        ComPtr<ID3D11PixelShader> sky_view_ps_, sky_ps_, sky_dome_ps_, stars_ps_, aerial_lit_ps_, water_ps_, rain_ps_, scene_light_ps_;
+        ComPtr<ID3D11PixelShader> sky_view_ps_, sky_ps_, sky_dome_ps_, stars_ps_, aerial_lit_ps_, water_ps_, rain_ps_, scene_light_ps_, traced_foliage_ps_;
         ComPtr<ID3D11BlendState> water_blend_;  // target 0: the color added; the others untouched
         ComPtr<ID3D11Buffer> night_lamps_constants_;  // core/night_lamps.h NightLamps at b4
         // The physical sky's air tables, R32G32B32A32_FLOAT, uploaded from sky_air_; the moon's face, R8G8B8A8_UNORM 512 a side;
@@ -641,6 +645,8 @@ namespace enhancements
         Mirror irradiance_in_, irradiance_out_, shadow_mask_in_, shadow_mask_out_, scene_in_, scene_out_, bloom_in_, tonemap_out_, normals_, depth_,
             back_buffer_, sun_atlas_, albedo_, material_id_, albedo_out_, specular_in_, specular_out_, reflection_in_, reflection_out_, smoothness_in_, smoothness_out_;
         Scratch ao_;                // R8_UNORM raw occlusion, 1 = open
+        Scratch traced_foliage_;    // R8_UNORM the trace's shade on grass and leaves, 1 elsewhere
+        bool traced_foliage_fresh_ = false; // the trace's apply draw wrote traced_foliage_ this frame and bloom has not used it
         Scratch contact_;           // R8_UNORM raw sun visibility, 1 = lit
         Scratch sun_;               // R8_UNORM raw soft sun visibility, 1 = lit
         Scratch sum_;               // R32G32B32A32_FLOAT: rgb the weighted HDR sum, a the weight sum
