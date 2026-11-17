@@ -1211,9 +1211,10 @@ namespace enhancements
         draw_fullscreen(ao_ps_.Get(), srvs, 4, ao_.rtv(), map.render);
         draw_fullscreen(ambient_ps_.Get(), srvs, 5, irradiance_out_.rtv(), map.render);
         irradiance_out_.copy_to(c, native(irradiance));
-        // The game's reflections at the physical sky's share of a day's light, through level, grayed by the overcast.
+        // The game's reflections, occluded as the ambient light is, at the physical sky's share of a day's light, through
+        // level, grayed by the overcast.
         const std::optional<Texture> &probes = map[Entry::ambient_specular];
-        if ((reflection_scale != 1 || overcast > 0) && probes)
+        if ((reflection_scale != 1 || overcast > 0 || settings.ao_strength > 0) && probes)
         {
             const auto format = static_cast<DXGI_FORMAT>(probes->format);
             if (!reflection_in_.sync(device_.Get(), native(*probes), format, false) || !reflection_out_.sync(device_.Get(), native(*probes), format, true))
@@ -1222,8 +1223,8 @@ namespace enhancements
             constants.reflection_overcast = overcast;
             upload(constants);
             reflection_in_.copy_from(c, native(*probes));
-            ID3D11ShaderResourceView *const reflected[] = { reflection_in_.srv(), normals_.srv(), depth_.srv(), depth_.stencil_srv() };
-            draw_fullscreen(ambient_specular_ps_.Get(), reflected, 4, reflection_out_.rtv(), map.render);
+            ID3D11ShaderResourceView *const reflected[] = { reflection_in_.srv(), normals_.srv(), depth_.srv(), depth_.stencil_srv(), ao_.srv() };
+            draw_fullscreen(ambient_specular_ps_.Get(), reflected, 5, reflection_out_.rtv(), map.render);
             reflection_out_.copy_to(c, native(*probes));
         }
         return GameCall::keep;
