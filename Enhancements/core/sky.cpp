@@ -391,7 +391,11 @@ namespace enhancements
 
     float exposure_gain(const Atmosphere &a, const SkyLight &sun, const SkyLight &moon, const SkyExposure &exposure)
     {
-        const float light = level_illuminance(a, sun) + level_illuminance(a, moon) + night_floor(a);
+        // A low moon lights the level ground little, yet its beam, its glow and what faces it stay as bright as a high moon's:
+        // the night takes the moon's light on a surface facing it where that is more, so a low moon is not exposed toward
+        // a moonless night's brightness, which washed the sky out to a grey day around a glowing moon.
+        const float facing_moon = moon.illuminance > 0 && moon.toward[1] > 0 ? moon.illuminance * luminance_of(sky_transmittance(a, moon.toward)) : 0;
+        const float light = level_illuminance(a, sun) + std::max(level_illuminance(a, moon), facing_moon) + night_floor(a);
         const float low_sun = level_illuminance(a, { { 0.98481f, 0.17365f, 0 }, 1 });
         const float noon = level_illuminance(a, { { 0, 1, 0 }, 1 });
         if (!(light > 0))

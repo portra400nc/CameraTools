@@ -341,8 +341,8 @@ int main()
         check("with the sun 6 degrees down there is no sunlight and the exposed sky keeps a quarter of a day's, 0.247",
             luminance(blue_hour.sun) == 0 && near(blue_hour.sky_share, 0.24674f));
         const WorldLight full = lit(-30, 40, 0);
-        check("a full moon 40 degrees up lights a white surface 3 times its real 0.0456 at the night's exposure, lifted 3 stops, as the sky's share of 0.0284",
-            near(luminance(full.moon), 3 * 8 * 0.045579f) && near(full.sky_share, 8 * 0.028441f));
+        check("a full moon 40 degrees up lights a white surface 0.909 and the sky's share is 0.189: the night is exposed by its light on a surface facing it, 17% under its light on the ground",
+            near(luminance(full.moon), 0.90893f) && near(full.sky_share, 0.18912f));
         const WorldLight rising = lit(-30, 4, 0), high = lit(-30, 60, 0);
         check("a full moon 4 degrees up lights what faces it less than one 60 degrees up, through more air: 0.143 against 0.894",
             near(luminance(rising.moon), 0.14262f) && near(luminance(high.moon), 0.89372f));
