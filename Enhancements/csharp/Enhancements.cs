@@ -406,9 +406,10 @@ namespace CameraToolsEnhancements
             Trace = new EnhancementsTrace
             {
                 Outputs = EnhancementsTraceOutputs.Ao | EnhancementsTraceOutputs.Sun, Casters = EnhancementsTraceCasters.Characters | EnhancementsTraceCasters.AlphaCards,
-                AoDistance = 2, AoStrength = 1, SunSize = 0.0093f, SunStrength = 1, AoSamples = 64, SunSamples = 32, BudgetMs = 100,
+                AoDistance = 2, AoStrength = 1, SunSize = 0.0093f, SunStrength = 1, AoSamples = 64, SunSamples = 16, BudgetMs = 100,
             },
-            Gather = new EnhancementsGather { Samples = 64, Sky = EnhancementsGatherSky.Visibility, Filter = 2, Strength = 1, HitAmbient = 0.5f },
+            // 16 samples through three filter passes, each twice as wide, for a shot in a quarter of the bounce rays of 64 through two.
+            Gather = new EnhancementsGather { Samples = 16, Sky = EnhancementsGatherSky.Visibility, Filter = 3, Strength = 1, HitAmbient = 0.5f },
             DepthOfField = new EnhancementsDepthOfField
             {
                 FNumber = 2.8f, SensorHeightMm = 24, FocusX = 0.5f, FocusY = 0.5f, FocusSeconds = 2, MaxBlur = 0.03f, BladeRoundness = 0.5f,

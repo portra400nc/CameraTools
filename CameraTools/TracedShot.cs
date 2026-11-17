@@ -61,8 +61,9 @@ namespace CameraTools
         // The light holds still while it stays within this for this long. The time of day moves the sun 0.004 a second.
         public const float StillTolerance = 1e-4f;
         public const float StillSeconds = 0.5f;
-        // After this long without a still light the shot goes on, and the add-on's own restarts say what moves.
-        public const float StillTimeout = 10f;
+        // After this long without a still light the shot goes on, and the add-on's own restarts say what moves. The time of
+        // day keeps the light from ever holding still while the game runs, which cost every unpaused shot the whole wait.
+        public const float StillTimeout = 4f;
         // Presents every other condition holds before the scene is captured, so the render size has settled.
         public const ulong SettledPresents = 10;
         // GPU time a frame for the shot's rays, the add-on's most: nothing else needs the frames while it waits, and each frame
@@ -83,7 +84,7 @@ namespace CameraTools
         // Presents each turned face is held before its capture, against the add-on's 45. The camera only turns, so nothing
         // streams in: at 6, a Deck capture matched one at 45 in depth and in the lit pictures of every surface, and only the
         // sun's halo, which the default sky mix does not read, was still fading in.
-        public const uint FaceSettle = 8;
+        public const uint FaceSettle = 6;
         // Every face by name, EnhancementsSceneRequest.Faces' bits: with none named, a traced capture is the add-on's self-test
         // scene.
         public const uint AllFaces = (1u << (int)Faces) - 1;

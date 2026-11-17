@@ -1197,8 +1197,8 @@ int main()
         raw.size = sizeof raw;
         raw.gather = { 1, 0, 9, 7, NAN, -1 };
         const GatherSettings odd = parse_settings(raw).gather;
-        check("the gather clamps: 0 samples to 1, an unknown sky to visibility, filter 7 to 2, a NaN strength to 1, hit_ambient -1 to 0",
-            odd.samples == 1 && odd.sky == GatherSky::visibility && odd.filter == 2 && odd.strength == 1.0f && odd.hit_ambient == 0.0f);
+        check("the gather clamps: 0 samples to 1, an unknown sky to visibility, filter 7 to 3, a NaN strength to 1, hit_ambient -1 to 0",
+            odd.samples == 1 && odd.sky == GatherSky::visibility && odd.filter == 3 && odd.strength == 1.0f && odd.hit_ambient == 0.0f);
         raw.gather = { 1, 100000, 0, 0, 100, 5 };
         const GatherSettings high = parse_settings(raw).gather;
         check("and 100000 samples to 4096, strength 100 to 4, hit_ambient 5 to 1, the occlusion sky and no filter kept", high.samples == 4096

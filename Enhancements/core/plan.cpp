@@ -400,7 +400,7 @@ namespace enhancements
             s.gather.enabled = g.enabled != 0;
             s.gather.samples = std::clamp<uint32_t>(g.samples, 1, 4096);
             s.gather.sky = g.sky < static_cast<uint32_t>(GatherSky::count) ? static_cast<GatherSky>(g.sky) : gather_defaults.sky;
-            s.gather.filter = std::min<uint32_t>(g.filter, 2);
+            s.gather.filter = std::min<uint32_t>(g.filter, 3);
             s.gather.strength = finite_or(g.strength, gather_defaults.strength, 0.0f, 4.0f);
             s.gather.hit_ambient = finite_or(g.hit_ambient, gather_defaults.hit_ambient, 0.0f, 1.0f);
         }

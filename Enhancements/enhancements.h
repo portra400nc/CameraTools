@@ -352,7 +352,7 @@ typedef struct EnhancementsGather
     uint32_t enabled;           // default 0
     uint32_t samples;           // gather samples a pixel, then it stops; default 64, clamped to 1..4096
     uint32_t sky;               // ENHANCEMENTS_GATHER_SKY_*; default VISIBILITY; unknown values read as the default
-    uint32_t filter;            // 0 none, 1 one edge-aware 5x5 pass of the far light, 2 two; default 2, clamped to 0..2
+    uint32_t filter;            // 0 none, 1 one edge-aware 5x5 pass of the far light, 2 two, 3 three, each twice as wide; default 2, clamped to 0..3
     float strength;             // multiplies the bounce; default 1, clamped to 0..4
     float hit_ambient;          // the share of the game's ambient light a hit surface gets; default 0.5, clamped to 0..1
 } EnhancementsGather;
