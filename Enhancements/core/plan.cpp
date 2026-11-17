@@ -133,7 +133,7 @@ namespace enhancements
         { PassId::traced_lights, "traced-lights", Step::bloom, { Entry::depth, Entry::hdr_scene, Entry::albedo, Entry::normals }, true, SunUse::none,
           traced_lights_wanted },
         // After the traced lights, which light the foliage it shades, and before the haze in front of it.
-        { PassId::traced_foliage, "traced-foliage", Step::bloom, { Entry::hdr_scene }, true, SunUse::none, traced_foliage_wanted },
+        { PassId::traced_foliage, "traced-foliage", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::none, traced_foliage_wanted },
         // Over the sky's pixels before the clouds, which lie in front of it, and the haze.
         // The sun's atlas shades the distance haze where the main light does not reach the air.
         { PassId::sky, "sky", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::optional, sky_wanted },

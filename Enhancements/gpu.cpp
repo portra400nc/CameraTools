@@ -1490,17 +1490,18 @@ namespace enhancements
         if (!traced_foliage_fresh_)
             return GameCall::keep;
         traced_foliage_fresh_ = false;
-        const Texture &scene = *map[Entry::hdr_scene];
+        const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
         const auto scene_format = static_cast<DXGI_FORMAT>(scene.format);
         ID3D11Device *d = device_.Get();
         Constants constants;
         if (!scene_in_.sync(d, native(scene), scene_format, false) || !scene_out_.sync(d, native(scene), scene_format, true)
-            || !pass_constants(camera, map.render, flip, constants))
+            || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false) || !pass_constants(camera, map.render, flip, constants))
             return std::nullopt;
         upload(constants);
         ID3D11DeviceContext1 *c = context_.Get();
         scene_in_.copy_from(c, native(scene));
-        ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), nullptr, nullptr, nullptr, traced_foliage_.srv() };
+        depth_.copy_from(c, native(depth));
+        ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), nullptr, depth_.srv(), nullptr, traced_foliage_.srv() };
         draw_fullscreen(traced_foliage_ps_.Get(), srvs, 5, scene_out_.rtv(), map.render);
         scene_out_.copy_to(c, native(scene));
         return GameCall::keep;
