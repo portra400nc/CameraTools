@@ -126,7 +126,8 @@ cbuffer Constants : register(b0)
     float mist_size;            // meters across a bank
     float2 mist_drift;          // meters the banks drifted along world x and z
     float scene_gain;           // 2 ^ EnhancementsSceneLight.exposure_ev, for scene_light_ps.hlsl
-    float3 scene_pad;
+    float transmission_strength;    // EnhancementsTransmission.strength, for transmission_ps.hlsl
+    float2 scene_pad;
 };
 
 SamplerState point_clamp : register(s0);

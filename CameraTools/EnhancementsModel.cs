@@ -350,6 +350,8 @@ namespace CameraTools
             settings.Ambient.AoStrength = forced ? 0f : values[Enhancement.AmbientOcclusion];
             settings.Ambient.AoRadius = values[Enhancement.AmbientOcclusionRadius];
             settings.Ambient.FoliageAoStrength = forced ? 0f : values[Enhancement.AmbientFoliageOcclusion];
+            // Light through leaves goes with Ambient light until it has a row of its own.
+            settings.Transmission.Strength = values.On(Enhancement.AmbientLight) ? 1f : 0f;
             settings.ContactShadows.Enabled = Bit(Enhancement.ContactShadows);
             settings.ContactShadows.Length = values[Enhancement.ContactShadowLength];
             settings.ContactShadows.Strength = values[Enhancement.ContactShadowStrength];

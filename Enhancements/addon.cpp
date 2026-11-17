@@ -1129,6 +1129,9 @@ namespace enhancements
                     case PassId::traced_foliage:
                         call = gpu.run_traced_foliage(map, sky_camera(), settings.flip);
                         break;
+                    case PassId::transmission:
+                        call = gpu.run_transmission(map, settings.transmission, sky_camera(), settings.flip);
+                        break;
                     case PassId::rain:
                         if (std::fabs(settings.rain - logged_rain) > 0.1f)
                         {
@@ -1253,6 +1256,13 @@ namespace enhancements
                     if (!guard)
                         guard.emplace(gpu.context(), moved);
                     develop_dng(map, *develop, grade, tonemapped);
+                }
+                // Light through leaves copies its leaves after our passes at the combine step, so their sunlight takes our shadows.
+                if (step == Step::combine && settings.enabled && settings.transmission > 0)
+                {
+                    if (!guard)
+                        guard.emplace(gpu.context(), moved);
+                    gpu.capture_leaves(map);
                 }
             }
             if (moved)

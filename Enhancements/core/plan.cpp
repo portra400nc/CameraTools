@@ -19,6 +19,7 @@ namespace enhancements
         bool sky_wanted(const Settings &s) { return s.sky.enabled; }
         bool traced_lights_wanted(const Settings &s) { return s.traced_lights; }
         bool traced_foliage_wanted(const Settings &s) { return s.trace.enabled; }
+        bool transmission_wanted(const Settings &s) { return s.transmission > 0; }
         bool character_light_wanted(const Settings &s) { return s.character_light.enabled; }
         bool tonemap_wanted(const Settings &s) { return s.tonemap.enabled; }
         bool sun_shadows_wanted(const Settings &s) { return s.sun_shadows.enabled; }
@@ -41,7 +42,7 @@ namespace enhancements
             && ENHANCEMENTS_PASS_LIGHT_SHAFTS == bit(PassId::light_shafts) && ENHANCEMENTS_PASS_TRACE == bit(PassId::trace)
             && ENHANCEMENTS_PASS_DEPTH_OF_FIELD == bit(PassId::depth_of_field) && ENHANCEMENTS_PASS_LENS_FLARE == bit(PassId::lens_flare)
             && ENHANCEMENTS_PASS_TRACED_LIGHTS == bit(PassId::traced_lights) && ENHANCEMENTS_PASS_CHARACTER_LIGHT == bit(PassId::character_light)
-            && ENHANCEMENTS_PASS_CLOUDS == bit(PassId::clouds) && ENHANCEMENTS_PASS_SKY == bit(PassId::sky) && ENHANCEMENTS_PASS_RAIN == bit(PassId::rain) && ENHANCEMENTS_PASS_TRACED_FOLIAGE == bit(PassId::traced_foliage) && static_cast<int>(PassId::count) == 16);
+            && ENHANCEMENTS_PASS_CLOUDS == bit(PassId::clouds) && ENHANCEMENTS_PASS_SKY == bit(PassId::sky) && ENHANCEMENTS_PASS_RAIN == bit(PassId::rain) && ENHANCEMENTS_PASS_TRACED_FOLIAGE == bit(PassId::traced_foliage) && ENHANCEMENTS_PASS_TRANSMISSION == bit(PassId::transmission) && static_cast<int>(PassId::count) == 17);
         static_assert(ENHANCEMENTS_TRACE_STATE_FAILED == static_cast<int>(TraceState::failed) && static_cast<int>(TraceState::count) == 6);
         static_assert(ENHANCEMENTS_CURVE_AGX == static_cast<int>(Curve::agx) && ENHANCEMENTS_CURVE_COUNT == static_cast<int>(Curve::count));
         static_assert(ENHANCEMENTS_VIEW_COUNT == static_cast<int>(View::count) && ENHANCEMENTS_VIEW_STENCIL == static_cast<int>(View::stencil)
@@ -69,7 +70,7 @@ namespace enhancements
             && offsetof(EnhancementsSettings, ambient_color) == 400 && offsetof(EnhancementsSettings, tones) == 404
             && offsetof(EnhancementsSettings, lens_softness) == 412 && offsetof(EnhancementsSettings, auto_exposure) == 416
             && offsetof(EnhancementsSettings, sky) == 420 && offsetof(EnhancementsSettings, clouds) == 428 && offsetof(EnhancementsSettings, aerial) == 484
-            && offsetof(EnhancementsSettings, water) == 488 && offsetof(EnhancementsSettings, sunset) == 504 && offsetof(EnhancementsSettings, cloud_pattern) == 508 && offsetof(EnhancementsSettings, rain) == 512 && offsetof(EnhancementsSettings, mist) == 520 && offsetof(EnhancementsSettings, scene_light) == 528 && sizeof(EnhancementsSettings) == 532);
+            && offsetof(EnhancementsSettings, water) == 488 && offsetof(EnhancementsSettings, sunset) == 504 && offsetof(EnhancementsSettings, cloud_pattern) == 508 && offsetof(EnhancementsSettings, rain) == 512 && offsetof(EnhancementsSettings, mist) == 520 && offsetof(EnhancementsSettings, scene_light) == 528 && offsetof(EnhancementsSettings, transmission) == 532 && sizeof(EnhancementsSettings) == 536);
         static_assert(ENHANCEMENTS_CLOUD_SHAPE_STREAKS == static_cast<int>(CloudShape::streaks) && ENHANCEMENTS_CLOUD_SHAPE_SHEET == static_cast<int>(CloudShape::sheet)
             && ENHANCEMENTS_CLOUD_SHAPE_COUNT == static_cast<int>(CloudShape::count));
         static_assert(ENHANCEMENTS_CLOUD_PATTERN_STREAKS == static_cast<int>(CloudPattern::streaks)
@@ -134,6 +135,9 @@ namespace enhancements
           traced_lights_wanted },
         // After the traced lights, which light the foliage it shades, and before the haze in front of it.
         { PassId::traced_foliage, "traced-foliage", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::none, traced_foliage_wanted },
+        // Light through leaves, after the traced foliage shade and before the haze in front of them. Its leaves, their colors
+        // and their sunlight were copied at the combine step.
+        { PassId::transmission, "transmission", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::none, transmission_wanted },
         // Over the sky's pixels before the clouds, which lie in front of it, and the haze.
         // The sun's atlas shades the distance haze where the main light does not reach the air.
         { PassId::sky, "sky", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::optional, sky_wanted },
@@ -529,6 +533,8 @@ namespace enhancements
             s.lightning = finite_or(raw.rain.lightning, 0.0f, 0.0f, 1.0f);
         if (knows(offsetof(EnhancementsSettings, scene_light), sizeof raw.scene_light))
             s.scene_light = finite_or(raw.scene_light.exposure_ev, 0.0f, -3.0f, 3.0f);
+        if (knows(offsetof(EnhancementsSettings, transmission), sizeof raw.transmission))
+            s.transmission = finite_or(raw.transmission.strength, 0.0f, 0.0f, 2.0f);
         if (knows(offsetof(EnhancementsSettings, mist), sizeof raw.mist))
         {
             s.atmosphere.patchiness = finite_or(raw.mist.patchiness, 0.0f, 0.0f, 1.0f);
@@ -916,6 +922,9 @@ namespace enhancements
                 steps.add(spec.at);
         if (settings.view != View::off)
             steps.add(kViews[static_cast<size_t>(settings.view)].snapshot_at);
+        // Light through leaves copies its leaves at the combine step, where the stencil and the G-buffer still hold them.
+        if (settings.transmission > 0)
+            steps.add(Step::combine);
         // The scene's light lifts the tone map's output where the next draw reads it.
         if (settings.scene_light != 0)
             steps.add(Step::tonemap_read);

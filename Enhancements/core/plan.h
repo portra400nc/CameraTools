@@ -286,6 +286,7 @@ namespace enhancements
         float rain = 0;                         // EnhancementsRain.amount
         float lightning = 0;                    // EnhancementsRain.lightning
         float scene_light = 0;                  // EnhancementsSceneLight.exposure_ev
+        float transmission = 0;                 // EnhancementsTransmission.strength
         ContactShadowSettings contact_shadows;
         AtmosphereSettings atmosphere;
         TonemapSettings tonemap;
@@ -448,7 +449,7 @@ namespace enhancements
     enum class GameCall : bool { keep, skip };
 
     // The ENHANCEMENTS_PASS_* bit order, not the run order.
-    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, wetness, light_shafts, trace, depth_of_field, lens_flare, traced_lights, character_light, clouds, sky, rain, traced_foliage, count };
+    enum class PassId : uint8_t { ambient, contact_shadows, atmosphere, tonemap, sun_shadows, wetness, light_shafts, trace, depth_of_field, lens_flare, traced_lights, character_light, clouds, sky, rain, traced_foliage, transmission, count };
 
     // ENHANCEMENTS_TRACE_STATE_*: where the traced scene the trace pass needs is. The names follow in kTraceStateNames.
     enum class TraceState : uint8_t { none, building, uploading, ready, stale, failed, count };

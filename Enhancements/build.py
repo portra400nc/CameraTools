@@ -34,7 +34,7 @@ SOURCES = [
 ]
 # (symbol in enhancements_shaders.h, source in shaders/, profile)
 SHADERS = [
-    ("kFullscreenVs", "fullscreen_vs.hlsl", "vs_5_0"), ("kAoPs", "ao_ps.hlsl", "ps_5_0"), ("kAmbientPs", "ambient_ps.hlsl", "ps_5_0"), ("kAmbientSpecularPs", "ambient_specular_ps.hlsl", "ps_5_0"), ("kAerialLitPs", "aerial_lit_ps.hlsl", "ps_5_0"), ("kWaterPs", "water_ps.hlsl", "ps_5_0"), ("kSkyDomePs", "sky_dome_ps.hlsl", "ps_5_0"), ("kRainPs", "rain_ps.hlsl", "ps_5_0"), ("kSceneLightPs", "scene_light_ps.hlsl", "ps_5_0"), ("kTracedFoliagePs", "traced_foliage_ps.hlsl", "ps_5_0"),
+    ("kFullscreenVs", "fullscreen_vs.hlsl", "vs_5_0"), ("kAoPs", "ao_ps.hlsl", "ps_5_0"), ("kAmbientPs", "ambient_ps.hlsl", "ps_5_0"), ("kAmbientSpecularPs", "ambient_specular_ps.hlsl", "ps_5_0"), ("kAerialLitPs", "aerial_lit_ps.hlsl", "ps_5_0"), ("kWaterPs", "water_ps.hlsl", "ps_5_0"), ("kSkyDomePs", "sky_dome_ps.hlsl", "ps_5_0"), ("kRainPs", "rain_ps.hlsl", "ps_5_0"), ("kSceneLightPs", "scene_light_ps.hlsl", "ps_5_0"), ("kTracedFoliagePs", "traced_foliage_ps.hlsl", "ps_5_0"), ("kLeafCapturePs", "leaf_capture_ps.hlsl", "ps_5_0"), ("kTransmissionPs", "transmission_ps.hlsl", "ps_5_0"),
     ("kContactPs", "contact_ps.hlsl", "ps_5_0"), ("kContactShadowsPs", "contact_shadows_ps.hlsl", "ps_5_0"),
     ("kSunPs", "sun_ps.hlsl", "ps_5_0"), ("kSunShadowsPs", "sun_shadows_ps.hlsl", "ps_5_0"),
     ("kAtmospherePs", "atmosphere_ps.hlsl", "ps_5_0"),

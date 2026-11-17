@@ -143,7 +143,8 @@ namespace enhancements
         float mist_size;
         float mist_drift[2];
         float scene_gain;
-        float scene_pad[3];
+        float transmission_strength;
+        float scene_pad[2];
     };
     static_assert(sizeof(Constants) == 960 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
@@ -842,6 +843,8 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kApplyTracePs, sizeof kApplyTracePs, nullptr, &made.apply_trace_ps_))
             && SUCCEEDED(device->CreatePixelShader(kTracedLightsPs, sizeof kTracedLightsPs, nullptr, &made.traced_lights_ps_))
             && SUCCEEDED(device->CreatePixelShader(kTracedFoliagePs, sizeof kTracedFoliagePs, nullptr, &made.traced_foliage_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kLeafCapturePs, sizeof kLeafCapturePs, nullptr, &made.leaf_capture_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kTransmissionPs, sizeof kTransmissionPs, nullptr, &made.transmission_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCharacterLightPs, sizeof kCharacterLightPs, nullptr, &made.character_light_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCharacterShadowPs, sizeof kCharacterShadowPs, nullptr, &made.character_shadow_ps_))
             && SUCCEEDED(device->CreatePixelShader(kGatherAveragePs, sizeof kGatherAveragePs, nullptr, &made.gather_average_ps_))
@@ -1503,6 +1506,50 @@ namespace enhancements
         depth_.copy_from(c, native(depth));
         ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), nullptr, depth_.srv(), nullptr, traced_foliage_.srv() };
         draw_fullscreen(traced_foliage_ps_.Get(), srvs, 5, scene_out_.rtv(), map.render);
+        scene_out_.copy_to(c, native(scene));
+        return GameCall::keep;
+    }
+
+    bool Gpu::capture_leaves(const FrameMap &map)
+    {
+        leaves_fresh_ = false;
+        const std::optional<Texture> &mask = map[Entry::shadow_mask], &albedo = map[Entry::albedo], &depth = map[Entry::depth];
+        ID3D11Device *d = device_.Get();
+        if (!mask || !albedo || !depth || !leaves_.sync(d, map.render, DXGI_FORMAT_R8G8B8A8_UNORM)
+            || !shadow_mask_in_.sync(d, native(*mask), static_cast<DXGI_FORMAT>(mask->format), false)
+            || !leaf_albedo_.sync(d, native(*albedo), static_cast<DXGI_FORMAT>(albedo->format), false)
+            || !depth_.sync(d, native(*depth), static_cast<DXGI_FORMAT>(depth->format), false))
+            return false;
+        ID3D11DeviceContext1 *c = context_.Get();
+        shadow_mask_in_.copy_from(c, native(*mask));
+        leaf_albedo_.copy_from(c, native(*albedo));
+        depth_.copy_from(c, native(*depth));
+        ID3D11ShaderResourceView *const srvs[] = { shadow_mask_in_.srv(), nullptr, depth_.srv(), depth_.stencil_srv(), nullptr, leaf_albedo_.srv() };
+        draw_fullscreen(leaf_capture_ps_.Get(), srvs, 6, leaves_.rtv(), map.render);
+        leaves_fresh_ = true;
+        return true;
+    }
+
+    std::optional<GameCall> Gpu::run_transmission(const FrameMap &map, float strength, const Camera &camera, bool flip)
+    {
+        // The leaves capture_leaves copied at this frame's combine step, once.
+        if (!leaves_fresh_)
+            return GameCall::keep;
+        leaves_fresh_ = false;
+        const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
+        const auto scene_format = static_cast<DXGI_FORMAT>(scene.format);
+        ID3D11Device *d = device_.Get();
+        Constants constants;
+        if (!scene_in_.sync(d, native(scene), scene_format, false) || !scene_out_.sync(d, native(scene), scene_format, true)
+            || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false) || !pass_constants(camera, map.render, flip, constants))
+            return std::nullopt;
+        constants.transmission_strength = strength;
+        upload(constants);
+        ID3D11DeviceContext1 *c = context_.Get();
+        scene_in_.copy_from(c, native(scene));
+        depth_.copy_from(c, native(depth));
+        ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), nullptr, depth_.srv(), nullptr, leaves_.srv() };
+        draw_fullscreen(transmission_ps_.Get(), srvs, 5, scene_out_.rtv(), map.render);
         scene_out_.copy_to(c, native(scene));
         return GameCall::keep;
     }

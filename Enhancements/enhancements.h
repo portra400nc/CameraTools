@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 43
+#define ENHANCEMENTS_VERSION 44
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -105,6 +105,7 @@ enum
     ENHANCEMENTS_PASS_SKY = 1u << 13,
     ENHANCEMENTS_PASS_RAIN = 1u << 14,
     ENHANCEMENTS_PASS_TRACED_FOLIAGE = 1u << 15,
+    ENHANCEMENTS_PASS_TRANSMISSION = 1u << 16,
 };
 
 // The tonemap pass's curves, values of EnhancementsTonemap.curve.
@@ -613,6 +614,14 @@ typedef struct EnhancementsMist
 // The scene's light: a lift of the tone-mapped picture, each channel x to x g / (1 + (g - 1) x) with g = 2 ^ exposure_ev,
 // which keeps black and white, for a weather the game lights darker than it should look. A lift of the HDR scene would not
 // hold: the game's eye adaptation meters it and takes it back. Version 43 added it.
+// Light through leaves: the sun's light that grass and leaves let through, added to them in the finished picture,
+// strongest where a leaf stands between the camera and the sun and none where the game's shadow map shades it. Version 44
+// added it.
+typedef struct EnhancementsTransmission
+{
+    float strength;             // 0 (the default) none, 1 a leaf's own share, up to 2; clamped
+} EnhancementsTransmission;
+
 typedef struct EnhancementsSceneLight
 {
     float exposure_ev;          // 0 (the default) as the game lights it; clamped to -3 to 3
@@ -651,6 +660,7 @@ typedef struct EnhancementsSettings
     EnhancementsRain rain;
     EnhancementsMist mist;
     EnhancementsSceneLight scene_light;
+    EnhancementsTransmission transmission;
 } EnhancementsSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and

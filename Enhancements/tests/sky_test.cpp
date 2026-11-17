@@ -236,7 +236,7 @@ int main()
     check("the clouds read their block and clamp it: coverage to 1, thickness to 10 m, size to 20 m, stretch to 6, density to 0, steps to 64, streaks kept",
         clouds.enabled && clouds.coverage == 1 && clouds.base == 3000 && clouds.thickness == 10 && clouds.size == 20 && clouds.stretch == 6
             && clouds.density == 0 && clouds.detail == 0.5f && clouds.wind_speed == 10 && clouds.wind_direction == 45 && clouds.sun == 2
-            && clouds.ambient == 0.5f && clouds.steps == 64 && clouds.shape == CloudShape::streaks && kPasses[9].id == PassId::clouds && kPasses[9].wanted(parse_settings(raw)));
+            && clouds.ambient == 0.5f && clouds.steps == 64 && clouds.shape == CloudShape::streaks && kPasses[10].id == PassId::clouds && kPasses[10].wanted(parse_settings(raw)));
     raw.clouds.shape = 2;
     check("shape 2 reads as a sheet", parse_settings(raw).clouds.shape == CloudShape::sheet);
     raw.cloud_pattern.pattern = ENHANCEMENTS_CLOUD_PATTERN_OVERCAST;
@@ -291,6 +291,13 @@ int main()
         lifted.size = offsetof(EnhancementsSettings, scene_light);
         check("the scene's light reads its stops, clamped to 3, and wants the tone map's reader; a version 42 caller has none",
             lit_scene.scene_light == 3 && wanted_steps(lit_scene).has(Step::tonemap_read) && parse_settings(lifted).scene_light == 0);
+        EnhancementsSettings through = lifted;
+        through.size = sizeof through;
+        through.transmission = { 5 };
+        const Settings leaves = parse_settings(through);
+        through.size = offsetof(EnhancementsSettings, transmission);
+        check("light through leaves reads its strength, clamped to 2, and wants the combine step and bloom; a version 43 caller has none",
+            leaves.transmission == 2 && wanted_steps(leaves).has(Step::combine) && wanted_steps(leaves).has(Step::bloom) && parse_settings(through).transmission == 0);
         int strikes = 0, bolts = 0;
         float brightest = 0, struck = -1, bolted = -1;
         bool dark_without = true, repeats = true;
