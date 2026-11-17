@@ -32,7 +32,7 @@ float ambient_occlusion(int2 pixel, float3 p, float3 n)
             occlusion += saturate(cosine - 0.1) * saturate(1 - distance2 / (ao_radius * ao_radius));
         }
     }
-    return saturate(1 - 2 * occlusion / (kDirections * steps));
+    return saturate(1 - 3 * occlusion / (kDirections * steps));
 }
 
 float main(float4 position : SV_Position) : SV_Target0
