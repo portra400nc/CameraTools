@@ -4,12 +4,13 @@ using UnityEngine;
 
 namespace CameraTools
 {
-    // Skill light: point lights on the party's live skill, burst and attack effects, in the color of their particles, and on
+    // Skill light: point lights on the party's live skill, burst and attack effects, in the color of their particles, on
     // the objects their skills leave behind (Mitya's partner, Furina's salon members), in the color of that character's
-    // effects. The game draws them like its own lamps, so traced shots bake them into the bounce too.
+    // effects, and on fires and explosions in the world (burning grass, Overloaded), flickering. The game draws them like
+    // its own lamps, so traced shots bake them into the bounce too.
     internal static class SkillLight
     {
-        private const int MaxLights = 4;
+        private const int MaxLights = 6;
         // Strength 100% is this intensity, a little over the game's lamps at night.
         private const float FullIntensity = 2f;
         // Seconds to ease brightness and color, and position.
@@ -19,6 +20,13 @@ namespace CameraTools
         // A skill's object glows from its meshes, not particles: it counts as this many particles.
         private const int ObjectParticles = 60;
         private const int SampledParticles = 64;
+        // A fire drawn by a mesh, like each patch of burning grass, counts as this many particles, and fires closer than
+        // FireCluster share one light.
+        private const int FireMeshParticles = 20;
+        private const float FireCluster = 4f;
+        private static readonly Color FireColor = new(1f, 0.45f, 0.15f);
+        // Effects past this distance count for a quarter as much when choosing what gets a light.
+        private const float NearDistance = 20f;
         private const float CharacterThreshold = 0.6f, CharacterSoftness = 0.1f, TwinShare = 0.5f;
         // Body types in effect names: Eff_Avatar_<body>_<weapon>_<character>_...
         private static readonly HashSet<string> Bodies = new() { "Boy", "Girl", "Lady", "Male", "Loli" };
@@ -26,6 +34,8 @@ namespace CameraTools
         private static Transform pool, gadgets;
         // Each effect root or skill object by pointer: the character it belongs to, else null.
         private static readonly Dictionary<IntPtr, string> owners = new();
+        // Each other effect root by pointer: whether it is a fire, and whether its own particles give its color.
+        private static readonly Dictionary<IntPtr, (bool Fire, bool OwnColor)> fires = new();
         private static readonly Dictionary<IntPtr, string> labels = new();
         private static readonly Dictionary<IntPtr, ParticleSystem[]> systems = new();
         private static readonly Dictionary<IntPtr, Renderer[]> renderers = new();
@@ -47,7 +57,7 @@ namespace CameraTools
             public Color Color = Color.white;
         }
 
-        private readonly record struct Live(IntPtr Root, int Count, Vector3 At, float Size, Color Hue);
+        private readonly record struct Live(IntPtr Root, int Count, Vector3 At, float Size, Color Hue, bool Fire = false);
 
         // The characters-only twins: the world light reaches the bounce, so traced shots leave these out.
         public static bool IsTwin(Light light) => Array.Exists(lamps, lamp => lamp != null && lamp.Twin == light);
@@ -73,6 +83,7 @@ namespace CameraTools
                 pool = found.transform;
                 gadgets = null;
                 owners.Clear();
+                fires.Clear();
                 labels.Clear();
                 systems.Clear();
                 renderers.Clear();
@@ -84,7 +95,10 @@ namespace CameraTools
             FindEffects(live, Time.frameCount % 4 == 0);
             if (gadgets)
                 FindObjects(live);
-            live.Sort((a, b) => b.Count.CompareTo(a.Count));
+            var camera = Lights.Camera();
+            var eye = camera ? camera.transform.position : Vector3.zero;
+            float Priority(Live l) => l.Count / (1f + (l.At - eye).sqrMagnitude / (NearDistance * NearDistance));
+            live.Sort((a, b) => Priority(b).CompareTo(Priority(a)));
             float dt = Math.Max(Time.unscaledDeltaTime, 1e-3f), fade = 1 - MathF.Exp(-dt / Fade), follow = 1 - MathF.Exp(-dt / Follow);
             var taken = new bool[MaxLights];
             foreach (var effect in live.Take(MaxLights))
@@ -105,6 +119,8 @@ namespace CameraTools
                 lamp.At = fresh ? effect.At : Vector3.Lerp(lamp.At, effect.At, follow);
                 lamp.Color = fresh ? effect.Hue : Color.Lerp(lamp.Color, effect.Hue, fade);
                 float target = FullIntensity * strength * (1 - MathF.Exp(-effect.Count / ParticleScale));
+                if (effect.Fire)
+                    target *= 0.75f + 0.25f * Mathf.PerlinNoise(Time.unscaledTime * 6f, slot * 7.3f);
                 lamp.Intensity += (target - lamp.Intensity) * fade;
                 if (fresh && logged.Add(labels[effect.Root]))
                     Melon<CameraTools>.Logger.Msg($"Skill light: lights {labels[effect.Root]}, {effect.Count} particles, color {lamp.Color}.");
@@ -122,11 +138,19 @@ namespace CameraTools
         // hue, from the particles' premultiplied mean color, sampled every few frames and the first time an effect shows.
         private static void FindEffects(List<Live> live, bool every)
         {
+            var burning = new List<Live>();
             for (int i = 0; i < pool.childCount; i++)
             {
                 var root = pool.GetChild(i);
-                if (!root.gameObject.activeSelf || EffectOwner(root) is not { } owner)
+                if (!root.gameObject.activeSelf)
                     continue;
+                string owner = EffectOwner(root);
+                if (owner == null)
+                {
+                    if (Fire(root) is { Fire: true } fire && FireOf(root, fire.OwnColor, every) is { } found)
+                        burning.Add(found);
+                    continue;
+                }
                 if (!systems.TryGetValue(root.Pointer, out var list))
                     systems[root.Pointer] = list = root.GetComponentsInChildren<ParticleSystem>(true).ToArray();
                 bool sample = every || !colors.ContainsKey(root.Pointer);
@@ -169,6 +193,109 @@ namespace CameraTools
                 characterHues[owner] = characterHues.TryGetValue(owner, out var was) ? Color.Lerp(was, hue, count / (count + 200f)) : hue;
                 live.Add(new Live(root.Pointer, count, center / count, bounds.extents.magnitude, hue));
             }
+            Cluster(burning, live);
+        }
+
+        // A fire's weight, center, size and hue: its meshes, each counted as FireMeshParticles, and its live particles.
+        // Smoke and embers would gray a burning fire's color, so only an explosion's own particles give it.
+        private static Live? FireOf(Transform root, bool ownColor, bool every)
+        {
+            if (!renderers.TryGetValue(root.Pointer, out var list))
+                renderers[root.Pointer] = list = root.GetComponentsInChildren<Renderer>(true).ToArray();
+            int count = 0;
+            bool any = false;
+            var bounds = new Bounds();
+            foreach (var r in list)
+            {
+                if (!r || !r.enabled || !r.gameObject.activeInHierarchy)
+                    continue;
+                var particle = r.TryCast<ParticleSystemRenderer>();
+                var system = particle ? particle.GetComponent<ParticleSystem>() : null;
+                int weight = particle ? system ? Math.Min(system.particleCount, 200) : 0 : FireMeshParticles;
+                if (weight <= 0)
+                    continue;
+                if (any)
+                    bounds.Encapsulate(r.bounds);
+                else
+                    bounds = r.bounds;
+                any = true;
+                count += weight;
+            }
+            if (!any)
+                return null;
+            var hue = FireColor;
+            if (ownColor)
+            {
+                if ((every || !colors.ContainsKey(root.Pointer)) && SampleColor(root) is { a: > 0 } sampled)
+                    colors[root.Pointer] = sampled;
+                if (colors.TryGetValue(root.Pointer, out var sum) && sum.a > 0)
+                    hue = Hue(sum);
+            }
+            return new Live(root.Pointer, count, bounds.center, bounds.extents.magnitude, hue, true);
+        }
+
+        // The premultiplied color sum of up to SampledParticles live particles of each of an effect's particle systems.
+        private static Color SampleColor(Transform root)
+        {
+            if (!systems.TryGetValue(root.Pointer, out var list))
+                systems[root.Pointer] = list = root.GetComponentsInChildren<ParticleSystem>(true).ToArray();
+            var color = new Color(0, 0, 0, 0);
+            particles ??= new Il2CppStructArray<ParticleSystem.Particle>(SampledParticles);
+            foreach (var ps in list)
+            {
+                if (!ps || ps.particleCount <= 0)
+                    continue;
+                int n = ps.GetParticles(particles);
+                for (int p = 0; p < n; p++)
+                {
+                    Color c = particles[p].GetCurrentColor(ps);
+                    color += new Color(c.r * c.a, c.g * c.a, c.b * c.a, c.a);
+                }
+            }
+            return color;
+        }
+
+        // Fires closer than FireCluster to a larger one join it: a field of burning grass is dozens of patches.
+        private static void Cluster(List<Live> burning, List<Live> live)
+        {
+            burning.Sort((a, b) => b.Count.CompareTo(a.Count));
+            var joined = new bool[burning.Count];
+            for (int i = 0; i < burning.Count; i++)
+            {
+                if (joined[i])
+                    continue;
+                var lead = burning[i];
+                int count = lead.Count;
+                var center = lead.At * lead.Count;
+                var bounds = new Bounds(lead.At, Vector3.one * lead.Size);
+                var hue = lead.Hue * lead.Count;
+                for (int j = i + 1; j < burning.Count; j++)
+                    if (!joined[j] && (burning[j].At - lead.At).sqrMagnitude < FireCluster * FireCluster)
+                    {
+                        joined[j] = true;
+                        count += burning[j].Count;
+                        center += burning[j].At * burning[j].Count;
+                        hue += burning[j].Hue * burning[j].Count;
+                        bounds.Encapsulate(new Bounds(burning[j].At, Vector3.one * burning[j].Size));
+                    }
+                live.Add(lead with { Count = count, At = center / count, Size = bounds.extents.magnitude, Hue = Hue(hue) });
+            }
+        }
+
+        // A fire or explosion in the world by its effect's name, like Eff_Element_Burning_Grass or
+        // Eff_Element_Overload_Explode, cached by pointer.
+        private static (bool Fire, bool OwnColor) Fire(Transform root)
+        {
+            if (!fires.TryGetValue(root.Pointer, out var fire))
+            {
+                string name = root.name;
+                bool burns = name.Contains("Burning") || name.Contains("Fire") && !name.Contains("Firefl") || name.Contains("Flame");
+                bool explodes = name.Contains("Explode") || name.Contains("Explosion") || name.Contains("Overload");
+                fire = (burns || explodes, explodes && !burns);
+                fires[root.Pointer] = fire;
+                labels[root.Pointer] = name;
+            }
+            return fire;
         }
 
         // The objects the party's skills leave in the world, by a name that holds a character's name from their effects
