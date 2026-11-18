@@ -365,6 +365,10 @@ namespace enhancements
         bool capture_leaves(const FrameMap &map);
         // At the combine step: the grass pass's blades and ground, for run_grass at the bloom step.
         bool capture_grass(const FrameMap &map);
+        // Draws the bound game grass draw, an indexed indirect one, layers (1 or 2) more times, each with copies of its
+        // vertex shader's constants that move, turn and shrink its blades. Call it inside a StateGuard. false when a
+        // buffer of ours failed.
+        bool draw_grass_layers(ID3D11Buffer *args, UINT offset, uint32_t layers);
         // Darker blade roots, from what capture_grass found this frame. Keeps the scene without that copy. Empty when a
         // texture of ours failed.
         std::optional<GameCall> run_grass(const FrameMap &map, float roots, const Camera &camera, bool flip);
@@ -670,6 +674,13 @@ namespace enhancements
         Mirror leaf_albedo_;        // the G-buffer's albedo at the combine step, for capture_leaves
         Scratch grass_;             // R8_UNORM: grass_capture_ps.hlsl's blades and ground
         Scratch grass_factor_;      // R16G16B16A16_FLOAT: grass_ps.hlsl's factor for the HDR scene
+        // Grass layers, one set each: R32_UINT copies of a grass draw's cb0 and cb1 for grass_layer_cs.hlsl, the constant
+        // buffers they go back into, and the layer's own constants.
+        static constexpr UINT kGrassLayers = 2, kGrassMaterialBytes = 2048, kGrassFrameBytes = 256;
+        ComPtr<ID3D11Buffer> grass_raw_[kGrassLayers][2], grass_cb_[kGrassLayers][2], grass_layer_constants_[kGrassLayers];
+        ComPtr<ID3D11UnorderedAccessView> grass_raw_uav_[kGrassLayers][2];
+        ComPtr<ID3D11ComputeShader> grass_layer_cs_;
+        bool grass_layers_made_ = false, grass_layers_failed_ = false;
         bool grass_fresh_ = false;  // capture_grass wrote grass_ this frame and the grass pass has not used it
         bool leaves_fresh_ = false; // capture_leaves wrote leaves_ this frame and the transmission pass has not used it
         bool traced_foliage_fresh_ = false; // the trace's apply draw wrote traced_foliage_ this frame and bloom has not used it

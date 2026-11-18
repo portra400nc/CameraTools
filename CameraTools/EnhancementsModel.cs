@@ -358,6 +358,7 @@ namespace CameraTools
             settings.Ambient.FoliageAoStrength = forced ? 0f : values[Enhancement.AmbientFoliageOcclusion];
             settings.Transmission.Strength = values.On(Enhancement.LightThroughLeaves) ? values[Enhancement.LightThroughLeavesStrength] / 100f : 0f;
             settings.Grass.RootShade = values.On(Enhancement.GrassDepth) ? values[Enhancement.GrassRootShade] / 100f : 0f;
+            settings.Grass.Layers = values.On(Enhancement.Enabled) ? ProbeGrassLayers : 0f;
             settings.ContactShadows.Enabled = Bit(Enhancement.ContactShadows);
             settings.ContactShadows.Length = values[Enhancement.ContactShadowLength];
             settings.ContactShadows.Strength = values[Enhancement.ContactShadowStrength];
@@ -493,6 +494,9 @@ namespace CameraTools
 
         // A debug view of the add-on's, for the probe only: the panel has no row for it.
         public static EnhancementsView ProbeView { get; set; }
+
+        // Grass layers until they have a row: the probe sets them.
+        public static float ProbeGrassLayers { get; set; }
 
         // Whether the physical sky runs, which draws the sky, the sun, the moon and the stars and turns the main light to them.
         public static bool SkyDrawn(EnhancementValues values) => values.On(Enhancement.Enabled) && values.On(Enhancement.PhysicalSky);

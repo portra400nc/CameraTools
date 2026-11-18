@@ -1543,6 +1543,87 @@ namespace enhancements
         return true;
     }
 
+    bool Gpu::draw_grass_layers(ID3D11Buffer *args, UINT offset, uint32_t layers)
+    {
+        ID3D11Device *d = device_.Get();
+        ID3D11DeviceContext1 *c = context_.Get();
+        if (grass_layers_failed_)
+            return false;
+        if (!grass_layers_made_)
+        {
+            grass_layers_failed_ = true;
+            if (FAILED(d->CreateComputeShader(kGrassLayerCs, sizeof kGrassLayerCs, nullptr, &grass_layer_cs_)))
+                return false;
+            // Each layer: where its blades go, a turn and a size. Spread around the circle by the golden angle.
+            static const float kLayer[kGrassLayers][4] = { { 0.17f, 1.9f, 0.0f, 0.82f }, { 0.24f, 4.1f, 2.39996f, 0.68f } };
+            for (UINT k = 0; k < kGrassLayers; k++)
+            {
+                for (UINT b = 0; b < 2; b++)
+                {
+                    const UINT bytes = b == 0 ? kGrassMaterialBytes : kGrassFrameBytes;
+                    D3D11_BUFFER_DESC raw = { bytes, D3D11_USAGE_DEFAULT, D3D11_BIND_UNORDERED_ACCESS, 0, 0, 0 };
+                    D3D11_BUFFER_DESC cb = { bytes, D3D11_USAGE_DEFAULT, D3D11_BIND_CONSTANT_BUFFER, 0, 0, 0 };
+                    D3D11_UNORDERED_ACCESS_VIEW_DESC view = {};
+                    view.Format = DXGI_FORMAT_R32_UINT;
+                    view.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+                    view.Buffer.NumElements = bytes / 4;
+                    if (FAILED(d->CreateBuffer(&raw, nullptr, &grass_raw_[k][b])) || FAILED(d->CreateBuffer(&cb, nullptr, &grass_cb_[k][b]))
+                        || FAILED(d->CreateUnorderedAccessView(grass_raw_[k][b].Get(), &view, &grass_raw_uav_[k][b])))
+                        return false;
+                }
+                const float angle = kLayer[k][2] + 0.6f;
+                const float values[4] = { kLayer[k][0] * std::cos(angle), kLayer[k][1], kLayer[k][0] * std::sin(angle), kLayer[k][3] };
+                D3D11_BUFFER_DESC constants = { 16, D3D11_USAGE_IMMUTABLE, D3D11_BIND_CONSTANT_BUFFER, 0, 0, 0 };
+                D3D11_SUBRESOURCE_DATA data = { values, 0, 0 };
+                if (FAILED(d->CreateBuffer(&constants, &data, &grass_layer_constants_[k])))
+                    return false;
+            }
+            grass_layers_failed_ = false;
+            grass_layers_made_ = true;
+        }
+        // The draw's own cb0 and cb1, from the start of their bound ranges.
+        ID3D11Buffer *game[2] = {};
+        UINT first[2] = {}, count[2] = {};
+        c->VSGetConstantBuffers1(0, 2, game, first, count);
+        bool ok = game[0] && game[1];
+        UINT bytes[2] = {};
+        for (UINT b = 0; ok && b < 2; b++)
+        {
+            D3D11_BUFFER_DESC desc;
+            game[b]->GetDesc(&desc);
+            const UINT start = first[b] * 16, room = b == 0 ? kGrassMaterialBytes : kGrassFrameBytes;
+            bytes[b] = start < desc.ByteWidth ? std::min({ count[b] != 0 ? count[b] * 16 : desc.ByteWidth - start, desc.ByteWidth - start, room }) : 0;
+            // The rows the layer changes must be there: cb1[10] and cb0[48].
+            ok = bytes[b] >= (b == 0 ? 49u * 16 : 11u * 16);
+        }
+        for (UINT k = 0; ok && k < layers && k < kGrassLayers; k++)
+        {
+            for (UINT b = 0; b < 2; b++)
+            {
+                const D3D11_BOX box = { first[b] * 16, 0, 0, first[b] * 16 + bytes[b], 1, 1 };
+                c->CopySubresourceRegion(grass_raw_[k][b].Get(), 0, 0, 0, 0, game[b], 0, &box);
+            }
+            ID3D11UnorderedAccessView *const uavs[] = { grass_raw_uav_[k][0].Get(), grass_raw_uav_[k][1].Get() };
+            ID3D11Buffer *const own[] = { grass_layer_constants_[k].Get() };
+            c->CSSetShader(grass_layer_cs_.Get(), nullptr, 0);
+            c->CSSetConstantBuffers(0, 1, own);
+            c->CSSetUnorderedAccessViews(0, 2, uavs, nullptr);
+            c->Dispatch(1, 1, 1);
+            ID3D11UnorderedAccessView *const none[2] = {};
+            c->CSSetUnorderedAccessViews(0, 2, none, nullptr);
+            for (UINT b = 0; b < 2; b++)
+            {
+                const D3D11_BOX box = { 0, 0, 0, bytes[b], 1, 1 };
+                c->CopySubresourceRegion(grass_cb_[k][b].Get(), 0, 0, 0, 0, grass_raw_[k][b].Get(), 0, &box);
+            }
+            ID3D11Buffer *const layer[] = { grass_cb_[k][0].Get(), grass_cb_[k][1].Get() };
+            c->VSSetConstantBuffers(0, 2, layer);
+            c->DrawIndexedInstancedIndirect(args, offset);
+        }
+        release(game);
+        return ok;
+    }
+
     bool Gpu::capture_grass(const FrameMap &map)
     {
         grass_fresh_ = false;

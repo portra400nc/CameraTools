@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 47
+#define ENHANCEMENTS_VERSION 48
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -625,9 +625,12 @@ typedef struct EnhancementsTransmission
 
 // Grass depth: dense grass's self-shade in the finished picture. Root shade darkens each blade toward its foot by its
 // height over the lowest grass or ground right around it, as blades shade each other's lower parts. Version 47 added it.
+// Layers draws the game's grass up to twice more, each layer's blades a few decimeters off, turned and smaller, for denser
+// grass. Version 48 added it.
 typedef struct EnhancementsGrass
 {
     float root_shade;           // 0 (the default) none, to 1; clamped
+    float layers;               // 0 (the default) none, to 2 more layers; rounded and clamped
 } EnhancementsGrass;
 
 typedef struct EnhancementsSceneLight

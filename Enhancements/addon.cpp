@@ -1353,6 +1353,8 @@ namespace enhancements
 
         // The G-buffer is bound now, in a frame the scene capture replays.
         bool in_gbuffer = false;
+        // The G-buffer is bound now, in any frame.
+        bool in_game_gbuffer = false;
 
         // A scene capture in progress, on the render thread. scene_tick() says what each present does.
         struct SceneRun
@@ -1513,6 +1515,9 @@ namespace enhancements
                 bind.targets.depth = resolve(dev, dsv);
             const uint32_t restarts = tracker.restarts();
             feed(cmd_list, bind);
+            // Grass depth's layers draw in the game's G-buffer pass, every frame.
+            if (cmd_list == immediate)
+                in_game_gbuffer = bind.targets.count == 6 && bind.targets.depth;
             if (!scene_frame || cmd_list != immediate)
                 return;
             // A restart drops another camera's G-buffer: only the frame's last one, which the passes use too, is captured.
@@ -1640,10 +1645,45 @@ namespace enhancements
         }
 
 
-        // Indirect draws go to the scene capture only: the frame recipe never matched them, so it still sees only direct
-        // draws.
+        // The game's grass vertex shaders, as a FrameCensus capture of a meadow on 2026-11-18 found them among the indexed
+        // indirect draws in the G-buffer pass, each placing blades from an instance buffer by the grass origin at cb1[10] and
+        // sizing and turning them by cb0[47] and cb0[48]. The pass's other two such shaders, bc45d83a69036a07 and
+        // 09543fd240035bd3, draw fallen leaves and flowers, which drawn again only looked strewn twice.
+        static constexpr uint64_t kGrassVertexShaders[] = { 0x4dfe315c1c8238c6ull, 0x03e4c9b91126288dull };
+        uint64_t grass_vertex_checked = 0;  // the vertex shader object last looked up, and whether it is grass's
+        bool grass_vertex = false;
+        uint64_t grass_layered = 0, grass_unlayered = 0, grass_logged_at = 0;    // grass draws Grass depth's layers drew again, or could not
+
+        bool bound_grass()
+        {
+            const uint64_t vertex = gpu.bound_vertex_shader();
+            if (vertex != grass_vertex_checked)
+            {
+                grass_vertex_checked = vertex;
+                const std::optional<ShaderCode> code = shaders.find(vertex);
+                grass_vertex = code && std::find(std::begin(kGrassVertexShaders), std::end(kGrassVertexShaders), code->hash) != std::end(kGrassVertexShaders);
+            }
+            return grass_vertex;
+        }
+
+        // Indirect draws go to the scene capture, and the game's grass to Grass depth's layers: the frame recipe never
+        // matched them, so it still sees only direct draws.
         bool on_draw_or_dispatch_indirect(command_list *cmd_list, indirect_command type, resource buffer, uint64_t offset, uint32_t draw_count, uint32_t)
         {
+            if (armed.load(std::memory_order_relaxed) && cmd_list == immediate && settings.enabled && settings.grass_layers > 0 && in_game_gbuffer
+                && type == indirect_command::draw_indexed && draw_count == 1 && gpu.ready() && bound_grass())
+            {
+                const char *moved = nullptr;
+                bool drawn;
+                {
+                    StateGuard guard(gpu.context(), moved);
+                    drawn = gpu.draw_grass_layers(reinterpret_cast<ID3D11Buffer *>(buffer.handle), static_cast<UINT>(offset), settings.grass_layers);
+                }
+                if (moved)
+                    trip(moved);
+                grass_layered += drawn ? 1 : 0;
+                grass_unlayered += drawn ? 0 : 1;
+            }
             if (!armed.load(std::memory_order_relaxed) || cmd_list != immediate || !scene_frame || !in_gbuffer || type == indirect_command::dispatch
                 || draw_count != 1)
                 return false;
@@ -2560,6 +2600,13 @@ namespace enhancements
 
             frames++;
             presents.store(frames, std::memory_order_relaxed);
+            if ((grass_layered || grass_unlayered) && frames >= grass_logged_at + 600)
+            {
+                grass_logged_at = frames;
+                log(reshade::log::level::info, "Grass depth's layers: " + std::to_string(grass_layered) + " grass draws drawn again, " + std::to_string(grass_unlayered)
+                    + " not, since the last count.");
+                grass_layered = grass_unlayered = 0;
+            }
             const auto now = std::chrono::steady_clock::now();
             // A long gap, such as a load, eases the autofocus at most a quarter second's worth.
             frame_seconds = std::min(std::chrono::duration<float>(now - last_present).count(), 0.25f);
