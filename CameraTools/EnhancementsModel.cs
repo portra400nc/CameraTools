@@ -12,7 +12,7 @@ namespace CameraTools
         AmbientLight, AmbientLevel, AmbientColor, AmbientOcclusion, AmbientOcclusionRadius, AmbientFoliageOcclusion,
         ContactShadows, ContactShadowLength, ContactShadowStrength, ContactShadowFoliage,
         LightThroughLeaves, LightThroughLeavesStrength,
-        GrassDepth, GrassRootShade,
+        GrassDepth, GrassRootShade, GrassDensity, GrassCustomTexture, GrassCustomHeight,
         SoftSunShadows, SunShadowSoftness, SunShadowStrength,
         Haze, HazeDensity, HazeHeightFalloff, HazeSunGlow, HazeGlowTowardSun,
         LightShafts, LightShaftStrength, MistDensity, MistHeight, LightShaftGlowTowardSun, LightShaftDistance, MistPatchiness, MistPatchSize,
@@ -230,8 +230,11 @@ namespace CameraTools
             Slider(Enhancement.ContactShadowFoliage, Enhancement.ContactShadows, "On grass and leaves", 0f, 1f, 0f, 0.05f, 2),
             Switch(Enhancement.LightThroughLeaves, "Light through leaves"),
             Slider(Enhancement.LightThroughLeavesStrength, Enhancement.LightThroughLeaves, "Strength", 0f, 200f, 100f, 5f, 0, "%"),
-            Switch(Enhancement.GrassDepth, "Grass depth"),
+            Switch(Enhancement.GrassDepth, "Grass"),
             Slider(Enhancement.GrassRootShade, Enhancement.GrassDepth, "Root shade", 0f, 100f, 100f, 5f, 0, "%"),
+            Slider(Enhancement.GrassDensity, Enhancement.GrassDepth, "Density", 100f, 800f, 300f, 100f, 0, "%"),
+            new(Enhancement.GrassCustomTexture, EnhancementKind.Switch, "Load custom texture", Enhancement.GrassDepth, 0f),
+            Slider(Enhancement.GrassCustomHeight, Enhancement.GrassCustomTexture, "Height", 100f, 300f, 200f, 10f, 0, "%"),
             Switch(Enhancement.SoftSunShadows, "Soft sun shadows"),
             Slider(Enhancement.SunShadowSoftness, Enhancement.SoftSunShadows, "Softness", 0.005f, 0.2f, 0.03f, 0.005f, 3),
             Slider(Enhancement.SunShadowStrength, Enhancement.SoftSunShadows, "Strength", 0f, 1f, 1f, 0.05f, 2),
@@ -358,10 +361,11 @@ namespace CameraTools
             settings.Ambient.FoliageAoStrength = forced ? 0f : values[Enhancement.AmbientFoliageOcclusion];
             settings.Transmission.Strength = values.On(Enhancement.LightThroughLeaves) ? values[Enhancement.LightThroughLeavesStrength] / 100f : 0f;
             settings.Grass.RootShade = values.On(Enhancement.GrassDepth) ? values[Enhancement.GrassRootShade] / 100f : 0f;
-            settings.Grass.Layers = values.On(Enhancement.Enabled) ? ProbeGrassLayers : 0f;
-            settings.Grass.Port = values.On(Enhancement.Enabled) ? ProbeGrassPort : 0f;
-            settings.Grass.Copies = ProbeGrassCopies;
-            settings.Grass.Height = ProbeGrassHeight;
+            // Grass: the game's grass drawn Density / 100 times, or the custom clump in its place.
+            bool grass = values.On(Enhancement.GrassDepth), custom = grass && values.On(Enhancement.GrassCustomTexture);
+            settings.Grass.Copies = grass ? values[Enhancement.GrassDensity] / 100f : 1f;
+            settings.Grass.Port = custom ? 2f : grass && settings.Grass.Copies > 1f ? 1f : 0f;
+            settings.Grass.Height = values[Enhancement.GrassCustomHeight] / 100f;
             settings.ContactShadows.Enabled = Bit(Enhancement.ContactShadows);
             settings.ContactShadows.Length = values[Enhancement.ContactShadowLength];
             settings.ContactShadows.Strength = values[Enhancement.ContactShadowStrength];
@@ -498,11 +502,10 @@ namespace CameraTools
         // A debug view of the add-on's, for the probe only: the panel has no row for it.
         public static EnhancementsView ProbeView { get; set; }
 
-        // Grass layers until they have a row: the probe sets them.
-        public static float ProbeGrassLayers { get; set; }
-        public static float ProbeGrassPort { get; set; }
-        public static float ProbeGrassCopies { get; set; } = 1f;
-        public static float ProbeGrassHeight { get; set; } = 1f;
+        // Whether Grass's custom texture files are there, null while that is not known: CustomGrass.Found in the game.
+        public static Func<bool?> CustomGrassFound { get; set; } = () => null;
+
+
 
         // Whether the physical sky runs, which draws the sky, the sun, the moon and the stars and turns the main light to them.
         public static bool SkyDrawn(EnhancementValues values) => values.On(Enhancement.Enabled) && values.On(Enhancement.PhysicalSky);
@@ -549,7 +552,7 @@ namespace CameraTools
             return dof;
         }
 
-        // A folded category shows only its heading, and the folded Experimental features group only its own heading. Open,
+        // A folded category shows only its heading, Grass's custom texture switch and its height only while Grass is on, and the folded Experimental features group only its own heading. Open,
         // every switch shows, and an effect's own rows show while its switch is on, whatever the master switch says; the
         // lens flare's position only for its manual light, and Ambient light's Color only for the game's sky, whose color
         // it sets.
@@ -557,7 +560,8 @@ namespace CameraTools
             => !folded && !(experimentalFolded && Experimental(field)) && (field.Kind == EnhancementKind.Switch || values.On(field.Effect))
             && (field.Id is not (Enhancement.LensFlareX or Enhancement.LensFlareY) || (int)values[Enhancement.LensFlareSource] == FlareManual)
             && field.Id != Enhancement.CloudKind
-            && (field.Id != Enhancement.AmbientColor || !values.On(Enhancement.PhysicalSky));
+            && (field.Id != Enhancement.AmbientColor || !values.On(Enhancement.PhysicalSky))
+            && (field.Id is not (Enhancement.GrassCustomTexture or Enhancement.GrassCustomHeight) || values.On(Enhancement.GrassDepth));
 
         // A slider's value as its row shows it, or null for the field's format: Distance haze's 0 is Off, Sunset color's
         // Natural.
@@ -575,6 +579,12 @@ namespace CameraTools
             Enhancement.PhysicalSky => "Real sky, sun, moon and stars that light the world",
             Enhancement.PhysicalWater => "Real reflections and depth for rivers, lakes and the sea",
             Enhancement.Weather => "Clouds and mist that follow the game's weather",
+            Enhancement.GrassCustomTexture => CustomGrassFound() switch
+            {
+                true => "From ReShade's Enhancements\\grass-port folder",
+                false => "None in ReShade's Enhancements\\grass-port folder",
+                null => null,
+            },
             Enhancement.CloudType => (int)values[Enhancement.CloudType] < CustomClouds ? CloudKinds[(int)values[Enhancement.CloudType]].Detail : "Your own shape",
             _ => null,
         };

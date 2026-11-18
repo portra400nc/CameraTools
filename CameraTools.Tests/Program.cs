@@ -201,10 +201,10 @@ var fresh = EnhancementValues.Defaults;
 var outside = new LensView(false, 1.6f, 1, ShotStage.None);
 var inside = new LensView(true, 1.6f, 1, ShotStage.None);
 EnhancementsSettings Settings(EnhancementValues values) => EnhancementsModel.Settings(values, outside);
-Check("the table holds 107 fields, each at its own id's place, with the master switch and fourteen effects' switches, and 21 of the depth of field",
-    EnhancementsModel.Fields.Length == 107 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
+Check("the table holds 110 fields, each at its own id's place, with the master switch and fourteen effects' switches, and 21 of the depth of field",
+    EnhancementsModel.Fields.Length == 110 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
     && EnhancementsModel.Fields.Count(field => field.Lens) == 21
-    && string.Join(",", EnhancementsModel.Effects.Select(field => field.Label)) == "Ambient light,Contact shadows,Light through leaves,Grass depth,Soft sun shadows,Haze,Light shafts,Wet surfaces,Tone map,Lens flare,Physical sky,Physical water,Clouds,Weather");
+    && string.Join(",", EnhancementsModel.Effects.Select(field => field.Label)) == "Ambient light,Contact shadows,Light through leaves,Grass,Soft sun shadows,Haze,Light shafts,Wet surfaces,Tone map,Lens flare,Physical sky,Physical water,Clouds,Weather");
 {
     var cloudLens = new LensView(false, 1.6f, 1, ShotStage.None);
     var cloudFresh = EnhancementValues.Defaults;
@@ -411,8 +411,19 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     Check("an effect's own rows show only while its switch is on, whatever the master switch says",
         !EnhancementsModel.Shown(Field(Enhancement.HazeDensity), fresh, false, false) && EnhancementsModel.Shown(Field(Enhancement.HazeDensity), haze, false, false)
         && EnhancementsModel.Shown(Field(Enhancement.HazeDensity), running, false, false) && !EnhancementsModel.Shown(Field(Enhancement.MistDensity), running, false, false));
-    Check("every switch shows while the category is open", EnhancementsModel.Fields.Where(field => field.Kind == EnhancementKind.Switch)
-        .All(field => EnhancementsModel.Shown(field, fresh, false, false)));
+    Check("every effect's switch shows while the category is open, and Grass's custom texture switch and its height only while Grass is on",
+        EnhancementsModel.Fields.Where(field => field.Kind == EnhancementKind.Switch && field.Effect == Enhancement.Enabled)
+            .All(field => EnhancementsModel.Shown(field, fresh, false, false))
+        && !EnhancementsModel.Shown(Field(Enhancement.GrassCustomTexture), fresh, false, false)
+        && EnhancementsModel.Shown(Field(Enhancement.GrassCustomTexture), fresh.With(Enhancement.GrassDepth, 1), false, false)
+        && !EnhancementsModel.Shown(Field(Enhancement.GrassCustomHeight), fresh.With(Enhancement.GrassCustomTexture, 1), false, false)
+        && EnhancementsModel.Shown(Field(Enhancement.GrassCustomHeight), fresh.With(Enhancement.GrassDepth, 1).With(Enhancement.GrassCustomTexture, 1), false, false));
+    EnhancementsSettings GrassOf(EnhancementValues values) => EnhancementsModel.Settings(values, outside);
+    var grassy = running.With(Enhancement.GrassDepth, 1).With(Enhancement.GrassDensity, 500);
+    Check("Grass at Density 500% multiplies the game's grass five times; with the custom texture it draws that, at Height 200% twice as tall; off, neither",
+        GrassOf(grassy).Grass.Port == 1 && GrassOf(grassy).Grass.Copies == 5 && GrassOf(grassy.With(Enhancement.GrassCustomTexture, 1)).Grass.Port == 2
+        && GrassOf(grassy.With(Enhancement.GrassCustomTexture, 1)).Grass.Height == 2 && GrassOf(grassy.With(Enhancement.GrassDepth, 0)).Grass.Port == 0
+        && GrassOf(grassy.With(Enhancement.GrassDensity, 100)).Grass.Port == 0);
     Check("folded, none of the category's rows show", EnhancementsModel.Fields.All(field => !EnhancementsModel.Shown(field, running, true, false)));
     var flaring = fresh.With(Enhancement.Enabled, 1).With(Enhancement.LensFlare, 1);
     var manual = flaring.With(Enhancement.LensFlareSource, EnhancementsModel.FlareManual);

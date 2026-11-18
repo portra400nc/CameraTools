@@ -1681,7 +1681,9 @@ namespace enhancements
         bool on_draw_or_dispatch_indirect(command_list *cmd_list, indirect_command type, resource buffer, uint64_t offset, uint32_t draw_count, uint32_t)
         {
             bool low_slots = false;
-            const bool port = settings.grass_port != 0 && (settings.grass_port == 1 || grass_port_loaded());
+            // Without the custom clump's files, the game's own grass is multiplied as Density asks.
+            const uint8_t mode = settings.grass_port == 2 && !grass_port_loaded() ? (settings.grass_copies > 1 ? 1 : 0) : settings.grass_port;
+            const bool port = mode != 0;
             if (armed.load(std::memory_order_relaxed) && cmd_list == immediate && settings.enabled && (settings.grass_layers > 0 || port) && in_game_gbuffer
                 && type == indirect_command::draw_indexed && draw_count == 1 && gpu.ready() && gpu.grass_bindings(low_slots))
             {
@@ -1705,7 +1707,7 @@ namespace enhancements
                     bool replaced = false;
                     // The game's own grass: its mesh copied, drawn by its own shaders, which sway, bend and cull the copies as
                     // they do its blades. The port's clump: our shaders, with the game's placement.
-                    if (port && (settings.grass_port == 1 ? gpu.bind_grass_copies(args, at, settings.grass_copies)
+                    if (port && (mode == 1 ? gpu.bind_grass_copies(args, at, settings.grass_copies)
                                                          : gpu.bind_grass_port(args, at, low_slots, true, settings.grass_copies, settings.grass_height)))
                     {
                         args = gpu.grass_port_args();

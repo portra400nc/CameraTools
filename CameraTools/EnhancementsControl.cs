@@ -24,8 +24,6 @@ namespace CameraTools
         // What the depth of field's block was last made for.
         private static LensView lens;
         private static EnhancementsView view;
-        private static float grassLayers;
-        private static float grassPort, grassCopies = 1f, grassHeight = 1f;
         private static float? saveAt;
         // While the weather's look blends, the add-on gets it again at most this often, in real seconds.
         private const float WeatherEvery = 0.25f;
@@ -76,9 +74,12 @@ namespace CameraTools
                     // The line that says what the presets set a switch to comes with a saved preset and makes the row
                     // taller, so each switch has a row without the line and a row with it.
                     string detail = EnhancementsModel.Detail(field, Values);
+                    // A switch under an effect's switch, as Grass's custom texture, starts further in, and its line can change.
+                    bool sub = field.Effect != Enhancement.Enabled && !field.IsEffect && field.Id != Enhancement.Enabled;
                     var plain = new ToggleRow(field.Label, () => Values.On(field.Id), on => Change(field.Id, on ? 1f : 0f), usable)
                     {
-                        Shown = () => shown() && !Graphics.PresetsEnhance, Detail = detail != null ? () => detail : null,
+                        Shown = () => shown() && !Graphics.PresetsEnhance, Sub = sub,
+                        Detail = sub ? () => EnhancementsModel.Detail(field, Values) : detail != null ? () => detail : null,
                     };
                     yield return plain;
                     yield return plain with { Shown = () => shown() && Graphics.PresetsEnhance, Note = () => Graphics.SwitchNote(field.Id) };
@@ -137,6 +138,7 @@ namespace CameraTools
                 if (readers[(int)Enhancement.Enabled]() == 1f)
                     writers[(int)Enhancement.LightThroughLeaves](1f);
             }
+            EnhancementsModel.CustomGrassFound = () => CustomGrass.Found;
             // So did Grass depth.
             var grassSeen = category.CreateEntry("GrassDepthSeen", false, is_hidden: true);
             if (!grassSeen.Value)
@@ -171,14 +173,10 @@ namespace CameraTools
                 ulong generation = Enhancements.Apply(EnhancementsModel.Settings(Running, lens, WeatherFollow.Current));
                 Log($"the add-on connected and runs {Describe(Running)}, as its settings {generation}.");
             }
-            else if (now != lens || view != EnhancementsModel.ProbeView || grassLayers != EnhancementsModel.ProbeGrassLayers || grassPort != EnhancementsModel.ProbeGrassPort || grassCopies != EnhancementsModel.ProbeGrassCopies || grassHeight != EnhancementsModel.ProbeGrassHeight || WeatherFollow.Changed && Time.unscaledTime >= weatherSentAt + WeatherEvery)
+            else if (now != lens || view != EnhancementsModel.ProbeView || WeatherFollow.Changed && Time.unscaledTime >= weatherSentAt + WeatherEvery)
             {
                 lens = now;
                 view = EnhancementsModel.ProbeView;
-                grassLayers = EnhancementsModel.ProbeGrassLayers;
-                grassPort = EnhancementsModel.ProbeGrassPort;
-                grassCopies = EnhancementsModel.ProbeGrassCopies;
-                grassHeight = EnhancementsModel.ProbeGrassHeight;
                 weatherSentAt = Time.unscaledTime;
                 if (Enhancements.Connected)
                     Enhancements.Apply(EnhancementsModel.Settings(Running, lens, WeatherFollow.Current));
