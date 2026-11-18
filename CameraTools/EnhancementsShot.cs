@@ -525,7 +525,7 @@ namespace CameraTools
         internal static EnhancementsShotLight[] GameLightsNear(Vector3 eye)
         {
             return UnityEngine.Object.FindObjectsOfType(Il2CppType.Of<Light>()).Select(o => o.Cast<Light>())
-                .Where(light => light.isActiveAndEnabled && !Lights.IsOurs(light) && light.intensity > 0 && light.type is LightType.Point or LightType.Spot)
+                .Where(light => light.isActiveAndEnabled && !Lights.IsOurs(light) && !SkillLight.IsTwin(light) && light.intensity > 0 && light.type is LightType.Point or LightType.Spot)
                 .Select(light => (light, distance: Vector3.Distance(light.transform.position, eye)))
                 .Where(l => l.distance <= GameLightReach).OrderBy(l => l.distance).Take(EnhancementsShotLight.MaxGame)
                 .Select(l => ToShotLight(l.light, l.light.shadows != LightShadows.None ? EnhancementsShotLight.Shadows : 0)).ToArray();

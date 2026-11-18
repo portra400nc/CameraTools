@@ -164,6 +164,7 @@ namespace CameraTools
                 freecam.LateUpdate();
             }
             Lights.Update();
+            SkillLight.Update(EnhancementsModel.SkillLightStrength(EnhancementsControl.RunningValues));
             CharacterLighting.Update();
             Posing.Update();
             SyncPlayerInput();

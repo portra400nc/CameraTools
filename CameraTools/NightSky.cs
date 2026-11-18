@@ -449,7 +449,7 @@ namespace CameraTools
                 foreach (var o in UnityEngine.Object.FindObjectsOfType(Il2CppType.Of<Light>()))
                 {
                     var light = o.Cast<Light>();
-                    if (light.type is LightType.Point or LightType.Spot && !Lights.IsOurs(light)
+                    if (light.type is LightType.Point or LightType.Spot && !Lights.IsOurs(light) && !SkillLight.IsOurs(light)
                         && Vector3.Distance(light.transform.position, at) <= Math.Max(light.range, 0f) + 1f && light.range <= Reach * 4)
                         near.Add(light);
                 }

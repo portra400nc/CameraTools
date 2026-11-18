@@ -147,6 +147,14 @@ namespace CameraTools
                 if (readers[(int)Enhancement.Enabled]() == 1f)
                     writers[(int)Enhancement.LeafShading](1f);
             }
+            // So did Skill light.
+            var skillLightSeen = category.CreateEntry("SkillLightSeen", false, is_hidden: true);
+            if (!skillLightSeen.Value)
+            {
+                skillLightSeen.Value = true;
+                if (readers[(int)Enhancement.Enabled]() == 1f)
+                    writers[(int)Enhancement.SkillLight](1f);
+            }
             // So did Grass depth.
             var grassSeen = category.CreateEntry("GrassDepthSeen", false, is_hidden: true);
             if (!grassSeen.Value)

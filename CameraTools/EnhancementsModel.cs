@@ -13,6 +13,7 @@ namespace CameraTools
         ContactShadows, ContactShadowLength, ContactShadowStrength, ContactShadowFoliage,
         LightThroughLeaves, LightThroughLeavesStrength,
         LeafShading, LeafShadingStrength,
+        SkillLight, SkillLightStrength,
         GrassDepth, GrassRootShade, GrassDensity, GrassCustomTexture, GrassCustomHeight,
         SoftSunShadows, SunShadowSoftness, SunShadowStrength,
         Haze, HazeDensity, HazeHeightFalloff, HazeSunGlow, HazeGlowTowardSun,
@@ -233,6 +234,8 @@ namespace CameraTools
             Slider(Enhancement.LightThroughLeavesStrength, Enhancement.LightThroughLeaves, "Strength", 0f, 200f, 100f, 5f, 0, "%"),
             Switch(Enhancement.LeafShading, "Leaf shading"),
             Slider(Enhancement.LeafShadingStrength, Enhancement.LeafShading, "Strength", 0f, 100f, 100f, 5f, 0, "%"),
+            Switch(Enhancement.SkillLight, "Skill light"),
+            Slider(Enhancement.SkillLightStrength, Enhancement.SkillLight, "Strength", 0f, 400f, 100f, 5f, 0, "%"),
             Switch(Enhancement.GrassDepth, "Grass"),
             Slider(Enhancement.GrassRootShade, Enhancement.GrassDepth, "Root shade", 0f, 100f, 100f, 5f, 0, "%"),
             Slider(Enhancement.GrassDensity, Enhancement.GrassDepth, "Density", 100f, 800f, 300f, 100f, 0, "%"),
@@ -512,6 +515,10 @@ namespace CameraTools
 
 
         // Whether the physical sky runs, which draws the sky, the sun, the moon and the stars and turns the main light to them.
+        // Skill light's share of its full strength, 0 while it or the enhancements are off. It needs no add-on.
+        public static float SkillLightStrength(EnhancementValues values)
+            => values.On(Enhancement.Enabled) && values.On(Enhancement.SkillLight) ? values[Enhancement.SkillLightStrength] / 100f : 0f;
+
         public static bool SkyDrawn(EnhancementValues values) => values.On(Enhancement.Enabled) && values.On(Enhancement.PhysicalSky);
 
         // The Experimental features group's rows: the physical sky's and the clouds'.
