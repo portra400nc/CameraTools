@@ -1184,7 +1184,8 @@ namespace enhancements
                         // Auto exposure fades out at night, where Night brightness alone sets how bright it is.
                         TonemapSettings tonemap = settings.tonemap;
                         tonemap.auto_exposure *= sky_draw ? sky_draw->auto_share : 1.0f;
-                        call = gpu.run_tonemap(map, tonemap, grade.copied, grade.bloom, frame_seconds, frames);
+                        // A still traced shot holds the exposure the view had when it began; a live one keeps metering as the camera moves.
+                        call = gpu.run_tonemap(map, tonemap, grade.copied, grade.bloom, frame_seconds, shot_frame && !shot.live, frames);
                     }
                         break;
                     case PassId::depth_of_field:

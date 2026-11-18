@@ -487,8 +487,9 @@ namespace enhancements
         // draw's shader adds the bloom. With the auto exposure on, it first meters the scene, the main depth's sky left out,
         // and eases the exposure's 1x1 target by frame_seconds' share, at once when frame is not the one after its last run.
         // Empty when a texture of ours failed, and the game's draw then runs.
+        // hold_exposure keeps auto exposure at its last stops instead of metering this frame.
         std::optional<GameCall> run_tonemap(const FrameMap &map, const TonemapSettings &settings, bool grade, bool bloom, float frame_seconds,
-            uint64_t frame);
+            bool hold_exposure, uint64_t frame);
 
         // The accumulator at the bloom step, in tick's order: clear empties sum_; add mirrors in the HDR scene and draws it
         // times the cat's-eye weight of lens, with the weight in alpha, additively into sum_; present draws sum.rgb / sum.a

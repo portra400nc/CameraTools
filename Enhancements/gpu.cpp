@@ -2651,7 +2651,7 @@ namespace enhancements
     }
 
     std::optional<GameCall> Gpu::run_tonemap(const FrameMap &map, const TonemapSettings &settings, bool grade, bool with_bloom, float frame_seconds,
-        uint64_t frame)
+        bool hold_exposure, uint64_t frame)
     {
         const Texture &scene = *map[Entry::hdr_scene], &out = *map[Entry::tonemap_out];
         // The slot the frame map reads the bloom from may hold another draw's texture when this draw's shader adds none.
@@ -2689,7 +2689,11 @@ namespace enhancements
             bloom_in_.copy_from(c, native(*bloom));
         ID3D11Buffer *const game_grade = grade ? game_grade_.Get() : nullptr;
         c->PSSetConstantBuffers(1, 1, &game_grade);
-        if (metered)
+        // Held, the stops stay where the last metered frame left them: a traced shot turns the camera to its scene's faces
+        // and shows half-traced frames, which steered the exposure 1 to 2 stops off the view the shot saves.
+        if (metered && hold_exposure && exposure_frame_ != 0)
+            exposure_kept_ = true;
+        else if (metered)
         {
             if (depth)
                 depth_.copy_from(c, native(*depth));
