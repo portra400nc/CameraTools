@@ -12,7 +12,7 @@ Texture2D<float> sun : register(t8);        // character_sun_ps.hlsl's raw sun v
 StructuredBuffer<float4> history : register(t9);        // the trace's: occlusion sum, sun sum, their counts
 StructuredBuffer<float4> gather_hit : register(t10);    // the gather's hits' light summed
 StructuredBuffer<float4> gather_sky : register(t11);    // the misses' sky summed, and the misses
-Texture2D<float4> balance : register(t12);  // character_balance_adapt_ps.hlsl's stops and color; unbound, 0
+Texture2D<float> balance : register(t12);   // character_balance_adapt_ps.hlsl's stops; unbound, 0
 
 cbuffer GatherApply : register(b2)
 {
@@ -140,13 +140,16 @@ float4 shadow_at(int2 pixel, float z, float3 n, bool of_sun)
     return total > 0 ? sum / total : 1;
 }
 
-// The world's light over the game's on a character, as brightness only. The game lights characters in colors of its own,
-// which a ratio by channel over-tinted: at night its deep blue light against the physical moon's warm one turned
-// characters orange while the ground beside them stayed gray. The balance moves their color toward the world's instead.
+// The world's light over the game's on a character, by channel. The game lights characters in colors of its own, which a
+// plain ratio over-tints: at night its deep blue light against the physical moon's warm one turned characters orange while
+// the ground beside them stayed gray. The ratio keeps its brightness but only the square root of its color.
+static const float kWorldTint = 0.5;
+
 float3 world_ratio(float3 ours)
 {
-    const float3 w = float3(0.2126, 0.7152, 0.0722);
-    return (max(dot(ours, w), 0) / max(dot(world_game.rgb, w), 1e-6)).xxx;
+    float3 r = max(ours / world_game.rgb, 0);
+    float l = max(dot(r, float3(0.2126, 0.7152, 0.0722)), 1e-6);
+    return l * pow(r / l, kWorldTint);
 }
 
 float3 main(float4 position : SV_Position) : SV_Target0
@@ -176,9 +179,7 @@ float3 main(float4 position : SV_Position) : SV_Target0
             color *= world_ratio(lit * world_sun.rgb + world_sky.rgb);
         }
         // Matched to the world around the characters: the game lights them in units of its own, brighter than its world.
-        float4 b = balance.Load(int3(0, 0, 0));
-        float3 tint = exp2(float3(b.y, 0, b.z));
-        color *= exp2(b.x) * tint / dot(tint, float3(0.2126, 0.7152, 0.0722));
+        color *= exp2(balance.Load(int3(0, 0, 0)));
     }
     float3 base = srgb_to_linear(albedo.Load(int3(pixel, 0)).rgb);
     float facing = 1 - saturate(dot(n, v));

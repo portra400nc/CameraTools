@@ -2491,8 +2491,7 @@ namespace enhancements
         light.traced[3] = kCharacterBalanceEase;
         // The balance's stops start at 0 in a fresh 1x1 target: the characters keep the game's light until it measures.
         const bool balanced = light.params[3] > 0 && character_balance_meter_.sync(d, { 64, 32 }, DXGI_FORMAT_R32G32B32A32_FLOAT, true)
-            && character_balance_color_.sync(d, { 64, 32 }, DXGI_FORMAT_R32G32B32A32_FLOAT, true)
-            && character_balance_[0].sync(d, { 1, 1 }, DXGI_FORMAT_R32G32B32A32_FLOAT) && character_balance_[1].sync(d, { 1, 1 }, DXGI_FORMAT_R32G32B32A32_FLOAT);
+            && character_balance_[0].sync(d, { 1, 1 }, DXGI_FORMAT_R32_FLOAT) && character_balance_[1].sync(d, { 1, 1 }, DXGI_FORMAT_R32_FLOAT);
         if (gathered)
         {
             // The gather's constants from its last apply draw at the combine step: its strength and the sky's harmonics.
@@ -2518,14 +2517,11 @@ namespace enhancements
         {
             // How brightly the result lights the characters against the world around them, then the next frame's stops.
             ID3D11ShaderResourceView *const meter_in[] = { scene_out_.srv(), nullptr, depth_.srv(), depth_.stencil_srv(), nullptr, character_albedo_.srv() };
-            ID3D11RenderTargetView *const meters[] = { character_balance_meter_.rtv(), character_balance_color_.rtv() };
-            draw_fullscreen(character_balance_ps_.Get(), meter_in, 6, meters, 2, { 64, 32 });
+            draw_fullscreen(character_balance_ps_.Get(), meter_in, 6, character_balance_meter_.rtv(), { 64, 32 });
             c->OMSetRenderTargets(0, nullptr, nullptr);
             c->GenerateMips(character_balance_meter_.srv());
-            c->GenerateMips(character_balance_color_.srv());
-            ID3D11ShaderResourceView *const adapt_in[] = { character_balance_meter_.srv(), character_balance_[character_balance_at_ ^ 1].srv(),
-                character_balance_color_.srv() };
-            draw_fullscreen(character_balance_adapt_ps_.Get(), adapt_in, 3, character_balance_[character_balance_at_].rtv(), { 1, 1 });
+            ID3D11ShaderResourceView *const adapt_in[] = { character_balance_meter_.srv(), character_balance_[character_balance_at_ ^ 1].srv() };
+            draw_fullscreen(character_balance_adapt_ps_.Get(), adapt_in, 2, character_balance_[character_balance_at_].rtv(), { 1, 1 });
             c->OMSetRenderTargets(0, nullptr, nullptr);
             character_balance_at_ ^= 1;
         }

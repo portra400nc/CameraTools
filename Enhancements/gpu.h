@@ -661,8 +661,7 @@ namespace enhancements
         Scratch character_shadow_;          // R8G8B8A8_UNORM: each light's raw visibility at character pixels
         Scratch character_sun_;             // R8_UNORM: the sun's raw visibility at character pixels
         Scratch character_balance_meter_;   // 64x32 R32G32B32A32_FLOAT with mips: the world's and the characters' light around them
-        Scratch character_balance_color_;   // 64x32 R32G32B32A32_FLOAT with mips: the color of the world's and the characters' light
-        Scratch character_balance_[2];      // 1x1 R32G32B32A32_FLOAT: the stops the characters' world light is scaled by and its color's, this frame's and the last's
+        Scratch character_balance_[2];      // 1x1 R32_FLOAT: the stops the characters' world light is scaled by, this frame's and the last's
         UINT character_balance_at_ = 0;
         bool character_gbuffer_ = false;    // the copies hold this frame's G-buffer
         ComPtr<ID3D11Buffer> game_grade_;      // shaders/tonemap_ps.hlsl's GameGrade, filled by copy_game_grade
