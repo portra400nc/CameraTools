@@ -494,6 +494,10 @@ namespace enhancements
             int32_t vertex_offset = 0;
             uint32_t first_instance = 0;
         };
+        // The game's vegetation lighting draw (the combine pass's, stencil 136), drawn again with a copy of its cb0 that
+        // shades leaves by their facing at strength (leaf_constants_cs.hlsl). Call it inside a StateGuard. false when a
+        // buffer of ours failed or the draw binds too little; the game's draw then runs.
+        bool draw_leaves(const GameDraw &draw, float strength);
         // One of the game's water draws, with its own geometry and state, drawn with our water pixel shader in place of
         // its own; the pixel shader's bindings are the game's again after. The first of a frame that has no copy of the
         // scene yet takes one. false, and nothing drawn, when no copy could be made or the sky's tables are not there.
@@ -713,6 +717,11 @@ namespace enhancements
         ComPtr<ID3D11SamplerState> grass_port_sampler_;
         UINT grass_port_indices_ = 0;
         bool grass_port_made_ = false, grass_port_failed_ = false;
+        static constexpr UINT kLeafConstantBytes = 4096;
+        ComPtr<ID3D11Buffer> leaf_raw_, leaf_cb_, leaf_constants_;
+        ComPtr<ID3D11UnorderedAccessView> leaf_raw_uav_;
+        ComPtr<ID3D11ComputeShader> leaf_cs_;
+        bool leaf_made_ = false, leaf_failed_ = false;
         static constexpr UINT kGrassSourceBytes = 64 << 10, kGrassMaxCopies = 8;
         ComPtr<ID3D11Buffer> grass_source_vb_, grass_source_ib_, grass_source_args_, grass_copy_vb_, grass_copy_ib_, grass_copy_constants_;
         ComPtr<ID3D11ShaderResourceView> grass_source_vb_srv_, grass_source_ib_srv_, grass_source_args_srv_;

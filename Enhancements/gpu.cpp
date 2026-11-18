@@ -1709,6 +1709,72 @@ namespace enhancements
         return kGrassPortPs;
     }
 
+    bool Gpu::draw_leaves(const GameDraw &draw, float strength)
+    {
+        ID3D11Device *d = device_.Get();
+        ID3D11DeviceContext1 *c = context_.Get();
+        if (leaf_failed_)
+            return false;
+        if (!leaf_made_)
+        {
+            leaf_failed_ = true;
+            D3D11_BUFFER_DESC raw = { kLeafConstantBytes, D3D11_USAGE_DEFAULT, D3D11_BIND_UNORDERED_ACCESS, 0, 0, 0 };
+            D3D11_BUFFER_DESC cb = { kLeafConstantBytes, D3D11_USAGE_DEFAULT, D3D11_BIND_CONSTANT_BUFFER, 0, 0, 0 };
+            D3D11_BUFFER_DESC constants = { 16, D3D11_USAGE_DYNAMIC, D3D11_BIND_CONSTANT_BUFFER, D3D11_CPU_ACCESS_WRITE, 0, 0 };
+            D3D11_UNORDERED_ACCESS_VIEW_DESC view = {};
+            view.Format = DXGI_FORMAT_R32_UINT;
+            view.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+            view.Buffer.NumElements = kLeafConstantBytes / 4;
+            if (FAILED(d->CreateBuffer(&raw, nullptr, &leaf_raw_)) || FAILED(d->CreateBuffer(&cb, nullptr, &leaf_cb_))
+                || FAILED(d->CreateBuffer(&constants, nullptr, &leaf_constants_)) || FAILED(d->CreateUnorderedAccessView(leaf_raw_.Get(), &view, &leaf_raw_uav_))
+                || FAILED(d->CreateComputeShader(kLeafConstantsCs, sizeof kLeafConstantsCs, nullptr, &leaf_cs_)))
+                return false;
+            leaf_failed_ = false;
+            leaf_made_ = true;
+        }
+        // The draw's cb0 from the start of its bound range, which must reach cb0[241].
+        ID3D11Buffer *game = nullptr;
+        UINT first = 0, count = 0;
+        c->PSGetConstantBuffers1(0, 1, &game, &first, &count);
+        if (!game)
+            return false;
+        D3D11_BUFFER_DESC desc;
+        game->GetDesc(&desc);
+        const UINT start = first * 16;
+        const UINT bytes = start < desc.ByteWidth ? std::min({ count != 0 ? count * 16 : desc.ByteWidth - start, desc.ByteWidth - start, kLeafConstantBytes }) : 0;
+        if (bytes < 242 * 16)
+        {
+            game->Release();
+            return false;
+        }
+        const D3D11_BOX box = { start, 0, 0, start + bytes, 1, 1 };
+        c->CopySubresourceRegion(leaf_raw_.Get(), 0, 0, 0, 0, game, 0, &box);
+        game->Release();
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        if (FAILED(c->Map(leaf_constants_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+            return false;
+        const float leaf[4] = { strength };
+        std::memcpy(mapped.pData, leaf, sizeof leaf);
+        c->Unmap(leaf_constants_.Get(), 0);
+        ID3D11Buffer *const own[] = { leaf_constants_.Get() };
+        ID3D11UnorderedAccessView *const uav[] = { leaf_raw_uav_.Get() };
+        c->CSSetShader(leaf_cs_.Get(), nullptr, 0);
+        c->CSSetConstantBuffers(0, 1, own);
+        c->CSSetUnorderedAccessViews(0, 1, uav, nullptr);
+        c->Dispatch(1, 1, 1);
+        ID3D11UnorderedAccessView *const none[] = { nullptr };
+        c->CSSetUnorderedAccessViews(0, 1, none, nullptr);
+        const D3D11_BOX back = { 0, 0, 0, bytes, 1, 1 };
+        c->CopySubresourceRegion(leaf_cb_.Get(), 0, 0, 0, 0, leaf_raw_.Get(), 0, &back);
+        ID3D11Buffer *const patched[] = { leaf_cb_.Get() };
+        c->PSSetConstantBuffers(0, 1, patched);
+        if (draw.indexed)
+            c->DrawIndexedInstanced(draw.count, draw.instances, draw.first, draw.vertex_offset, draw.first_instance);
+        else
+            c->DrawInstanced(draw.count, draw.instances, draw.first, draw.first_instance);
+        return true;
+    }
+
     bool Gpu::make_grass_port()
     {
         if (grass_port_made_ || grass_port_failed_)

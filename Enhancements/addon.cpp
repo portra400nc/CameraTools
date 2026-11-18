@@ -1555,7 +1555,9 @@ namespace enhancements
         // targets; the see-through things it draws later, such as the giant tree over Snezhnaya, are drawn over the sky at
         // depth 0 too and stay.
         static constexpr uint64_t kSkyDome = 0x7b771d2354311b7bull;
-        enum class GameShader : uint8_t { other, water, dome };
+        // The game's vegetation lighting at the combine step (stencil 136), as a FrameCensus capture of 2026-11-18 found it.
+        static constexpr uint64_t kLeafLighting = 0x46bf387625d19778ull;
+        enum class GameShader : uint8_t { other, water, dome, leaves };
         uint64_t shader_checked = 0;    // the pixel shader object last looked up, and what it draws
         GameShader shader_kind = GameShader::other;
         uint64_t vertex_checked = 0;    // the vertex shader object last looked up, and whether it is water's
@@ -1571,6 +1573,7 @@ namespace enhancements
                 const uint64_t hash = code ? code->hash : 0;
                 shader_kind = std::find(std::begin(kWaterShaders), std::end(kWaterShaders), hash) != std::end(kWaterShaders) ? GameShader::water
                     : hash == kSkyDome ? GameShader::dome
+                    : hash == kLeafLighting ? GameShader::leaves
                     : GameShader::other;
             }
             if (shader_kind != GameShader::other)
@@ -1630,11 +1633,33 @@ namespace enhancements
 
         // The scene capture's checks cost one branch while it does not run. DrawAuto comes as a draw of 0 vertices, which
         // draws nothing to replay.
+        // Leaf shading: the game's vegetation lighting drawn with our copy of its constants, in its place.
+        bool draw_leaves(command_list *cmd_list, bool indexed, uint32_t count, uint32_t instances, uint32_t first, int32_t vertex_offset, uint32_t first_instance)
+        {
+            if (!armed.load(std::memory_order_relaxed) || cmd_list != immediate || !settings.enabled || settings.leaf_shading <= 0 || !gpu.ready()
+                || bound_shader() != GameShader::leaves)
+                return false;
+            const char *moved = nullptr;
+            bool drawn;
+            {
+                StateGuard guard(gpu.context(), moved);
+                drawn = gpu.draw_leaves({ indexed, count, instances, first, vertex_offset, first_instance }, settings.leaf_shading);
+            }
+            if (moved)
+            {
+                trip(moved);
+                return false;
+            }
+            return drawn;
+        }
+
         bool on_draw(command_list *cmd_list, uint32_t vertices, uint32_t instances, uint32_t first_vertex, uint32_t first_instance)
         {
             if (armed.load(std::memory_order_relaxed) && cmd_list == immediate && scene_frame && in_gbuffer && vertices != 0)
                 replay_scene({ ReplayKind::draw, vertices, instances, first_vertex, 0, first_instance, nullptr, 0 });
             const bool skip = on_draw_any(cmd_list);
+            if (!skip && draw_leaves(cmd_list, false, vertices, instances, first_vertex, 0, first_instance))
+                return true;
             return draw_physical(cmd_list, false, vertices, instances, first_vertex, 0, first_instance) || skip;
         }
 
@@ -1643,6 +1668,8 @@ namespace enhancements
             if (armed.load(std::memory_order_relaxed) && cmd_list == immediate && scene_frame && in_gbuffer)
                 replay_scene({ ReplayKind::indexed, indices, instances, first_index, vertex_offset, first_instance, nullptr, 0 });
             const bool skip = on_draw_any(cmd_list);
+            if (!skip && draw_leaves(cmd_list, true, indices, instances, first_index, vertex_offset, first_instance))
+                return true;
             return draw_physical(cmd_list, true, indices, instances, first_index, vertex_offset, first_instance) || skip;
         }
 

@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 49
+#define ENHANCEMENTS_VERSION 50
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -639,6 +639,14 @@ typedef struct EnhancementsGrass
     float height;               // the port's clump's height, times; 0.5 to 3, 1 by default
 } EnhancementsGrass;
 
+// Leaf shading: the game's vegetation lighting lights almost every leaf of a bush or tree at one level whatever it faces,
+// so they look flat and bright. Shading blends that toward a light by the leaf's facing, and dims the warm rim. Version
+// 50 added it.
+typedef struct EnhancementsLeaves
+{
+    float shading;              // 0 (the default) the game's, to 1; clamped
+} EnhancementsLeaves;
+
 typedef struct EnhancementsSceneLight
 {
     float exposure_ev;          // 0 (the default) as the game lights it; clamped to -3 to 3
@@ -679,6 +687,7 @@ typedef struct EnhancementsSettings
     EnhancementsSceneLight scene_light;
     EnhancementsTransmission transmission;
     EnhancementsGrass grass;
+    EnhancementsLeaves leaves;
 } EnhancementsSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and

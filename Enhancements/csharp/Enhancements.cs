@@ -318,6 +318,13 @@ namespace CameraToolsEnhancements
         public float Height;                // the port's clump's height, times, 0.5 to 3
     }
 
+    // EnhancementsLeaves in enhancements.h, field for field.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct EnhancementsLeaves
+    {
+        public float Shading;               // leaves shaded by their facing, 0 the game's to 1
+    }
+
     // EnhancementsSceneLight in enhancements.h, field for field.
     [StructLayout(LayoutKind.Sequential)]
     internal struct EnhancementsSceneLight
@@ -382,6 +389,7 @@ namespace CameraToolsEnhancements
         public EnhancementsSceneLight SceneLight;
         public EnhancementsTransmission Transmission;
         public EnhancementsGrass Grass;
+        public EnhancementsLeaves Leaves;
 
         // The add-on's defaults: everything off, game targets upside down, and when switched on ambient level 0.6, AO
         // strength 0.5 at a 1 m radius, half that strength on grass, vegetation and foliage, full-strength contact
@@ -677,7 +685,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 49;
+        private const uint Version = 50;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
