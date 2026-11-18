@@ -12,6 +12,7 @@ namespace CameraTools
         AmbientLight, AmbientLevel, AmbientColor, AmbientOcclusion, AmbientOcclusionRadius, AmbientFoliageOcclusion,
         ContactShadows, ContactShadowLength, ContactShadowStrength, ContactShadowFoliage,
         LightThroughLeaves, LightThroughLeavesStrength,
+        LeafShading, LeafShadingStrength,
         GrassDepth, GrassRootShade, GrassDensity, GrassCustomTexture, GrassCustomHeight,
         SoftSunShadows, SunShadowSoftness, SunShadowStrength,
         Haze, HazeDensity, HazeHeightFalloff, HazeSunGlow, HazeGlowTowardSun,
@@ -230,6 +231,8 @@ namespace CameraTools
             Slider(Enhancement.ContactShadowFoliage, Enhancement.ContactShadows, "On grass and leaves", 0f, 1f, 0f, 0.05f, 2),
             Switch(Enhancement.LightThroughLeaves, "Light through leaves"),
             Slider(Enhancement.LightThroughLeavesStrength, Enhancement.LightThroughLeaves, "Strength", 0f, 200f, 100f, 5f, 0, "%"),
+            Switch(Enhancement.LeafShading, "Leaf shading"),
+            Slider(Enhancement.LeafShadingStrength, Enhancement.LeafShading, "Strength", 0f, 100f, 100f, 5f, 0, "%"),
             Switch(Enhancement.GrassDepth, "Grass"),
             Slider(Enhancement.GrassRootShade, Enhancement.GrassDepth, "Root shade", 0f, 100f, 100f, 5f, 0, "%"),
             Slider(Enhancement.GrassDensity, Enhancement.GrassDepth, "Density", 100f, 800f, 300f, 100f, 0, "%"),
@@ -366,7 +369,7 @@ namespace CameraTools
             settings.Grass.Copies = grass ? values[Enhancement.GrassDensity] / 100f : 1f;
             settings.Grass.Port = custom ? 2f : grass && settings.Grass.Copies > 1f ? 1f : 0f;
             settings.Grass.Height = values[Enhancement.GrassCustomHeight] / 100f;
-            settings.Leaves.Shading = ProbeLeafShading;
+            settings.Leaves.Shading = values.On(Enhancement.LeafShading) ? values[Enhancement.LeafShadingStrength] / 100f : 0f;
             settings.ContactShadows.Enabled = Bit(Enhancement.ContactShadows);
             settings.ContactShadows.Length = values[Enhancement.ContactShadowLength];
             settings.ContactShadows.Strength = values[Enhancement.ContactShadowStrength];
@@ -502,9 +505,6 @@ namespace CameraTools
 
         // A debug view of the add-on's, for the probe only: the panel has no row for it.
         public static EnhancementsView ProbeView { get; set; }
-
-        // Leaf shading until it has a row: the probe sets it.
-        public static float ProbeLeafShading { get; set; }
 
         // Whether Grass's custom texture files are there, null while that is not known: CustomGrass.Found in the game.
         public static Func<bool?> CustomGrassFound { get; set; } = () => null;

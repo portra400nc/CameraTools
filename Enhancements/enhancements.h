@@ -640,8 +640,8 @@ typedef struct EnhancementsGrass
 } EnhancementsGrass;
 
 // Leaf shading: the game's vegetation lighting lights almost every leaf of a bush or tree at one level whatever it faces,
-// so they look flat and bright. Shading blends that toward a light by the leaf's facing, and dims the warm rim. Version
-// 50 added it.
+// so they look flat and bright. Shading blends that toward a light by the leaf's facing, and dims the warm rim. Traced
+// shots and live tracing keep the game's. Version 50 added it.
 typedef struct EnhancementsLeaves
 {
     float shading;              // 0 (the default) the game's, to 1; clamped

@@ -201,10 +201,10 @@ var fresh = EnhancementValues.Defaults;
 var outside = new LensView(false, 1.6f, 1, ShotStage.None);
 var inside = new LensView(true, 1.6f, 1, ShotStage.None);
 EnhancementsSettings Settings(EnhancementValues values) => EnhancementsModel.Settings(values, outside);
-Check("the table holds 110 fields, each at its own id's place, with the master switch and fourteen effects' switches, and 21 of the depth of field",
-    EnhancementsModel.Fields.Length == 110 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
+Check("the table holds 112 fields, each at its own id's place, with the master switch and fifteen effects' switches, and 21 of the depth of field",
+    EnhancementsModel.Fields.Length == 112 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
     && EnhancementsModel.Fields.Count(field => field.Lens) == 21
-    && string.Join(",", EnhancementsModel.Effects.Select(field => field.Label)) == "Ambient light,Contact shadows,Light through leaves,Grass,Soft sun shadows,Haze,Light shafts,Wet surfaces,Tone map,Lens flare,Physical sky,Physical water,Clouds,Weather");
+    && string.Join(",", EnhancementsModel.Effects.Select(field => field.Label)) == "Ambient light,Contact shadows,Light through leaves,Leaf shading,Grass,Soft sun shadows,Haze,Light shafts,Wet surfaces,Tone map,Lens flare,Physical sky,Physical water,Clouds,Weather");
 {
     var cloudLens = new LensView(false, 1.6f, 1, ShotStage.None);
     var cloudFresh = EnhancementValues.Defaults;
@@ -424,6 +424,9 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
         GrassOf(grassy).Grass.Port == 1 && GrassOf(grassy).Grass.Copies == 5 && GrassOf(grassy.With(Enhancement.GrassCustomTexture, 1)).Grass.Port == 2
         && GrassOf(grassy.With(Enhancement.GrassCustomTexture, 1)).Grass.Height == 2 && GrassOf(grassy.With(Enhancement.GrassDepth, 0)).Grass.Port == 0
         && GrassOf(grassy.With(Enhancement.GrassDensity, 100)).Grass.Port == 0);
+    Check("Leaf shading at 60% sends 0.6, and off or under a master switch that is off, none",
+        Settings(running.With(Enhancement.LeafShading, 1).With(Enhancement.LeafShadingStrength, 60)).Leaves.Shading == 0.6f
+        && Settings(running.With(Enhancement.LeafShading, 0)).Leaves.Shading == 0f);
     Check("folded, none of the category's rows show", EnhancementsModel.Fields.All(field => !EnhancementsModel.Shown(field, running, true, false)));
     var flaring = fresh.With(Enhancement.Enabled, 1).With(Enhancement.LensFlare, 1);
     var manual = flaring.With(Enhancement.LensFlareSource, EnhancementsModel.FlareManual);

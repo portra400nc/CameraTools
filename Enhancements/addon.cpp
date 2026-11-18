@@ -1636,7 +1636,8 @@ namespace enhancements
         // Leaf shading: the game's vegetation lighting drawn with our copy of its constants, in its place.
         bool draw_leaves(command_list *cmd_list, bool indexed, uint32_t count, uint32_t instances, uint32_t first, int32_t vertex_offset, uint32_t first_instance)
         {
-            if (!armed.load(std::memory_order_relaxed) || cmd_list != immediate || !settings.enabled || settings.leaf_shading <= 0 || !gpu.ready()
+            // Traced shots and live tracing keep the game's leaf lighting: their traced shade already darkens leaves.
+            if (!armed.load(std::memory_order_relaxed) || cmd_list != immediate || !settings.enabled || settings.leaf_shading <= 0 || shot_frame || !gpu.ready()
                 || bound_shader() != GameShader::leaves)
                 return false;
             const char *moved = nullptr;
