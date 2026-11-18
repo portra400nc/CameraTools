@@ -140,6 +140,18 @@ float4 shadow_at(int2 pixel, float z, float3 n, bool of_sun)
     return total > 0 ? sum / total : 1;
 }
 
+// The world's light over the game's on a character, by channel. The game lights characters in colors of its own, which a
+// plain ratio over-tints: at night its deep blue light against the physical moon's warm one turned characters orange while
+// the ground beside them stayed gray. The ratio keeps its brightness but only the square root of its color.
+static const float kWorldTint = 0.5;
+
+float3 world_ratio(float3 ours)
+{
+    float3 r = max(ours / world_game.rgb, 0);
+    float l = max(dot(r, float3(0.2126, 0.7152, 0.0722)), 1e-6);
+    return l * pow(r / l, kWorldTint);
+}
+
 float3 main(float4 position : SV_Position) : SV_Target0
 {
     int2 pixel = int2(position.xy);
@@ -160,11 +172,11 @@ float3 main(float4 position : SV_Position) : SV_Target0
         if (traced.x > 0.5)
             t = traced_at(pixel, p.z);
         if (t.known)
-            color *= (t.sun * world_sun.rgb + t.sky * world_sky.rgb) / world_game.rgb;
+            color *= world_ratio(t.sun * world_sun.rgb + t.sky * world_sky.rgb);
         else
         {
             float lit = world_sun.w > 0.5 ? shadow_at(pixel, p.z, view_normal_at(pixel), true).x : 1;
-            color *= (lit * world_sun.rgb + world_sky.rgb) / world_game.rgb;
+            color *= world_ratio(lit * world_sun.rgb + world_sky.rgb);
         }
         // Matched to the world around the characters: the game lights them in units of its own, brighter than its world.
         color *= exp2(balance.Load(int3(0, 0, 0)));
