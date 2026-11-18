@@ -12,6 +12,7 @@ Texture2D<float> sun : register(t8);        // character_sun_ps.hlsl's raw sun v
 StructuredBuffer<float4> history : register(t9);        // the trace's: occlusion sum, sun sum, their counts
 StructuredBuffer<float4> gather_hit : register(t10);    // the gather's hits' light summed
 StructuredBuffer<float4> gather_sky : register(t11);    // the misses' sky summed, and the misses
+Texture2D<float> balance : register(t12);   // character_balance_adapt_ps.hlsl's stops; unbound, 0
 
 cbuffer GatherApply : register(b2)
 {
@@ -165,6 +166,8 @@ float3 main(float4 position : SV_Position) : SV_Target0
             float lit = world_sun.w > 0.5 ? shadow_at(pixel, p.z, view_normal_at(pixel), true).x : 1;
             color *= (lit * world_sun.rgb + world_sky.rgb) / world_game.rgb;
         }
+        // Matched to the world around the characters: the game lights them in units of its own, brighter than its world.
+        color *= exp2(balance.Load(int3(0, 0, 0)));
     }
     float3 base = srgb_to_linear(albedo.Load(int3(pixel, 0)).rgb);
     float facing = 1 - saturate(dot(n, v));

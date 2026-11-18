@@ -16,7 +16,8 @@ namespace enhancements
         float world_sun[4];
         float world_sky[4];
         float world_game[4];
-        float traced[4];    // set by Gpu::run_character_light: 1 with the trace's sums bound, 1 with the gather's, 0, 0
+        float traced[4];    // set by Gpu::run_character_light: 1 with the trace's sums bound, 1 with the gather's, the balance's
+                            // aim and its ease a frame
     };
     static_assert(sizeof(CharacterLightConstants) == 368);
 

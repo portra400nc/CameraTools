@@ -609,7 +609,7 @@ namespace enhancements
         bool sync_sky_tables(const std::shared_ptr<const Atmosphere> &atmosphere);
         ComPtr<ID3D11ComputeShader> dof_scatter_cs_, cloud_shape_cs_, cloud_detail_cs_;
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, ambient_specular_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_, cloud_map_ps_, clouds_ps_, clouds_apply_ps_, clouds_resolve_ps_, clouds_painted_ps_,
-            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, character_light_ps_, character_shadow_ps_, character_sun_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
+            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, character_light_ps_, character_shadow_ps_, character_sun_ps_, character_balance_ps_, character_balance_adapt_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
             apply_gather_ps_, reflect_apply_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_, dof_soften_ps_, dof_behind_ps_,
             dof_sprite_ps_, dof_lift_ps_, dof_display_in_ps_, dof_display_out_ps_, dof_near_ps_, dof_near_mask_ps_, dof_near_fill_ps_, flare_visibility_ps_, flare_ps_,
             dng_ps_, dng_flare_ps_, exposure_meter_ps_, exposure_adapt_ps_;
@@ -625,6 +625,9 @@ namespace enhancements
         Mirror character_normals_, character_albedo_, character_material_;
         Scratch character_shadow_;          // R8G8B8A8_UNORM: each light's raw visibility at character pixels
         Scratch character_sun_;             // R8_UNORM: the sun's raw visibility at character pixels
+        Scratch character_balance_meter_;   // 64x32 R32G32B32A32_FLOAT with mips: the world's and the characters' light around them
+        Scratch character_balance_[2];      // 1x1 R32_FLOAT: the stops the characters' world light is scaled by, this frame's and the last's
+        UINT character_balance_at_ = 0;
         bool character_gbuffer_ = false;    // the copies hold this frame's G-buffer
         ComPtr<ID3D11Buffer> game_grade_;      // shaders/tonemap_ps.hlsl's GameGrade, filled by copy_game_grade
         ComPtr<ID3D11Buffer> grade_stage_;     // game_grade_ for the CPU to read

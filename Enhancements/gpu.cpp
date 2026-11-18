@@ -154,6 +154,9 @@ namespace enhancements
 
     // The rows of the game's tone map constants shaders/tonemap_ps.hlsl reads, 0 to 101.
     // shaders/tonemap_ps.hlsl's GameGrade: three rows of the color matrix, then exposure, bloom, gamma and an unused float.
+    // The characters' light over the world's around them that the character balance aims at, and how much of the way
+    // there it goes each frame.
+    constexpr float kCharacterBalance = 1.0f, kCharacterBalanceEase = 0.1f;
     constexpr UINT kGameGradeBytes = 64, kGradeExposure = 48, kGradeBloom = 52, kGradeGamma = 56;
     // shaders/ambient_ps.hlsl's SkyColor: the physical sky's nine harmonics, a float4 each.
     constexpr UINT kSkyColorBytes = 9 * 16;
@@ -848,6 +851,8 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kCharacterLightPs, sizeof kCharacterLightPs, nullptr, &made.character_light_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCharacterShadowPs, sizeof kCharacterShadowPs, nullptr, &made.character_shadow_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCharacterSunPs, sizeof kCharacterSunPs, nullptr, &made.character_sun_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kCharacterBalancePs, sizeof kCharacterBalancePs, nullptr, &made.character_balance_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kCharacterBalanceAdaptPs, sizeof kCharacterBalanceAdaptPs, nullptr, &made.character_balance_adapt_ps_))
             && SUCCEEDED(device->CreatePixelShader(kGatherAveragePs, sizeof kGatherAveragePs, nullptr, &made.gather_average_ps_))
             && SUCCEEDED(device->CreatePixelShader(kGatherFilterPs, sizeof kGatherFilterPs, nullptr, &made.gather_filter_ps_))
             && SUCCEEDED(device->CreatePixelShader(kApplyGatherPs, sizeof kApplyGatherPs, nullptr, &made.apply_gather_ps_))
@@ -1974,6 +1979,11 @@ namespace enhancements
         const bool gathered = traced && gathering && trace->gather_hit_srv() && trace->gather_sky_srv();
         light.traced[0] = traced ? 1.0f : 0.0f;
         light.traced[1] = gathered ? 1.0f : 0.0f;
+        light.traced[2] = kCharacterBalance;
+        light.traced[3] = kCharacterBalanceEase;
+        // The balance's stops start at 0 in a fresh 1x1 target: the characters keep the game's light until it measures.
+        const bool balanced = light.params[3] > 0 && character_balance_meter_.sync(d, { 64, 32 }, DXGI_FORMAT_R32G32B32A32_FLOAT, true)
+            && character_balance_[0].sync(d, { 1, 1 }, DXGI_FORMAT_R32_FLOAT) && character_balance_[1].sync(d, { 1, 1 }, DXGI_FORMAT_R32_FLOAT);
         if (gathered)
         {
             // The gather's constants from its last apply draw at the combine step: its strength and the sky's harmonics.
@@ -1991,9 +2001,22 @@ namespace enhancements
         // The second draw's target change unbinds character_shadow_ as a target before it is bound at t7.
         ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), character_normals_.srv(), depth_.srv(), depth_.stencil_srv(), nullptr, character_albedo_.srv(),
             character_material_.srv(), character_shadow_.srv(), shade ? character_sun_.srv() : nullptr, traced ? trace->history_srv() : nullptr,
-            gathered ? trace->gather_hit_srv() : nullptr, gathered ? trace->gather_sky_srv() : nullptr };
+            gathered ? trace->gather_hit_srv() : nullptr, gathered ? trace->gather_sky_srv() : nullptr,
+            balanced ? character_balance_[character_balance_at_ ^ 1].srv() : nullptr };
         draw_fullscreen(character_shadow_ps_.Get(), srvs, 7, character_shadow_.rtv(), map.render);
-        draw_fullscreen(character_light_ps_.Get(), srvs, 12, scene_out_.rtv(), map.render);
+        draw_fullscreen(character_light_ps_.Get(), srvs, 13, scene_out_.rtv(), map.render);
+        if (balanced)
+        {
+            // How brightly the result lights the characters against the world around them, then the next frame's stops.
+            ID3D11ShaderResourceView *const meter_in[] = { scene_out_.srv(), nullptr, depth_.srv(), depth_.stencil_srv(), nullptr, character_albedo_.srv() };
+            draw_fullscreen(character_balance_ps_.Get(), meter_in, 6, character_balance_meter_.rtv(), { 64, 32 });
+            c->OMSetRenderTargets(0, nullptr, nullptr);
+            c->GenerateMips(character_balance_meter_.srv());
+            ID3D11ShaderResourceView *const adapt_in[] = { character_balance_meter_.srv(), character_balance_[character_balance_at_ ^ 1].srv() };
+            draw_fullscreen(character_balance_adapt_ps_.Get(), adapt_in, 2, character_balance_[character_balance_at_].rtv(), { 1, 1 });
+            c->OMSetRenderTargets(0, nullptr, nullptr);
+            character_balance_at_ ^= 1;
+        }
         scene_out_.copy_to(c, native(scene));
         return GameCall::keep;
     }
