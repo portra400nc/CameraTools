@@ -210,8 +210,8 @@ int main()
 {
     {
         const std::optional<SceneRequest> defaults = parse_scene_request(std::array<EnhancementsSceneRequest, 1> { { { sizeof(EnhancementsSceneRequest), 0, 0, 0, 0 } } }.data());
-        check("a zeroed request reads as all seven faces, settle 45, OBJ without raw bytes, 4000000 triangles a face",
-            defaults && defaults->faces == 0x7F && defaults->settle == 45 && !defaults->raw && !defaults->ply && defaults->max_triangles == 4000000);
+        check("a zeroed request reads as all seven faces, settle 45, OBJ without raw bytes, 5400000 triangles a face",
+            defaults && defaults->faces == 0x7F && defaults->settle == 45 && !defaults->raw && !defaults->ply && defaults->max_triangles == 5400000);
         EnhancementsSceneRequest raw { sizeof raw, 0xFFFFFF80u | 1u << ENHANCEMENTS_FACE_VIEW, 1, ENHANCEMENTS_SCENE_RAW | ENHANCEMENTS_SCENE_PLY | 0x100, 1000 };
         const auto clamped = parse_scene_request(&raw);
         check("unknown face bits drop, settle 1 clamps to 2, both flags read, 1000 triangles", clamped && clamped->faces == 0x40 && clamped->settle == 2
@@ -223,7 +223,7 @@ int main()
         EnhancementsSceneRequest short_one { 8, 1u << ENHANCEMENTS_FACE_NEG_Y, 3, ENHANCEMENTS_SCENE_RAW, 7 };
         const auto cut = parse_scene_request(&short_one);
         check("a caller that knows only size and faces gets the defaults past them", cut && cut->faces == 0x08 && cut->settle == 45 && !cut->raw
-            && cut->max_triangles == 4000000);
+            && cut->max_triangles == 5400000);
         short_one.size = 7;
         check("a size too short to hold faces, and a null pointer: invalid", !parse_scene_request(&short_one) && !parse_scene_request(nullptr));
         EnhancementsSceneRequest traced { sizeof traced, 0x7F, 0, ENHANCEMENTS_SCENE_TRACE | ENHANCEMENTS_SCENE_NO_MESHES | ENHANCEMENTS_SCENE_GBUFFER, 0 };

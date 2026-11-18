@@ -297,7 +297,9 @@ namespace enhancements
         uint64_t trace_asked = 0;
         uint64_t trace_generations = 0;
         // A scene of more triangles than this is cut to its nearest; halved each time a scene's buffers could not be made.
-        uint64_t trace_max_triangles = 4000000;
+        // The nearest triangles a traced scene keeps: at 48 bytes each, under the 256 MB a buffer may take (25% of the
+        // Deck's dedicated video memory). Halved after a failed upload.
+        uint64_t trace_max_triangles = 5400000;
         std::optional<TraceFrame> trace_frame;      // this frame's, from the combine step
         RestartBurst restart_burst;                 // the samples' starts since a full pass, for the log
         uint64_t restart_burst_frame = 0;           // the frame of the burst's first

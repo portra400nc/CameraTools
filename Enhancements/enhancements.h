@@ -827,7 +827,7 @@ typedef struct EnhancementsSceneRequest
     uint32_t settle;            // presents each turned face is held before its frame is captured; 0 reads as 45, clamped
                                 // to 2..600. The view face waits 2.
     uint32_t flags;             // ENHANCEMENTS_SCENE_*
-    uint32_t max_triangles;     // per face; whole draws past it are left out of the file and counted; 0 reads as 4000000
+    uint32_t max_triangles;     // per face; whole draws past it are left out of the file and counted; 0 reads as 5400000
 } EnhancementsSceneRequest;
 
 #define ENHANCEMENTS_COMPARE_MAX 16
