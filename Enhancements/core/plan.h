@@ -302,6 +302,7 @@ namespace enhancements
         uint32_t grass_layers = 0;              // EnhancementsGrass.layers
         uint8_t grass_port = 0;                 // EnhancementsGrass.port: 0 off, 1 the game's mesh, 2 the port's clump
         uint32_t grass_copies = 1;              // EnhancementsGrass.copies
+        float grass_height = 1;                 // EnhancementsGrass.height
         ContactShadowSettings contact_shadows;
         AtmosphereSettings atmosphere;
         TonemapSettings tonemap;

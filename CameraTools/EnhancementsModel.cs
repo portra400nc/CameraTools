@@ -361,6 +361,7 @@ namespace CameraTools
             settings.Grass.Layers = values.On(Enhancement.Enabled) ? ProbeGrassLayers : 0f;
             settings.Grass.Port = values.On(Enhancement.Enabled) ? ProbeGrassPort : 0f;
             settings.Grass.Copies = ProbeGrassCopies;
+            settings.Grass.Height = ProbeGrassHeight;
             settings.ContactShadows.Enabled = Bit(Enhancement.ContactShadows);
             settings.ContactShadows.Length = values[Enhancement.ContactShadowLength];
             settings.ContactShadows.Strength = values[Enhancement.ContactShadowStrength];
@@ -501,6 +502,7 @@ namespace CameraTools
         public static float ProbeGrassLayers { get; set; }
         public static float ProbeGrassPort { get; set; }
         public static float ProbeGrassCopies { get; set; } = 1f;
+        public static float ProbeGrassHeight { get; set; } = 1f;
 
         // Whether the physical sky runs, which draws the sky, the sun, the moon and the stars and turns the main light to them.
         public static bool SkyDrawn(EnhancementValues values) => values.On(Enhancement.Enabled) && values.On(Enhancement.PhysicalSky);

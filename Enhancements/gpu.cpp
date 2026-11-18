@@ -1873,7 +1873,7 @@ namespace enhancements
         return true;
     }
 
-    bool Gpu::bind_grass_port(ID3D11Buffer *args, UINT offset, bool low_slots, bool clump, uint32_t copies)
+    bool Gpu::bind_grass_port(ID3D11Buffer *args, UINT offset, bool low_slots, bool clump, uint32_t copies, float height)
     {
         if (!make_grass_port() || (clump && !grass_clump_ready()))
             return false;
@@ -1890,7 +1890,7 @@ namespace enhancements
         if (FAILED(c->Map(grass_copies_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
             return false;
         // Converted cards' normals tilt far to the sky, the game's modeled blades less.
-        const struct { uint32_t copies[4]; float look[4]; } look = { { copies }, { clump ? 0.75f : 0.4f } };
+        const struct { uint32_t copies[4]; float look[4]; } look = { { copies }, { clump ? 0.75f : 0.4f, height } };
         std::memcpy(mapped.pData, &look, sizeof look);
         c->Unmap(grass_copies_.Get(), 0);
         ID3D11Buffer *const fix_cb[] = { grass_args_constants_.Get() };

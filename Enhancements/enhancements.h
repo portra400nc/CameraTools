@@ -636,6 +636,7 @@ typedef struct EnhancementsGrass
     // meadow.dds) in its place, copies times. Version 49 added them.
     float port;
     float copies;               // 1 to 8; rounded and clamped, 1 by default
+    float height;               // the port's clump's height, times; 0.5 to 3, 1 by default
 } EnhancementsGrass;
 
 typedef struct EnhancementsSceneLight

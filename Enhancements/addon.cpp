@@ -1706,7 +1706,7 @@ namespace enhancements
                     // The game's own grass: its mesh copied, drawn by its own shaders, which sway, bend and cull the copies as
                     // they do its blades. The port's clump: our shaders, with the game's placement.
                     if (port && (settings.grass_port == 1 ? gpu.bind_grass_copies(args, at, settings.grass_copies)
-                                                         : gpu.bind_grass_port(args, at, low_slots, true, settings.grass_copies)))
+                                                         : gpu.bind_grass_port(args, at, low_slots, true, settings.grass_copies, settings.grass_height)))
                     {
                         args = gpu.grass_port_args();
                         at = 0;

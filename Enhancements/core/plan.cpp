@@ -71,7 +71,7 @@ namespace enhancements
             && offsetof(EnhancementsSettings, ambient_color) == 400 && offsetof(EnhancementsSettings, tones) == 404
             && offsetof(EnhancementsSettings, lens_softness) == 412 && offsetof(EnhancementsSettings, auto_exposure) == 416
             && offsetof(EnhancementsSettings, sky) == 420 && offsetof(EnhancementsSettings, clouds) == 428 && offsetof(EnhancementsSettings, aerial) == 484
-            && offsetof(EnhancementsSettings, water) == 488 && offsetof(EnhancementsSettings, sunset) == 504 && offsetof(EnhancementsSettings, cloud_pattern) == 508 && offsetof(EnhancementsSettings, rain) == 512 && offsetof(EnhancementsSettings, mist) == 520 && offsetof(EnhancementsSettings, scene_light) == 528 && offsetof(EnhancementsSettings, transmission) == 532 && offsetof(EnhancementsSettings, grass) == 536 && sizeof(EnhancementsGrass) == 16 && sizeof(EnhancementsSettings) == 552);
+            && offsetof(EnhancementsSettings, water) == 488 && offsetof(EnhancementsSettings, sunset) == 504 && offsetof(EnhancementsSettings, cloud_pattern) == 508 && offsetof(EnhancementsSettings, rain) == 512 && offsetof(EnhancementsSettings, mist) == 520 && offsetof(EnhancementsSettings, scene_light) == 528 && offsetof(EnhancementsSettings, transmission) == 532 && offsetof(EnhancementsSettings, grass) == 536 && sizeof(EnhancementsGrass) == 20 && sizeof(EnhancementsSettings) == 556);
         static_assert(ENHANCEMENTS_CLOUD_SHAPE_STREAKS == static_cast<int>(CloudShape::streaks) && ENHANCEMENTS_CLOUD_SHAPE_SHEET == static_cast<int>(CloudShape::sheet)
             && ENHANCEMENTS_CLOUD_SHAPE_COUNT == static_cast<int>(CloudShape::count));
         static_assert(ENHANCEMENTS_CLOUD_PATTERN_STREAKS == static_cast<int>(CloudPattern::streaks)
@@ -546,6 +546,8 @@ namespace enhancements
             s.grass_port = static_cast<uint8_t>(std::lround(finite_or(raw.grass.port, 0.0f, 0.0f, 2.0f)));
         if (knows(offsetof(EnhancementsSettings, grass) + offsetof(EnhancementsGrass, copies), sizeof raw.grass.copies))
             s.grass_copies = static_cast<uint32_t>(std::lround(finite_or(raw.grass.copies, 1.0f, 1.0f, 8.0f)));
+        if (knows(offsetof(EnhancementsSettings, grass) + offsetof(EnhancementsGrass, height), sizeof raw.grass.height))
+            s.grass_height = raw.grass.height == 0 ? 1.0f : finite_or(raw.grass.height, 1.0f, 0.5f, 3.0f);
         if (knows(offsetof(EnhancementsSettings, mist), sizeof raw.mist))
         {
             s.atmosphere.patchiness = finite_or(raw.mist.patchiness, 0.0f, 0.0f, 1.0f);

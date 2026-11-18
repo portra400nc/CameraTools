@@ -315,6 +315,7 @@ namespace CameraToolsEnhancements
         public float Layers;                // the game's grass drawn this many more times, 0 to 2
         public float Port;                  // 0 off, 1 the game's grass mesh copies times, 2 the port's clump copies times
         public float Copies;                // 1 to 8
+        public float Height;                // the port's clump's height, times, 0.5 to 3
     }
 
     // EnhancementsSceneLight in enhancements.h, field for field.

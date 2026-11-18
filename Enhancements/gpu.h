@@ -378,7 +378,7 @@ namespace enhancements
         bool grass_bindings(bool &low_slots);
         bool load_grass_clump(const std::string &mesh, const std::string &dds, std::string &why);
         bool grass_clump_ready() const { return grass_port_vb_ != nullptr; }
-        bool bind_grass_port(ID3D11Buffer *args, UINT offset, bool low_slots, bool clump, uint32_t copies);
+        bool bind_grass_port(ID3D11Buffer *args, UINT offset, bool low_slots, bool clump, uint32_t copies, float height = 1);
         // The bound game grass draw's own mesh copies times over (grass_copy_vertices_cs.hlsl and
         // grass_copy_indices_cs.hlsl), bound in its place for the game's own shaders to draw with grass_port_args(). false
         // when the draw's mesh is not one we copy: a 44-byte vertex buffer of at most kGrassSourceBytes and 16-bit indices.

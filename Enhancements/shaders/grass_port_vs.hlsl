@@ -9,7 +9,7 @@ cbuffer GrassMaterial : register(b0) { float4 material[98]; };   // the game's c
 cbuffer GrassFrame : register(b1) { float4 frame[11]; };         // cb1: [5] the camera, [10] the grass origin
 cbuffer GrassCamera : register(b2) { float4 camera[25]; };       // cb2: [21..24] the projection's rows
 cbuffer GrassDraw : register(b3) { uint4 draw; };                // cb3: x the draw's first instance
-cbuffer GrassCopies : register(b4) { uint4 copies; float4 look; };  // copies.x the copies
+cbuffer GrassCopies : register(b4) { uint4 copies; float4 look; };  // copies.x the copies; look.y the clump's height, times
 
 struct Instance
 {
@@ -44,6 +44,7 @@ struct Blade
 Blade main(Vertex v)
 {
     uint n = max(copies.x, 1u), k = v.instance % n;
+    v.position.y *= look.y;
     Instance i = instances[v.instance / n + draw.x + visible[asuint(material[50].z)].x];
     float angle = k * 2.39996323, ks, kc;
     sincos(angle, ks, kc);
