@@ -1645,14 +1645,8 @@ namespace enhancements
         }
 
 
-        // The game's grass vertex shaders, as a FrameCensus capture of a meadow on 2026-11-18 found them among the indexed
-        // indirect draws in the G-buffer pass, each placing blades from an instance buffer by the grass origin at cb1[10] and
-        // sizing and turning them by cb0[47] and cb0[48]. The pass's other two such shaders, 4dfe315c1c8238c6 and
-        // 03e4c9b91126288d, draw the fallen leaves strewn over the grass.
-        static constexpr uint64_t kGrassVertexShaders[] = { 0xbc45d83a69036a07ull, 0x09543fd240035bd3ull };
-        uint64_t grass_vertex_checked = 0;  // the vertex shader object last looked up, and whether it is grass's
-        bool grass_vertex = false;
-        bool grass_low_slots = false;   // the variant that binds its instance buffers at t1 and t2, not t4 and t5
+        bool grass_replaced = false;    // the port drew the last grass draw in the game's place
+        bool port_registered = false;   // the port's shaders are in the registry
         uint64_t grass_layered = 0, grass_unlayered = 0, grass_logged_at = 0;    // grass draws Grass depth's layers drew again, or could not
 
 
@@ -1670,16 +1664,7 @@ namespace enhancements
                     return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
                 };
                 std::string why;
-                const bool ok = gpu.load_grass_port(read(folder / "meadow.gpm"), read(folder / "meadow.dds"), why);
-                if (ok)
-                {
-                    // Known to the registry, the port's draws stream into a traced shot's scene and cast its shadows.
-                    size_t size = 0;
-                    const void *code = Gpu::grass_port_vs_code(size);
-                    shaders.add(gpu.grass_port_vs(), ShaderStage::vertex, code, size);
-                    code = Gpu::grass_port_ps_code(size);
-                    shaders.add(gpu.grass_port_ps(), ShaderStage::pixel, code, size);
-                }
+                const bool ok = gpu.load_grass_clump(read(folder / "meadow.gpm"), read(folder / "meadow.dds"), why);
                 grass_port_state = ok ? PortState::loaded : PortState::failed;
                 log(ok ? reshade::log::level::info : reshade::log::level::warning,
                     ok ? "the grass port's clump is loaded from " + folder.u8string() + "." : "the grass port's clump in " + folder.u8string() + " did not load: " + why + ".");
@@ -1687,86 +1672,27 @@ namespace enhancements
             return grass_port_state == PortState::loaded;
         }
 
-        std::vector<uint64_t> grass_dumped;     // DEBUG: grass vertex shaders whose mesh was saved
-        // DEBUG: every input layout the game makes, described, for the grass port's mesh format.
-        std::mutex layouts_mutex;
-        std::unordered_map<uint64_t, std::string> input_layouts;
 
 
-        // DEBUG: the bound grass draw's input layout, vertex and index buffers and indirect arguments, once per vertex shader.
-        void dump_grass(ID3D11Buffer *args, UINT offset)
-        {
-            ID3D11DeviceContext1 *c = gpu.context();
-            ComPtr<ID3D11VertexShader> vs;
-            c->VSGetShader(&vs, nullptr, nullptr);
-            const std::optional<ShaderCode> code = shaders.find(reinterpret_cast<uintptr_t>(vs.Get()));
-            const uint64_t hash = code ? code->hash : 0;
-            if (std::find(grass_dumped.begin(), grass_dumped.end(), hash) != grass_dumped.end())
-                return;
-            grass_dumped.push_back(hash);
-            ComPtr<ID3D11InputLayout> layout;
-            c->IAGetInputLayout(&layout);
-            ID3D11Buffer *vbs[4] = {};
-            UINT strides[4] = {}, offsets[4] = {};
-            c->IAGetVertexBuffers(0, 4, vbs, strides, offsets);
-            ComPtr<ID3D11Buffer> ib;
-            DXGI_FORMAT index_format = DXGI_FORMAT_UNKNOWN;
-            UINT index_offset = 0;
-            c->IAGetIndexBuffer(&ib, &index_format, &index_offset);
-            std::string text;
-            {
-                std::lock_guard lock(layouts_mutex);
-                const auto found = input_layouts.find(reinterpret_cast<uintptr_t>(layout.Get()));
-                text = found != input_layouts.end() ? found->second : std::string("unknown layout");
-            }
-            char name[32];
-            std::snprintf(name, sizeof name, "%016llx", static_cast<unsigned long long>(hash));
-            const fs::path folder = output_root() / "grass-mesh";
-            std::error_code ec;
-            fs::create_directories(folder, ec);
-            for (UINT i = 0; i < 4; i++)
-                if (vbs[i])
-                {
-                    text += " | vb" + std::to_string(i) + " stride " + std::to_string(strides[i]) + " offset " + std::to_string(offsets[i]);
-                    if (const std::optional<std::string> bytes = gpu.read_buffer(vbs[i]))
-                        write_file(folder / (std::string(name) + "-vb" + std::to_string(i) + ".bin"), *bytes);
-                }
-            text += " | ib format " + std::to_string(index_format) + " offset " + std::to_string(index_offset) + " | args offset " + std::to_string(offset);
-            if (ib)
-                if (const std::optional<std::string> bytes = gpu.read_buffer(ib.Get()))
-                    write_file(folder / (std::string(name) + "-ib.bin"), *bytes);
-            if (const std::optional<std::string> bytes = gpu.read_buffer(args))
-                write_file(folder / (std::string(name) + "-args.bin"), *bytes);
-            for (ID3D11Buffer *b : vbs)
-                if (b)
-                    b->Release();
-            log(reshade::log::level::info, std::string("DEBUG grass mesh ") + name + ": " + text);
-        }
-
-        bool bound_grass()
-        {
-            const uint64_t vertex = gpu.bound_vertex_shader();
-            if (vertex != grass_vertex_checked)
-            {
-                grass_vertex_checked = vertex;
-                const std::optional<ShaderCode> code = shaders.find(vertex);
-                grass_vertex = code && std::find(std::begin(kGrassVertexShaders), std::end(kGrassVertexShaders), code->hash) != std::end(kGrassVertexShaders);
-                grass_low_slots = code && code->hash == 0x09543fd240035bd3ull;
-            }
-            return grass_vertex;
-        }
-
-        // Indirect draws go to the scene capture, and the game's grass to Grass depth's layers: the frame recipe never
-        // matched them, so it still sees only direct draws.
+        // Indirect draws go to the scene capture, and the game's grass, known by its bindings (Gpu::grass_bindings), to
+        // the grass port and Grass depth's layers: the frame recipe never matched them, so it still sees only direct draws.
         bool on_draw_or_dispatch_indirect(command_list *cmd_list, indirect_command type, resource buffer, uint64_t offset, uint32_t draw_count, uint32_t)
         {
-            if (armed.load(std::memory_order_relaxed) && cmd_list == immediate && settings.enabled && in_game_gbuffer && type == indirect_command::draw_indexed
-                && draw_count == 1 && gpu.ready() && bound_grass())
-                dump_grass(reinterpret_cast<ID3D11Buffer *>(buffer.handle), static_cast<UINT>(offset));
-            const bool port = settings.grass_port && grass_port_loaded();
+            bool low_slots = false;
+            const bool port = settings.grass_port != 0 && (settings.grass_port == 1 || grass_port_loaded());
             if (armed.load(std::memory_order_relaxed) && cmd_list == immediate && settings.enabled && (settings.grass_layers > 0 || port) && in_game_gbuffer
-                && type == indirect_command::draw_indexed && draw_count == 1 && gpu.ready() && bound_grass())
+                && type == indirect_command::draw_indexed && draw_count == 1 && gpu.ready() && gpu.grass_bindings(low_slots))
             {
+                if (port && !port_registered)
+                {
+                    // Known to the registry, the port's draws stream into a traced shot's scene and cast its shadows.
+                    size_t size = 0;
+                    const void *code = Gpu::grass_port_vs_code(size);
+                    shaders.add(gpu.grass_port_vs(), ShaderStage::vertex, code, size);
+                    code = Gpu::grass_port_ps_code(size);
+                    shaders.add(gpu.grass_port_ps(), ShaderStage::pixel, code, size);
+                    port_registered = gpu.grass_port_vs() != 0;
+                }
                 const char *moved = nullptr;
                 bool drawn = true;
                 ID3D11Buffer *args = reinterpret_cast<ID3D11Buffer *>(buffer.handle);
@@ -1774,15 +1700,17 @@ namespace enhancements
                 {
                     StateGuard guard(gpu.context(), moved);
                     // The grass port draws its clump at the game's blades, with the game's constants, in place of the game's draw.
-                    if (port)
+                    bool replaced = false;
+                    if (port && gpu.bind_grass_port(args, at, low_slots, settings.grass_port == 2, settings.grass_copies))
                     {
-                        gpu.bind_grass_port(args, at, grass_low_slots);
                         args = gpu.grass_port_args();
                         at = 0;
                         gpu.draw_grass_layer(args, at);
                         if (scene_frame && in_gbuffer)
                             replay_scene({ ReplayKind::indirect_indexed, 0, 0, 0, 0, 0, args, at });
+                        replaced = true;
                     }
+                    grass_replaced = replaced;
                     if (settings.grass_layers > 0)
                         drawn = gpu.prepare_grass_layers(settings.grass_layers);
                     for (uint32_t k = 0; drawn && k < settings.grass_layers; k++)
@@ -1798,7 +1726,7 @@ namespace enhancements
                     trip(moved);
                 grass_layered += drawn ? 1 : 0;
                 grass_unlayered += drawn ? 0 : 1;
-                if (port && !moved)
+                if (grass_replaced && !moved)
                     return true;
             }
             if (!armed.load(std::memory_order_relaxed) || cmd_list != immediate || !scene_frame || !in_gbuffer || type == indirect_command::dispatch
@@ -2878,18 +2806,6 @@ namespace enhancements
         // capture replays, and the pixel shaders' hashes, which name them.
         void on_init_pipeline(device *, pipeline_layout, uint32_t count, const pipeline_subobject *subobjects, pipeline pipeline)
         {
-            for (uint32_t i = 0; i < count; i++)
-                if (subobjects[i].type == pipeline_subobject_type::input_layout)
-                {
-                    const auto *elements = static_cast<const input_element *>(subobjects[i].data);
-                    std::string text;
-                    for (uint32_t e = 0; e < subobjects[i].count; e++)
-                        text += std::string(elements[e].semantic ? elements[e].semantic : "?") + std::to_string(elements[e].semantic_index) + " format "
-                            + std::to_string(static_cast<uint32_t>(elements[e].format)) + " slot " + std::to_string(elements[e].buffer_binding) + " offset "
-                            + std::to_string(elements[e].offset) + " stride " + std::to_string(elements[e].stride) + " step " + std::to_string(elements[e].instance_step_rate) + "; ";
-                    std::lock_guard lock(layouts_mutex);
-                    input_layouts[pipeline.handle] = text;
-                }
             for (uint32_t i = 0; i < count; i++)
             {
                 ShaderStage stage;

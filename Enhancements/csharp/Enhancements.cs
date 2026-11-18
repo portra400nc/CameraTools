@@ -313,7 +313,8 @@ namespace CameraToolsEnhancements
     {
         public float RootShade;             // blades darker toward their foot, 0 none to 1
         public float Layers;                // the game's grass drawn this many more times, 0 to 2
-        public float Port;                  // not 0: the grass port's clump in place of the game's grass mesh
+        public float Port;                  // 0 off, 1 the game's grass mesh copies times, 2 the port's clump copies times
+        public float Copies;                // 1 to 8
     }
 
     // EnhancementsSceneLight in enhancements.h, field for field.

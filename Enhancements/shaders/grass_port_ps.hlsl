@@ -2,6 +2,7 @@
 // (253eb0505615eed5 and its variants) write it: the normal at half scale and bias, the albedo, a specular target of the
 // normal again, material id 3 (the game's tall grass) and the material's smoothness.
 cbuffer GrassMaterial : register(b0) { float4 material[98]; };
+cbuffer GrassCopies : register(b4) { uint4 copies; float4 look; };  // look.x how far normals tilt to the sky
 
 Texture2D<float4> albedo : register(t0);
 SamplerState linear_wrap : register(s0);
@@ -28,7 +29,6 @@ struct GBuffer
 };
 
 static const float kAlphaCut = 0.5;
-static const float kSkyward = 0.75;
 static const float kMeanLuminance = 0.1;    // a Skoglendi blade's mean, linear
 
 GBuffer main(Blade b, bool front : SV_IsFrontFace)
@@ -36,9 +36,10 @@ GBuffer main(Blade b, bool front : SV_IsFrontFace)
     float4 color = albedo.Sample(linear_wrap, b.uv);
     clip(color.a - kAlphaCut);
     // Grass cards' own normals face sideways, and their back faces' down: lit by them, a meadow goes dark. Tilted toward
-    // the sky as real-time grass is, both faces light as the ground under them, a little by their own facing.
+    // the sky as real-time grass is, both faces light as the ground under them, a little by their own facing. The game's
+    // own blades tilt less.
     float3 n = normalize(b.normal) * (front ? 1 : -1);
-    n = normalize(lerp(n, float3(0, 1, 0), kSkyward));
+    n = normalize(lerp(n, float3(0, 1, 0), look.x));
     GBuffer o;
     o.normal = float4(n * 0.5 + 0.5, 0);
     // The game's own colors, root to tip by the material's ramp, with the texture's light and dark: the clump keeps the

@@ -300,7 +300,8 @@ namespace enhancements
         float transmission = 0;                 // EnhancementsTransmission.strength
         float grass_roots = 0;                  // EnhancementsGrass.root_shade
         uint32_t grass_layers = 0;              // EnhancementsGrass.layers
-        bool grass_port = false;                // EnhancementsGrass.port
+        uint8_t grass_port = 0;                 // EnhancementsGrass.port: 0 off, 1 the game's mesh, 2 the port's clump
+        uint32_t grass_copies = 1;              // EnhancementsGrass.copies
         ContactShadowSettings contact_shadows;
         AtmosphereSettings atmosphere;
         TonemapSettings tonemap;

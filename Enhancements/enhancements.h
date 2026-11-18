@@ -631,9 +631,11 @@ typedef struct EnhancementsGrass
 {
     float root_shade;           // 0 (the default) none, to 1; clamped
     float layers;               // 0 (the default) none, to 2 more layers; rounded and clamped
-    // Port: not 0 draws the grass port's clump (ReShade's Enhancements\grass-port\meadow.gpm and meadow.dds) in place
-    // of the game's grass mesh, with the game's grass shaders and blades. Version 49 added it.
+    // Port: 0 (the default) the game draws its grass; 1 the game's own grass mesh drawn copies times at each of its blades,
+    // each copy turned, moved and smaller; 2 the grass port's clump (ReShade's Enhancements\grass-port\meadow.gpm and
+    // meadow.dds) in its place, copies times. Version 49 added them.
     float port;
+    float copies;               // 1 to 8; rounded and clamped, 1 by default
 } EnhancementsGrass;
 
 typedef struct EnhancementsSceneLight

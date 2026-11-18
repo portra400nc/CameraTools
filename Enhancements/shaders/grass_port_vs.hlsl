@@ -1,5 +1,7 @@
-// The grass port's vertex shader: a Cathedral clump at each of the game's grass blades, drawn by the game's own indirect
-// grass draw with its constants and instance buffers bound. It places the clump as the game's grass vertex shaders
+// The grass port's vertex shader: a clump, the game's own grass mesh or a converted one, copies times at each of the
+// game's grass blades, drawn by the game's own indirect grass draw with its constants and instance buffers bound and its
+// instance count multiplied by the copies. Each copy after the first turns by the golden angle, moves up to 0.35 m and
+// shrinks by up to a quarter. It places the clump as the game's grass vertex shaders
 // (bc45d83a69036a07 and its variants) place their blades: the instance's x and z, the ground's height between the four
 // corner heights packed in the instance, its size and turn, all relative to the grass origin at cb1[10], and projects with
 // the game's camera rows. The game's wind is left out.
@@ -7,6 +9,7 @@ cbuffer GrassMaterial : register(b0) { float4 material[98]; };   // the game's c
 cbuffer GrassFrame : register(b1) { float4 frame[11]; };         // cb1: [5] the camera, [10] the grass origin
 cbuffer GrassCamera : register(b2) { float4 camera[25]; };       // cb2: [21..24] the projection's rows
 cbuffer GrassDraw : register(b3) { uint4 draw; };                // cb3: x the draw's first instance
+cbuffer GrassCopies : register(b4) { uint4 copies; float4 look; };  // copies.x the copies
 
 struct Instance
 {
@@ -40,7 +43,15 @@ struct Blade
 
 Blade main(Vertex v)
 {
-    Instance i = instances[v.instance + draw.x + visible[asuint(material[50].z)].x];
+    uint n = max(copies.x, 1u), k = v.instance % n;
+    Instance i = instances[v.instance / n + draw.x + visible[asuint(material[50].z)].x];
+    float angle = k * 2.39996323, ks, kc;
+    sincos(angle, ks, kc);
+    float spread = 0.35 * sqrt(float(k) / n), shrink = 1 - 0.25 * k / n;
+    float2 shift = float2(cos(angle * 1.7), sin(angle * 1.7)) * spread;
+    v.position = float3(dot(float2(kc, -ks), v.position.xz) * shrink + shift.x, v.position.y * shrink, dot(float2(ks, kc), v.position.xz) * shrink + shift.y);
+    v.root = float2(dot(float2(kc, -ks), v.root), dot(float2(ks, kc), v.root)) * shrink + shift;
+    v.normal = float3(dot(float2(kc, -ks), v.normal.xz), v.normal.y, dot(float2(ks, kc), v.normal.xz));
     float size = (i.shape & 255u) / 255.0 * material[48].y + material[48].x;
     float tall = size * (((i.shape >> 8) & 255u) / 255.0 * material[48].w + material[48].z);
     float turn = (i.shape >> 16) / 65535.0 * material[47].w + material[47].z;
