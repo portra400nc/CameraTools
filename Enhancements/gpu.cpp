@@ -1543,7 +1543,7 @@ namespace enhancements
         return true;
     }
 
-    bool Gpu::draw_grass_layers(ID3D11Buffer *args, UINT offset, uint32_t layers)
+    bool Gpu::prepare_grass_layers(uint32_t layers)
     {
         ID3D11Device *d = device_.Get();
         ID3D11DeviceContext1 *c = context_.Get();
@@ -1616,12 +1616,15 @@ namespace enhancements
                 const D3D11_BOX box = { 0, 0, 0, bytes[b], 1, 1 };
                 c->CopySubresourceRegion(grass_cb_[k][b].Get(), 0, 0, 0, 0, grass_raw_[k][b].Get(), 0, &box);
             }
-            ID3D11Buffer *const layer[] = { grass_cb_[k][0].Get(), grass_cb_[k][1].Get() };
-            c->VSSetConstantBuffers(0, 2, layer);
-            c->DrawIndexedInstancedIndirect(args, offset);
         }
         release(game);
         return ok;
+    }
+
+    void Gpu::bind_grass_layer(uint32_t layer)
+    {
+        ID3D11Buffer *const bound[] = { grass_cb_[layer][0].Get(), grass_cb_[layer][1].Get() };
+        context_->VSSetConstantBuffers(0, 2, bound);
     }
 
     bool Gpu::capture_grass(const FrameMap &map)

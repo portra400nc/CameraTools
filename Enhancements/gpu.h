@@ -365,10 +365,12 @@ namespace enhancements
         bool capture_leaves(const FrameMap &map);
         // At the combine step: the grass pass's blades and ground, for run_grass at the bloom step.
         bool capture_grass(const FrameMap &map);
-        // Draws the bound game grass draw, an indexed indirect one, layers (1 or 2) more times, each with copies of its
-        // vertex shader's constants that move, turn and shrink its blades. Call it inside a StateGuard. false when a
-        // buffer of ours failed.
-        bool draw_grass_layers(ID3D11Buffer *args, UINT offset, uint32_t layers);
+        // For the bound game grass draw, layers (1 or 2) sets of copies of its vertex shader's constants that move, turn
+        // and shrink its blades; bind_grass_layer binds one set in their place, for draw_grass_layer or the scene capture's
+        // replay. Call them inside a StateGuard. false when a buffer of ours failed or the draw binds too little.
+        bool prepare_grass_layers(uint32_t layers);
+        void bind_grass_layer(uint32_t layer);
+        void draw_grass_layer(ID3D11Buffer *args, UINT offset) { context_->DrawIndexedInstancedIndirect(args, offset); }
         // Darker blade roots, from what capture_grass found this frame. Keeps the scene without that copy. Empty when a
         // texture of ours failed.
         std::optional<GameCall> run_grass(const FrameMap &map, float roots, const Camera &camera, bool flip);

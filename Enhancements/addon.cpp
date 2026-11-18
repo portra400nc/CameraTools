@@ -1654,6 +1654,7 @@ namespace enhancements
         bool grass_vertex = false;
         uint64_t grass_layered = 0, grass_unlayered = 0, grass_logged_at = 0;    // grass draws Grass depth's layers drew again, or could not
 
+
         bool bound_grass()
         {
             const uint64_t vertex = gpu.bound_vertex_shader();
@@ -1675,9 +1676,18 @@ namespace enhancements
             {
                 const char *moved = nullptr;
                 bool drawn;
+                ID3D11Buffer *const args = reinterpret_cast<ID3D11Buffer *>(buffer.handle);
                 {
                     StateGuard guard(gpu.context(), moved);
-                    drawn = gpu.draw_grass_layers(reinterpret_cast<ID3D11Buffer *>(buffer.handle), static_cast<UINT>(offset), settings.grass_layers);
+                    drawn = gpu.prepare_grass_layers(settings.grass_layers);
+                    for (uint32_t k = 0; drawn && k < settings.grass_layers; k++)
+                    {
+                        gpu.bind_grass_layer(k);
+                        gpu.draw_grass_layer(args, static_cast<UINT>(offset));
+                        // A traced shot's scene takes each layer's blades too, so they cast its shadows.
+                        if (scene_frame && in_gbuffer)
+                            replay_scene({ ReplayKind::indirect_indexed, 0, 0, 0, 0, 0, args, static_cast<uint32_t>(offset) });
+                    }
                 }
                 if (moved)
                     trip(moved);
@@ -2600,7 +2610,7 @@ namespace enhancements
 
             frames++;
             presents.store(frames, std::memory_order_relaxed);
-            if ((grass_layered || grass_unlayered) && frames >= grass_logged_at + 600)
+            if ((grass_layered || grass_unlayered) && frames >= grass_logged_at + 3600)
             {
                 grass_logged_at = frames;
                 log(reshade::log::level::info, "Grass depth's layers: " + std::to_string(grass_layered) + " grass draws drawn again, " + std::to_string(grass_unlayered)
