@@ -20,10 +20,14 @@ cbuffer GatherApply : register(b2)
     float4 sky_harmonics[9];    // core/light.h's SkyMap::harmonics: the sky map's light on a surface of normal n over pi
 };
 
-// The trace's pixels are noisy: each character pixel pools the sums over a window kTracedReach taps each way, a tap every
-// kTracedStep pixels at 720 lines and wider in proportion above, weighed by depth and facing as shadow_at's.
-static const int kTracedReach = 4;
-static const float kTracedStep = 2;
+// The trace's pixels are noisy, and the toon shading must survive them: the game already shades a body's sides, so the
+// traced light scales a character evenly and only the sun's shade draws edges. The sun's visibility pools over a window
+// kSunReach taps each way, a tap every kSunStep pixels at 720 lines (wider in proportion above), weighed by depth alone;
+// the sky's over a window as wide as kSkyStep taps, with every facing alike, so it is about one value a body.
+static const int kSunReach = 4;
+static const float kSunStep = 2;
+static const int kSkyReach = 4;
+static const float kSkyStep = 10;
 
 float3 sky_light(float3 n)
 {
@@ -39,48 +43,70 @@ struct Traced
     bool known;
 };
 
+// The pooled weight of a tap at q for a pixel at view depth z: 0 off a character, across a depth jump of more than
+// tolerance times the distance, or outside the frame.
+float tap_weight(int2 q, float z, float tolerance)
+{
+    if (any(q < 0) || any(q >= int2(render_size.xy)) || !is_character(stencil.Load(int3(q, 0)).g))
+        return 0;
+    return saturate(1 - abs(view_position_at(q).z - z) / (max(-z, 0.05) * tolerance));
+}
+
 // The traced sun's visibility and sky light at a character pixel, pooled from its neighbors' sums.
-Traced traced_at(int2 pixel, float z, float3 n)
+Traced traced_at(int2 pixel, float z)
 {
     Traced t;
     t.known = false;
     t.sun = 1;
     t.sky = 1;
-    int step = max(1, int(kTracedStep * render_size.y / 720 + 0.5));
-    float4 h = 0, hit = 0, seen = 0;
-    [loop] for (int y = -kTracedReach; y <= kTracedReach; y++)
+    float scale = render_size.y / 720;
+    int stride = max(1, int(kSunStep * scale + 0.5));
+    float4 h = 0;
+    [loop] for (int y = -kSunReach; y <= kSunReach; y++)
     {
-        [loop] for (int x = -kTracedReach; x <= kTracedReach; x++)
+        [loop] for (int x = -kSunReach; x <= kSunReach; x++)
         {
-            int2 q = pixel + int2(x, y) * step;
-            if (any(q < 0) || any(q >= int2(render_size.xy)) || !is_character(stencil.Load(int3(q, 0)).g))
-                continue;
-            float depth_weight = saturate(1 - abs(view_position_at(q).z - z) / (max(-z, 0.05) * kDepthTolerance * 4));
-            float facing = dot(n, view_normal_at(q)) * 0.5 + 0.5;
-            float weight = depth_weight * facing * facing;
-            if (weight <= 0)
-                continue;
-            uint at = uint(q.y) * uint(render_size.x) + uint(q.x);
-            h += history[at] * weight;
-            if (traced.y > 0.5)
-            {
-                hit += gather_hit[at] * weight;
-                seen += gather_sky[at] * weight;
-            }
+            int2 q = pixel + int2(x, y) * stride;
+            float weight = tap_weight(q, z, kDepthTolerance * 4);
+            if (weight > 0)
+                h += history[uint(q.y) * uint(render_size.x) + uint(q.x)] * weight;
         }
     }
     if (!(h.w > 0))
         return t;
     t.known = true;
     t.sun = h.y / h.w;
-    if (traced.y > 0.5 && h.z > 0)
+    stride = max(1, int(kSkyStep * scale + 0.5));
+    float4 pooled = 0, hit = 0, seen = 0;
+    float3 open_sky = 0;
+    [loop] for (int v = -kSkyReach; v <= kSkyReach; v++)
     {
-        float3 world_n = normalize(normals.Load(int3(pixel, 0)).xyz * 2 - 1);
-        float3 open = max(sky_light(world_n), 1e-4);
-        t.sky = clamp((seen.rgb + gather_apply.x * hit.rgb) / h.z / open, 0, 4);
+        [loop] for (int u = -kSkyReach; u <= kSkyReach; u++)
+        {
+            int2 q = pixel + int2(u, v) * stride;
+            float weight = tap_weight(q, z, kDepthTolerance * 16);
+            if (weight <= 0)
+                continue;
+            uint at = uint(q.y) * uint(render_size.x) + uint(q.x);
+            float4 hq = history[at];
+            pooled += hq * weight;
+            if (traced.y > 0.5 && hq.z > 0)
+            {
+                hit += gather_hit[at] * weight;
+                seen += gather_sky[at] * weight;
+                open_sky += max(sky_light(normalize(normals.Load(int3(q, 0)).xyz * 2 - 1)), 1e-4) * hq.z * weight;
+            }
+        }
     }
-    else if (h.z > 0)
-        t.sky = h.x / h.z;
+    // The gathered light over what the open_sky sky would give the same normals, the sky's and the bounce's together.
+    if (traced.y > 0.5 && pooled.z > 0)
+        t.sky = clamp((seen.rgb + gather_apply.x * hit.rgb) / max(open_sky, 1e-4), 0, 4);
+    else if (pooled.z > 0)
+        t.sky = pooled.x / pooled.z;
+    // At most the open sky's brightness, keeping its color: a strong bounce lifted a whole body past the game's look in
+    // the open, clipped its lit side to white and warmed its cool shaded side, which flattened the toon shading.
+    float bright = dot(t.sky, float3(0.2126, 0.7152, 0.0722));
+    t.sky *= bright > 1 ? 1 / bright : 1;
     return t;
 }
 
@@ -127,7 +153,7 @@ float3 main(float4 position : SV_Position) : SV_Target0
         Traced t;
         t.known = false;
         if (traced.x > 0.5)
-            t = traced_at(pixel, p.z, view_normal_at(pixel));
+            t = traced_at(pixel, p.z);
         if (t.known)
             color *= (t.sun * world_sun.rgb + t.sky * world_sky.rgb) / world_game.rgb;
         else
