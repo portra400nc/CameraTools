@@ -28,6 +28,7 @@ static const int kSunReach = 4;
 static const float kSunStep = 2;
 static const int kSkyReach = 4;
 static const float kSkyStep = 10;
+static const float kSkyTint = 0.5;
 
 float3 sky_light(float3 n)
 {
@@ -107,6 +108,9 @@ Traced traced_at(int2 pixel, float z)
     // the open, clipped its lit side to white and warmed its cool shaded side, which flattened the toon shading.
     float bright = dot(t.sky, float3(0.2126, 0.7152, 0.0722));
     t.sky *= bright > 1 ? 1 / bright : 1;
+    // Half the bounce's tint: the grass's green and the ground's warmth, brightened by Bounce strength, painted bodies too
+    // warm against the world.
+    t.sky = lerp(min(bright, 1).xxx, t.sky, kSkyTint);
     return t;
 }
 

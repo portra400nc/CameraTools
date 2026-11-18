@@ -224,8 +224,13 @@ namespace CameraTools
 
         // Out in the open the character takes our sun, our sky and the lamps near it in place of the game's light; under a
         // roof it keeps the game's, as the game lights its interiors itself.
+        // The sky's light takes the ambient pass's Level, as the world's does: without it a character kept all of the game's
+        // sky light while the world around it lost 40% at the default 0.6, which at dusk, lit mostly by the sky, left the
+        // character far brighter than the ground beside it.
         private static CharacterWorldLight WorldOnCharacter(Vec3 sun, Vec3 sky, Vec3 gameDirect, Vec3 gameAmbient, float lamps, float open)
         {
+            var values = EnhancementsControl.RunningValues;
+            sky *= values.On(Enhancement.AmbientLight) ? values[Enhancement.AmbientLevel] : 1f;
             var game = gameDirect + gameAmbient + new Vec3(lamps);
             return new CharacterWorldLight(ToUnity(sun * open), ToUnity((sky + new Vec3(lamps)) * open + game * (1 - open)), ToUnity(game));
         }
