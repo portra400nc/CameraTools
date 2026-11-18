@@ -1136,6 +1136,9 @@ namespace enhancements
                     case PassId::transmission:
                         call = gpu.run_transmission(map, settings.transmission, sky_camera(), settings.flip);
                         break;
+                    case PassId::grass:
+                        call = gpu.run_grass(map, settings.grass_roots, sky_camera(), settings.flip);
+                        break;
                     case PassId::rain:
                         if (std::fabs(settings.rain - logged_rain) > 0.1f)
                         {
@@ -1270,6 +1273,13 @@ namespace enhancements
                     if (!guard)
                         guard.emplace(gpu.context(), moved);
                     gpu.capture_leaves(map);
+                }
+                // So does the grass pass copy its blades and ground.
+                if (step == Step::combine && settings.enabled && settings.grass_roots > 0)
+                {
+                    if (!guard)
+                        guard.emplace(gpu.context(), moved);
+                    gpu.capture_grass(map);
                 }
             }
             if (moved)

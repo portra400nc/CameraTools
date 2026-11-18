@@ -135,6 +135,14 @@ namespace CameraTools
                 if (readers[(int)Enhancement.Enabled]() == 1f)
                     writers[(int)Enhancement.LightThroughLeaves](1f);
             }
+            // So did Grass depth.
+            var grassSeen = category.CreateEntry("GrassDepthSeen", false, is_hidden: true);
+            if (!grassSeen.Value)
+            {
+                grassSeen.Value = true;
+                if (readers[(int)Enhancement.Enabled]() == 1f)
+                    writers[(int)Enhancement.GrassDepth](1f);
+            }
             run = new EnhancementRun(EnhancementValues.From(field => readers[(int)field.Id]()));
             // An entry may hold what its row cannot, such as a number past the row's range, and then says what was read.
             foreach (var field in EnhancementsModel.Fields)

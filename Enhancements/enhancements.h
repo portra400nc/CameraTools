@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 46
+#define ENHANCEMENTS_VERSION 47
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -106,6 +106,7 @@ enum
     ENHANCEMENTS_PASS_RAIN = 1u << 14,
     ENHANCEMENTS_PASS_TRACED_FOLIAGE = 1u << 15,
     ENHANCEMENTS_PASS_TRANSMISSION = 1u << 16,
+    ENHANCEMENTS_PASS_GRASS = 1u << 17,
 };
 
 // The tonemap pass's curves, values of EnhancementsTonemap.curve.
@@ -622,6 +623,13 @@ typedef struct EnhancementsTransmission
     float strength;             // 0 (the default) none, 1 a leaf's own share, up to 2; clamped
 } EnhancementsTransmission;
 
+// Grass depth: dense grass's self-shade in the finished picture. Root shade darkens each blade toward its foot by its
+// height over the lowest grass or ground right around it, as blades shade each other's lower parts. Version 47 added it.
+typedef struct EnhancementsGrass
+{
+    float root_shade;           // 0 (the default) none, to 1; clamped
+} EnhancementsGrass;
+
 typedef struct EnhancementsSceneLight
 {
     float exposure_ev;          // 0 (the default) as the game lights it; clamped to -3 to 3
@@ -661,6 +669,7 @@ typedef struct EnhancementsSettings
     EnhancementsMist mist;
     EnhancementsSceneLight scene_light;
     EnhancementsTransmission transmission;
+    EnhancementsGrass grass;
 } EnhancementsSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and

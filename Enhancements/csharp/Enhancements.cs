@@ -307,6 +307,13 @@ namespace CameraToolsEnhancements
         public float Strength;              // light through leaves, 0 none to 2
     }
 
+    // EnhancementsGrass in enhancements.h, field for field.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct EnhancementsGrass
+    {
+        public float RootShade;             // blades darker toward their foot, 0 none to 1
+    }
+
     // EnhancementsSceneLight in enhancements.h, field for field.
     [StructLayout(LayoutKind.Sequential)]
     internal struct EnhancementsSceneLight
@@ -370,6 +377,7 @@ namespace CameraToolsEnhancements
         public EnhancementsMist Mist;
         public EnhancementsSceneLight SceneLight;
         public EnhancementsTransmission Transmission;
+        public EnhancementsGrass Grass;
 
         // The add-on's defaults: everything off, game targets upside down, and when switched on ambient level 0.6, AO
         // strength 0.5 at a 1 m radius, half that strength on grass, vegetation and foliage, full-strength contact
@@ -665,7 +673,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 46;
+        private const uint Version = 47;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

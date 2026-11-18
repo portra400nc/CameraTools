@@ -363,6 +363,11 @@ namespace enhancements
         // Light through leaves' copy at the combine step, after our passes: each grass and leaf pixel's albedo and its sun
         // visibility in the shadow mask into leaves_. false when an entry or a texture of ours is missing.
         bool capture_leaves(const FrameMap &map);
+        // At the combine step: the grass pass's blades and ground, for run_grass at the bloom step.
+        bool capture_grass(const FrameMap &map);
+        // Darker blade roots, from what capture_grass found this frame. Keeps the scene without that copy. Empty when a
+        // texture of ours failed.
+        std::optional<GameCall> run_grass(const FrameMap &map, float roots, const Camera &camera, bool flip);
         // Light through leaves: the sun's light grass and leaves let through, by strength, added to the HDR scene where
         // capture_leaves found them this frame. Keeps the scene without that copy. Empty when a texture of ours failed.
         std::optional<GameCall> run_transmission(const FrameMap &map, float strength, const Camera &camera, bool flip);
@@ -609,7 +614,7 @@ namespace enhancements
         bool sync_sky_tables(const std::shared_ptr<const Atmosphere> &atmosphere);
         ComPtr<ID3D11ComputeShader> dof_scatter_cs_, cloud_shape_cs_, cloud_detail_cs_;
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, ambient_specular_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_, cloud_map_ps_, clouds_ps_, clouds_apply_ps_, clouds_resolve_ps_, clouds_painted_ps_,
-            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, character_light_ps_, character_shadow_ps_, character_sun_ps_, character_balance_ps_, character_balance_adapt_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
+            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, character_light_ps_, character_shadow_ps_, character_sun_ps_, grass_capture_ps_, grass_ps_, grass_apply_ps_, character_balance_ps_, character_balance_adapt_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
             apply_gather_ps_, reflect_apply_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_, dof_soften_ps_, dof_behind_ps_,
             dof_sprite_ps_, dof_lift_ps_, dof_display_in_ps_, dof_display_out_ps_, dof_near_ps_, dof_near_mask_ps_, dof_near_fill_ps_, flare_visibility_ps_, flare_ps_,
             dng_ps_, dng_flare_ps_, exposure_meter_ps_, exposure_adapt_ps_;
@@ -663,6 +668,9 @@ namespace enhancements
         Scratch traced_foliage_;    // R8_UNORM the trace's shade on grass and leaves, 1 elsewhere
         Scratch leaves_;            // RGBA8 light through leaves' copy: a leaf's albedo as stored and its sunlight, zero elsewhere
         Mirror leaf_albedo_;        // the G-buffer's albedo at the combine step, for capture_leaves
+        Scratch grass_;             // R8_UNORM: grass_capture_ps.hlsl's blades and ground
+        Scratch grass_factor_;      // R16G16B16A16_FLOAT: grass_ps.hlsl's factor for the HDR scene
+        bool grass_fresh_ = false;  // capture_grass wrote grass_ this frame and the grass pass has not used it
         bool leaves_fresh_ = false; // capture_leaves wrote leaves_ this frame and the transmission pass has not used it
         bool traced_foliage_fresh_ = false; // the trace's apply draw wrote traced_foliage_ this frame and bloom has not used it
         Scratch contact_;           // R8_UNORM raw sun visibility, 1 = lit

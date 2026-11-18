@@ -144,7 +144,8 @@ namespace enhancements
         float mist_drift[2];
         float scene_gain;
         float transmission_strength;
-        float scene_pad[2];
+        float grass_roots;
+        float grass_pad;
     };
     static_assert(sizeof(Constants) == 960 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
@@ -851,6 +852,9 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kCharacterLightPs, sizeof kCharacterLightPs, nullptr, &made.character_light_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCharacterShadowPs, sizeof kCharacterShadowPs, nullptr, &made.character_shadow_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCharacterSunPs, sizeof kCharacterSunPs, nullptr, &made.character_sun_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kGrassCapturePs, sizeof kGrassCapturePs, nullptr, &made.grass_capture_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kGrassPs, sizeof kGrassPs, nullptr, &made.grass_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kGrassApplyPs, sizeof kGrassApplyPs, nullptr, &made.grass_apply_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCharacterBalancePs, sizeof kCharacterBalancePs, nullptr, &made.character_balance_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCharacterBalanceAdaptPs, sizeof kCharacterBalanceAdaptPs, nullptr, &made.character_balance_adapt_ps_))
             && SUCCEEDED(device->CreatePixelShader(kGatherAveragePs, sizeof kGatherAveragePs, nullptr, &made.gather_average_ps_))
@@ -1537,6 +1541,51 @@ namespace enhancements
         draw_fullscreen(leaf_capture_ps_.Get(), srvs, 6, leaves_.rtv(), map.render);
         leaves_fresh_ = true;
         return true;
+    }
+
+    bool Gpu::capture_grass(const FrameMap &map)
+    {
+        grass_fresh_ = false;
+        const std::optional<Texture> &depth = map[Entry::depth], &material = map[Entry::material_id];
+        ID3D11Device *d = device_.Get();
+        if (!depth || !material || !grass_.sync(d, map.render, DXGI_FORMAT_R8_UNORM)
+            || !material_id_.sync(d, native(*material), static_cast<DXGI_FORMAT>(material->format), false)
+            || !depth_.sync(d, native(*depth), static_cast<DXGI_FORMAT>(depth->format), false))
+            return false;
+        ID3D11DeviceContext1 *c = context_.Get();
+        material_id_.copy_from(c, native(*material));
+        depth_.copy_from(c, native(*depth));
+        ID3D11ShaderResourceView *const srvs[] = { nullptr, nullptr, depth_.srv(), depth_.stencil_srv(), nullptr, nullptr, material_id_.srv() };
+        draw_fullscreen(grass_capture_ps_.Get(), srvs, 7, grass_.rtv(), map.render);
+        grass_fresh_ = true;
+        return true;
+    }
+
+    std::optional<GameCall> Gpu::run_grass(const FrameMap &map, float roots, const Camera &camera, bool flip)
+    {
+        // The blades and ground capture_grass copied at this frame's combine step, once.
+        if (!grass_fresh_)
+            return GameCall::keep;
+        grass_fresh_ = false;
+        const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
+        const auto scene_format = static_cast<DXGI_FORMAT>(scene.format);
+        ID3D11Device *d = device_.Get();
+        Constants constants;
+        if (!scene_in_.sync(d, native(scene), scene_format, false) || !scene_out_.sync(d, native(scene), scene_format, true)
+            || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false) || !grass_factor_.sync(d, map.render, DXGI_FORMAT_R16G16B16A16_FLOAT)
+            || !pass_constants(camera, map.render, flip, constants))
+            return std::nullopt;
+        constants.grass_roots = roots;
+        upload(constants);
+        ID3D11DeviceContext1 *c = context_.Get();
+        scene_in_.copy_from(c, native(scene));
+        depth_.copy_from(c, native(depth));
+        ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), nullptr, depth_.srv(), nullptr, grass_.srv() };
+        draw_fullscreen(grass_ps_.Get(), srvs, 5, grass_factor_.rtv(), map.render);
+        ID3D11ShaderResourceView *const apply[] = { scene_in_.srv(), nullptr, nullptr, nullptr, grass_factor_.srv() };
+        draw_fullscreen(grass_apply_ps_.Get(), apply, 5, scene_out_.rtv(), map.render);
+        scene_out_.copy_to(c, native(scene));
+        return GameCall::keep;
     }
 
     std::optional<GameCall> Gpu::run_transmission(const FrameMap &map, float strength, const Camera &camera, bool flip)
