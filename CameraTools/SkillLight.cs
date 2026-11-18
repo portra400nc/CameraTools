@@ -399,11 +399,7 @@ namespace CameraTools
                 return;
             lamp.Light.color = lamp.Twin.color = lamp.Color;
             lamp.Light.intensity = lamp.Intensity;
-            // The game lights characters by a character light at any distance, so its share fades with the active
-            // character's distance from the light as the world light does.
-            var avatar = Character.Active();
-            float reach = avatar ? Math.Clamp(1f - (avatar.position - lamp.At).sqrMagnitude / (range * range), 0f, 1f) : 0f;
-            lamp.Twin.intensity = Math.Min(lamp.Intensity * TwinShare, LightSetup.MaxCharacterIntensity) * reach * reach;
+            lamp.Twin.intensity = Math.Min(lamp.Intensity * TwinShare, LightSetup.MaxCharacterIntensity);
             lamp.Light.range = lamp.Twin.range = range;
         }
 
