@@ -4,8 +4,9 @@ using UnityEngine;
 
 namespace CameraTools
 {
-    // Skill light: point lights on the party's live elemental skill and burst effects, in the color of their particles. The
-    // game draws them like its own lamps, so traced shots bake them into the bounce too.
+    // Skill light: point lights on the party's live skill, burst and attack effects, in the color of their particles, and on
+    // the objects their skills leave behind (Mitya's partner, Furina's salon members), in the color of that character's
+    // effects. The game draws them like its own lamps, so traced shots bake them into the bounce too.
     internal static class SkillLight
     {
         private const int MaxLights = 4;
@@ -15,16 +16,26 @@ namespace CameraTools
         private const float Fade = 0.12f, Follow = 0.05f;
         // Particles at which a light reaches 63% of its strength.
         private const float ParticleScale = 60f;
+        // A skill's object glows from its meshes, not particles: it counts as this many particles.
+        private const int ObjectParticles = 60;
         private const int SampledParticles = 64;
         private const float CharacterThreshold = 0.6f, CharacterSoftness = 0.1f, TwinShare = 0.5f;
+        // Body types in effect names: Eff_Avatar_<body>_<weapon>_<character>_...
+        private static readonly HashSet<string> Bodies = new() { "Boy", "Girl", "Lady", "Male", "Loli" };
 
-        private static Transform pool;
-        // Each pooled effect root by pointer: its name if it is a character's skill or burst, else null, and its particle systems.
-        private static readonly Dictionary<IntPtr, string> skillRoots = new();
+        private static Transform pool, gadgets;
+        // Each effect root or skill object by pointer: the character it belongs to, else null.
+        private static readonly Dictionary<IntPtr, string> owners = new();
+        private static readonly Dictionary<IntPtr, string> labels = new();
         private static readonly Dictionary<IntPtr, ParticleSystem[]> systems = new();
+        private static readonly Dictionary<IntPtr, Renderer[]> renderers = new();
+        // Premultiplied particle color sums by effect root, and each character's last effect hue.
         private static readonly Dictionary<IntPtr, Color> colors = new();
+        private static readonly Dictionary<string, Color> characterHues = new();
         private static readonly Lamp[] lamps = new Lamp[MaxLights];
         private static Il2CppStructArray<ParticleSystem.Particle> particles;
+        // What has been lit, logged once each.
+        private static readonly HashSet<string> logged = new();
 
         private sealed class Lamp
         {
@@ -36,7 +47,7 @@ namespace CameraTools
             public Color Color = Color.white;
         }
 
-        private readonly record struct Live(IntPtr Root, int Count, Vector3 At, float Size);
+        private readonly record struct Live(IntPtr Root, int Count, Vector3 At, float Size, Color Hue);
 
         // The characters-only twins: the world light reaches the bounce, so traced shots leave these out.
         public static bool IsTwin(Light light) => Array.Exists(lamps, lamp => lamp != null && lamp.Twin == light);
@@ -60,11 +71,19 @@ namespace CameraTools
                     return;
                 }
                 pool = found.transform;
-                skillRoots.Clear();
+                gadgets = null;
+                owners.Clear();
+                labels.Clear();
                 systems.Clear();
+                renderers.Clear();
                 colors.Clear();
             }
-            var live = Find(Time.frameCount % 4 == 0);
+            if (!gadgets)
+                gadgets = GameObject.Find("/EntityRoot/OtherGadgetRoot")?.transform;
+            var live = new List<Live>();
+            FindEffects(live, Time.frameCount % 4 == 0);
+            if (gadgets)
+                FindObjects(live);
             live.Sort((a, b) => b.Count.CompareTo(a.Count));
             float dt = Math.Max(Time.unscaledDeltaTime, 1e-3f), fade = 1 - MathF.Exp(-dt / Fade), follow = 1 - MathF.Exp(-dt / Follow);
             var taken = new bool[MaxLights];
@@ -84,16 +103,11 @@ namespace CameraTools
                 bool fresh = lamp.Root != effect.Root;
                 lamp.Root = effect.Root;
                 lamp.At = fresh ? effect.At : Vector3.Lerp(lamp.At, effect.At, follow);
-                if (colors.TryGetValue(effect.Root, out var sum) && sum.a > 0)
-                {
-                    float top = Math.Max(Math.Max(sum.r, sum.g), Math.Max(sum.b, 1e-4f));
-                    var hue = new Color(sum.r / top, sum.g / top, sum.b / top);
-                    lamp.Color = fresh ? hue : Color.Lerp(lamp.Color, hue, fade);
-                }
+                lamp.Color = fresh ? effect.Hue : Color.Lerp(lamp.Color, effect.Hue, fade);
                 float target = FullIntensity * strength * (1 - MathF.Exp(-effect.Count / ParticleScale));
                 lamp.Intensity += (target - lamp.Intensity) * fade;
-                if (fresh)
-                    Melon<CameraTools>.Logger.Msg($"Skill light: lights {skillRoots[effect.Root]}, {effect.Count} particles, color {lamp.Color}.");
+                if (fresh && logged.Add(labels[effect.Root]))
+                    Melon<CameraTools>.Logger.Msg($"Skill light: lights {labels[effect.Root]}, {effect.Count} particles, color {lamp.Color}.");
                 Apply(lamp, Math.Clamp(effect.Size * 1.5f + 4f, 4f, 12f));
             }
             for (int i = 0; i < MaxLights; i++)
@@ -104,15 +118,14 @@ namespace CameraTools
                 }
         }
 
-        // The skill and burst effects with live particles: their particle count, the particles' center and size, and on
-        // sampling frames, or the first time an effect shows, their premultiplied mean color into colors.
-        private static List<Live> Find(bool every)
+        // The characters' effects with live particles: their particle count, the particles' center and size, and their
+        // hue, from the particles' premultiplied mean color, sampled every few frames and the first time an effect shows.
+        private static void FindEffects(List<Live> live, bool every)
         {
-            var live = new List<Live>();
             for (int i = 0; i < pool.childCount; i++)
             {
                 var root = pool.GetChild(i);
-                if (!root.gameObject.activeSelf || !IsSkill(root))
+                if (!root.gameObject.activeSelf || EffectOwner(root) is not { } owner)
                     continue;
                 if (!systems.TryGetValue(root.Pointer, out var list))
                     systems[root.Pointer] = list = root.GetComponentsInChildren<ParticleSystem>(true).ToArray();
@@ -149,22 +162,80 @@ namespace CameraTools
                     continue;
                 if (sample && color.a > 0)
                     colors[root.Pointer] = color;
-                live.Add(new Live(root.Pointer, count, center / count, bounds.extents.magnitude));
+                if (!colors.TryGetValue(root.Pointer, out var sum) || sum.a <= 0)
+                    continue;
+                var hue = Hue(sum);
+                // A character's hue leans to their larger effects, so a white sparkle does not set it.
+                characterHues[owner] = characterHues.TryGetValue(owner, out var was) ? Color.Lerp(was, hue, count / (count + 200f)) : hue;
+                live.Add(new Live(root.Pointer, count, center / count, bounds.extents.magnitude, hue));
             }
-            return live;
         }
 
-        // A character's skill or burst effect, named like Eff_Avatar_Girl_Sword_Furina_ElementalBurst_Blast. Effects drawn at
-        // the camera (InCamera, CameraFog, CameraEffect) would light the lens, so they are left out.
-        private static bool IsSkill(Transform root)
+        // The objects the party's skills leave in the world, by a name that holds a character's name from their effects
+        // (SkillObj_Mitya_Partner_Enhance), lit steadily at the center of what they draw, in that character's hue.
+        private static void FindObjects(List<Live> live)
         {
-            if (!skillRoots.TryGetValue(root.Pointer, out string skill))
+            for (int i = 0; i < gadgets.childCount; i++)
+            {
+                var root = gadgets.GetChild(i);
+                if (!root.gameObject.activeInHierarchy || ObjectOwner(root) is not { } owner || !characterHues.TryGetValue(owner, out var hue))
+                    continue;
+                if (!renderers.TryGetValue(root.Pointer, out var list))
+                    renderers[root.Pointer] = list = root.GetComponentsInChildren<Renderer>(true).ToArray();
+                bool any = false;
+                var bounds = new Bounds();
+                foreach (var r in list)
+                {
+                    if (!r || !r.enabled || !r.gameObject.activeInHierarchy)
+                        continue;
+                    if (any)
+                        bounds.Encapsulate(r.bounds);
+                    else
+                        bounds = r.bounds;
+                    any = true;
+                }
+                if (any)
+                    live.Add(new Live(root.Pointer, ObjectParticles, bounds.center, bounds.extents.magnitude, hue));
+            }
+        }
+
+        // The character of an effect named like Eff_Avatar_Girl_Catalyst_Sucrose_DemiHurricane_Main, or null. Effects drawn
+        // at the camera (InCamera, CameraFog, CameraEffect) would light the lens, so they are left out.
+        private static string EffectOwner(Transform root)
+        {
+            if (!owners.TryGetValue(root.Pointer, out string owner))
             {
                 string name = root.name;
-                skill = name.StartsWith("Eff_Avatar_") && (name.Contains("_ElementalArt") || name.Contains("_ElementalBurst")) && !name.Contains("Camera") ? name : null;
-                skillRoots[root.Pointer] = skill;
+                var parts = name.Split('_');
+                owner = parts.Length >= 5 && parts[0] == "Eff" && parts[1] == "Avatar" && Bodies.Contains(parts[2]) && !name.Contains("Camera")
+                    ? parts[4] : null;
+                owners[root.Pointer] = owner;
+                labels[root.Pointer] = name;
             }
-            return skill != null;
+            return owner;
+        }
+
+        // The character whose name a skill object's name holds, among those whose effects have shown, or null.
+        private static string ObjectOwner(Transform root)
+        {
+            if (!owners.TryGetValue(root.Pointer, out string owner))
+            {
+                string name = root.name;
+                owner = name.Split('_', '(', ')').FirstOrDefault(characterHues.ContainsKey);
+                // Not cached while no character matches: the character's first effect may still come.
+                if (owner == null)
+                    return null;
+                owners[root.Pointer] = owner;
+                labels[root.Pointer] = name;
+            }
+            return owner;
+        }
+
+        // A premultiplied color sum's hue, scaled to a top channel of 1.
+        private static Color Hue(Color sum)
+        {
+            float top = Math.Max(Math.Max(sum.r, sum.g), Math.Max(sum.b, 1e-4f));
+            return new Color(sum.r / top, sum.g / top, sum.b / top);
         }
 
         private static void Create(Lamp lamp)
