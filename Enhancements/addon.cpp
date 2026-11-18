@@ -1703,7 +1703,10 @@ namespace enhancements
                     StateGuard guard(gpu.context(), moved);
                     // The grass port draws its clump at the game's blades, with the game's constants, in place of the game's draw.
                     bool replaced = false;
-                    if (port && gpu.bind_grass_port(args, at, low_slots, settings.grass_port == 2, settings.grass_copies))
+                    // The game's own grass: its mesh copied, drawn by its own shaders, which sway, bend and cull the copies as
+                    // they do its blades. The port's clump: our shaders, with the game's placement.
+                    if (port && (settings.grass_port == 1 ? gpu.bind_grass_copies(args, at, settings.grass_copies)
+                                                         : gpu.bind_grass_port(args, at, low_slots, true, settings.grass_copies)))
                     {
                         args = gpu.grass_port_args();
                         at = 0;

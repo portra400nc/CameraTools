@@ -379,6 +379,10 @@ namespace enhancements
         bool load_grass_clump(const std::string &mesh, const std::string &dds, std::string &why);
         bool grass_clump_ready() const { return grass_port_vb_ != nullptr; }
         bool bind_grass_port(ID3D11Buffer *args, UINT offset, bool low_slots, bool clump, uint32_t copies);
+        // The bound game grass draw's own mesh copies times over (grass_copy_vertices_cs.hlsl and
+        // grass_copy_indices_cs.hlsl), bound in its place for the game's own shaders to draw with grass_port_args(). false
+        // when the draw's mesh is not one we copy: a 44-byte vertex buffer of at most kGrassSourceBytes and 16-bit indices.
+        bool bind_grass_copies(ID3D11Buffer *args, UINT offset, uint32_t copies);
         ID3D11Buffer *grass_port_args() const { return grass_port_args_.Get(); }
         // The port's shaders and their bytecode, for the shader registry, so the scene capture streams the port's clumps.
         uint64_t grass_port_vs() const { return reinterpret_cast<uintptr_t>(grass_port_vs_.Get()); }
@@ -709,6 +713,11 @@ namespace enhancements
         ComPtr<ID3D11SamplerState> grass_port_sampler_;
         UINT grass_port_indices_ = 0;
         bool grass_port_made_ = false, grass_port_failed_ = false;
+        static constexpr UINT kGrassSourceBytes = 64 << 10, kGrassMaxCopies = 8;
+        ComPtr<ID3D11Buffer> grass_source_vb_, grass_source_ib_, grass_source_args_, grass_copy_vb_, grass_copy_ib_, grass_copy_constants_;
+        ComPtr<ID3D11ShaderResourceView> grass_source_vb_srv_, grass_source_ib_srv_, grass_source_args_srv_;
+        ComPtr<ID3D11UnorderedAccessView> grass_copy_vb_uav_, grass_copy_ib_uav_;
+        ComPtr<ID3D11ComputeShader> grass_copy_vertices_cs_, grass_copy_indices_cs_;
         bool grass_fresh_ = false;  // capture_grass wrote grass_ this frame and the grass pass has not used it
         bool leaves_fresh_ = false; // capture_leaves wrote leaves_ this frame and the transmission pass has not used it
         bool traced_foliage_fresh_ = false; // the trace's apply draw wrote traced_foliage_ this frame and bloom has not used it

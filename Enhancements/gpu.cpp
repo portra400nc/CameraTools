@@ -1740,6 +1740,41 @@ namespace enhancements
             || FAILED(d->CreateBuffer(&constants, nullptr, &grass_args_constants_)) || FAILED(d->CreateBuffer(&constants, nullptr, &grass_copies_))
             || FAILED(d->CreateTexture2D(&plain, &plain_data, &plain_texture)) || FAILED(d->CreateShaderResourceView(plain_texture.Get(), nullptr, &grass_plain_)))
             return false;
+        // The copies: the game's mesh and arguments as words to read, our mesh to write and draw.
+        const auto words = [d](UINT bytes, UINT bind, ComPtr<ID3D11Buffer> &buffer, ComPtr<ID3D11ShaderResourceView> *srv, ComPtr<ID3D11UnorderedAccessView> *uav) {
+            D3D11_BUFFER_DESC desc = { bytes, D3D11_USAGE_DEFAULT, bind, 0, 0, 0 };
+            if (FAILED(d->CreateBuffer(&desc, nullptr, &buffer)))
+                return false;
+            if (srv)
+            {
+                D3D11_SHADER_RESOURCE_VIEW_DESC view = {};
+                view.Format = DXGI_FORMAT_R32_UINT;
+                view.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+                view.Buffer.NumElements = bytes / 4;
+                if (FAILED(d->CreateShaderResourceView(buffer.Get(), &view, srv->ReleaseAndGetAddressOf())))
+                    return false;
+            }
+            if (uav)
+            {
+                D3D11_UNORDERED_ACCESS_VIEW_DESC view = {};
+                view.Format = DXGI_FORMAT_R32_UINT;
+                view.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+                view.Buffer.NumElements = bytes / 4;
+                if (FAILED(d->CreateUnorderedAccessView(buffer.Get(), &view, uav->ReleaseAndGetAddressOf())))
+                    return false;
+            }
+            return true;
+        };
+        D3D11_BUFFER_DESC copy_constants = { 16, D3D11_USAGE_DYNAMIC, D3D11_BIND_CONSTANT_BUFFER, D3D11_CPU_ACCESS_WRITE, 0, 0 };
+        if (!words(kGrassSourceBytes, D3D11_BIND_SHADER_RESOURCE, grass_source_vb_, &grass_source_vb_srv_, nullptr)
+            || !words(kGrassSourceBytes, D3D11_BIND_SHADER_RESOURCE, grass_source_ib_, &grass_source_ib_srv_, nullptr)
+            || !words(32, D3D11_BIND_SHADER_RESOURCE, grass_source_args_, &grass_source_args_srv_, nullptr)
+            || !words(kGrassSourceBytes * kGrassMaxCopies, D3D11_BIND_VERTEX_BUFFER | D3D11_BIND_UNORDERED_ACCESS, grass_copy_vb_, nullptr, &grass_copy_vb_uav_)
+            || !words(kGrassSourceBytes * kGrassMaxCopies * 2, D3D11_BIND_INDEX_BUFFER | D3D11_BIND_UNORDERED_ACCESS, grass_copy_ib_, nullptr, &grass_copy_ib_uav_)
+            || FAILED(d->CreateBuffer(&copy_constants, nullptr, &grass_copy_constants_))
+            || FAILED(d->CreateComputeShader(kGrassCopyVerticesCs, sizeof kGrassCopyVerticesCs, nullptr, &grass_copy_vertices_cs_))
+            || FAILED(d->CreateComputeShader(kGrassCopyIndicesCs, sizeof kGrassCopyIndicesCs, nullptr, &grass_copy_indices_cs_)))
+            return false;
         grass_port_failed_ = false;
         grass_port_made_ = true;
         return true;
@@ -1781,6 +1816,61 @@ namespace enhancements
             return true;
         }
         return false;
+    }
+
+    bool Gpu::bind_grass_copies(ID3D11Buffer *args, UINT offset, uint32_t copies)
+    {
+        if (!make_grass_port())
+            return false;
+        ID3D11DeviceContext1 *c = context_.Get();
+        ComPtr<ID3D11Buffer> vb, ib;
+        UINT stride = 0, vb_offset = 0, ib_offset = 0;
+        DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
+        c->IAGetVertexBuffers(0, 1, vb.GetAddressOf(), &stride, &vb_offset);
+        c->IAGetIndexBuffer(ib.GetAddressOf(), &format, &ib_offset);
+        if (!vb || !ib || stride != 44 || vb_offset != 0 || ib_offset != 0 || format != DXGI_FORMAT_R16_UINT)
+            return false;
+        D3D11_BUFFER_DESC vb_desc, ib_desc;
+        vb->GetDesc(&vb_desc);
+        ib->GetDesc(&ib_desc);
+        if (vb_desc.ByteWidth > kGrassSourceBytes || ib_desc.ByteWidth > kGrassSourceBytes)
+            return false;
+        copies = std::clamp<uint32_t>(copies, 1, kGrassMaxCopies);
+        const UINT vertices = vb_desc.ByteWidth / 44;
+        const D3D11_BOX vb_box = { 0, 0, 0, vb_desc.ByteWidth, 1, 1 }, ib_box = { 0, 0, 0, ib_desc.ByteWidth, 1, 1 }, args_box = { offset, 0, 0, offset + 20, 1, 1 };
+        c->CopySubresourceRegion(grass_source_vb_.Get(), 0, 0, 0, 0, vb.Get(), 0, &vb_box);
+        c->CopySubresourceRegion(grass_source_ib_.Get(), 0, 0, 0, 0, ib.Get(), 0, &ib_box);
+        c->CopySubresourceRegion(grass_source_args_.Get(), 0, 0, 0, 0, args, 0, &args_box);
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        if (FAILED(c->Map(grass_copy_constants_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+            return false;
+        const uint32_t count[4] = { vertices, copies };
+        std::memcpy(mapped.pData, count, sizeof count);
+        c->Unmap(grass_copy_constants_.Get(), 0);
+        ID3D11Buffer *const constants[] = { grass_copy_constants_.Get() };
+        c->CSSetConstantBuffers(0, 1, constants);
+        ID3D11ShaderResourceView *const vertex_in[] = { grass_source_vb_srv_.Get() };
+        ID3D11UnorderedAccessView *const vertex_out[] = { grass_copy_vb_uav_.Get() };
+        c->CSSetShader(grass_copy_vertices_cs_.Get(), nullptr, 0);
+        c->CSSetShaderResources(0, 1, vertex_in);
+        c->CSSetUnorderedAccessViews(0, 1, vertex_out, nullptr);
+        c->Dispatch((vertices * copies + 63) / 64, 1, 1);
+        // Every index the 16-bit buffer can hold, copies times: the draw's count is on the GPU.
+        ID3D11ShaderResourceView *const index_in[] = { grass_source_ib_srv_.Get(), grass_source_args_srv_.Get() };
+        ID3D11UnorderedAccessView *const index_out[] = { grass_copy_ib_uav_.Get(), grass_port_args_uav_.Get() };
+        c->CSSetShader(grass_copy_indices_cs_.Get(), nullptr, 0);
+        c->CSSetShaderResources(0, 2, index_in);
+        c->CSSetUnorderedAccessViews(0, 2, index_out, nullptr);
+        c->Dispatch((ib_desc.ByteWidth / 2 * copies + 63) / 64, 1, 1);
+        ID3D11ShaderResourceView *const no_srvs[2] = {};
+        ID3D11UnorderedAccessView *const no_uavs[2] = {};
+        c->CSSetShaderResources(0, 2, no_srvs);
+        c->CSSetUnorderedAccessViews(0, 2, no_uavs, nullptr);
+        ID3D11Buffer *const mesh[] = { grass_copy_vb_.Get() };
+        const UINT at = 0;
+        c->IASetVertexBuffers(0, 1, mesh, &stride, &at);
+        c->IASetIndexBuffer(grass_copy_ib_.Get(), DXGI_FORMAT_R32_UINT, 0);
+        return true;
     }
 
     bool Gpu::bind_grass_port(ID3D11Buffer *args, UINT offset, bool low_slots, bool clump, uint32_t copies)
