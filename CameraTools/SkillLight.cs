@@ -289,8 +289,11 @@ namespace CameraTools
             if (!fires.TryGetValue(root.Pointer, out var fire))
             {
                 string name = root.name;
-                bool burns = name.Contains("Burning") || name.Contains("Fire") && !name.Contains("Firefl") || name.Contains("Flame");
-                bool explodes = name.Contains("Explode") || name.Contains("Explosion") || name.Contains("Overload");
+                // Generic character effects, like Eff_Avatar_Pendant_Ready_Fire, a Pyro Vision's glow while the burst is
+                // ready, are no fires.
+                bool generic = name.StartsWith("Eff_Avatar_");
+                bool burns = !generic && name.Contains("Burning") || name.Contains("Fire") && !name.Contains("Firefl") || name.Contains("Flame");
+                bool explodes = !generic && name.Contains("Explode") || name.Contains("Explosion") || name.Contains("Overload");
                 fire = (burns || explodes, explodes && !burns);
                 fires[root.Pointer] = fire;
                 labels[root.Pointer] = name;
@@ -396,7 +399,11 @@ namespace CameraTools
                 return;
             lamp.Light.color = lamp.Twin.color = lamp.Color;
             lamp.Light.intensity = lamp.Intensity;
-            lamp.Twin.intensity = Math.Min(lamp.Intensity * TwinShare, LightSetup.MaxCharacterIntensity);
+            // The game lights characters by a character light at any distance, so its share fades with the active
+            // character's distance from the light as the world light does.
+            var avatar = Character.Active();
+            float reach = avatar ? Math.Clamp(1f - (avatar.position - lamp.At).sqrMagnitude / (range * range), 0f, 1f) : 0f;
+            lamp.Twin.intensity = Math.Min(lamp.Intensity * TwinShare, LightSetup.MaxCharacterIntensity) * reach * reach;
             lamp.Light.range = lamp.Twin.range = range;
         }
 
