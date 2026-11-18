@@ -300,6 +300,7 @@ namespace enhancements
         float transmission = 0;                 // EnhancementsTransmission.strength
         float grass_roots = 0;                  // EnhancementsGrass.root_shade
         uint32_t grass_layers = 0;              // EnhancementsGrass.layers
+        bool grass_port = false;                // EnhancementsGrass.port
         ContactShadowSettings contact_shadows;
         AtmosphereSettings atmosphere;
         TonemapSettings tonemap;

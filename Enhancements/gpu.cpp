@@ -1621,6 +1621,150 @@ namespace enhancements
         return ok;
     }
 
+    bool Gpu::load_grass_port(const std::string &mesh, const std::string &dds, std::string &why)
+    {
+        ID3D11Device *d = device_.Get();
+        // The mesh: "GPM2", vertex and index counts, 44-byte vertices, u16 indices.
+        constexpr UINT kStride = 44;
+        if (mesh.size() < 12 || mesh.compare(0, 4, "GPM2") != 0)
+        {
+            why = "the mesh is not a GPM2 file";
+            return false;
+        }
+        uint32_t vertices = 0, indices = 0;
+        std::memcpy(&vertices, mesh.data() + 4, 4);
+        std::memcpy(&indices, mesh.data() + 8, 4);
+        if (vertices == 0 || indices == 0 || vertices > 65536 || mesh.size() != 12 + size_t(vertices) * kStride + size_t(indices) * 2)
+        {
+            why = "the mesh's counts do not match its size";
+            return false;
+        }
+        // The albedo: a DX10 DDS of BC7, its mips from the largest down.
+        uint32_t height = 0, width = 0, mips = 0, format = 0;
+        if (dds.size() < 148 || dds.compare(0, 4, "DDS ") != 0 || dds.compare(84, 4, "DX10") != 0)
+        {
+            why = "the texture is not a DX10 DDS";
+            return false;
+        }
+        std::memcpy(&height, dds.data() + 12, 4);
+        std::memcpy(&width, dds.data() + 16, 4);
+        std::memcpy(&mips, dds.data() + 28, 4);
+        std::memcpy(&format, dds.data() + 128, 4);
+        // BC7, or plain RGBA8 for a clump with no texture of its own.
+        const bool plain = format == DXGI_FORMAT_R8G8B8A8_UNORM || format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+        if (format != DXGI_FORMAT_BC7_UNORM && format != DXGI_FORMAT_BC7_UNORM_SRGB && !plain)
+        {
+            why = "the texture is neither BC7 nor RGBA8";
+            return false;
+        }
+        mips = std::max(1u, std::min(mips, 16u));
+        std::vector<D3D11_SUBRESOURCE_DATA> levels;
+        size_t at = 148;
+        for (uint32_t level = 0, w = width, h = height; level < mips; level++, w = std::max(1u, w / 2), h = std::max(1u, h / 2))
+        {
+            const UINT pitch = plain ? w * 4 : std::max(1u, (w + 3) / 4) * 16, rows = plain ? h : std::max(1u, (h + 3) / 4);
+            if (at + size_t(pitch) * rows > dds.size())
+            {
+                why = "the texture is shorter than its mips";
+                return false;
+            }
+            levels.push_back({ dds.data() + at, pitch, pitch * rows });
+            at += size_t(pitch) * rows;
+        }
+        D3D11_TEXTURE2D_DESC texture = { width, height, mips, 1, plain ? DXGI_FORMAT_R8G8B8A8_TYPELESS : DXGI_FORMAT_BC7_TYPELESS, { 1, 0 }, D3D11_USAGE_IMMUTABLE, D3D11_BIND_SHADER_RESOURCE, 0, 0 };
+        ComPtr<ID3D11Texture2D> albedo;
+        // Sampled as sRGB, as the game's own grass albedo is, so the G-buffer's sRGB target gets back the colors as painted.
+        D3D11_SHADER_RESOURCE_VIEW_DESC view = {};
+        view.Format = plain ? DXGI_FORMAT_R8G8B8A8_UNORM_SRGB : DXGI_FORMAT_BC7_UNORM_SRGB;
+        view.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+        view.Texture2D.MipLevels = mips;
+        D3D11_BUFFER_DESC vb = { vertices * kStride, D3D11_USAGE_IMMUTABLE, D3D11_BIND_VERTEX_BUFFER, 0, 0, 0 };
+        D3D11_BUFFER_DESC ib = { indices * 2, D3D11_USAGE_IMMUTABLE, D3D11_BIND_INDEX_BUFFER, 0, 0, 0 };
+        D3D11_BUFFER_DESC args = { 20, D3D11_USAGE_DEFAULT, 0, 0, D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS, 0 };
+        const D3D11_SUBRESOURCE_DATA vb_data = { mesh.data() + 12, 0, 0 }, ib_data = { mesh.data() + 12 + size_t(vertices) * kStride, 0, 0 };
+        D3D11_SAMPLER_DESC sampler = {};
+        sampler.Filter = D3D11_FILTER_ANISOTROPIC;
+        sampler.AddressU = sampler.AddressV = sampler.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+        sampler.MaxAnisotropy = 8;
+        sampler.MaxLOD = D3D11_FLOAT32_MAX;
+        if (FAILED(d->CreateVertexShader(kGrassPortVs, sizeof kGrassPortVs, nullptr, &grass_port_vs_)) || FAILED(d->CreatePixelShader(kGrassPortPs, sizeof kGrassPortPs, nullptr, &grass_port_ps_))
+            || FAILED(d->CreateSamplerState(&sampler, &grass_port_sampler_)))
+        {
+            why = "D3D11 refused the port's shaders";
+            return false;
+        }
+        if (FAILED(d->CreateTexture2D(&texture, levels.data(), &albedo)) || FAILED(d->CreateShaderResourceView(albedo.Get(), &view, &grass_port_albedo_))
+            || FAILED(d->CreateBuffer(&vb, &vb_data, &grass_port_vb_)) || FAILED(d->CreateBuffer(&ib, &ib_data, &grass_port_ib_))
+            || FAILED(d->CreateBuffer(&args, nullptr, &grass_port_args_)))
+        {
+            grass_port_vb_.Reset();
+            why = "D3D11 refused a resource";
+            return false;
+        }
+        grass_port_indices_ = indices;
+        return true;
+    }
+
+    const void *Gpu::grass_port_vs_code(size_t &size)
+    {
+        size = sizeof kGrassPortVs;
+        return kGrassPortVs;
+    }
+
+    const void *Gpu::grass_port_ps_code(size_t &size)
+    {
+        size = sizeof kGrassPortPs;
+        return kGrassPortPs;
+    }
+
+    void Gpu::bind_grass_port(ID3D11Buffer *args, UINT offset, bool low_slots)
+    {
+        ID3D11DeviceContext1 *c = context_.Get();
+        // The game's arguments for its blades, with the clump's indices from the start.
+        const D3D11_BOX box = { offset, 0, 0, offset + 20, 1, 1 };
+        c->CopySubresourceRegion(grass_port_args_.Get(), 0, 0, 0, 0, args, 0, &box);
+        const UINT count = grass_port_indices_, start[2] = { 0, 0 };
+        const D3D11_BOX count_box = { 0, 0, 0, 4, 1, 1 }, start_box = { 8, 0, 0, 16, 1, 1 };
+        c->UpdateSubresource(grass_port_args_.Get(), 0, &count_box, &count, 0, 0);
+        c->UpdateSubresource(grass_port_args_.Get(), 0, &start_box, start, 0, 0);
+        if (low_slots)
+        {
+            ID3D11ShaderResourceView *moved[2] = {};
+            c->VSGetShaderResources(1, 2, moved);
+            c->VSSetShaderResources(4, 2, moved);
+            for (ID3D11ShaderResourceView *view : moved)
+                if (view)
+                    view->Release();
+        }
+        c->VSSetShader(grass_port_vs_.Get(), nullptr, 0);
+        c->PSSetShader(grass_port_ps_.Get(), nullptr, 0);
+        ID3D11SamplerState *const sampler[] = { grass_port_sampler_.Get() };
+        c->PSSetSamplers(0, 1, sampler);
+        ID3D11Buffer *const vb[] = { grass_port_vb_.Get() };
+        const UINT stride = 44, at = 0;
+        c->IASetVertexBuffers(0, 1, vb, &stride, &at);
+        c->IASetIndexBuffer(grass_port_ib_.Get(), DXGI_FORMAT_R16_UINT, 0);
+        ID3D11ShaderResourceView *const albedo[] = { grass_port_albedo_.Get() };
+        c->PSSetShaderResources(0, 1, albedo);
+    }
+
+    std::optional<std::string> Gpu::read_buffer(ID3D11Buffer *buffer)
+    {
+        D3D11_BUFFER_DESC desc;
+        buffer->GetDesc(&desc);
+        D3D11_BUFFER_DESC staging = { desc.ByteWidth, D3D11_USAGE_STAGING, 0, D3D11_CPU_ACCESS_READ, 0, 0 };
+        ComPtr<ID3D11Buffer> copy;
+        if (FAILED(device_->CreateBuffer(&staging, nullptr, &copy)))
+            return std::nullopt;
+        context_->CopyResource(copy.Get(), buffer);
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        if (FAILED(context_->Map(copy.Get(), 0, D3D11_MAP_READ, 0, &mapped)))
+            return std::nullopt;
+        std::string bytes(static_cast<const char *>(mapped.pData), desc.ByteWidth);
+        context_->Unmap(copy.Get(), 0);
+        return bytes;
+    }
+
     void Gpu::bind_grass_layer(uint32_t layer)
     {
         ID3D11Buffer *const bound[] = { grass_cb_[layer][0].Get(), grass_cb_[layer][1].Get() };

@@ -369,6 +369,22 @@ namespace enhancements
         // and shrink its blades; bind_grass_layer binds one set in their place, for draw_grass_layer or the scene capture's
         // replay. Call them inside a StateGuard. false when a buffer of ours failed or the draw binds too little.
         bool prepare_grass_layers(uint32_t layers);
+        // The grass port: a clump in Genshin's meadow grass vertex layout (tools/grass_port.py's .gpm) and its BC7 albedo
+        // (DDS), drawn by grass_port_vs.hlsl and grass_port_ps.hlsl in place of the game's grass mesh and shaders.
+        // load_grass_port makes them; bind_grass_port binds them for the bound grass draw, its instance buffers moved to t4
+        // and t5 from t1 and t2 when low_slots (the variant that binds them there), with grass_port_args() its indirect
+        // arguments: the game's at offset with the clump's index count.
+        bool load_grass_port(const std::string &mesh, const std::string &dds, std::string &why);
+        bool grass_port_ready() const { return grass_port_vb_ != nullptr; }
+        // The port's shaders and their bytecode, for the shader registry, so the scene capture streams the port's clumps.
+        uint64_t grass_port_vs() const { return reinterpret_cast<uintptr_t>(grass_port_vs_.Get()); }
+        uint64_t grass_port_ps() const { return reinterpret_cast<uintptr_t>(grass_port_ps_.Get()); }
+        static const void *grass_port_vs_code(size_t &size);
+        static const void *grass_port_ps_code(size_t &size);
+        void bind_grass_port(ID3D11Buffer *args, UINT offset, bool low_slots);
+        ID3D11Buffer *grass_port_args() const { return grass_port_args_.Get(); }
+        // DEBUG: a buffer's whole contents, read back at once.
+        std::optional<std::string> read_buffer(ID3D11Buffer *buffer);
         void bind_grass_layer(uint32_t layer);
         void draw_grass_layer(ID3D11Buffer *args, UINT offset) { context_->DrawIndexedInstancedIndirect(args, offset); }
         // Darker blade roots, from what capture_grass found this frame. Keeps the scene without that copy. Empty when a
@@ -683,6 +699,12 @@ namespace enhancements
         ComPtr<ID3D11UnorderedAccessView> grass_raw_uav_[kGrassLayers][2];
         ComPtr<ID3D11ComputeShader> grass_layer_cs_;
         bool grass_layers_made_ = false, grass_layers_failed_ = false;
+        ComPtr<ID3D11Buffer> grass_port_vb_, grass_port_ib_, grass_port_args_;
+        ComPtr<ID3D11ShaderResourceView> grass_port_albedo_;
+        ComPtr<ID3D11VertexShader> grass_port_vs_;
+        ComPtr<ID3D11PixelShader> grass_port_ps_;
+        ComPtr<ID3D11SamplerState> grass_port_sampler_;
+        UINT grass_port_indices_ = 0;
         bool grass_fresh_ = false;  // capture_grass wrote grass_ this frame and the grass pass has not used it
         bool leaves_fresh_ = false; // capture_leaves wrote leaves_ this frame and the transmission pass has not used it
         bool traced_foliage_fresh_ = false; // the trace's apply draw wrote traced_foliage_ this frame and bloom has not used it

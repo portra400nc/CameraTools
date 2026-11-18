@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 48
+#define ENHANCEMENTS_VERSION 49
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -631,6 +631,9 @@ typedef struct EnhancementsGrass
 {
     float root_shade;           // 0 (the default) none, to 1; clamped
     float layers;               // 0 (the default) none, to 2 more layers; rounded and clamped
+    // Port: not 0 draws the grass port's clump (ReShade's Enhancements\grass-port\meadow.gpm and meadow.dds) in place
+    // of the game's grass mesh, with the game's grass shaders and blades. Version 49 added it.
+    float port;
 } EnhancementsGrass;
 
 typedef struct EnhancementsSceneLight

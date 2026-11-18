@@ -313,6 +313,7 @@ namespace CameraToolsEnhancements
     {
         public float RootShade;             // blades darker toward their foot, 0 none to 1
         public float Layers;                // the game's grass drawn this many more times, 0 to 2
+        public float Port;                  // not 0: the grass port's clump in place of the game's grass mesh
     }
 
     // EnhancementsSceneLight in enhancements.h, field for field.
@@ -674,7 +675,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 48;
+        private const uint Version = 49;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
