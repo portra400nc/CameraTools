@@ -23,7 +23,7 @@ struct PixelTraceData
 {
     float4 history;     // occlusion sum, sun sum, occlusion count, sun count
     float4 lights;      // each traced light's visibility summed over the sun's samples
-    uint world;         // 1 when the pixel is traced
+    uint world;         // 1 when the pixel is traced: a world or a character pixel
     uint rays;
     uint guard;         // rays that met a cap of bvh.hlsli's
     uint overflow;      // rays whose stack overflowed
@@ -50,9 +50,10 @@ PixelTraceData trace_pixel_of(int2 pixel, float4 history, float4 lights, uint la
     r.grid_reason = kGridOn;
     uint s = load_stencil(pixel);
     float depth = load_depth(pixel);
-    if (!is_world_stencil(s) || !(depth > 0.0f))
+    if (!is_traced_stencil(s) || !(depth > 0.0f))
         return r;
     r.world = 1u;
+    bool character = is_character_stencil(s);
     float3 eye = float3(eye_position.x, eye_position.y, eye_position.z);
     float3 p = scene_position(pixel, depth);
     float dist = length(p - eye);
@@ -64,14 +65,14 @@ PixelTraceData trace_pixel_of(int2 pixel, float4 history, float4 lights, uint la
     // Off the surface along its own normal, further with distance, as depth precision falls.
     float3 origin = p + ng * (0.02f + 1.0e-4f * dist);
     uint seed = pixel_seed_of(pixel, trace_tiles.w);
-    uint mask = trace_counts.z;
+    uint mask = character ? trace_counts.z & ~kCharacterClass : trace_counts.z;
 
     // One traversal in a loop over the pixel's rays, so the shader holds one copy of it: 0 occlusion, 1 sun, 2 the
     // consistency grid's ray from the camera, then one ray a traced light, with each sun sample.
     bool want_ao = r.history.z < float(trace_counts.x);
     bool want_sun = r.history.w < float(trace_counts.y);
     // A scene cut to its nearest triangles misses what lies past eye_position.w, which then says nothing about it.
-    bool want_check = trace_render.w != 0u && pixel.x % int(trace_render.w) == 0 && pixel.y % int(trace_render.w) == 0 && !is_alpha_stencil(s)
+    bool want_check = !character && trace_render.w != 0u && pixel.x % int(trace_render.w) == 0 && pixel.y % int(trace_render.w) == 0 && !is_alpha_stencil(s)
         && !(eye_position.w > 0.0f && length(p) > eye_position.w);
     uint sample = uint(r.history.w);
     LOOP for (uint kind = 0u; kind < 3u + light_info.x; kind++)

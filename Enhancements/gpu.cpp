@@ -1935,7 +1935,7 @@ namespace enhancements
     }
 
     std::optional<GameCall> Gpu::run_character_light(const FrameMap &map, CharacterLightConstants light, const Camera &camera, bool flip,
-        const SunShadowConstants *sun)
+        const SunShadowConstants *sun, const TraceGpu *trace, bool gathering)
     {
         const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
         const auto scene_format = static_cast<DXGI_FORMAT>(scene.format);
@@ -1970,6 +1970,16 @@ namespace enhancements
         else
             upload(constants);
         light.world_sun[3] = shade ? 1.0f : 0.0f;
+        const bool traced = light.params[3] > 0 && trace && trace->history_srv();
+        const bool gathered = traced && gathering && trace->gather_hit_srv() && trace->gather_sky_srv();
+        light.traced[0] = traced ? 1.0f : 0.0f;
+        light.traced[1] = gathered ? 1.0f : 0.0f;
+        if (gathered)
+        {
+            // The gather's constants from its last apply draw at the combine step: its strength and the sky's harmonics.
+            ID3D11Buffer *const apply[] = { gather_apply_.Get() };
+            c->PSSetConstantBuffers(2, 1, apply);
+        }
         D3D11_MAPPED_SUBRESOURCE mapped;
         if (FAILED(c->Map(character_light_constants_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
             return std::nullopt;
@@ -1980,9 +1990,10 @@ namespace enhancements
         scene_in_.copy_from(c, native(scene));
         // The second draw's target change unbinds character_shadow_ as a target before it is bound at t7.
         ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), character_normals_.srv(), depth_.srv(), depth_.stencil_srv(), nullptr, character_albedo_.srv(),
-            character_material_.srv(), character_shadow_.srv(), shade ? character_sun_.srv() : nullptr };
+            character_material_.srv(), character_shadow_.srv(), shade ? character_sun_.srv() : nullptr, traced ? trace->history_srv() : nullptr,
+            gathered ? trace->gather_hit_srv() : nullptr, gathered ? trace->gather_sky_srv() : nullptr };
         draw_fullscreen(character_shadow_ps_.Get(), srvs, 7, character_shadow_.rtv(), map.render);
-        draw_fullscreen(character_light_ps_.Get(), srvs, 9, scene_out_.rtv(), map.render);
+        draw_fullscreen(character_light_ps_.Get(), srvs, 12, scene_out_.rtv(), map.render);
         scene_out_.copy_to(c, native(scene));
         return GameCall::keep;
     }

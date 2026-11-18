@@ -734,8 +734,9 @@ int main(int argc, char **argv)
         check("the grid's breakdown for the log names each class's rays off of tested, and the reasons where some are off",
             grid_breakdown(counts) == "stencil 128 1 of 2 off (1 met nothing, 0 nearer, 0 farther), stencil 144 1 of 1 off (0 met nothing, 0 nearer, 1 farther), "
                                       "other 1 of 1 off (0 met nothing, 1 nearer, 0 farther)");
-        check("a character's pixel and a pixel without depth are not traced", !trace_pixel(bvh, image, c, 1, 1, {}).world
-            && !trace_pixel(bvh, image, c, 2, 2, {}).world);
+        const PixelTrace character = trace_pixel(bvh, image, c, 1, 1, {});
+        check("a character's pixel is traced, for the character light pass, but tests nothing for the grid; a pixel without depth is not traced",
+            character.world && character.counters[3] == 0 && !trace_pixel(bvh, image, c, 2, 2, {}).world);
         const PixelTrace done = trace_pixel(bvh, image, c, 1, 3, { 64, 32, 64, 32 });
         check("a pixel with all its samples traces nothing", done.history == std::array<float, 4> { 64, 32, 64, 32 } && done.counters[0] == 0);
         c.sun_cone[0] = c.sun_cone[1] = c.sun_cone[2] = c.sun_cone[3] = 0;

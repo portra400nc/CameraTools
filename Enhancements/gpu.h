@@ -391,8 +391,10 @@ namespace enhancements
         bool copy_character_gbuffer(const FrameMap &map);
         // Studio lighting for characters (enhancements.h, EnhancementsCharacterLights) over the HDR scene.
         // sun, this frame's sun constants, lets the world's light find the sun's shade on characters; null keeps them in the sun.
+        // trace, with traced this frame's trace pass ran (and gathering its gather), lets the world's light take the traced
+        // sun and sky at character pixels.
         std::optional<GameCall> run_character_light(const FrameMap &map, CharacterLightConstants light, const Camera &camera, bool flip,
-            const SunShadowConstants *sun);
+            const SunShadowConstants *sun, const TraceGpu *trace, bool gathering);
 
         // The depth of field pass, last at the bloom step: mirror in the HDR scene and depth; draw the focus distance into
         // one of two 1x1 textures from the other, the setting's or the autofocus eased over seconds; the half-size source,

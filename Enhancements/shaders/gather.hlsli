@@ -155,7 +155,8 @@ float source_gain_of(float seen, float2 source)
 // 0.9 or its own if brighter: the game stores its albedos dark and lights them brightly, so its surfaces would bounce little light. Paths whose
 // light has faded end at random, and the survivors count for those that ended, so that 15 bounces cost little more than the
 // few that matter.
-GatherData gather_ray_of(GatherData r, float3 o, float3 d, float3 eye, uint seed, uint index, float2 source, uint bounces, float surface, uint lane)
+GatherData gather_ray_of(GatherData r, float3 o, float3 d, float3 eye, uint seed, uint index, float2 source, uint bounces, float surface, uint classes,
+    uint lane)
 {
     float t_max = kSunReach;
     bool any_hit = false;
@@ -169,7 +170,7 @@ GatherData gather_ray_of(GatherData r, float3 o, float3 d, float3 eye, uint seed
     // next bounce or ends.
     LOOP for (;;)
     {
-        BvhHit h = trace_bvh(o, d, t_max, any_hit, trace_counts.z, lane);
+        BvhHit h = trace_bvh(o, d, t_max, any_hit, classes, lane);
         r.rays++;
         r.guard += h.guard;
         r.overflow += h.overflow;
@@ -310,7 +311,7 @@ GatherData gather_ray_of(GatherData r, float3 o, float3 d, float3 eye, uint seed
     return r;
 }
 
-// Sample index of a world pixel: the index-th ray of its occlusion sequence, cosine-weighted around the G-buffer's normal
+// Sample index of a world or character pixel: the index-th ray of its occlusion sequence, cosine-weighted around the G-buffer's normal
 // and mirrored above the surface, to the nearest surface at any distance; then, from a hit that no face shows and that
 // the sun's shading direction lights, a ray in the sun's cone toward where the game's shadows put the sun.
 GatherData gather_pixel_of(int2 pixel, uint index, uint lane)
@@ -326,9 +327,10 @@ GatherData gather_pixel_of(int2 pixel, uint index, uint lane)
     r.source = 0u;
     uint s = load_stencil(pixel);
     float depth = load_depth(pixel);
-    if (!is_world_stencil(s) || !(depth > 0.0f))
+    if (!is_traced_stencil(s) || !(depth > 0.0f))
         return r;
     r.world = 1u;
+    uint classes = is_character_stencil(s) ? trace_counts.z & ~kCharacterClass : trace_counts.z;
     float3 eye = XYZ(eye_position);
     float3 p = scene_position(pixel, depth);
     float dist = length(p - eye);
@@ -344,7 +346,8 @@ GatherData gather_pixel_of(int2 pixel, uint index, uint lane)
     float below = dot(d, ng);
     if (below < 0.0f)
         d = d - ng * (2.0f * below);
-    return gather_ray_of(r, o, d, eye, seed, index, float2(1.0f, 0.0f), max(gather_counts.y, 1u), max(gather_ambient[1].w, 1.0f), lane);
+    return gather_ray_of(r, o, d, eye, seed, index, float2(1.0f, 0.0f), max(gather_counts.y, 1u), max(gather_ambient[1].w, 1.0f), classes,
+        lane);
 }
 
 // A pixel's sample in a dispatch: none once it has gather_counts.x of them, else the next of its sequence.

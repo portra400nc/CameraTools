@@ -91,6 +91,12 @@ float3 cone_direction_of(float3 axis, float cos_max, float2 u)
 
 bool is_world_stencil(uint s) { return (s & 0x84u) == 0x80u; }
 
+// Characters (stencil 133 and 165) are traced too, for the character light pass, but their own class casts nothing on
+// them: the game's toon shading already shades a body by itself, and a sun ray from an arm would meet the arm.
+static const uint kCharacterClass = 16u;    // core/trace_scene.h's TraceClass::character
+bool is_character_stencil(uint s) { return (s & 0x84u) == 0x84u; }
+bool is_traced_stencil(uint s) { return is_world_stencil(s) || is_character_stencil(s); }
+
 // Grass, vegetation and foliage, whose alpha-tested depth the scene's full cards do not match.
 bool is_alpha_stencil(uint s) { return s == 129u || s == 136u || s == 137u; }
 

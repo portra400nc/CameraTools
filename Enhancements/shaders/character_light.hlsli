@@ -12,6 +12,7 @@ cbuffer CharacterLight : register(b1)
     float4 world_sun;       // EnhancementsCharacterLights' world light; world_sun.w 1 when the sun draw ran
     float4 world_sky;
     float4 world_game;
+    float4 traced;          // x 1 with the trace's sums at t9, y 1 with the gather's at t10 and t11 and its constants at b2
 };
 
 #include "local_light.hlsli"

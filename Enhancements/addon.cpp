@@ -1172,7 +1172,8 @@ namespace enhancements
                         break;
                     case PassId::character_light:
                         call = gpu.run_character_light(map, character_light_constants(settings.character_light, camera), camera, settings.flip,
-                            d.uses_sun ? &sun_parse.constants : nullptr);
+                            d.uses_sun ? &sun_parse.constants : nullptr, trace_frame && trace_frame->traced ? &trace_gpu : nullptr,
+                            trace_frame && trace_frame->gathering);
                         break;
                     case PassId::light_shafts:
                         call = gpu.run_light_shafts(map, settings.light_shafts, sky_camera(), sun_parse.constants, settings.flip,

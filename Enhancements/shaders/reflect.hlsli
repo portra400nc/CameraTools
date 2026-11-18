@@ -52,7 +52,7 @@ GatherData reflect_pixel_of(int2 pixel, uint index, uint lane)
     float below = dot(d, ng);
     if (below < 0.0f)
         d = d - ng * (2.0f * below);
-    return gather_ray_of(r, p + ng * (0.02f + 1.0e-4f * dist), normalize(d), eye, seed, index, float2(reflect_params.y, gather_sun.w), 1u, 1.0f, lane);
+    return gather_ray_of(r, p + ng * (0.02f + 1.0e-4f * dist), normalize(d), eye, seed, index, float2(reflect_params.y, gather_sun.w), 1u, 1.0f, trace_counts.z, lane);
 }
 
 #endif
