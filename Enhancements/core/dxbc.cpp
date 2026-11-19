@@ -258,4 +258,20 @@ namespace enhancements
         };
         return matches(kWith, std::size(kWith)) ? 1 : matches(kWithout, std::size(kWithout)) ? 2 : 0;
     }
+
+    bool sky_direction_layout(const OutputSignature &signature)
+    {
+        if (signature.stage != ShaderStageKind::vs || signature.elements.size() < 10)
+            return false;
+        for (uint32_t i = 0; i < 10; i++)
+        {
+            const SignatureElement &e = signature.elements[i];
+            const char *want = i == 0 ? "SV_POSITION" : "TEXCOORD";
+            const bool named = e.semantic.size() == std::strlen(want)
+                && std::equal(e.semantic.begin(), e.semantic.end(), want, [](char x, char y) { return std::toupper(static_cast<unsigned char>(x)) == y; });
+            if (!named || e.index != (i == 0 ? 0 : i - 1) || e.reg != i || (i == 9 && (e.mask & 0x7) != 0x7))
+                return false;
+        }
+        return true;
+    }
 }

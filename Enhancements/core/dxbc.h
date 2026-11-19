@@ -50,6 +50,11 @@ namespace enhancements
     // TEXCOORD1 to TEXCOORD5 in registers 0 to 7, 2 for the same without TEXCOORD2, in 0 to 6. 0 for any other.
     int world_position_layout(const OutputSignature &signature);
 
+    // The game's sky dome vertex shader writes the direction from the camera to each vertex, normalized, in TEXCOORD8.xyz:
+    // true when the signature is SV_POSITION and TEXCOORD0 to TEXCOORD8 in registers 0 to 9, as sky_dome_view_ps.hlsl
+    // reads them.
+    bool sky_direction_layout(const OutputSignature &signature);
+
     // One D3D11_SO_DECLARATION_ENTRY, without the stream, which is always 0.
     struct SoEntry
     {

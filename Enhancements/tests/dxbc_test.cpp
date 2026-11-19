@@ -60,6 +60,9 @@ int main()
         check("a54d4773bdfcf885: world position layout 1, TEXCOORD3 to 5 in registers 5 to 7", rock && world_position_layout(*rock) == 1);
         check("258b2bebb4f71cc6: world position layout 2, without TEXCOORD2", short_rock && world_position_layout(*short_rock) == 2);
         check("44041f47a8b7383f: no SV_POSITION, so no layout", tessellated && world_position_layout(*tessellated) == 0);
+        const auto dome = parse(load("0a2e8968a7a6bcde.vs.dxbc"));
+        check("0a2e8968a7a6bcde: the sky dome's direction in TEXCOORD8, register 9", dome && sky_direction_layout(*dome));
+        check("a54d4773bdfcf885: a rock's outputs are not the dome's", rock && !sky_direction_layout(*rock));
     }
     const std::vector<uint8_t> packed = load("d13184314dc3a9c2.vs.dxbc"), hull_feed = load("f41ee402a971d845.vs.dxbc"),
         position_only = load("ddf425b5aabfc702.vs.dxbc"), domain = load("2adc971cc2058b7a.ds.dxbc"), pixel = load("482d98462fb30496.ps.dxbc");

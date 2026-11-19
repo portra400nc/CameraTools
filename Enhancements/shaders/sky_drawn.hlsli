@@ -63,11 +63,9 @@ float3 air_light(float3 view)
 // The brightest the HDR scene's half floats hold, with room for the game's own passes to add.
 static const float kMostLight = 60000;
 
-// The sky at pixel position.
-float3 drawn_sky(float2 position)
+// The sky toward view, a unit world direction.
+float3 drawn_sky_toward(float3 view)
 {
-    float3 near = view_position(position * render_size.zw, 1);
-    float3 view = normalize(mul(normalize(near), (float3x3)world_to_view));
     float pixel_angle = max(length(ddx(view)), length(ddy(view)));
     // Below the horizon the tables hold the planet's dark ground, which the game's world covers; where the world ends short
     // of the horizon, as past a map's edge seen from high up, the horizon's haze carries on down instead.
@@ -85,4 +83,11 @@ float3 drawn_sky(float2 position)
     }
     light += through * moon_light(view, pixel_angle);
     return min(light * sky_scale, kMostLight);
+}
+
+// The sky at pixel position, toward the direction the pushed camera gives it.
+float3 drawn_sky(float2 position)
+{
+    float3 near = view_position(position * render_size.zw, 1);
+    return drawn_sky_toward(normalize(mul(normalize(near), (float3x3)world_to_view)));
 }

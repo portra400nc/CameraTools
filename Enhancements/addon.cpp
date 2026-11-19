@@ -1616,6 +1616,26 @@ namespace enhancements
             return vertex_water ? GameShader::water : GameShader::other;
         }
 
+        // Whether the bound vertex shader is the game's sky dome's with the direction in TEXCOORD8 (core/dxbc.h), by object.
+        std::unordered_map<uint64_t, bool> dome_directions;
+
+        bool dome_gives_direction()
+        {
+            const uint64_t vertex = gpu.bound_vertex_shader();
+            const auto known = dome_directions.find(vertex);
+            if (known != dome_directions.end())
+                return known->second;
+            const std::optional<ShaderCode> code = shaders.find(vertex);
+            const std::optional<OutputSignature> outputs = code && code->code
+                ? parse_output_signature(reinterpret_cast<const uint8_t *>(code->code->data()), code->code->size()) : std::nullopt;
+            const bool gives = outputs && sky_direction_layout(*outputs);
+            char hash[24];
+            std::snprintf(hash, sizeof hash, "%016llx", static_cast<unsigned long long>(code ? code->hash : 0));
+            log(reshade::log::level::info, std::string("the sky dome's vertex shader ") + hash + (gives ? " gives its direction: the sky takes it."
+                : " gives no direction the sky can read: it takes the pushed camera's."));
+            return dome_directions[vertex] = gives;
+        }
+
         // A draw of the game's sky or water, past the combine step with the physical sky on: its dome drawn with the
         // physical sky, its sun, moon and stars left out after that, and with physical water on, its water drawn with ours. true
         // when the game's draw is to be skipped.
@@ -1631,7 +1651,7 @@ namespace enhancements
             switch (bound_shader())
             {
             case GameShader::dome:
-                if (!gpu.draw_sky_dome(draw, tracker.map(), *sky_draw, camera, settings.flip))
+                if (!gpu.draw_sky_dome(draw, tracker.map(), *sky_draw, camera, settings.flip, dome_gives_direction()))
                     return false;
                 dome_frame = frames;
                 after_dome = true;

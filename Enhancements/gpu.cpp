@@ -858,6 +858,7 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kCharacterBalancePs, sizeof kCharacterBalancePs, nullptr, &made.character_balance_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCharacterBalanceAdaptPs, sizeof kCharacterBalanceAdaptPs, nullptr, &made.character_balance_adapt_ps_))
             && SUCCEEDED(device->CreatePixelShader(kSurfaceDetailPs, sizeof kSurfaceDetailPs, nullptr, &made.surface_detail_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kSkyDomeViewPs, sizeof kSkyDomeViewPs, nullptr, &made.sky_dome_view_ps_))
             && SUCCEEDED(device->CreatePixelShader(kSurfaceMaskAPs, sizeof kSurfaceMaskAPs, nullptr, &made.surface_mask_a_ps_))
             && SUCCEEDED(device->CreatePixelShader(kSurfaceMaskBPs, sizeof kSurfaceMaskBPs, nullptr, &made.surface_mask_b_ps_))
             && SUCCEEDED(device->CreatePixelShader(kGatherAveragePs, sizeof kGatherAveragePs, nullptr, &made.gather_average_ps_))
@@ -3177,7 +3178,7 @@ namespace enhancements
         return true;
     }
 
-    bool Gpu::draw_sky_dome(const GameDraw &w, const FrameMap &map, const SkyDraw &sky, const Camera &camera, bool flip)
+    bool Gpu::draw_sky_dome(const GameDraw &w, const FrameMap &map, const SkyDraw &sky, const Camera &camera, bool flip, bool game_direction)
     {
         Constants k;
         if (!sky.atmosphere || !sky_view_[4].srv() || !sync_sky_tables(sky.atmosphere) || !pass_constants(camera, map.render, flip, k))
@@ -3194,7 +3195,7 @@ namespace enhancements
         ours[9] = sky_transmittance_srv_.Get();
         ours[10] = sky_multiple_srv_.Get();
         ours[14] = last_auto_exposure();
-        draw_in_place(w, sky_dome_ps_.Get(), ours, nullptr);
+        draw_in_place(w, game_direction ? sky_dome_view_ps_.Get() : sky_dome_ps_.Get(), ours, nullptr);
         return true;
     }
 

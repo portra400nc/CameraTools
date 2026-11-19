@@ -514,10 +514,12 @@ namespace enhancements
         // scene yet takes one. false, and nothing drawn, when no copy could be made or the sky's tables are not there.
         bool draw_water(const GameDraw &draw, const FrameMap &map, const SkyDraw &sky, const PhysicalWaterSettings &water, const Camera &camera,
             bool flip, uint64_t frame, float seconds, float wind_radians);
-        // The game's sky dome draw, drawn with sky_dome_ps.hlsl in place of its own, so what the game draws over its sky
-        // after it lands on the physical sky; the sky's tables are the last sky pass's. false, and nothing drawn, before
-        // the sky pass has made them.
-        bool draw_sky_dome(const GameDraw &draw, const FrameMap &map, const SkyDraw &sky, const Camera &camera, bool flip);
+        // The game's sky dome draw, drawn with our pixel shader in place of its own, so what the game draws over its sky
+        // after it lands on the physical sky; the sky's tables are the last sky pass's. With game_direction, the dome's
+        // vertex shader gives the direction (sky_dome_view_ps.hlsl), so the sky, sun and moon stay put as the camera
+        // turns; else the pushed camera does (sky_dome_ps.hlsl). false, and nothing drawn, before the sky pass has made
+        // the tables.
+        bool draw_sky_dome(const GameDraw &draw, const FrameMap &map, const SkyDraw &sky, const Camera &camera, bool flip, bool game_direction);
         // Copies the grade a tone map shader's layout names from the game's bound pixel shader constants at b0 into
         // game_grade_. Called at the game's tone map draw before any pass of ours draws, since a pass binds its own b0.
         // false when no constants are bound or they are too small for the layout.
@@ -655,7 +657,7 @@ namespace enhancements
         bool sync_sky_tables(const std::shared_ptr<const Atmosphere> &atmosphere);
         ComPtr<ID3D11ComputeShader> dof_scatter_cs_, cloud_shape_cs_, cloud_detail_cs_;
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, ambient_specular_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_, cloud_map_ps_, clouds_ps_, clouds_apply_ps_, clouds_resolve_ps_, clouds_painted_ps_,
-            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, character_light_ps_, character_shadow_ps_, character_sun_ps_, grass_capture_ps_, grass_ps_, grass_apply_ps_, character_balance_ps_, character_balance_adapt_ps_, surface_detail_ps_, surface_mask_a_ps_, surface_mask_b_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
+            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, character_light_ps_, character_shadow_ps_, character_sun_ps_, grass_capture_ps_, grass_ps_, grass_apply_ps_, character_balance_ps_, character_balance_adapt_ps_, surface_detail_ps_, sky_dome_view_ps_, surface_mask_a_ps_, surface_mask_b_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
             apply_gather_ps_, reflect_apply_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_, dof_soften_ps_, dof_behind_ps_,
             dof_sprite_ps_, dof_lift_ps_, dof_display_in_ps_, dof_display_out_ps_, dof_near_ps_, dof_near_mask_ps_, dof_near_fill_ps_, flare_visibility_ps_, flare_ps_,
             dng_ps_, dng_flare_ps_, exposure_meter_ps_, exposure_adapt_ps_;
