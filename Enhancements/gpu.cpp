@@ -3371,6 +3371,27 @@ namespace enhancements
                 classes[i]->Release();
     }
 
+    bool Gpu::blends_into(uint64_t resource) const
+    {
+        ComPtr<ID3D11RenderTargetView> target;
+        context_->OMGetRenderTargets(1, &target, nullptr);
+        if (!target)
+            return false;
+        ComPtr<ID3D11Resource> bound;
+        target->GetResource(&bound);
+        if (reinterpret_cast<uintptr_t>(bound.Get()) != resource)
+            return false;
+        ComPtr<ID3D11BlendState> blend;
+        FLOAT factor[4];
+        UINT mask = 0;
+        context_->OMGetBlendState(&blend, factor, &mask);
+        if (!blend)
+            return false;
+        D3D11_BLEND_DESC desc;
+        blend->GetDesc(&desc);
+        return desc.RenderTarget[0].BlendEnable != FALSE;
+    }
+
     uint64_t Gpu::bound_pixel_shader() const
     {
         ComPtr<ID3D11PixelShader> shader;

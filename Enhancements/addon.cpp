@@ -1098,12 +1098,6 @@ namespace enhancements
                 if (trace_save_wanted.load() && !trace_gpu.saving() && trace_gpu.state() == TraceState::stale && gpu.save_trace(map, trace_save_meta(), trace_gpu))
                     trace_save_wanted = false;
             }
-            // A LIGHT capture's face, the lit opaque scene before the game draws anything see-through over it: the bloom
-            // step's copy held the snow, sparks and effects in the air as if they lit the surfaces behind them, and every
-            // traced reflection or bounce that met one drew it as a bright square. It is taken out of that copy where it
-            // shows (SceneGpu::copy_hdr).
-            if (step == Step::forward && scene_light)
-                scene_gpu.copy_hdr(map, true);
             // The lit opaque scene before the game draws anything see-through over it, which it sorts anew each frame: what
             // physical water sees through and mirrors.
             if (step == Step::forward && settings.enabled && settings.sky.enabled && settings.water.enabled)
@@ -1115,7 +1109,7 @@ namespace enhancements
             if (step == Step::bloom)
             {
                 if (scene_light)
-                    scene_gpu.copy_hdr(map, false);
+                    scene_gpu.copy_hdr(map);
                 gpu.save_trace_hdr(map, trace_gpu);
                 if (frame_save_wanted.load() && !frame_copy && gpu.copy_frame(map))
                 {
@@ -1775,6 +1769,23 @@ namespace enhancements
             return drawn;
         }
 
+        // In a frame whose HDR scene becomes a picture the gather takes the game's light from (a LIGHT capture's face): the
+        // game's see-through draws after its lit opaque scene are left out, but its water, so the picture holds the lit
+        // surfaces alone. Snow, sparks and effects in the air were taken as light on the surfaces behind them, and every
+        // traced reflection or bounce that met one drew it as a bright square. Light sprites are not surfaces either; the
+        // game's lamps and Skill light's lights light the bounce. These frames are never shown in a shot.
+        bool skip_see_through(command_list *cmd_list)
+        {
+            if (!scene_light || cmd_list != immediate || !armed.load(std::memory_order_relaxed) || !tracker.matched().has(Step::forward)
+                || tracker.matched().has(Step::bloom))
+                return false;
+            const std::optional<Texture> &scene = tracker.map()[Entry::hdr_scene];
+            if (!scene || !gpu.blends_into(static_cast<uint64_t>(scene->id)))
+                return false;
+            const GameShader kind = bound_shader();
+            return kind != GameShader::water && kind != GameShader::dome;
+        }
+
         // The scene capture's checks cost one branch while it does not run. DrawAuto comes as a draw of 0 vertices, which
         // draws nothing to replay.
         // Leaf shading: the game's vegetation lighting drawn with our copy of its constants, in its place.
@@ -1803,6 +1814,8 @@ namespace enhancements
             if (armed.load(std::memory_order_relaxed) && cmd_list == immediate && scene_frame && in_gbuffer && vertices != 0)
                 replay_scene({ ReplayKind::draw, vertices, instances, first_vertex, 0, first_instance, nullptr, 0 });
             const bool skip = on_draw_any(cmd_list);
+            if (!skip && skip_see_through(cmd_list))
+                return true;
             if (!skip && draw_leaves(cmd_list, false, vertices, instances, first_vertex, 0, first_instance))
                 return true;
             if (!skip && draw_surface(cmd_list, false, vertices, instances, first_vertex, 0, first_instance))
@@ -1815,6 +1828,8 @@ namespace enhancements
             if (armed.load(std::memory_order_relaxed) && cmd_list == immediate && scene_frame && in_gbuffer)
                 replay_scene({ ReplayKind::indexed, indices, instances, first_index, vertex_offset, first_instance, nullptr, 0 });
             const bool skip = on_draw_any(cmd_list);
+            if (!skip && skip_see_through(cmd_list))
+                return true;
             if (!skip && draw_leaves(cmd_list, true, indices, instances, first_index, vertex_offset, first_instance))
                 return true;
             if (!skip && draw_surface(cmd_list, true, indices, instances, first_index, vertex_offset, first_instance))
@@ -1856,6 +1871,9 @@ namespace enhancements
         // the grass port and Grass depth's layers: the frame recipe never matched them, so it still sees only direct draws.
         bool on_draw_or_dispatch_indirect(command_list *cmd_list, indirect_command type, resource buffer, uint64_t offset, uint32_t draw_count, uint32_t)
         {
+            // GPU particles, such as falling snow, draw this way too.
+            if (type != indirect_command::dispatch && skip_see_through(cmd_list))
+                return true;
             bool low_slots = false;
             // Without the custom clump's files, the game's own grass is multiplied as Density asks.
             const uint8_t mode = settings.grass_port == 2 && !grass_port_loaded() ? (settings.grass_copies > 1 ? 1 : 0) : settings.grass_port;

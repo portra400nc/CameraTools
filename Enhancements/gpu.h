@@ -484,6 +484,8 @@ namespace enhancements
 
         // The pixel and the vertex shader bound now, as the handles ReShade's pipeline events name them by, or 0.
         uint64_t bound_pixel_shader() const;
+        // Whether the bound draw blends into resource as its first render target: a see-through draw into the scene.
+        bool blends_into(uint64_t resource) const;
         uint64_t bound_vertex_shader() const;
         // The HDR scene physical water sees through and mirrors, copied at the forward step of frame.
         void copy_water_scene(const FrameMap &map, uint64_t frame);

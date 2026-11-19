@@ -226,20 +226,19 @@ namespace enhancements
         depth_size_ = {};
         picture_ = Staging {};
         picture_copied_ = false;
-        normals_ = mask_ = irradiance_ = stencil_ = albedo_ = hdr_ = hdr_opaque_ = Mirror {};
-        gbuffer_copied_ = gbuffer_back_ = hdr_copied_ = hdr_back_copied_ = hdr_opaque_copied_ = hdr_opaque_back_copied_ = false;
+        normals_ = mask_ = irradiance_ = stencil_ = albedo_ = hdr_ = Mirror {};
+        gbuffer_copied_ = gbuffer_back_ = hdr_copied_ = hdr_back_copied_ = false;
         normals_back_.reset();
         mask_back_.reset();
         irradiance_back_.reset();
         stencil_back_.reset();
         albedo_back_.reset();
         hdr_back_.reset();
-        hdr_opaque_back_.reset();
     }
 
     void SceneGpu::begin_frame()
     {
-        gbuffer_copied_ = hdr_copied_ = hdr_opaque_copied_ = false;
+        gbuffer_copied_ = hdr_copied_ = false;
         records_.clear();
         replays_ = 0;
         // The constants start again with the frame's draws; the atlas's tiles, and the textures waiting for their bake,
@@ -739,15 +738,13 @@ namespace enhancements
         gbuffer_copied_ = true;
     }
 
-    void SceneGpu::copy_hdr(const FrameMap &map, bool opaque)
+    void SceneGpu::copy_hdr(const FrameMap &map)
     {
         const std::optional<Texture> &texture = map[Entry::hdr_scene];
         ID3D11Resource *game = texture ? reinterpret_cast<ID3D11Resource *>(static_cast<uint64_t>(texture->id)) : nullptr;
-        Mirror &mirror = opaque ? hdr_opaque_ : hdr_;
-        bool &copied = opaque ? hdr_opaque_copied_ : hdr_copied_;
-        copied = game && mirror.sync(device_.Get(), game, static_cast<DXGI_FORMAT>(texture->format), false);
-        if (copied)
-            mirror.copy_from(context_.Get(), game);
+        hdr_copied_ = game && hdr_.sync(device_.Get(), game, static_cast<DXGI_FORMAT>(texture->format), false);
+        if (hdr_copied_)
+            hdr_.copy_from(context_.Get(), game);
     }
 
     void SceneGpu::bake(const char *&moved)
@@ -837,8 +834,7 @@ namespace enhancements
                     back->reset();
         }
         hdr_back_copied_ = hdr_copied_ && hdr_back_.copy_from(device_.Get(), c, hdr_.texture());
-        hdr_opaque_back_copied_ = hdr_copied_ && hdr_opaque_copied_ && hdr_opaque_back_.copy_from(device_.Get(), c, hdr_opaque_.texture());
-        gbuffer_copied_ = hdr_copied_ = hdr_opaque_copied_ = false;
+        gbuffer_copied_ = hdr_copied_ = false;
         copied_frame_ = true;
         return true;
     }
@@ -916,19 +912,6 @@ namespace enhancements
                 return SceneRead {};
             out.hdr.resize(r == Readback::Read::ok ? bytes.size() / 4 : 0);
             std::memcpy(out.hdr.data(), bytes.data(), out.hdr.size() * 4);
-            if (hdr_opaque_back_copied_ && !out.hdr.empty())
-            {
-                std::vector<uint8_t> opaque;
-                const Readback::Read o = hdr_opaque_back_.read(c, opaque);
-                if (o == Readback::Read::not_ready)
-                    return SceneRead {};
-                if (o == Readback::Read::ok && opaque.size() == out.hdr.size() * 4)
-                {
-                    std::vector<uint32_t> words(out.hdr.size());
-                    std::memcpy(words.data(), opaque.data(), opaque.size());
-                    without_see_through(out.hdr, words);
-                }
-            }
         }
         if (picture_copied_)
         {

@@ -399,17 +399,6 @@ namespace
 int main(int argc, char **argv)
 {
     {
-        // A snowflake drawn over a rock at the bloom step, and the rock's anti-aliased edge a little brighter than in the
-        // opaque copy: the flake goes, the edge stays.
-        const uint32_t rock = hdr_stored({ 0.4f, 0.4f, 0.4f }), flake = hdr_stored({ 1.5f, 1.5f, 1.6f }), edge = hdr_stored({ 0.48f, 0.48f, 0.48f });
-        std::vector<uint32_t> bloom = { flake, edge, rock }, opaque = { rock, rock, rock };
-        without_see_through(bloom, opaque);
-        check("see-through light leaves the face's picture where it stands out, and the anti-aliased edge stays", bloom[0] == rock && bloom[1] == edge && bloom[2] == rock);
-        std::vector<uint32_t> other = { flake };
-        without_see_through(other, opaque);
-        check("pictures of different sizes are left as they are", other[0] == flake);
-    }
-    {
         const uint32_t word = pack_light({ 0.25f, 0.5f, 1.0f }, AlbedoSource::covered);
         const Vec3f back = light_albedo(word);
         check("the light word holds the albedo's square roots in 10 bits and the source in 2: 0.25, 0.5 and 1 round trip within 1/1023 of their roots",

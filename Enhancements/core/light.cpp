@@ -988,17 +988,4 @@ namespace enhancements
         light.sun.shade_source = static_cast<LightSource>(shade_source);
         return file;
     }
-
-    void without_see_through(std::vector<uint32_t> &bloom, const std::vector<uint32_t> &opaque)
-    {
-        if (bloom.size() != opaque.size())
-            return;
-        const auto luminance = [](const Vec3f &c) { return 0.2126f * c[0] + 0.7152f * c[1] + 0.0722f * c[2]; };
-        for (size_t i = 0; i < bloom.size(); i++)
-        {
-            const float b = luminance(hdr_rgb(bloom[i])), o = luminance(hdr_rgb(opaque[i]));
-            if (b > o * 1.5f + 0.05f)
-                bloom[i] = opaque[i];
-        }
-    }
 }
