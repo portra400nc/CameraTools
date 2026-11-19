@@ -36,19 +36,9 @@ struct Targets
 };
 
 // The share of the traced sun's shadow that the foliage shade takes. Grass takes a little, as blades shading blades drew
-// dark lines; bushes, trees, flowers and lily pads the sun's share of their light, as the game lights them its own way,
-// past the shadow mask, so a bush in traced shade otherwise stayed as bright as one in the sun beside darkened grass. The
-// shade multiplies all of their light, so a leaf in shade keeps the sky's share: the sun lights the game's vegetation at
-// about kLeafSun of sun_color, the sky at about sky_color, and taking 80% of everything had shadowed petals and pads lose
-// the sunset sky's light too.
-static const float kGrassSunShare = 0.35, kLeafSunShare = 0.8, kLeafSun = 0.6;
-
-float leaf_sun_share()
-{
-    const float3 w = float3(0.2126, 0.7152, 0.0722);
-    float sun = kLeafSun * dot(sun_color, w), sky = dot(sky_color, w);
-    return sun + sky > 1e-6 ? min(sun / (sun + sky), kLeafSunShare) : kLeafSunShare;
-}
+// dark lines; bushes and trees most, as the game lights their leaves its own way, past the shadow mask, so a bush in traced
+// shade otherwise stayed as bright as one in the sun beside darkened grass.
+static const float kGrassSunShare = 0.35, kLeafSunShare = 0.8;
 // How deep the traced sun's shadow on grass and leaves goes in the mask, against 1 elsewhere.
 static const float kFoliageSunShadow = 0.5;
 
@@ -117,7 +107,7 @@ Targets main(float4 position : SV_Position)
     if (foliage)
     {
         bool grass = is_grass(s) || (uint(material.Load(int3(pixel, 0)) * 255 + 0.5) & 0x3Fu) == kTallGrassMaterial;
-        o.foliage = float2(min(lerp(1, h.z > 0 ? averages.x : 1, trace_params.y) * lerp(1, h.w > 0 ? averages.y : 1, trace_params.z * (grass ? kGrassSunShare : leaf_sun_share())), 0.99), grass);
+        o.foliage = float2(min(lerp(1, h.z > 0 ? averages.x : 1, trace_params.y) * lerp(1, h.w > 0 ? averages.y : 1, trace_params.z * (grass ? kGrassSunShare : kLeafSunShare)), 0.99), grass);
     }
     return o;
 }
