@@ -43,6 +43,11 @@ namespace enhancements
     // R11G11B10_FLOAT to linear RGB, and back to the nearest stored value not above it.
     Vec3f hdr_rgb(uint32_t stored);
     uint32_t hdr_stored(const Vec3f &rgb);
+    // The HDR scene at the bloom step with what the game's see-through draws (snow, sparks, effects) added taken out: where
+    // a pixel there is clearly brighter than in opaque, the same frame's lit opaque scene before those draws, it takes the
+    // opaque value. Elsewhere it keeps the bloom step's, which the game's anti-aliasing smoothed, so the gather's light
+    // stays as quiet as before. Both are R11G11B10_FLOAT words of the same size; a size mismatch changes nothing.
+    void without_see_through(std::vector<uint32_t> &bloom, const std::vector<uint32_t> &opaque);
     // An sRGB byte to its linear value.
     float srgb_linear(uint8_t stored);
 

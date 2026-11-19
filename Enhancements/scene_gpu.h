@@ -140,8 +140,11 @@ namespace enhancements
             bool normals_irradiance = false, mask = false, albedo = false;
         };
         void copy_gbuffer(const FrameMap &map, GbufferCopies copies);
-        // At the bloom step of a captured frame whose request keeps the light, before any pass of ours: the HDR scene.
-        void copy_hdr(const FrameMap &map);
+        // In a captured frame whose request keeps the light: the HDR scene at the forward step (opaque), the lit opaque
+        // scene before the game's see-through draws, and at the bloom step before any pass of ours. read() keeps the bloom
+        // step's, smoothed by the game's anti-aliasing, but the opaque one's where see-through draws brightened it
+        // (core/light.h, without_see_through).
+        void copy_hdr(const FrameMap &map, bool opaque);
 
         // At the present that ends a captured frame: bakes the textures the frame's alpha programs sample into the atlas,
         // under a StateGuard whose finding goes to moved, then copies the stream-output buffer, the main depth, the back
@@ -221,10 +224,10 @@ namespace enhancements
         Staging picture_;
         bool picture_copied_ = false;
         // copy_gbuffer's mirrors of the frame being replayed, and their copies at present.
-        Mirror normals_, mask_, irradiance_, stencil_, albedo_, hdr_;
-        bool gbuffer_copied_ = false, hdr_copied_ = false;
-        Readback normals_back_, mask_back_, irradiance_back_, stencil_back_, albedo_back_, hdr_back_;
-        bool hdr_back_copied_ = false;
+        Mirror normals_, mask_, irradiance_, stencil_, albedo_, hdr_, hdr_opaque_;
+        bool gbuffer_copied_ = false, hdr_copied_ = false, hdr_opaque_copied_ = false;
+        Readback normals_back_, mask_back_, irradiance_back_, stencil_back_, albedo_back_, hdr_back_, hdr_opaque_back_;
+        bool hdr_back_copied_ = false, hdr_opaque_back_copied_ = false;
         bool gbuffer_back_ = false;
         uint32_t support_ = 0;
         // Alpha tests: each pixel shader's analysis, kept for the device's life; for the capture, the atlas and its tiles by

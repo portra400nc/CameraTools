@@ -193,7 +193,6 @@ namespace enhancements
         bool scene_frame = false;           // the scene capture replays this frame's G-buffer draws
         bool scene_gbuffer = false;         // and copies its G-buffer at the combine step: the view face of a GBUFFER request
         bool scene_light = false;           // and its albedo, stencil and HDR: every face of a LIGHT request
-        uint64_t hdr_frame = UINT64_MAX;    // the frame whose HDR scene the LIGHT capture copied, at forward or else at bloom
         bool scene_first = false;           // the face is the capture's first, whose normals and irradiance the ambient fit takes
         // The combine step's first draw's constants, the sun's color and shading direction: copied at that draw while the
         // gather or a LIGHT capture wants them, and the newest read back.
@@ -1099,14 +1098,12 @@ namespace enhancements
                 if (trace_save_wanted.load() && !trace_gpu.saving() && trace_gpu.state() == TraceState::stale && gpu.save_trace(map, trace_save_meta(), trace_gpu))
                     trace_save_wanted = false;
             }
-            // A LIGHT capture's face: the lit opaque scene, before the game draws anything see-through over it. Taken at
-            // bloom, its pictures held the snow, sparks and effects in the air as if they lit the surfaces behind them, and
-            // every traced reflection or bounce that met one drew it as a bright square.
-            if (step == Step::forward && scene_light && hdr_frame != frames)
-            {
-                scene_gpu.copy_hdr(map);
-                hdr_frame = frames;
-            }
+            // A LIGHT capture's face, the lit opaque scene before the game draws anything see-through over it: the bloom
+            // step's copy held the snow, sparks and effects in the air as if they lit the surfaces behind them, and every
+            // traced reflection or bounce that met one drew it as a bright square. It is taken out of that copy where it
+            // shows (SceneGpu::copy_hdr).
+            if (step == Step::forward && scene_light)
+                scene_gpu.copy_hdr(map, true);
             // The lit opaque scene before the game draws anything see-through over it, which it sorts anew each frame: what
             // physical water sees through and mirrors.
             if (step == Step::forward && settings.enabled && settings.sky.enabled && settings.water.enabled)
@@ -1114,15 +1111,11 @@ namespace enhancements
                 gpu.copy_water_scene(map, frames);
                 water_scene_stale = false;
             }
-            // The HDR scene before any pass of ours: a LIGHT capture's face's when the frame had no forward step, and a
-            // trace save's.
+            // The HDR scene before any pass of ours: a LIGHT capture's face's, and a trace save's.
             if (step == Step::bloom)
             {
-                if (scene_light && hdr_frame != frames)
-                {
-                    scene_gpu.copy_hdr(map);
-                    hdr_frame = frames;
-                }
+                if (scene_light)
+                    scene_gpu.copy_hdr(map, false);
                 gpu.save_trace_hdr(map, trace_gpu);
                 if (frame_save_wanted.load() && !frame_copy && gpu.copy_frame(map))
                 {
