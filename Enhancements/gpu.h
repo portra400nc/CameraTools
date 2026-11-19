@@ -505,31 +505,6 @@ namespace enhancements
         // shades leaves by their facing at strength (leaf_constants_cs.hlsl). Call it inside a StateGuard. false when a
         // buffer of ours failed or the draw binds too little; the game's draw then runs.
         bool draw_leaves(const GameDraw &draw, float strength);
-        // Surface detail (probe): the game's G-buffer draw as it is, then again into a mask of ours with an equal depth
-        // test and surface_mask.hlsli's pixel shader for the vertex shader's layout (core/dxbc.h, world_position_layout),
-        // so the mask holds the rock's world position and view depth. Call it inside a StateGuard; false, with nothing
-        // drawn, when the draw binds no render target or depth, or a resource of ours failed.
-        bool draw_surface_mask(const GameDraw &draw, uint64_t frame, int layout, uint8_t type);
-        // The debug view's: the game's draw, then again in color into an id target of ours (surface_id_ps.hlsl).
-        bool draw_surface_id(const GameDraw &draw, uint64_t frame, const float color[4]);
-        // The pick's: the game's draw, then again with number id into a pick target of ours (surface_pick_ps.hlsl).
-        bool draw_surface_pick(const GameDraw &draw, uint64_t frame, uint32_t id);
-        // At the end of the pick frame's G-buffer pass: its numbers, into a readback.
-        void copy_surface_pick(uint64_t frame);
-        // Those numbers once the GPU has them, row by row; 0 where no G-buffer draw drew. Empty while not ready.
-        struct PickImage
-        {
-            uint32_t width = 0, height = 0;
-            std::vector<uint32_t> ids;
-        };
-        std::optional<PickImage> read_surface_pick();
-        const char *surface_failure = "";   // what run_surface_detail could not make, for the log
-        // The detail map blended into the G-buffer where this frame's mask still shows, at the end of the G-buffer pass.
-        std::optional<GameCall> run_surface_detail(const FrameMap &map, float strength, const Camera &camera, bool flip, uint64_t frame);
-        // A surface type's detail map (1 rock, 2 ground) from a DX10 DDS of RGBA8 with its mips. false, with why, for
-        // anything else.
-        bool load_surface_detail(const std::string &dds, std::string &why, uint8_t type);
-        bool surface_map_loaded(uint8_t type) const { return type < 3 && surface_maps_[type]; }
 
         // One of the game's water draws, with its own geometry and state, drawn with our water pixel shader in place of
         // its own; the pixel shader's bindings are the game's again after. The first of a frame that has no copy of the
@@ -681,7 +656,7 @@ namespace enhancements
         bool sync_sky_tables(const std::shared_ptr<const Atmosphere> &atmosphere);
         ComPtr<ID3D11ComputeShader> dof_scatter_cs_, cloud_shape_cs_, cloud_detail_cs_;
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, ambient_specular_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_, cloud_map_ps_, clouds_ps_, clouds_apply_ps_, clouds_resolve_ps_, clouds_painted_ps_,
-            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, character_light_ps_, character_shadow_ps_, character_sun_ps_, grass_capture_ps_, grass_ps_, grass_apply_ps_, character_balance_ps_, character_balance_adapt_ps_, surface_detail_ps_, sky_dome_view_ps_, sky_direction_ps_, surface_mask_a_ps_, surface_mask_b_ps_, surface_mask_c_ps_, surface_mask_d_ps_, surface_id_ps_, surface_pick_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
+            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, character_light_ps_, character_shadow_ps_, character_sun_ps_, grass_capture_ps_, grass_ps_, grass_apply_ps_, character_balance_ps_, character_balance_adapt_ps_, sky_dome_view_ps_, sky_direction_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
             apply_gather_ps_, reflect_apply_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_, dof_soften_ps_, dof_behind_ps_,
             dof_sprite_ps_, dof_lift_ps_, dof_display_in_ps_, dof_display_out_ps_, dof_near_ps_, dof_near_mask_ps_, dof_near_fill_ps_, flare_visibility_ps_, flare_ps_,
             dng_ps_, dng_flare_ps_, exposure_meter_ps_, exposure_adapt_ps_;
@@ -759,22 +734,6 @@ namespace enhancements
         ComPtr<ID3D11UnorderedAccessView> leaf_raw_uav_;
         ComPtr<ID3D11ComputeShader> leaf_cs_;
         bool leaf_made_ = false, leaf_failed_ = false;
-        Scratch surface_mask_;                      // RGBA32F the rock's world position and view depth this frame, zero elsewhere
-        Scratch surface_ids_;                       // RGBA8 the debug view's colors by pixel shader
-        Scratch surface_pick_;                      // R32_UINT the pick frame's numbers by pixel shader
-        uint64_t surface_pick_frame_ = UINT64_MAX;
-        ComPtr<ID3D11Texture2D> surface_pick_back_;
-        bool surface_pick_copied_ = false;
-        bool redraw_into(const GameDraw &draw, uint64_t frame, Scratch &target, DXGI_FORMAT format, uint64_t &cleared, ID3D11PixelShader *ps,
-            const void *constants);
-        uint64_t surface_ids_frame_ = UINT64_MAX;
-        Scratch surface_mask_depth_;                // RG32F the depth buffer's value the surface wrote, and its type
-        uint64_t surface_mask_frame_ = UINT64_MAX;  // the frame the mask was cleared for
-        Mirror surface_normals_out_;
-        ComPtr<ID3D11ShaderResourceView> surface_maps_[3];     // by type; 0 unused
-        ComPtr<ID3D11Buffer> surface_type_cb_;
-        ComPtr<ID3D11Buffer> surface_constants_;
-        std::unordered_map<ID3D11DepthStencilState *, ComPtr<ID3D11DepthStencilState>> surface_depth_;
         // The camera's turn found from the game's sky dome (sky_camera.hlsli), bound at b7 for the clouds and the stars.
         Scratch sky_direction_;                         // RGBA16F the dome's direction at each pixel, w 1 where it drew
         ComPtr<ID3D11Buffer> sky_camera_buffer_, sky_camera_cb_, sky_camera_unknown_cb_, sky_camera_frame_cb_;

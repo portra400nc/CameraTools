@@ -14,6 +14,8 @@
 #include <cstring>
 #include <filesystem>
 #include <optional>
+#include <unordered_map>
+#include <vector>
 #include <string>
 #include <type_traits>
 
@@ -27,8 +29,8 @@ using namespace enhancements;
     X(EnhancementsVersion) X(EnhancementsApply) X(EnhancementsSetCamera) X(EnhancementsSetCelestial) X(EnhancementsGetWorldLight) \
     X(EnhancementsCompare) X(EnhancementsCaptureScene) X(EnhancementsGetStatus) X(EnhancementsSaveTrace) X(EnhancementsSaveFrame) \
     X(EnhancementsDevelopDng) X(EnhancementsWriteDng) X(EnhancementsSetAccumulate) X(EnhancementsSetShot) X(EnhancementsSetShotLights) \
-    X(EnhancementsSetGameLights) X(EnhancementsSetSurfaceDetail) X(EnhancementsSurfaceWantsLearn) X(EnhancementsSurfaceLastPick) \
-    X(EnhancementsSetCharacterLights) X(EnhancementsDepthAt) X(EnhancementsDescribe)
+    X(EnhancementsSetGameLights) \
+    X(EnhancementsSetCharacterLights) X(EnhancementsDepthAt) X(EnhancementsDescribe) X(EnhancementsPluginCall)
 
 namespace
 {
@@ -143,6 +145,83 @@ namespace
     void remove_shader(uint64_t handle)
     {
         shaders.remove(handle);
+    }
+
+    // Every texture the game uploaded, by resource, with the hash of its first mip: kept here for the same reason as the
+    // shaders. The loading threads add and remove them, the render thread reads.
+    SRWLOCK textures_lock = SRWLOCK_INIT;
+    std::unordered_map<uint64_t, uint64_t> textures;
+
+    // Eight bytes a step, so the game's loading pays little for thousands of textures; any tail byte by byte.
+    uint64_t texture_hash(const uint8_t *data, size_t size)
+    {
+        uint64_t hash = 0x9e3779b97f4a7c15ull ^ size;
+        size_t i = 0;
+        for (; i + 8 <= size; i += 8)
+        {
+            uint64_t word;
+            std::memcpy(&word, data + i, 8);
+            hash = (hash ^ word) * 0xff51afd7ed558ccdull;
+            hash ^= hash >> 32;
+        }
+        for (; i < size; i++)
+            hash = (hash ^ data[i]) * 0x100000001b3ull;
+        return hash;
+    }
+
+    // The first mip's rows as uploaded: row_pitch apart, of format_row_pitch bytes each, so padding the driver chose
+    // does not change the hash.
+    uint64_t first_mip_hash(const resource_desc &desc, const subresource_data &data)
+    {
+        const uint32_t row = format_row_pitch(desc.texture.format, desc.texture.width);
+        const uint32_t rows = format_slice_pitch(desc.texture.format, row, desc.texture.height) / std::max<uint32_t>(row, 1);
+        std::vector<uint8_t> packed(size_t(row) * rows);
+        for (uint32_t y = 0; y < rows; y++)
+            std::memcpy(packed.data() + size_t(y) * row, static_cast<const uint8_t *>(data.data) + size_t(y) * data.row_pitch, row);
+        return texture_hash(packed.data(), packed.size());
+    }
+
+    void on_init_resource(device *, const resource_desc &desc, const subresource_data *initial, resource_usage, resource resource)
+    {
+        if (desc.type != resource_type::texture_2d || initial == nullptr || initial->data == nullptr || desc.texture.width == 0)
+            return;
+        const uint64_t hash = first_mip_hash(desc, *initial);
+        AcquireSRWLockExclusive(&textures_lock);
+        textures[resource.handle] = hash;
+        ReleaseSRWLockExclusive(&textures_lock);
+    }
+
+    // A texture created empty and filled after, as a streamed one may be: its first mip when it arrives whole.
+    bool on_update_texture_region(device *device, const subresource_data &data, resource resource, uint32_t subresource, const subresource_box *box)
+    {
+        if (subresource != 0 || box != nullptr || data.data == nullptr)
+            return false;
+        const resource_desc desc = device->get_resource_desc(resource);
+        if (desc.type != resource_type::texture_2d)
+            return false;
+        const uint64_t hash = first_mip_hash(desc, data);
+        AcquireSRWLockExclusive(&textures_lock);
+        textures[resource.handle] = hash;
+        ReleaseSRWLockExclusive(&textures_lock);
+        return false;
+    }
+
+    void on_destroy_resource(device *, resource resource)
+    {
+        AcquireSRWLockExclusive(&textures_lock);
+        textures.erase(resource.handle);
+        ReleaseSRWLockExclusive(&textures_lock);
+    }
+
+    bool find_texture(uint64_t resource, uint64_t *hash)
+    {
+        AcquireSRWLockShared(&textures_lock);
+        const auto found = textures.find(resource);
+        const bool known = found != textures.end();
+        if (known)
+            *hash = found->second;
+        ReleaseSRWLockShared(&textures_lock);
+        return known;
     }
 
     // Runs here, so the shared code's control blocks are the stub's and outlive any copy of the add-on.
@@ -363,11 +442,14 @@ extern "C" __declspec(dllexport) bool AddonInit(HMODULE addon_module, HMODULE re
         return false;
     reshade::register_event<addon_event::init_pipeline>(on_init_pipeline);
     reshade::register_event<addon_event::destroy_pipeline>(on_destroy_pipeline);
+    reshade::register_event<addon_event::init_resource>(on_init_resource);
+    reshade::register_event<addon_event::update_texture_region>(on_update_texture_region);
+    reshade::register_event<addon_event::destroy_resource>(on_destroy_resource);
 #define ENHANCEMENTS_REGISTER(name) register_forward<addon_event::name>();
     ENHANCEMENTS_FORWARDED_EVENTS(ENHANCEMENTS_REGISTER)
 #undef ENHANCEMENTS_REGISTER
 
-    host = Host { ENHANCEMENTS_HOST_VERSION, addon_module, 0, listen, add_shader, remove_shader, find_shader };
+    host = Host { ENHANCEMENTS_HOST_VERSION, addon_module, 0, listen, add_shader, remove_shader, find_shader, find_texture };
     wchar_t module_path[MAX_PATH] = {};
     GetModuleFileNameW(addon_module, module_path, MAX_PATH);
     impl_file = fs::path(module_path).parent_path() / "CameraToolsEnhancementsImpl.dll";
@@ -428,9 +510,7 @@ extern "C" void EnhancementsSetAccumulate(const EnhancementsAccumulate *a) { for
 extern "C" void EnhancementsSetShot(const EnhancementsShot *a) { forward(EnhancementsSetShot, kEnhancementsSetShot, a); }
 extern "C" void EnhancementsSetShotLights(const EnhancementsShotLight *a, uint32_t b) { forward(EnhancementsSetShotLights, kEnhancementsSetShotLights, a, b); }
 extern "C" void EnhancementsSetGameLights(const EnhancementsShotLight *a, uint32_t b) { forward(EnhancementsSetGameLights, kEnhancementsSetGameLights, a, b); }
-extern "C" void EnhancementsSetSurfaceDetail(float a, const uint64_t *b, uint32_t c) { forward(EnhancementsSetSurfaceDetail, kEnhancementsSetSurfaceDetail, a, b, c); }
-extern "C" uint32_t EnhancementsSurfaceWantsLearn() { return forward(EnhancementsSurfaceWantsLearn, kEnhancementsSurfaceWantsLearn); }
-extern "C" uint64_t EnhancementsSurfaceLastPick() { return forward(EnhancementsSurfaceLastPick, kEnhancementsSurfaceLastPick); }
 extern "C" void EnhancementsSetCharacterLights(const EnhancementsCharacterLights *a) { forward(EnhancementsSetCharacterLights, kEnhancementsSetCharacterLights, a); }
 extern "C" float EnhancementsDepthAt(float a, float b) { return forward(EnhancementsDepthAt, kEnhancementsDepthAt, a, b); }
 extern "C" uint32_t EnhancementsDescribe(char *a, uint32_t b) { return forward(EnhancementsDescribe, kEnhancementsDescribe, a, b); }
+extern "C" uint32_t EnhancementsPluginCall(const char *a, const char *b, const void *c, uint32_t d, void *e, uint32_t f) { return forward(EnhancementsPluginCall, kEnhancementsPluginCall, a, b, c, d, e, f); }

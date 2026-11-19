@@ -964,9 +964,12 @@ namespace enhancements
         // Light through leaves copies its leaves at the combine step, where the stencil and the G-buffer still hold them.
         if (settings.transmission > 0)
             steps.add(Step::combine);
-        // Surface detail blends its map into the G-buffer when the G-buffer pass ends.
-        if (settings.surface_detail > 0)
+        // Plug-ins draw into the G-buffer when its pass ends, and read it whole at the combine step.
+        if (settings.plugins)
+        {
             steps.add(Step::gbuffer_done);
+            steps.add(Step::combine);
+        }
         // So does the grass pass, its blades and ground.
         if (settings.grass_roots > 0)
             steps.add(Step::combine);

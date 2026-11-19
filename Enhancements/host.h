@@ -12,7 +12,7 @@
 #include <cstdint>
 
 // Raised with every change to Host or to the lists below. The stub loads only an add-on built against its own.
-#define ENHANCEMENTS_HOST_VERSION 1
+#define ENHANCEMENTS_HOST_VERSION 2
 
 // The ReShade events the stub listens to for the add-on, by reshade::addon_event's names.
 #define ENHANCEMENTS_FORWARDED_EVENTS(X) \
@@ -35,6 +35,9 @@ namespace enhancements
         void (*add_shader)(uint64_t handle, ShaderStage stage, const void *code, size_t size);
         void (*remove_shader)(uint64_t handle);
         bool (*find_shader)(uint64_t handle, ShaderCode *code);
+        // A texture's fingerprint: a hash of its first mip's pixels as the game uploaded them, so the same texture has the
+        // same one each launch, as 3DMigoto's texture hashes. False for a texture the game drew into or never uploaded.
+        bool (*find_texture)(uint64_t resource, uint64_t *hash);
     };
 }
 

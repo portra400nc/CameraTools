@@ -742,26 +742,6 @@ namespace CameraToolsEnhancements
         private delegate void SetCharacterLightsCall(ref EnhancementsCharacterLights lights);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        private delegate void SetSurfaceDetailCall(float strength, [In] ulong[] rockTextures, uint count);
-
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        private delegate uint SurfaceWantsLearnCall();
-
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        private delegate ulong SurfaceLastPickCall();
-        private static SurfaceLastPickCall surfaceLastPick;
-
-        // The pixel shader the last pick marked, 0 before any or without the export.
-        public static ulong SurfaceLastPick() => addOn != null && surfaceLastPick != null ? surfaceLastPick() : 0;
-
-        // Optional: an add-on without them still connects.
-        private static SetSurfaceDetailCall setSurfaceDetail;
-        private static SurfaceWantsLearnCall surfaceWantsLearn;
-
-        // Whether the add-on saw a G-buffer shader no learn has classified, once: then a learn is due.
-        public static bool SurfaceWantsLearn() => addOn != null && surfaceWantsLearn != null && surfaceWantsLearn() != 0;
-
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void SetCelestialCall(ref EnhancementsCelestial celestial);
 
         // The stub's own (CameraToolsEnhancements.addon64 runs CameraToolsEnhancementsImpl.dll and can load it again while
@@ -977,15 +957,6 @@ namespace CameraToolsEnhancements
             addOn.SetCharacterLights(ref raw);
         }
 
-        // Surface detail, a probe: its strength (0 off) and the native textures of rock materials. false without the export.
-        public static bool SetSurfaceDetail(float strength, ulong[] rockTextures)
-        {
-            if (addOn == null || setSurfaceDetail == null)
-                return false;
-            setSurfaceDetail(strength, rockTextures ?? Array.Empty<ulong>(), (uint)(rockTextures?.Length ?? 0));
-            return true;
-        }
-
         // The lights a traced shot traces, the first EnhancementsShotLight.Max of them; none ends them.
         public static void SetShotLights(EnhancementsShotLight[] lights)
         {
@@ -1138,9 +1109,6 @@ namespace CameraToolsEnhancements
                 return;
             }
             rejected = IntPtr.Zero;
-            TryExport(module, "EnhancementsSetSurfaceDetail", out setSurfaceDetail);
-            TryExport(module, "EnhancementsSurfaceWantsLearn", out surfaceWantsLearn);
-            TryExport(module, "EnhancementsSurfaceLastPick", out surfaceLastPick);
             addOn = new AddOn(module, apply, setCamera, getStatus, describe, compare, setAccumulate, depthAt, captureScene, saveTrace, setShot, saveFrame,
                 developDng, writeDng, setShotLights, setGameLights, setCharacterLights, setCelestial, getWorldLight);
             Connections++;

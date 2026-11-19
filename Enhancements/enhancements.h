@@ -1084,16 +1084,10 @@ ENHANCEMENTS_EXPORT void EnhancementsSetShotLights(const EnhancementsShotLight *
 #define ENHANCEMENTS_MAX_GAME_LIGHTS 256
 ENHANCEMENTS_EXPORT void EnhancementsSetGameLights(const EnhancementsShotLight *lights, uint32_t count);
 
-// Surface detail, a probe: the strength (0 off) and the hashes of the pixel shaders that draw rock into the G-buffer; their
-// draws take a tiling rock detail map. A negative strength asks for a census instead: the next frame's G-buffer draws are
-// logged by pixel shader hash: -1 of the scene as it is, -2 with the rocks hidden, after which the
-// shaders that drew in the first and not in the second are taken as rock shaders too.
-ENHANCEMENTS_EXPORT void EnhancementsSetSurfaceDetail(float strength, const uint64_t *rock_shaders, uint32_t count);
-// 1 once when a G-buffer draw used a pixel shader no learn has classified yet, as in a region not seen before: the caller
-// then learns (-1, hide the rocks, -2) so the new rock shaders take detail too.
-ENHANCEMENTS_EXPORT uint32_t EnhancementsSurfaceWantsLearn();
-// The pixel shader hash the last pick (EnhancementsSetSurfaceDetail -200 - type) marked, 0 before any.
-ENHANCEMENTS_EXPORT uint64_t EnhancementsSurfaceLastPick();
+// A call into a plug-in the add-on loaded (plugin.h), by the plug-in's name and its function's: in and out are the
+// function's own. Its return value, 0 when no such plug-in or function is loaded. A plug-in's own mod uses it, so it never
+// holds a pointer into a plug-in that a reload unloads.
+ENHANCEMENTS_EXPORT uint32_t EnhancementsPluginCall(const char *plugin, const char *function, const void *in, uint32_t in_size, void *out, uint32_t out_size);
 
 // Sets studio lighting and the world's light for characters (EnhancementsCharacterLights); null or disabled turns both off.
 // Version 28 added it.

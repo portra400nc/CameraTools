@@ -304,7 +304,7 @@ namespace enhancements
         uint32_t grass_copies = 1;              // EnhancementsGrass.copies
         float grass_height = 1;                 // EnhancementsGrass.height
         float leaf_shading = 0;                 // EnhancementsLeaves.shading
-        float surface_detail = 0;               // EnhancementsSetSurfaceDetail's strength, while it has rock textures
+        bool plugins = false;                   // plug-ins are loaded, which draw at the G-buffer's end and the combine step
         ContactShadowSettings contact_shadows;
         AtmosphereSettings atmosphere;
         TonemapSettings tonemap;

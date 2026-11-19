@@ -14,6 +14,7 @@
 #include "core/sky.h"
 #include "core/trace_files.h"
 #include "gpu.h"
+#include "plugins.h"
 #include "host.h"
 #include "scene_gpu.h"
 #include "trace_gpu.h"
@@ -112,26 +113,6 @@ namespace enhancements
         Mailbox<std::vector<TraceLight>> lights_box;
         Mailbox<CharacterLightSettings> character_light_box;
         Mailbox<std::vector<::EnhancementsShotLight>> game_lights_box;
-        // Surface detail's types, as the mask and surface_detail_ps.hlsl number them, and as rock-shaders.txt names them.
-        static constexpr uint8_t kSurfaceRock = 1, kSurfaceGround = 2, kSurfaceTypes = 3;
-        static constexpr const char *kSurfaceNames[kSurfaceTypes] = { "other", "rock", "ground" };
-        struct SurfaceDetail
-        {
-            float strength = 0;
-            uint64_t census = 0;            // asks for a census when it changes
-            uint8_t hidden = 0;             // the census is of a frame with this type's renderers hidden: learn its shaders
-            bool finish = false;            // a learn ended: the shaders it saw and did not learn as a type draw something else
-            uint64_t pick = 0;              // asks, when it changes, for the shader under the screen's middle to take pick_type
-            uint8_t pick_type = 0;
-        };
-        Mailbox<SurfaceDetail> surface_box;
-        // The pick: its frame, the shaders numbered in it from 1, and the request it answers.
-        uint64_t pick_asked = 0, pick_frame = 0;
-        bool pick_snapshot = false;         // the pick frame is a snapshot of every shader on screen, which marks none
-        std::vector<uint64_t> pick_shaders;
-        uint64_t surface_logged_at = 0;     // the frame surface detail logs its rock draws again
-        uint32_t surface_draws = 0;         // surface draws masked in surface_draws_frame
-        uint32_t surface_ground_draws = 0;  // of them ground's
         std::vector<::EnhancementsShotLight> game_lights;   // the render thread's newest of the box
         uint64_t game_lights_seen = 0;
 
@@ -170,6 +151,11 @@ namespace enhancements
 
         // The stub that loaded the add-on (host.h), from EnhancementsStart to EnhancementsStop.
         const Host *host = nullptr;
+
+        // The plug-ins (plugin.h) and what the add-on hands them.
+        Plugins plugins;
+        bool plugins_tried = false;
+        plugin::Host plugin_host {};
 
         // Every vertex, domain and pixel shader's bytecode, from the events of their creation on the game's threads. The
         // stub keeps them, as a reloaded add-on never sees the game's shaders created.
@@ -1128,37 +1114,16 @@ namespace enhancements
             dng_develop_id = dng.state == DngState::developing && !dng_copy ? std::optional(dng.id) : std::nullopt;
         }
 
+        void run_plugins_gbuffer(uint32_t step, const FrameMap &map);
+
         // The work at one moment. Returns the event's return value: true skips the game's call.
         bool on_step(Step step)
         {
             const FrameMap &map = tracker.map();
-            // The G-buffer is whole by the combine step, which runs whenever the enhancements do, whatever the strength.
-            if (step == Step::combine && pick_frame == frames && gpu.ready())
-            {
-                const char *moved = nullptr;
-                {
-                    StateGuard guard(gpu.context(), moved);
-                    gpu.copy_surface_pick(frames);
-                }
-                if (moved)
-                    trip(moved);
-            }
-            if (step == Step::gbuffer_done && settings.enabled && settings.surface_detail > 0 && gpu.ready())
-            {
-                const char *moved = nullptr;
-                {
-                    StateGuard guard(gpu.context(), moved);
-                    const std::optional<GameCall> ran = gpu.run_surface_detail(map, settings.surface_detail, camera, settings.flip, frames);
-                    if (frames >= surface_logged_at)
-                    {
-                        surface_logged_at = frames + 600;
-                        log(reshade::log::level::info, "surface detail: " + std::to_string(surface_draws) + " surface draws masked this frame, " + std::to_string(surface_ground_draws) + " of ground, the pass "
-                            + (ran ? std::string("ran.") : std::string("failed: ") + gpu.surface_failure + "."));
-                    }
-                }
-                if (moved)
-                    trip(moved);
-            }
+            // The plug-ins draw into the G-buffer when its pass ends, before anything reads it, and read it whole once the
+            // lighting begins.
+            if ((step == Step::gbuffer_done || step == Step::combine) && plugins.loaded() && gpu.ready())
+                run_plugins_gbuffer(step == Step::gbuffer_done ? plugin::kGBufferDone : plugin::kGBufferLit, map);
             if (step == Step::shadow_mask)
                 gather_sun(map);
             if (step == Step::combine)
@@ -1756,239 +1721,50 @@ namespace enhancements
             }
         }
 
-        // Surface detail: each pixel shader object seen in the G-buffer pass and its type, and the census of one frame's
-        // G-buffer draws by pixel shader hash.
-        SurfaceDetail surface;
-        uint64_t surface_seen = 0, census_asked = 0, census_frame = 0, surface_draws_frame = 0;
-        std::unordered_map<uint64_t, uint8_t> surface_kinds;
-        std::unordered_map<uint64_t, int> surface_layouts;     // vertex shader object -> world_position_layout
-        std::unordered_map<uint64_t, uint32_t> census, shown_census;
-        // surface-detail/rock-shaders.txt's, with what was learned since: each G-buffer shader's type by hash, 0 for one that
-        // draws something else. A G-buffer shader in neither asks CameraTools for a learn (surface_wants_learn).
-        std::unordered_map<uint64_t, uint8_t> surface_types;
-        std::atomic<bool> surface_wants_learn { false };
-        std::atomic<uint64_t> last_pick { 0 };      // the shader the last pick marked, for the caller to show
-        std::unordered_set<uint64_t> unclassified;  // the shaders that asked for the next learn
-        std::unordered_set<uint64_t> id_logged;     // the debug view's pixel shaders listed in the log
-        enum class SurfaceState : uint8_t { unloaded, loaded, failed };
-        SurfaceState surface_state = SurfaceState::unloaded;
 
-        // surface-detail/rock-shaders.txt's shaders: a hash and its type a line. A shader's hash is its bytecode's, the same
-        // each launch. Older files hold a bare hash for rock and '-' before one that draws something else.
-        std::unordered_map<uint64_t, uint8_t> read_surface_types()
+        void load_plugins()
         {
-            std::unordered_map<uint64_t, uint8_t> types;
-            std::ifstream known(output_root() / "surface-detail" / "rock-shaders.txt");
-            for (std::string line; std::getline(known, line);)
-            {
-                const bool other = !line.empty() && line[0] == '-';
-                char *end = nullptr;
-                const uint64_t hash = std::strtoull(line.c_str() + (other ? 1 : 0), &end, 16);
-                if (hash == 0)
-                    continue;
-                uint8_t type = other ? 0 : kSurfaceRock;
-                const std::string name = end ? std::string(end + std::strspn(end, " ")) : std::string();
-                for (uint8_t t = 0; t < kSurfaceTypes; t++)
-                    if (name == kSurfaceNames[t])
-                        type = t;
-                types[hash] = type;
-            }
-            return types;
+            plugins_tried = true;
+            wchar_t stub_path[MAX_PATH] = {};
+            GetModuleFileNameW(static_cast<HMODULE>(host->addon_module), stub_path, MAX_PATH);
+            plugin_host = plugin::Host { ENHANCEMENTS_PLUGIN_VERSION, gpu.device(), gpu.context(), nullptr,
+                [](int level, const char *message) { log(static_cast<reshade::log::level>(level), std::string("plug-in: ") + message); },
+                [](uint64_t handle, ShaderCode *code) { return host != nullptr && host->find_shader(handle, code); },
+                [](uint64_t resource, uint64_t *hash) { return host != nullptr && host->find_texture(resource, hash); },
+                []() -> uint64_t { return frames; },
+                [](void (*work)(void *), void *context) {
+                    const char *moved = nullptr;
+                    {
+                        StateGuard guard(gpu.context(), moved);
+                        work(context);
+                    }
+                    if (moved)
+                        trip(moved);
+                    return moved == nullptr;
+                } };
+            // output_root() is ReShade\Enhancements: each plug-in's folder is ReShade\<Name> beside it.
+            plugins.load(fs::path(stub_path).parent_path(), output_root() / "loaded", output_root().parent_path(), plugin_host,
+                [](const std::string &line) { log(reshade::log::level::info, line); });
         }
 
-        void save_surface_types()
+        void run_plugins_gbuffer(uint32_t step, const FrameMap &map)
         {
-            // A learn or a pick that ends while the file is unread, as one a reload interrupted, adds to the file.
-            if (surface_state != SurfaceState::loaded)
-                for (const auto &[hash, type] : read_surface_types())
-                    surface_types.emplace(hash, type);
-            std::error_code ignored;
-            fs::create_directories(output_root() / "surface-detail", ignored);
-            std::ofstream out(output_root() / "surface-detail" / "rock-shaders.txt", std::ios::trunc);
-            for (const auto &[hash, type] : surface_types)
-            {
-                char text[48];
-                std::snprintf(text, sizeof text, "%016llx %s\n", static_cast<unsigned long long>(hash), kSurfaceNames[type]);
-                out << text;
-            }
+            if (!map[Entry::albedo] || !map[Entry::normals] || !map[Entry::depth])
+                return;
+            const Texture &albedo = *map[Entry::albedo], &normals = *map[Entry::normals], &depth = *map[Entry::depth];
+            const auto native = [](const Texture &t) { return reinterpret_cast<ID3D11Resource *>(static_cast<uint64_t>(t.id)); };
+            const plugin::GBuffer gbuffer { step, native(normals), native(albedo), native(depth), static_cast<DXGI_FORMAT>(normals.format),
+                static_cast<DXGI_FORMAT>(albedo.format), static_cast<DXGI_FORMAT>(depth.format), map.render.width, map.render.height, settings.flip, settings.enabled };
+            plugins.gbuffer(gbuffer);
         }
 
-        bool surface_loaded()
-        {
-            if (surface_state == SurfaceState::unloaded && gpu.ready())
-            {
-                const fs::path file = output_root() / "surface-detail" / "rock.dds";
-                std::ifstream in(file, std::ios::binary);
-                const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-                std::string why;
-                const bool ok = gpu.load_surface_detail(bytes, why, kSurfaceRock);
-                surface_state = ok ? SurfaceState::loaded : SurfaceState::failed;
-                // The ground map is optional: without it, ground takes no detail.
-                {
-                    std::ifstream ground_in(output_root() / "surface-detail" / "ground.dds", std::ios::binary);
-                    const std::string ground((std::istreambuf_iterator<char>(ground_in)), std::istreambuf_iterator<char>());
-                    std::string ground_why;
-                    log(reshade::log::level::info, gpu.load_surface_detail(ground, ground_why, kSurfaceGround)
-                        ? std::string("surface detail: the ground map is loaded.") : "surface detail: no ground map: " + ground_why + ".");
-                }
-                // The shaders learned before.
-                for (const auto &[hash, type] : read_surface_types())
-                    surface_types[hash] = type;
-                surface_kinds.clear();
-                log(reshade::log::level::info, "surface detail: " + std::to_string(surface_types.size()) + " G-buffer shaders remembered.");
-                log(ok ? reshade::log::level::info : reshade::log::level::warning,
-                    ok ? "surface detail: the rock map is loaded from " + file.u8string() + "." : "surface detail: " + file.u8string() + " did not load: " + why + ".");
-            }
-            return surface_state == SurfaceState::loaded;
-        }
-
-        // A G-buffer draw of rock drawn by us, the game's draw and the mask's; true when it was, so the game's is skipped.
+        // A G-buffer draw, offered to the plug-ins: true when one drew it, so the game's is skipped.
         bool draw_surface(command_list *cmd_list, const Gpu::GameDraw &draw)
         {
-            if (!armed.load(std::memory_order_relaxed) || cmd_list != immediate || !in_game_gbuffer)
+            if (!armed.load(std::memory_order_relaxed) || cmd_list != immediate || !in_game_gbuffer || !plugins.loaded())
                 return false;
-            if (census_frame == frames)
-            {
-                const std::optional<ShaderCode> code = shaders.find(gpu.bound_pixel_shader());
-                census[code ? code->hash : 0]++;
-            }
-            // The pick frame: each draw again with its shader's number, so the middle of the screen names one.
-            if (pick_frame == frames && gpu.ready())
-            {
-                const std::optional<ShaderCode> code = shaders.find(gpu.bound_pixel_shader());
-                const uint64_t hash = code ? code->hash : 0;
-                auto at = std::find(pick_shaders.begin(), pick_shaders.end(), hash);
-                if (at == pick_shaders.end())
-                    at = pick_shaders.insert(pick_shaders.end(), hash);
-                const char *moved = nullptr;
-                bool drawn;
-                {
-                    StateGuard guard(gpu.context(), moved);
-                    drawn = gpu.draw_surface_pick(draw, frames, static_cast<uint32_t>(at - pick_shaders.begin()) + 1);
-                }
-                if (moved)
-                {
-                    trip(moved);
-                    return false;
-                }
-                return drawn;
-            }
-            if (!settings.enabled || settings.surface_detail <= 0 || !gpu.ready())
-                return false;
-            // The debug view: each pixel shader's draws in a color of its hash, listed in the log once.
-            if (settings.surface_detail >= 4)
-            {
-                const std::optional<ShaderCode> code = shaders.find(gpu.bound_pixel_shader());
-                const uint64_t hash = code ? code->hash : 0;
-                const float color[4] = { float((hash >> 8) & 0xFF) / 255.0f, float((hash >> 24) & 0xFF) / 255.0f, float((hash >> 40) & 0xFF) / 255.0f, 1 };
-                if (id_logged.insert(hash).second)
-                {
-                    char text[96];
-                    std::snprintf(text, sizeof text, "surface detail: id %016llx is (%d, %d, %d)%s", static_cast<unsigned long long>(hash), int((hash >> 8) & 0xFF),
-                        int((hash >> 24) & 0xFF), int((hash >> 40) & 0xFF), draw.args ? ", indirect" : "");
-                    log(reshade::log::level::info, text);
-                }
-                const char *moved = nullptr;
-                bool drawn;
-                {
-                    StateGuard guard(gpu.context(), moved);
-                    drawn = gpu.draw_surface_id(draw, frames, color);
-                }
-                if (moved)
-                {
-                    trip(moved);
-                    return false;
-                }
-                return drawn;
-            }
-            const uint64_t shader = gpu.bound_pixel_shader();
-            const auto known = surface_kinds.find(shader);
-            uint8_t type;
-            if (known != surface_kinds.end())
-                type = known->second;
-            else
-            {
-                const std::optional<ShaderCode> code = shaders.find(shader);
-                const auto typed = code ? surface_types.find(code->hash) : surface_types.end();
-                type = surface_kinds[shader] = typed != surface_types.end() ? typed->second : 0;
-                if (code && typed == surface_types.end() && census_frame == 0)
-                {
-                    unclassified.insert(code->hash);
-                    surface_wants_learn = true;
-                }
-            }
-            // The vertex shader's outputs say which mask shader links to it, or for a tessellated draw the rock pixel
-            // shader's inputs, which the domain shader feeds; a draw with neither layout, as a depth-only one, draws no detail.
-            const bool tessellated = gpu.tessellated();
-            const uint64_t vertex = tessellated ? gpu.bound_pixel_shader() : gpu.bound_vertex_shader();
-            const auto laid = surface_layouts.find(vertex);
-            int layout;
-            bool fresh = false;
-            if (laid != surface_layouts.end())
-                layout = laid->second;
-            else
-            {
-                const std::optional<ShaderCode> code = shaders.find(vertex);
-                const uint8_t *bytes = code && code->code ? reinterpret_cast<const uint8_t *>(code->code->data()) : nullptr;
-                const size_t size = bytes ? code->code->size() : 0;
-                if (tessellated)
-                {
-                    const std::optional<std::vector<SignatureElement>> inputs = bytes ? parse_input_elements(bytes, size) : std::nullopt;
-                    layout = inputs ? world_position_layout(*inputs) : 0;
-                }
-                else
-                {
-                    const std::optional<OutputSignature> outputs = bytes ? parse_output_signature(bytes, size) : std::nullopt;
-                    layout = outputs ? world_position_layout(*outputs) : 0;
-                }
-                surface_layouts[vertex] = layout;
-                fresh = true;
-            }
-            if (type == 0 || !gpu.surface_map_loaded(type))
-                return false;
-            if (fresh)
-            {
-                const std::optional<ShaderCode> code = shaders.find(vertex);
-                // A layout not known yet: its shaders' bytecode beside the maps, to read what it writes.
-                if (layout == 0 && code && code->code)
-                {
-                    const auto save = [](const std::optional<ShaderCode> &c, const char *stage) {
-                        if (!c || !c->code)
-                            return;
-                        char name[48];
-                        std::snprintf(name, sizeof name, "%016llx.%s.dxbc", static_cast<unsigned long long>(c->hash), stage);
-                        std::ofstream(output_root() / "surface-detail" / name, std::ios::binary).write(c->code->data(), static_cast<std::streamsize>(c->code->size()));
-                    };
-                    save(code, tessellated ? "ps" : "vs");
-                    save(shaders.find(gpu.bound_pixel_shader()), "ps");
-                }
-                char hash[24];
-                std::snprintf(hash, sizeof hash, "%016llx", static_cast<unsigned long long>(code ? code->hash : 0));
-                log(reshade::log::level::info, std::string("surface detail: ") + kSurfaceNames[type] + (tessellated ? " pixel shader (tessellated) " : " vertex shader ")
-                    + hash + " has world position layout " + std::to_string(layout) + ".");
-            }
-            if (layout == 0)
-                return false;
-            if (surface_draws_frame != frames)
-            {
-                surface_draws_frame = frames;
-                surface_draws = 0;
-                surface_ground_draws = 0;
-            }
-            surface_draws++;
-            surface_ground_draws += type == kSurfaceGround ? 1 : 0;
-            const char *moved = nullptr;
-            bool drawn;
-            {
-                StateGuard guard(gpu.context(), moved);
-                drawn = gpu.draw_surface_mask(draw, frames, layout, type);
-            }
-            if (moved)
-            {
-                trip(moved);
-                return false;
-            }
-            return drawn;
+            const plugin::Draw offered { draw.indexed, draw.count, draw.instances, draw.first, draw.vertex_offset, draw.first_instance, draw.args, draw.args_offset };
+            return plugins.draw(offered);
         }
 
         // In a frame whose HDR scene becomes a picture the gather takes the game's light from (a LIGHT capture's face): the
@@ -3074,6 +2850,9 @@ namespace enhancements
             frames++;
             gpu.start_frame(frames);
             presents.store(frames, std::memory_order_relaxed);
+            if (gpu.ready() && !plugins_tried && host != nullptr)
+                load_plugins();
+            plugins.present();
             if ((grass_layered || grass_unlayered) && frames >= grass_logged_at + 3600)
             {
                 grass_logged_at = frames;
@@ -3171,157 +2950,7 @@ namespace enhancements
                     log(reshade::log::level::info, character_light.enabled ? "studio lighting for characters is on, with " + std::to_string(character_light.lights.size())
                         + " lights." : std::string("studio lighting for characters is off."));
                 settings = with_character_light(with_shot(applied, shot), character_light);
-                if (surface_box.take(surface, surface_seen))
-                {
-                    surface_kinds.clear();
-                    surface_layouts.clear();
-                    if (surface.pick != pick_asked)
-                    {
-                        pick_asked = surface.pick;
-                        pick_frame = frames + 1;
-                        pick_shaders.clear();
-                    }
-                    else if (surface.finish)
-                    {
-                        // The shaders the learn saw and did not learn as a type, and those that asked for it but drew in
-                        // neither frame, as a passing effect, draw something else; or they would ask again and again.
-                        for (const auto &[hash, n] : shown_census)
-                            if (hash != 0)
-                                surface_types.emplace(hash, 0);
-                        for (uint64_t hash : unclassified)
-                            surface_types.emplace(hash, 0);
-                        unclassified.clear();
-                        save_surface_types();
-                        log(reshade::log::level::info, "surface detail: the learn ended, " + std::to_string(surface_types.size()) + " G-buffer shaders known.");
-                    }
-                    else if (surface.census != census_asked)
-                    {
-                        census_asked = surface.census;
-                        census_frame = frames + 1;
-                        census.clear();
-                    }
-                    else
-                        log(reshade::log::level::info, "surface detail: strength " + std::to_string(surface.strength) + ".");
-                }
-                // A snapshot: the add-on watches for surface-detail/snapshot, and applies surface-detail/mark.txt, both
-                // written from outside (the Deck tools), so the shaders on screen can be marked by number, several at once.
-                if (frames % 30 == 0)
-                {
-                    std::error_code ignored;
-                    const fs::path folder = output_root() / "surface-detail";
-                    if (fs::exists(folder / "snapshot", ignored) && pick_frame == 0)
-                    {
-                        fs::remove(folder / "snapshot", ignored);
-                        pick_frame = frames + 1;
-                        pick_shaders.clear();
-                        pick_snapshot = true;
-                    }
-                    if (fs::exists(folder / "mark.txt", ignored))
-                    {
-                        std::ifstream in(folder / "mark.txt");
-                        std::string said = "surface detail: marked";
-                        for (std::string line; std::getline(in, line);)
-                        {
-                            char *end = nullptr;
-                            const uint64_t hash = std::strtoull(line.c_str(), &end, 16);
-                            const std::string name = end ? std::string(end + std::strspn(end, " ")) : std::string();
-                            for (uint8_t t = 0; hash != 0 && t < kSurfaceTypes; t++)
-                                if (name.rfind(kSurfaceNames[t], 0) == 0)
-                                {
-                                    surface_types[hash] = t;
-                                    said += " " + line.substr(0, 16) + " " + kSurfaceNames[t];
-                                }
-                        }
-                        in.close();
-                        fs::remove(folder / "mark.txt", ignored);
-                        surface_kinds.clear();
-                        save_surface_types();
-                        log(reshade::log::level::info, said + ".");
-                    }
-                }
-                if (pick_frame != 0 && frames > pick_frame + 2)
-                    if (const std::optional<Gpu::PickImage> image = gpu.read_surface_pick())
-                    {
-                        pick_frame = 0;
-                        if (pick_snapshot)
-                        {
-                            // Every shader's number at every pixel, and the list of them: the Deck tools draw them in
-                            // colors with their numbers for the user to choose from.
-                            pick_snapshot = false;
-                            const fs::path folder = output_root() / "surface-detail";
-                            {
-                                std::ofstream out(folder / "snapshot.bin.part", std::ios::binary | std::ios::trunc);
-                                out.write(reinterpret_cast<const char *>(&image->width), 4);
-                                out.write(reinterpret_cast<const char *>(&image->height), 4);
-                                std::vector<uint16_t> narrow(image->ids.begin(), image->ids.end());
-                                out.write(reinterpret_cast<const char *>(narrow.data()), static_cast<std::streamsize>(narrow.size() * 2));
-                            }
-                            {
-                                std::ofstream out(folder / "snapshot.txt", std::ios::trunc);
-                                for (size_t i = 0; i < pick_shaders.size(); i++)
-                                {
-                                    const auto typed = surface_types.find(pick_shaders[i]);
-                                    char text[64];
-                                    std::snprintf(text, sizeof text, "%zu %016llx %s\n", i + 1, static_cast<unsigned long long>(pick_shaders[i]),
-                                        typed != surface_types.end() ? kSurfaceNames[typed->second] : "unknown");
-                                    out << text;
-                                }
-                            }
-                            std::error_code ignored;
-                            fs::rename(folder / "snapshot.bin.part", folder / "snapshot.bin", ignored);
-                            log(reshade::log::level::info, "surface detail: a snapshot of " + std::to_string(pick_shaders.size()) + " shaders on screen.");
-                        }
-                        else if (const uint32_t id = image->ids[size_t(image->height / 2) * image->width + image->width / 2];
-                                 id == 0 || id > pick_shaders.size() || pick_shaders[id - 1] == 0)
-                            log(reshade::log::level::warning, "surface detail: the pick found no G-buffer draw at the screen's middle.");
-                        else
-                        {
-                            const uint64_t hash = pick_shaders[id - 1];
-                            surface_types[hash] = surface.pick_type;
-                            surface_kinds.clear();
-                            save_surface_types();
-                            char text[160];
-                            std::snprintf(text, sizeof text, "surface detail: picked %016llx at the screen's middle, now %s.", static_cast<unsigned long long>(hash),
-                                kSurfaceNames[std::min<uint8_t>(surface.pick_type, kSurfaceTypes - 1)]);
-                            log(reshade::log::level::info, text);
-                            last_pick = hash;
-                        }
-                    }
-                if (census_frame != 0 && frames > census_frame)
-                {
-                    std::vector<std::pair<uint64_t, uint32_t>> counted(census.begin(), census.end());
-                    std::sort(counted.begin(), counted.end(), [](const auto &a, const auto &b) { return a.second > b.second; });
-                    std::string said = "surface detail: census " + std::to_string(census_asked) + " of frame " + std::to_string(census_frame) + ", "
-                        + std::to_string(counted.size()) + " pixel shaders:";
-                    for (const auto &[hash, n] : counted)
-                    {
-                        char text[48];
-                        std::snprintf(text, sizeof text, " %016llx %u", static_cast<unsigned long long>(hash), n);
-                        said += text;
-                    }
-                    log(reshade::log::level::info, said);
-                    census_frame = 0;
-                    // The shaders that drew with the type's renderers shown and not with them hidden draw that type.
-                    // Only rock is learned this way: hiding the far terrain's renderers also drops plants and buildings
-                    // drawn by shared shaders, so ground is marked by hand (a snapshot's mark.txt).
-                    if (surface.hidden == kSurfaceRock)
-                    {
-                        std::string found = std::string("surface detail: ") + kSurfaceNames[surface.hidden] + " shaders learned:";
-                        for (const auto &[hash, n] : shown_census)
-                            if (hash != 0 && census.count(hash) == 0)
-                            {
-                                surface_types[hash] = surface.hidden;
-                                char text[24];
-                                std::snprintf(text, sizeof text, " %016llx", static_cast<unsigned long long>(hash));
-                                found += text;
-                            }
-                        log(reshade::log::level::info, found + ".");
-                        surface_kinds.clear();
-                    }
-                    else if (surface.hidden == 0)
-                        shown_census = census;
-                }
-                settings.surface_detail = surface.strength <= 0 || !surface_loaded() ? 0.0f : surface.strength;
+                settings.plugins = plugins.loaded();
                 settings.traced_lights = shot.active && !shot_lights.empty();
             }
             shot_frame = !capture && shot.active;
@@ -3386,6 +3015,8 @@ namespace enhancements
         void release_device(const char *why)
         {
             armed.store(false, std::memory_order_relaxed);
+            plugins.unload();
+            plugins_tried = false;
             gpu = Gpu {};
             dof_display.reset();
             flare_display.reset();
@@ -3530,41 +3161,9 @@ extern "C" void EnhancementsSetCharacterLights(const EnhancementsCharacterLights
     character_light_box.put(parse_character_lights(&copy));
 }
 
-extern "C" uint64_t EnhancementsSurfaceLastPick()
+extern "C" uint32_t EnhancementsPluginCall(const char *plugin, const char *function, const void *in, uint32_t in_size, void *out, uint32_t out_size)
 {
-    return last_pick.load();
-}
-
-extern "C" uint32_t EnhancementsSurfaceWantsLearn()
-{
-    return surface_wants_learn.exchange(false) ? 1 : 0;
-}
-
-extern "C" void EnhancementsSetSurfaceDetail(float strength, const uint64_t *, uint32_t)
-{
-    static std::atomic<uint64_t> censuses { 0 };
-    static SurfaceDetail last;
-    SurfaceDetail detail = last;
-    detail.finish = false;
-    // -1 a census of the scene as it is, -1 - type one with that type's renderers hidden, -100 the learn's end, -200 - type
-    // the shader under the screen's middle takes that type (0 other).
-    if (std::isfinite(strength) && strength <= -199.5f)
-    {
-        static std::atomic<uint64_t> picks { 0 };
-        detail.pick = ++picks;
-        detail.pick_type = static_cast<uint8_t>(std::clamp(static_cast<int>(-strength - 200 + 0.5f), 0, 255));
-    }
-    else if (std::isfinite(strength) && strength <= -99.5f)
-        detail.finish = true;
-    else if (std::isfinite(strength) && strength < 0)
-    {
-        detail.census = ++censuses;
-        detail.hidden = static_cast<uint8_t>(std::clamp(static_cast<int>(-strength + 0.5f) - 1, 0, 255));
-    }
-    else
-        detail.strength = std::isfinite(strength) ? std::clamp(strength, 0.0f, 4.0f) : 0.0f;
-    last = detail;
-    surface_box.put(detail);
+    return plugins.call(plugin, function, in, in_size, out, out_size);
 }
 
 extern "C" void EnhancementsSetGameLights(const EnhancementsShotLight *lights, uint32_t count)
