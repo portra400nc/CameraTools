@@ -1685,20 +1685,6 @@ namespace enhancements
             return surface_state == SurfaceState::loaded;
         }
 
-        // The first G-buffer draws of a frame give the add-on this frame's camera (Gpu::capture_frame_camera).
-        void capture_camera(command_list *cmd_list)
-        {
-            if (!armed.load(std::memory_order_relaxed) || cmd_list != immediate || !in_game_gbuffer || !settings.enabled || !gpu.ready())
-                return;
-            const char *moved = nullptr;
-            {
-                StateGuard guard(gpu.context(), moved);
-                gpu.capture_frame_camera(frames);
-            }
-            if (moved)
-                trip(moved);
-        }
-
         // A G-buffer draw of rock drawn by us, the game's draw and the mask's; true when it was, so the game's is skipped.
         bool draw_surface(command_list *cmd_list, bool indexed, uint32_t count, uint32_t instances, uint32_t first, int32_t vertex_offset, uint32_t first_instance)
         {
@@ -1771,8 +1757,6 @@ namespace enhancements
             if (armed.load(std::memory_order_relaxed) && cmd_list == immediate && scene_frame && in_gbuffer && vertices != 0)
                 replay_scene({ ReplayKind::draw, vertices, instances, first_vertex, 0, first_instance, nullptr, 0 });
             const bool skip = on_draw_any(cmd_list);
-            if (!skip)
-                capture_camera(cmd_list);
             if (!skip && draw_leaves(cmd_list, false, vertices, instances, first_vertex, 0, first_instance))
                 return true;
             if (!skip && draw_surface(cmd_list, false, vertices, instances, first_vertex, 0, first_instance))
@@ -1785,8 +1769,6 @@ namespace enhancements
             if (armed.load(std::memory_order_relaxed) && cmd_list == immediate && scene_frame && in_gbuffer)
                 replay_scene({ ReplayKind::indexed, indices, instances, first_index, vertex_offset, first_instance, nullptr, 0 });
             const bool skip = on_draw_any(cmd_list);
-            if (!skip)
-                capture_camera(cmd_list);
             if (!skip && draw_leaves(cmd_list, true, indices, instances, first_index, vertex_offset, first_instance))
                 return true;
             if (!skip && draw_surface(cmd_list, true, indices, instances, first_index, vertex_offset, first_instance))
@@ -2799,7 +2781,6 @@ namespace enhancements
                 run_flare(reinterpret_cast<ID3D11Resource *>(chain->get_current_back_buffer().handle));
 
             frames++;
-            gpu.start_frame(frames);
             presents.store(frames, std::memory_order_relaxed);
             if ((grass_layered || grass_unlayered) && frames >= grass_logged_at + 3600)
             {

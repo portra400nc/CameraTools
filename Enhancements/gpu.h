@@ -503,12 +503,6 @@ namespace enhancements
         // test, so the mask holds the normal it wrote. Call it inside a StateGuard; false, with nothing drawn, when the
         // draw binds no render target or depth, or a resource of ours failed.
         bool draw_surface_mask(const GameDraw &draw, uint64_t frame);
-        // This frame's camera from the bound vertex shader's b1 when it has the game's 560-byte camera layout: copied and
-        // turned into our matrices on the GPU, which every pass's shared constants then take in place of the pushed
-        // camera's, so nothing drawn in the world lags the camera. Call it in a StateGuard during the G-buffer pass.
-        void capture_frame_camera(uint64_t frame);
-        // The frame now starting, for which upload takes this frame's camera once captured.
-        void start_frame(uint64_t frame) { frame_ = frame; }
         // The detail map blended into the G-buffer where this frame's mask still shows, at the end of the G-buffer pass.
         std::optional<GameCall> run_surface_detail(const FrameMap &map, float strength, const Camera &camera, bool flip, uint64_t frame);
         // The detail map from a DX10 DDS of RGBA8 with its mips. false, with why, for anything else.
@@ -668,19 +662,6 @@ namespace enhancements
         ComPtr<ID3D11Texture3D> lattice_;                   // noise_lattice(), R8_UNORM
         ComPtr<ID3D11ShaderResourceView> lattice_srv_;
         ComPtr<ID3D11Buffer> constants_;
-        // The shared constants as the passes read them: constants_ with this frame's camera matrices over the pushed ones.
-        ComPtr<ID3D11Buffer> constants_live_;
-        ID3D11Buffer *b0() const { return frame_camera_frame_ == frame_ && constants_live_ ? constants_live_.Get() : constants_.Get(); }
-        static constexpr UINT kFrameCameraRows = 17;
-        ComPtr<ID3D11Buffer> frame_camera_raw_, frame_camera_out_;
-        ComPtr<ID3D11ShaderResourceView> frame_camera_raw_srv_;
-        ComPtr<ID3D11UnorderedAccessView> frame_camera_out_uav_;
-        ComPtr<ID3D11ComputeShader> frame_camera_cs_;
-        bool frame_camera_made_ = false, frame_camera_failed_ = false;
-        uint64_t frame_ = 0, frame_camera_frame_ = UINT64_MAX;
-        uint32_t frame_camera_tries_ = 0;
-        uint64_t frame_camera_seen_frame_ = UINT64_MAX;
-        ID3D11Buffer *frame_camera_last_ = nullptr;     // the b1 last copied this frame, compared only, never dereferenced
         ComPtr<ID3D11Buffer> gather_apply_;    // core/trace.h's GatherApplyConstants, at b2 for the gather's draws
         ComPtr<ID3D11Buffer> dof_constants_;   // core/dof.h's DofConstants, at b1 for the depth of field's draws
         ComPtr<ID3D11Buffer> flare_constants_; // core/flare.h's FlareConstants, at b1 for the lens flare's draw
@@ -754,7 +735,6 @@ namespace enhancements
         Scratch surface_mask_;                      // R10G10B10A2 the rock draws' rt0 this frame, zero elsewhere
         uint64_t surface_mask_frame_ = UINT64_MAX;  // the frame the mask was cleared for
         Mirror surface_normals_out_;
-
         ComPtr<ID3D11ShaderResourceView> surface_texture_;
         ComPtr<ID3D11Buffer> surface_constants_;
         std::unordered_map<ID3D11DepthStencilState *, ComPtr<ID3D11DepthStencilState>> surface_depth_;

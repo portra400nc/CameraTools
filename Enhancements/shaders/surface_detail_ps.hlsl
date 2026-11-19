@@ -26,11 +26,9 @@ struct GBuffer
 float3 srgb_to_linear(float3 c) { return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4); }
 float3 linear_to_srgb(float3 c) { return c <= 0.0031308 ? c * 12.92 : 1.055 * pow(c, 1 / 2.4) - 0.055; }
 
-// The world position of a stored pixel, from the shared constants, which hold this frame's camera as the game drew it
-// (Gpu::capture_frame_camera). world_to_view is a rotation and a translation, so its inverse is the transposed rotation
-// applied after taking the translation away.
-float3 world_from_view(float3 view)
+float3 world_position_at(int2 pixel)
 {
+    float3 view = view_position_at(pixel);
     float3 translation = float3(world_to_view._m03, world_to_view._m13, world_to_view._m23);
     return mul(view - translation, (float3x3)world_to_view);
 }
@@ -66,15 +64,7 @@ GBuffer main(float4 position : SV_Position)
     float4 m = mask.Load(int3(pixel, 0));
     if (all(m.rgb == 0) || any(abs(m.rgb - stored.normal.rgb) > 0.5 / 1023))
         return stored;
-    float3 view = view_position_at(pixel);
-    float distance = length(view);
-    // Strength 3 and up, a debug view: rock shows its world position as a 1 m grid of colors, which must stay on the rock.
-    if (strength >= 3)
-    {
-        float3 cell = frac(world_from_view(view));
-        stored.albedo.rgb = linear_to_srgb(cell * cell);
-        return stored;
-    }
+    float distance = length(view_position_at(pixel));
     // Two octaves: the map at its own scale near the camera, and seven times larger, which carries the cliffs farther out.
     float near_share = strength * saturate((fade_far - distance) / max(fade_far - fade_near, 1e-3));
     float far_share = strength * saturate((kFarFade - distance) / (kFarFade - fade_near)) * 0.8;
@@ -83,7 +73,7 @@ GBuffer main(float4 position : SV_Position)
     float3 n = normalize(stored.normal.rgb * 2 - 1);
     float3 w = pow(abs(n), 4);
     w /= dot(w, 1);
-    float3 p = world_from_view(view);
+    float3 p = world_position_at(pixel);
     float shade_near, shade_far;
     float3 detailed = detail_normal(n, w, p / tile, shade_near);
     detailed = normalize(lerp(n, detailed, saturate(near_share)));
