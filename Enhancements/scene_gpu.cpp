@@ -519,7 +519,7 @@ namespace enhancements
         r.stride = kCornerBytes + 4 * program.attribute_floats();
     }
 
-    std::optional<std::string> SceneGpu::replay(const ReplayCall &call, const ShaderRegistry &shaders, const char *&moved)
+    std::optional<std::string> SceneGpu::replay(const ReplayCall &call, const std::function<std::optional<ShaderCode>(uint64_t)> &find_shader, const char *&moved)
     {
         if (!so_buffer_)
             return std::nullopt;
@@ -561,9 +561,9 @@ namespace enhancements
         r.depth_write = depth.DepthEnable && depth.DepthWriteMask == D3D11_DEPTH_WRITE_MASK_ALL;
         read_inputs(c, r.ps_inputs);
 
-        const std::optional<ShaderCode> vs_code = vs ? shaders.find(handle_of(vs)) : std::nullopt;
-        const std::optional<ShaderCode> ds_code = ds ? shaders.find(handle_of(ds)) : std::nullopt;
-        const std::optional<ShaderCode> ps_code = ps ? shaders.find(handle_of(ps)) : std::nullopt;
+        const std::optional<ShaderCode> vs_code = vs ? find_shader(handle_of(vs)) : std::nullopt;
+        const std::optional<ShaderCode> ds_code = ds ? find_shader(handle_of(ds)) : std::nullopt;
+        const std::optional<ShaderCode> ps_code = ps ? find_shader(handle_of(ps)) : std::nullopt;
         r.vs = vs_code ? vs_code->hash : 0;
         r.ds = ds_code ? ds_code->hash : 0;
         r.ps = ps_code ? ps_code->hash : 0;

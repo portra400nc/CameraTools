@@ -14,6 +14,7 @@
 #include "core/sky.h"
 #include "core/trace_files.h"
 #include "gpu.h"
+#include "host.h"
 #include "scene_gpu.h"
 #include "trace_gpu.h"
 
@@ -166,9 +167,33 @@ namespace enhancements
         // the render thread stops what was asked for up to then and leaves a capture asked for after it alone.
         std::atomic<uint64_t> scene_release { 0 };
 
-        // Every vertex and domain shader's bytecode and every pixel shader's hash, from the events of their creation on
-        // the game's threads.
-        ShaderRegistry shaders;
+        // The stub that loaded the add-on (host.h), from EnhancementsStart to EnhancementsStop.
+        const Host *host = nullptr;
+
+        // Every vertex, domain and pixel shader's bytecode, from the events of their creation on the game's threads. The
+        // stub keeps them, as a reloaded add-on never sees the game's shaders created.
+        class HostShaders
+        {
+        public:
+            void add(uint64_t handle, ShaderStage stage, const void *code, size_t size) const
+            {
+                if (host != nullptr)
+                    host->add_shader(handle, stage, code, size);
+            }
+            void remove(uint64_t handle) const
+            {
+                if (host != nullptr)
+                    host->remove_shader(handle);
+            }
+            std::optional<ShaderCode> find(uint64_t handle) const
+            {
+                ShaderCode code;
+                if (host == nullptr || !host->find_shader(handle, &code))
+                    return std::nullopt;
+                return code;
+            }
+        };
+        HostShaders shaders;
 
         // The hot path's only check. Written by the render thread at present, so tracking never starts mid-frame.
         std::atomic<bool> armed { false };
@@ -240,7 +265,7 @@ namespace enhancements
         // The physical sky: its map, built on a thread of its own from EnhancementsSetCelestial's bodies and what it was last
         // asked for, and this frame's drawing, which waits for the first map and its atmosphere. The traced scene takes the
         // live map, as a traced shot holds the hour.
-        SkyBuilder live_sky_builder;
+        std::optional<SkyBuilder> live_sky_builder;
         std::optional<SkyRequest> live_sky_asked;
         std::shared_ptr<const SkyResult> live_sky;
         std::optional<Celestial> celestial;     // EnhancementsSetCelestial's newest
@@ -451,6 +476,13 @@ namespace enhancements
         class Worker
         {
         public:
+            // Left running at the process's exit, where joining it in the CRT's teardown could wait on the loader lock.
+            ~Worker()
+            {
+                if (thread_.joinable())
+                    thread_.detach();
+            }
+
             void push(std::function<void()> job)
             {
                 std::lock_guard lock(mutex_);
@@ -458,7 +490,28 @@ namespace enhancements
                 if (!running_)
                 {
                     running_ = true;
-                    std::thread([this] { run(); }).detach();
+                    // The last thread has taken its last job and only returns.
+                    if (thread_.joinable())
+                        thread_.join();
+                    thread_ = std::thread([this] { run(); });
+                }
+            }
+
+            // Waits for every job and for the thread's end, so no code of the add-on runs on it once it is unloaded.
+            void finish()
+            {
+                for (;;)
+                {
+                    {
+                        std::lock_guard lock(mutex_);
+                        if (!running_)
+                        {
+                            if (thread_.joinable())
+                                thread_.join();
+                            return;
+                        }
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
                 }
             }
 
@@ -485,6 +538,7 @@ namespace enhancements
             std::mutex mutex_;
             std::deque<std::function<void()>> jobs_;
             bool running_ = false;
+            std::thread thread_;
         };
 
         Worker worker;
@@ -926,11 +980,13 @@ namespace enhancements
                 live.sun.toward = { camera.toward_sky_sun[0], camera.toward_sky_sun[1], camera.toward_sky_sun[2] };
             if (live.sun.toward != Vec3f {} && (!live_sky_asked || sky_request_differs(*live_sky_asked, live)))
             {
-                live_sky_builder.request(live);
+                if (!live_sky_builder)
+                    live_sky_builder.emplace();
+                live_sky_builder->request(live);
                 live_sky_asked = live;
             }
             const uint64_t had = live_sky ? live_sky->version : 0;
-            live_sky = live_sky_builder.latest();
+            live_sky = live_sky_builder ? live_sky_builder->latest() : nullptr;
             if (!live_sky)
                 return;
             if (had == 0)
@@ -1533,7 +1589,7 @@ namespace enhancements
         void replay_scene(const ReplayCall &call)
         {
             const char *moved = nullptr;
-            std::optional<std::string> stop = scene_gpu.replay(call, shaders, moved);
+            std::optional<std::string> stop = scene_gpu.replay(call, [](uint64_t handle) { return shaders.find(handle); }, moved);
             if (moved)
             {
                 scene_frame = false;
@@ -1716,8 +1772,35 @@ namespace enhancements
         enum class SurfaceState : uint8_t { unloaded, loaded, failed };
         SurfaceState surface_state = SurfaceState::unloaded;
 
+        // surface-detail/rock-shaders.txt's shaders: a hash and its type a line. A shader's hash is its bytecode's, the same
+        // each launch. Older files hold a bare hash for rock and '-' before one that draws something else.
+        std::unordered_map<uint64_t, uint8_t> read_surface_types()
+        {
+            std::unordered_map<uint64_t, uint8_t> types;
+            std::ifstream known(output_root() / "surface-detail" / "rock-shaders.txt");
+            for (std::string line; std::getline(known, line);)
+            {
+                const bool other = !line.empty() && line[0] == '-';
+                char *end = nullptr;
+                const uint64_t hash = std::strtoull(line.c_str() + (other ? 1 : 0), &end, 16);
+                if (hash == 0)
+                    continue;
+                uint8_t type = other ? 0 : kSurfaceRock;
+                const std::string name = end ? std::string(end + std::strspn(end, " ")) : std::string();
+                for (uint8_t t = 0; t < kSurfaceTypes; t++)
+                    if (name == kSurfaceNames[t])
+                        type = t;
+                types[hash] = type;
+            }
+            return types;
+        }
+
         void save_surface_types()
         {
+            // A learn or a pick that ends while the file is unread, as one a reload interrupted, adds to the file.
+            if (surface_state != SurfaceState::loaded)
+                for (const auto &[hash, type] : read_surface_types())
+                    surface_types.emplace(hash, type);
             std::error_code ignored;
             fs::create_directories(output_root() / "surface-detail", ignored);
             std::ofstream out(output_root() / "surface-detail" / "rock-shaders.txt", std::ios::trunc);
@@ -1747,23 +1830,9 @@ namespace enhancements
                     log(reshade::log::level::info, gpu.load_surface_detail(ground, ground_why, kSurfaceGround)
                         ? std::string("surface detail: the ground map is loaded.") : "surface detail: no ground map: " + ground_why + ".");
                 }
-                // The shaders learned before, a hash and its type a line: a shader's hash is its bytecode's, the same each
-                // launch. Older files hold a bare hash for rock and '-' before one that draws something else.
-                std::ifstream known(output_root() / "surface-detail" / "rock-shaders.txt");
-                for (std::string line; std::getline(known, line);)
-                {
-                    const bool other = !line.empty() && line[0] == '-';
-                    char *end = nullptr;
-                    const uint64_t hash = std::strtoull(line.c_str() + (other ? 1 : 0), &end, 16);
-                    if (hash == 0)
-                        continue;
-                    uint8_t type = other ? 0 : kSurfaceRock;
-                    const std::string name = end ? std::string(end + std::strspn(end, " ")) : std::string();
-                    for (uint8_t t = 0; t < kSurfaceTypes; t++)
-                        if (name == kSurfaceNames[t])
-                            type = t;
+                // The shaders learned before.
+                for (const auto &[hash, type] : read_surface_types())
                     surface_types[hash] = type;
-                }
                 surface_kinds.clear();
                 log(reshade::log::level::info, "surface detail: " + std::to_string(surface_types.size()) + " G-buffer shaders remembered.");
                 log(ok ? reshade::log::level::info : reshade::log::level::warning,
@@ -3245,37 +3314,9 @@ namespace enhancements
                 trip(moved);
         }
 
-        // Every shader the game creates, on its loading threads: the vertex and domain shaders' bytecode, which a scene
-        // capture replays, and the pixel shaders' hashes, which name them.
-        void on_init_pipeline(device *, pipeline_layout, uint32_t count, const pipeline_subobject *subobjects, pipeline pipeline)
+        // Every GPU resource of ours, and the captures that would use them.
+        void release_device(const char *why)
         {
-            for (uint32_t i = 0; i < count; i++)
-            {
-                ShaderStage stage;
-                switch (subobjects[i].type)
-                {
-                case pipeline_subobject_type::vertex_shader: stage = ShaderStage::vertex; break;
-                case pipeline_subobject_type::domain_shader: stage = ShaderStage::domain; break;
-                case pipeline_subobject_type::pixel_shader: stage = ShaderStage::pixel; break;
-                default: continue;
-                }
-                const auto *desc = static_cast<const shader_desc *>(subobjects[i].data);
-                if (subobjects[i].count == 0 || desc == nullptr || desc->code == nullptr || desc->code_size == 0)
-                    continue;
-                shaders.add(pipeline.handle, stage, desc->code, desc->code_size);
-                return;
-            }
-        }
-
-        void on_destroy_pipeline(device *, pipeline pipeline)
-        {
-            shaders.remove(pipeline.handle);
-        }
-
-        void on_destroy_device(device *dev)
-        {
-            if (!gpu.ready() || reinterpret_cast<ID3D11Device *>(dev->get_native()) != gpu.device())
-                return;
             armed.store(false, std::memory_order_relaxed);
             gpu = Gpu {};
             dof_display.reset();
@@ -3284,9 +3325,9 @@ namespace enhancements
             accumulator = {};
             depth_copy.reset();
             if (capture)
-                stop_capture("the D3D11 device went away");
+                stop_capture(why);
             if (scene)
-                end_scene_capture(std::string("the D3D11 device went away"));
+                end_scene_capture(std::string(why));
             scene_gpu = SceneGpu {};
             trace_gpu = TraceGpu {};
             dng_copy.reset();
@@ -3295,13 +3336,24 @@ namespace enhancements
             trace_traced = false;
             restart_burst = {};
         }
+
+        void on_destroy_device(device *dev)
+        {
+            if (!gpu.ready() || reinterpret_cast<ID3D11Device *>(dev->get_native()) != gpu.device())
+                return;
+            release_device("the D3D11 device went away");
+        }
+
+        template <reshade::addon_event ev>
+        bool listen(typename reshade::addon_event_traits<ev>::decl callback)
+        {
+            return host->listen(static_cast<uint32_t>(ev), reinterpret_cast<void *>(callback));
+        }
     }
 }
 
 using namespace enhancements;
 
-extern "C" __declspec(dllexport) const char *NAME = "CameraTools Enhancements";
-extern "C" __declspec(dllexport) const char *DESCRIPTION = "Finds Genshin's G-buffer and lighting buffers each frame, shows them as debug views, relights the world's ambient light, softens the sun's shadows and adds contact shadows to them, adds aerial perspective and sun shafts through a ground mist to the scene, replaces the game's tone map, averages lens samples into depth of field, saves comparison captures of settings variants, captures the scene's geometry and light around the camera, traces ambient occlusion and sun shadows against it, gathers one bounce of diffuse light from it, and develops a raw DNG of a screenshot's frame. Driven by CameraTools.";
 
 extern "C" uint32_t EnhancementsVersion(void)
 {
@@ -3576,33 +3628,47 @@ extern "C" uint32_t EnhancementsDescribe(char *text, uint32_t size)
     return static_cast<uint32_t>(line.size());
 }
 
-BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
+extern "C" __declspec(dllexport) uint32_t EnhancementsHostVersion(void)
 {
-    switch (reason)
+    return ENHANCEMENTS_HOST_VERSION;
+}
+
+// The stub (stub.cpp) runs the add-on: at the game's start and again for each reload, in a game that runs. Nothing else
+// is set up here; the first present after it sets up the GPU side, as on the game's first.
+extern "C" __declspec(dllexport) bool EnhancementsStart(const Host *stub)
+{
+    if (stub == nullptr || stub->version != ENHANCEMENTS_HOST_VERSION)
+        return false;
+    host = stub;
+    addon_module = static_cast<HMODULE>(stub->addon_module);
+    // ReShade knows the stub, so the log's lines carry its name.
+    reshade::internal::get_current_module_handle(addon_module);
+    return listen<reshade::addon_event::present>(on_present)
+        && listen<reshade::addon_event::reshade_present>(on_reshade_present)
+        && listen<reshade::addon_event::reshade_begin_effects>(on_begin_effects)
+        && listen<reshade::addon_event::reshade_render_technique>(on_render_technique)
+        && listen<reshade::addon_event::reshade_finish_effects>(on_finish_effects)
+        && listen<reshade::addon_event::bind_render_targets_and_depth_stencil>(on_bind_render_targets)
+        && listen<reshade::addon_event::clear_render_target_view>(on_clear_rtv)
+        && listen<reshade::addon_event::draw>(on_draw)
+        && listen<reshade::addon_event::draw_indexed>(on_draw_indexed)
+        && listen<reshade::addon_event::draw_or_dispatch_indirect>(on_draw_or_dispatch_indirect)
+        && listen<reshade::addon_event::destroy_device>(on_destroy_device);
+}
+
+// Called by the stub with no other thread inside the add-on, before it unloads it: its threads must have ended and
+// its GPU resources gone, as nothing of it may run after.
+extern "C" __declspec(dllexport) void EnhancementsStop(void)
+{
+    if (port_registered)
     {
-    case DLL_PROCESS_ATTACH:
-        addon_module = module;
-        if (!reshade::register_addon(module))
-            return FALSE;
-        reshade::register_event<reshade::addon_event::present>(on_present);
-        reshade::register_event<reshade::addon_event::reshade_present>(on_reshade_present);
-        reshade::register_event<reshade::addon_event::reshade_begin_effects>(on_begin_effects);
-        reshade::register_event<reshade::addon_event::reshade_render_technique>(on_render_technique);
-        reshade::register_event<reshade::addon_event::reshade_finish_effects>(on_finish_effects);
-        reshade::register_event<reshade::addon_event::bind_render_targets_and_depth_stencil>(on_bind_render_targets);
-        reshade::register_event<reshade::addon_event::clear_render_target_view>(on_clear_rtv);
-        reshade::register_event<reshade::addon_event::draw>(on_draw);
-        reshade::register_event<reshade::addon_event::draw_indexed>(on_draw_indexed);
-        reshade::register_event<reshade::addon_event::draw_or_dispatch_indirect>(on_draw_or_dispatch_indirect);
-        // Before the game creates its device, so every shader's creation is seen, and so ReShade attaches the destroy
-        // callback that destroy_pipeline needs to each of them.
-        reshade::register_event<reshade::addon_event::init_pipeline>(on_init_pipeline);
-        reshade::register_event<reshade::addon_event::destroy_pipeline>(on_destroy_pipeline);
-        reshade::register_event<reshade::addon_event::destroy_device>(on_destroy_device);
-        break;
-    case DLL_PROCESS_DETACH:
-        reshade::unregister_addon(module);
-        break;
+        shaders.remove(gpu.grass_port_vs());
+        shaders.remove(gpu.grass_port_ps());
+        port_registered = false;
     }
-    return TRUE;
+    release_device("the add-on was reloaded");
+    worker.finish();
+    live_sky_builder.reset();
+    log(reshade::log::level::info, "stopped, for the stub to unload it.");
+    host = nullptr;
 }

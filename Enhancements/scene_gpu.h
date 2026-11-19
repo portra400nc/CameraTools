@@ -26,6 +26,7 @@
 #include "core/shaders.h"
 #include "gpu.h"
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <tuple>
@@ -128,7 +129,7 @@ namespace enhancements
 
         // One G-buffer draw, before the game's own: records it, and replays it unless a DrawSkip says why not. Returns why
         // the capture must stop, such as stream output being unsupported, or empty.
-        std::optional<std::string> replay(const ReplayCall &call, const ShaderRegistry &shaders, const char *&moved);
+        std::optional<std::string> replay(const ReplayCall &call, const std::function<std::optional<ShaderCode>(uint64_t)> &find_shader, const char *&moved);
 
         // At the combine step of a captured frame whose request keeps the G-buffer or the light, before any pass of ours:
         // copies the main depth, for its stencil, and what is asked of the normals and the diffuse irradiance (the view

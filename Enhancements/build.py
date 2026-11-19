@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Build CameraToolsEnhancements.addon64, the ReShade add-on that relights Genshin's world inside its own frame.
 
+The add-on is two files: CameraToolsEnhancements.addon64, a stub that ReShade loads and that stays loaded (stub.cpp), and
+CameraToolsEnhancementsImpl.dll beside it, the add-on proper, which the stub loads and can load again while the game runs.
+
 The shaders compile offline to DXBC with vkd3d-compiler and are embedded in the add-on. The C++ compiles with LLVM's
 clang-cl and lld-link against ReShade's API headers, which this script downloads at the ReShade version the add-on is
 written for, as ReShadeBridge/build.py does. The Windows SDK and C runtime come from --sdk, a folder made by xwin. On
@@ -20,6 +23,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 NAME = "CameraToolsEnhancements.addon64"
+IMPL = "CameraToolsEnhancementsImpl.dll"
 # ReShade 6.8.0, whose add-on API version 20 the add-on is built and tested against.
 RESHADE_COMMIT = "18deaa52de0c425a78b329e9cb3c497281cd00ec"
 RESHADE_HEADERS = [
@@ -32,6 +36,8 @@ SOURCES = [
     "core/bvh.cpp", "core/kernel.cpp", "core/trace.cpp", "core/trace_files.cpp", "core/shex.cpp", "core/grade.cpp", "core/alpha.cpp",
     "core/alpha_bake.cpp", "core/light.cpp", "core/dof.cpp", "core/flare.cpp", "core/character_light.cpp", "core/night_lamps.cpp", "core/dng.cpp",
 ]
+# The stub keeps the game's shaders in core/shaders.cpp's registry.
+STUB_SOURCES = ["stub.cpp", "core/shaders.cpp"]
 # (symbol in enhancements_shaders.h, source in shaders/, profile)
 SHADERS = [
     ("kFullscreenVs", "fullscreen_vs.hlsl", "vs_5_0"), ("kAoPs", "ao_ps.hlsl", "ps_5_0"), ("kAmbientPs", "ambient_ps.hlsl", "ps_5_0"), ("kAmbientSpecularPs", "ambient_specular_ps.hlsl", "ps_5_0"), ("kAerialLitPs", "aerial_lit_ps.hlsl", "ps_5_0"), ("kWaterPs", "water_ps.hlsl", "ps_5_0"), ("kSkyDomePs", "sky_dome_ps.hlsl", "ps_5_0"), ("kRainPs", "rain_ps.hlsl", "ps_5_0"), ("kSceneLightPs", "scene_light_ps.hlsl", "ps_5_0"), ("kTracedFoliagePs", "traced_foliage_ps.hlsl", "ps_5_0"), ("kLeafCapturePs", "leaf_capture_ps.hlsl", "ps_5_0"), ("kTransmissionPs", "transmission_ps.hlsl", "ps_5_0"),
@@ -73,7 +79,7 @@ HOMEBREW = {"clang-cl": Path("/opt/homebrew/opt/llvm/bin/clang-cl"), "lld-link":
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--sdk", type=Path, help="a Windows SDK and CRT made by 'xwin splat' (not needed on Windows)")
-    parser.add_argument("--out-dir", type=Path, default=HERE / "bin", help=f"the folder to write {NAME} to")
+    parser.add_argument("--out-dir", type=Path, default=HERE / "bin", help=f"the folder to write {NAME} and {IMPL} to")
     parser.add_argument("--reshade-include", type=Path, help="ReShade's include folder, instead of downloading it")
     parser.add_argument("--vkd3d-compiler", type=Path, help="vkd3d-compiler, if not in ENHANCEMENTS_VKD3D_COMPILER or the workspace")
     parser.add_argument("--clang-cl", type=Path, help="clang-cl, if it is not on PATH")
@@ -90,17 +96,23 @@ def main():
     args.work.mkdir(parents=True, exist_ok=True)
     embed_shaders(vkd3d, args.work)
     embed_data(args.work)
-    objects = []
-    for source in SOURCES:
+    objects = {}
+    for source in dict.fromkeys(SOURCES + STUB_SOURCES):
         obj = args.work / (Path(source).stem + ".obj")
         run(clang_cl, "--target=x86_64-pc-windows-msvc", "/c", "/std:c++17", "/MT", "/O2", "/EHsc", "/W4", "/WX",
             "/DNOMINMAX", "/DWIN32_LEAN_AND_MEAN", *[f"/imsvc{path}" for path in includes], f"/imsvc{reshade}",
             f"/I{args.work}", f"/Fo{obj}", "--", HERE / source)
-        objects.append(obj)
-    out = args.out_dir / NAME
+        objects[source] = obj
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    run(lld_link, "/dll", "/nologo", "/MANIFEST:NO", "/OPT:REF", "/OPT:ICF", f"/out:{out}",
-        f"/implib:{args.work / 'enhancements.lib'}", *[f"/libpath:{path}" for path in libpaths], *objects)
+    # /Brepro leaves the time out of the files, so an unchanged stub keeps its hash, and an install can tell that only the
+    # add-on proper changed, which loads again in a running game.
+    for name, sources in ((IMPL, SOURCES), (NAME, STUB_SOURCES)):
+        out = args.out_dir / name
+        run(lld_link, "/dll", "/nologo", "/MANIFEST:NO", "/OPT:REF", "/OPT:ICF", "/Brepro", f"/out:{out}",
+            f"/implib:{args.work / (Path(name).stem + '.lib')}", *[f"/libpath:{path}" for path in libpaths], *[objects[source] for source in sources])
+    impl = args.out_dir / IMPL
+    print(f"{impl}: the add-on proper, {impl.stat().st_size} bytes")
+    out = args.out_dir / NAME
     print(f"{out}: ReShade add-on for API version {api_version(reshade)}, {out.stat().st_size} bytes")
 
 

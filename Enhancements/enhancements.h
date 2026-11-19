@@ -1113,6 +1113,14 @@ ENHANCEMENTS_EXPORT float EnhancementsDepthAt(float u, float v);
 // the terminator, 0 when the buffer is too small.
 ENHANCEMENTS_EXPORT uint32_t EnhancementsDescribe(char *text, uint32_t size);
 
+// CameraToolsEnhancements.addon64 is a stub that runs the add-on proper, CameraToolsEnhancementsImpl.dll beside it, and
+// forwards every export above to it. These two are the stub's own. EnhancementsReload asks for the add-on to be loaded
+// again from that file at the next present, so a rebuilt add-on runs without a game restart, and returns 1. The new copy
+// knows nothing the old one was told: a caller sends everything again once EnhancementsLoads, which counts the loads
+// since the game started, rises.
+ENHANCEMENTS_EXPORT uint32_t EnhancementsReload(void);
+ENHANCEMENTS_EXPORT uint32_t EnhancementsLoads(void);
+
 #ifdef __cplusplus
 }
 #endif

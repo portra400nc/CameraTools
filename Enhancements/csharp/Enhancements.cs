@@ -764,6 +764,17 @@ namespace CameraToolsEnhancements
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void SetCelestialCall(ref EnhancementsCelestial celestial);
 
+        // The stub's own (CameraToolsEnhancements.addon64 runs CameraToolsEnhancementsImpl.dll and can load it again while
+        // the game runs). Optional: an add-on without a stub has neither.
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate uint ReloadCall();
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate uint LoadsCall();
+        private static LoadsCall loads;
+        // The stub's loads at the connection: a reload since has forgotten everything the add-on was told.
+        private static uint loadsSeen;
+
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void GetWorldLightCall(ref EnhancementsCelestial celestial, float haze, ref EnhancementsWorldLight light);
 
@@ -790,6 +801,17 @@ namespace CameraToolsEnhancements
 
         // Rises with every connection. An add-on that ReShade loaded again has forgotten what the last one was told.
         public static int Connections { get; private set; }
+
+        // Asks the stub to load the add-on again from its file at the next present, for a rebuilt add-on in a running game.
+        // The binding connects to the new copy within a second, and Connections rises. False without a stub that can.
+        public static bool Reload()
+        {
+            IntPtr module = GetModuleHandleW(ModuleName);
+            if (module == IntPtr.Zero || !TryExport<ReloadCall>(module, "EnhancementsReload", out var reload) || reload() == 0)
+                return false;
+            nextLook = 0;
+            return true;
+        }
 
         // Pushes the whole desired state. Returns its generation, which Status.SettingsApplied reaches once a frame used
         // it, or 0 while the add-on is not loaded.
@@ -1044,7 +1066,8 @@ namespace CameraToolsEnhancements
         }
 
         // ReShade unloads its add-ons with the last device and loads them again with the next, so the module is looked up
-        // every second even while connected: a module that left or moved must not be called through the old pointers.
+        // every second even while connected: a module that left or moved must not be called through the old pointers. The
+        // stub's loads are looked at as often, as a reloaded add-on is a new connection in the same module.
         // A new connection has forgotten the settings, so the caller applies them again when Connections rises.
         public static void Update()
         {
@@ -1055,13 +1078,15 @@ namespace CameraToolsEnhancements
             try
             {
                 IntPtr module = GetModuleHandleW(ModuleName);
-                if (module == (addOn?.Module ?? rejected))
+                bool same = module == (addOn?.Module ?? rejected);
+                if (same && (loads == null || loads() == loadsSeen))
                     return;
                 if (addOn != null)
-                    MelonLogger.Msg($"Enhancements: {ModuleName} was unloaded.");
+                    MelonLogger.Msg(same ? $"Enhancements: {ModuleName} loaded the add-on again." : $"Enhancements: {ModuleName} was unloaded.");
                 addOn = null;
                 rejected = IntPtr.Zero;
                 rejectedVersion = null;
+                loads = null;
                 if (module != IntPtr.Zero)
                     Connect(module);
             }
@@ -1076,6 +1101,8 @@ namespace CameraToolsEnhancements
         private static void Connect(IntPtr module)
         {
             rejected = module;
+            TryExport(module, "EnhancementsLoads", out loads);
+            loadsSeen = loads?.Invoke() ?? 0;
             if (!TryExport<VersionCall>(module, "EnhancementsVersion", out var version))
             {
                 MelonLogger.Warning($"Enhancements: {ModuleName} is loaded but has no EnhancementsVersion export.");

@@ -19,6 +19,8 @@ namespace CameraTools
         public static float Strength { get; set; }
 
         private static float sent = -1, learnedAt = float.NegativeInfinity;
+        // A new connection has forgotten the strength.
+        private static int connection;
         private static int step = -1, wait;
         private static readonly List<Renderer> hidden = new();
 
@@ -44,6 +46,19 @@ namespace CameraTools
         {
             if (!Enhancements.Connected)
                 return;
+            if (connection != Enhancements.Connections)
+            {
+                connection = Enhancements.Connections;
+                sent = -1;
+                // A learn the last connection began would end in the new one before its strength had it read the shaders
+                // it remembers: it starts again once the strength is sent.
+                if (step >= 0)
+                {
+                    Show();
+                    step = -1;
+                    learnedAt = float.NegativeInfinity;
+                }
+            }
             if (step >= 0)
             {
                 Learning();
@@ -145,18 +160,24 @@ namespace CameraTools
                     wait = 4;
                     break;
                 default:
-                    foreach (var renderer in hidden)
-                        if (renderer)
-                            renderer.enabled = true;
-                    foreach (var terrain in hiddenTerrains)
-                        if (terrain)
-                            terrain.set_drawHeightmap(true);
                     Melon<CameraTools>.Logger.Msg($"Surface detail: learn of {Types[index].Shader} with {hidden.Count} renderers and {hiddenTerrains.Count} terrains hidden.");
-                    hiddenTerrains.Clear();
-                    hidden.Clear();
+                    Show();
                     wait = 3;
                     break;
             }
+        }
+
+        // The renderers and terrains a learn hid, drawn again.
+        private static void Show()
+        {
+            foreach (var renderer in hidden)
+                if (renderer)
+                    renderer.enabled = true;
+            foreach (var terrain in hiddenTerrains)
+                if (terrain)
+                    terrain.set_drawHeightmap(true);
+            hiddenTerrains.Clear();
+            hidden.Clear();
         }
     }
 }
