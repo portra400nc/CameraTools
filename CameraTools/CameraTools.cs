@@ -165,6 +165,7 @@ namespace CameraTools
             }
             Lights.Update();
             SkillLight.Update(EnhancementsModel.SkillLightStrength(EnhancementsControl.RunningValues));
+            SurfaceDetail.Update();
             CharacterLighting.Update();
             Posing.Update();
             SyncPlayerInput();

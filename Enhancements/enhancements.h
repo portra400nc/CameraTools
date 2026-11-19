@@ -1084,6 +1084,12 @@ ENHANCEMENTS_EXPORT void EnhancementsSetShotLights(const EnhancementsShotLight *
 #define ENHANCEMENTS_MAX_GAME_LIGHTS 256
 ENHANCEMENTS_EXPORT void EnhancementsSetGameLights(const EnhancementsShotLight *lights, uint32_t count);
 
+// Surface detail, a probe: the strength (0 off) and the hashes of the pixel shaders that draw rock into the G-buffer; their
+// draws take a tiling rock detail map. A negative strength asks for a census instead: the next frame's G-buffer draws are
+// logged by pixel shader hash: -1 of the scene as it is, -2 with the rocks hidden, after which the
+// shaders that drew in the first and not in the second are taken as rock shaders too.
+ENHANCEMENTS_EXPORT void EnhancementsSetSurfaceDetail(float strength, const uint64_t *rock_shaders, uint32_t count);
+
 // Sets studio lighting and the world's light for characters (EnhancementsCharacterLights); null or disabled turns both off.
 // Version 28 added it.
 ENHANCEMENTS_EXPORT void EnhancementsSetCharacterLights(const EnhancementsCharacterLights *lights);

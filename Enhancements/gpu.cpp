@@ -857,6 +857,7 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kGrassApplyPs, sizeof kGrassApplyPs, nullptr, &made.grass_apply_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCharacterBalancePs, sizeof kCharacterBalancePs, nullptr, &made.character_balance_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCharacterBalanceAdaptPs, sizeof kCharacterBalanceAdaptPs, nullptr, &made.character_balance_adapt_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kSurfaceDetailPs, sizeof kSurfaceDetailPs, nullptr, &made.surface_detail_ps_))
             && SUCCEEDED(device->CreatePixelShader(kGatherAveragePs, sizeof kGatherAveragePs, nullptr, &made.gather_average_ps_))
             && SUCCEEDED(device->CreatePixelShader(kGatherFilterPs, sizeof kGatherFilterPs, nullptr, &made.gather_filter_ps_))
             && SUCCEEDED(device->CreatePixelShader(kApplyGatherPs, sizeof kApplyGatherPs, nullptr, &made.apply_gather_ps_))
@@ -1773,6 +1774,132 @@ namespace enhancements
         else
             c->DrawInstanced(draw.count, draw.instances, draw.first, draw.first_instance);
         return true;
+    }
+
+    bool Gpu::draw_surface_mask(const GameDraw &draw, uint64_t frame)
+    {
+        ID3D11Device *d = device_.Get();
+        ID3D11DeviceContext1 *c = context_.Get();
+        ComPtr<ID3D11RenderTargetView> target;
+        ComPtr<ID3D11DepthStencilView> depth;
+        c->OMGetRenderTargets(1, &target, &depth);
+        if (!target || !depth)
+            return false;
+        ComPtr<ID3D11Resource> resource;
+        target->GetResource(&resource);
+        ComPtr<ID3D11Texture2D> texture;
+        if (FAILED(resource.As(&texture)))
+            return false;
+        D3D11_TEXTURE2D_DESC desc;
+        texture->GetDesc(&desc);
+        if (!surface_mask_.sync(d, { desc.Width, desc.Height }, DXGI_FORMAT_R10G10B10A2_UNORM))
+            return false;
+        ComPtr<ID3D11DepthStencilState> game;
+        UINT reference = 0;
+        c->OMGetDepthStencilState(&game, &reference);
+        ComPtr<ID3D11DepthStencilState> &equal = surface_depth_[game.Get()];
+        if (!equal)
+        {
+            D3D11_DEPTH_STENCIL_DESC ds = { TRUE, D3D11_DEPTH_WRITE_MASK_ZERO, D3D11_COMPARISON_EQUAL, FALSE, 0, 0, {}, {} };
+            if (FAILED(d->CreateDepthStencilState(&ds, &equal)))
+                return false;
+        }
+        const auto issue = [&] {
+            if (draw.indexed)
+                c->DrawIndexedInstanced(draw.count, draw.instances, draw.first, draw.vertex_offset, draw.first_instance);
+            else
+                c->DrawInstanced(draw.count, draw.instances, draw.first, draw.first_instance);
+        };
+        issue();
+        if (surface_mask_frame_ != frame)
+        {
+            const float zero[4] = {};
+            c->ClearRenderTargetView(surface_mask_.rtv(), zero);
+            surface_mask_frame_ = frame;
+        }
+        ID3D11RenderTargetView *const mask[] = { surface_mask_.rtv() };
+        c->OMSetRenderTargets(1, mask, depth.Get());
+        c->OMSetDepthStencilState(equal.Get(), 0);
+        issue();
+        return true;
+    }
+
+    bool Gpu::load_surface_detail(const std::string &dds, std::string &why)
+    {
+        uint32_t height = 0, width = 0, mips = 0, format = 0;
+        if (dds.size() < 148 || dds.compare(0, 4, "DDS ") != 0 || dds.compare(84, 4, "DX10") != 0)
+        {
+            why = "the texture is not a DX10 DDS";
+            return false;
+        }
+        std::memcpy(&height, dds.data() + 12, 4);
+        std::memcpy(&width, dds.data() + 16, 4);
+        std::memcpy(&mips, dds.data() + 28, 4);
+        std::memcpy(&format, dds.data() + 128, 4);
+        if (format != DXGI_FORMAT_R8G8B8A8_UNORM)
+        {
+            why = "the texture is not RGBA8";
+            return false;
+        }
+        mips = std::max(1u, std::min(mips, 16u));
+        std::vector<D3D11_SUBRESOURCE_DATA> levels;
+        size_t at = 148;
+        for (uint32_t level = 0, w = width, h = height; level < mips; level++, w = std::max(1u, w / 2), h = std::max(1u, h / 2))
+        {
+            if (at + size_t(w) * 4 * h > dds.size())
+            {
+                why = "the texture is shorter than its mips";
+                return false;
+            }
+            levels.push_back({ dds.data() + at, w * 4, w * 4 * h });
+            at += size_t(w) * 4 * h;
+        }
+        const D3D11_TEXTURE2D_DESC texture = { width, height, mips, 1, DXGI_FORMAT_R8G8B8A8_UNORM, { 1, 0 }, D3D11_USAGE_IMMUTABLE, D3D11_BIND_SHADER_RESOURCE, 0, 0 };
+        ComPtr<ID3D11Texture2D> made;
+        const D3D11_BUFFER_DESC constants = { 16, D3D11_USAGE_DYNAMIC, D3D11_BIND_CONSTANT_BUFFER, D3D11_CPU_ACCESS_WRITE, 0, 0 };
+        if (FAILED(device_->CreateTexture2D(&texture, levels.data(), &made)) || FAILED(device_->CreateShaderResourceView(made.Get(), nullptr, &surface_texture_))
+            || FAILED(device_->CreateBuffer(&constants, nullptr, &surface_constants_)))
+        {
+            surface_texture_.Reset();
+            why = "D3D11 refused a resource";
+            return false;
+        }
+        return true;
+    }
+
+    std::optional<GameCall> Gpu::run_surface_detail(const FrameMap &map, float strength, const Camera &camera, bool flip, uint64_t frame)
+    {
+        if (surface_mask_frame_ != frame || !surface_texture_ || !surface_constants_ || !map[Entry::albedo] || !map[Entry::normals] || !map[Entry::depth])
+            return GameCall::keep;
+        const Texture &albedo = *map[Entry::albedo], &normals = *map[Entry::normals], &depth = *map[Entry::depth];
+        ID3D11Device *d = device_.Get();
+        Constants constants;
+        if (!albedo_.sync(d, native(albedo), static_cast<DXGI_FORMAT>(albedo.format), false)
+            || !albedo_out_.sync(d, native(albedo), static_cast<DXGI_FORMAT>(albedo.format), true)
+            || !normals_.sync(d, native(normals), static_cast<DXGI_FORMAT>(normals.format), false)
+            || !surface_normals_out_.sync(d, native(normals), static_cast<DXGI_FORMAT>(normals.format), true)
+            || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false) || !pass_constants(camera, map.render, flip, constants))
+            return std::nullopt;
+        upload(constants);
+        ID3D11DeviceContext1 *c = context_.Get();
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        if (FAILED(c->Map(surface_constants_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+            return std::nullopt;
+        const float surface[4] = { strength, 1.5f, 12.0f, 45.0f };
+        std::memcpy(mapped.pData, surface, sizeof surface);
+        c->Unmap(surface_constants_.Get(), 0);
+        albedo_.copy_from(c, native(albedo));
+        normals_.copy_from(c, native(normals));
+        depth_.copy_from(c, native(depth));
+        ID3D11Buffer *const own[] = { surface_constants_.Get() };
+        c->PSSetConstantBuffers(1, 1, own);
+        ID3D11ShaderResourceView *const srvs[] = { nullptr, normals_.srv(), depth_.srv(), depth_.stencil_srv(), nullptr, albedo_.srv(), surface_mask_.srv(),
+            surface_texture_.Get() };
+        ID3D11RenderTargetView *const targets[] = { surface_normals_out_.rtv(), albedo_out_.rtv() };
+        draw_fullscreen(surface_detail_ps_.Get(), srvs, 8, targets, 2, map.render);
+        surface_normals_out_.copy_to(c, native(normals));
+        albedo_out_.copy_to(c, native(albedo));
+        return GameCall::keep;
     }
 
     bool Gpu::make_grass_port()

@@ -742,6 +742,12 @@ namespace CameraToolsEnhancements
         private delegate void SetCharacterLightsCall(ref EnhancementsCharacterLights lights);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate void SetSurfaceDetailCall(float strength, [In] ulong[] rockTextures, uint count);
+
+        // Optional: an add-on without it still connects.
+        private static SetSurfaceDetailCall setSurfaceDetail;
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void SetCelestialCall(ref EnhancementsCelestial celestial);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -935,6 +941,15 @@ namespace CameraToolsEnhancements
             addOn.SetCharacterLights(ref raw);
         }
 
+        // Surface detail, a probe: its strength (0 off) and the native textures of rock materials. false without the export.
+        public static bool SetSurfaceDetail(float strength, ulong[] rockTextures)
+        {
+            if (addOn == null || setSurfaceDetail == null)
+                return false;
+            setSurfaceDetail(strength, rockTextures ?? Array.Empty<ulong>(), (uint)(rockTextures?.Length ?? 0));
+            return true;
+        }
+
         // The lights a traced shot traces, the first EnhancementsShotLight.Max of them; none ends them.
         public static void SetShotLights(EnhancementsShotLight[] lights)
         {
@@ -1082,6 +1097,7 @@ namespace CameraToolsEnhancements
                 return;
             }
             rejected = IntPtr.Zero;
+            TryExport(module, "EnhancementsSetSurfaceDetail", out setSurfaceDetail);
             addOn = new AddOn(module, apply, setCamera, getStatus, describe, compare, setAccumulate, depthAt, captureScene, saveTrace, setShot, saveFrame,
                 developDng, writeDng, setShotLights, setGameLights, setCharacterLights, setCelestial, getWorldLight);
             Connections++;

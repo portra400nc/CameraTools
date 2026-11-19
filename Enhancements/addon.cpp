@@ -34,6 +34,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 using namespace reshade::api;
@@ -109,6 +110,16 @@ namespace enhancements
         Mailbox<std::vector<TraceLight>> lights_box;
         Mailbox<CharacterLightSettings> character_light_box;
         Mailbox<std::vector<::EnhancementsShotLight>> game_lights_box;
+        struct SurfaceDetail
+        {
+            float strength = 0;
+            std::vector<uint64_t> rock;     // pixel shader hashes
+            uint64_t census = 0;            // asks for a census when it changes
+            bool hidden = false;            // the census is of a frame with the rocks hidden: learn the rock shaders from it
+        };
+        Mailbox<SurfaceDetail> surface_box;
+        uint64_t surface_logged_at = 0;     // the frame surface detail logs its rock draws again
+        uint32_t surface_draws = 0;         // rock draws masked in surface_draws_frame
         std::vector<::EnhancementsShotLight> game_lights;   // the render thread's newest of the box
         uint64_t game_lights_seen = 0;
 
@@ -1054,6 +1065,22 @@ namespace enhancements
         bool on_step(Step step)
         {
             const FrameMap &map = tracker.map();
+            if (step == Step::gbuffer_done && settings.enabled && settings.surface_detail > 0 && gpu.ready())
+            {
+                const char *moved = nullptr;
+                {
+                    StateGuard guard(gpu.context(), moved);
+                    const std::optional<GameCall> ran = gpu.run_surface_detail(map, settings.surface_detail, camera, settings.flip, frames);
+                    if (frames >= surface_logged_at)
+                    {
+                        surface_logged_at = frames + 600;
+                        log(reshade::log::level::info, "surface detail: " + std::to_string(surface_draws) + " rock draws masked this frame, the pass "
+                            + (ran ? "ran." : "failed."));
+                    }
+                }
+                if (moved)
+                    trip(moved);
+            }
             if (step == Step::shadow_mask)
                 gather_sun(map);
             if (step == Step::combine)
@@ -1631,6 +1658,77 @@ namespace enhancements
             }
         }
 
+        // Surface detail: the rock shaders' hashes, each pixel shader object seen in the G-buffer pass and whether it is
+        // one, and the census of one frame's G-buffer draws by pixel shader hash.
+        SurfaceDetail surface;
+        uint64_t surface_seen = 0, census_asked = 0, census_frame = 0, surface_draws_frame = 0;
+        std::unordered_set<uint64_t> rock_shaders;
+        std::unordered_map<uint64_t, bool> surface_kinds;
+        std::unordered_map<uint64_t, uint32_t> census, shown_census;
+        std::vector<uint64_t> learned;
+        enum class SurfaceState : uint8_t { unloaded, loaded, failed };
+        SurfaceState surface_state = SurfaceState::unloaded;
+
+        bool surface_loaded()
+        {
+            if (surface_state == SurfaceState::unloaded && gpu.ready())
+            {
+                const fs::path file = output_root() / "surface-detail" / "rock.dds";
+                std::ifstream in(file, std::ios::binary);
+                const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+                std::string why;
+                const bool ok = gpu.load_surface_detail(bytes, why);
+                surface_state = ok ? SurfaceState::loaded : SurfaceState::failed;
+                log(ok ? reshade::log::level::info : reshade::log::level::warning,
+                    ok ? "surface detail: the rock map is loaded from " + file.u8string() + "." : "surface detail: " + file.u8string() + " did not load: " + why + ".");
+            }
+            return surface_state == SurfaceState::loaded;
+        }
+
+        // A G-buffer draw of rock drawn by us, the game's draw and the mask's; true when it was, so the game's is skipped.
+        bool draw_surface(command_list *cmd_list, bool indexed, uint32_t count, uint32_t instances, uint32_t first, int32_t vertex_offset, uint32_t first_instance)
+        {
+            if (!armed.load(std::memory_order_relaxed) || cmd_list != immediate || !in_game_gbuffer)
+                return false;
+            if (census_frame == frames)
+            {
+                const std::optional<ShaderCode> code = shaders.find(gpu.bound_pixel_shader());
+                census[code ? code->hash : 0]++;
+            }
+            if (!settings.enabled || settings.surface_detail <= 0 || !gpu.ready())
+                return false;
+            const uint64_t shader = gpu.bound_pixel_shader();
+            const auto known = surface_kinds.find(shader);
+            bool rock;
+            if (known != surface_kinds.end())
+                rock = known->second;
+            else
+            {
+                const std::optional<ShaderCode> code = shaders.find(shader);
+                rock = surface_kinds[shader] = code && rock_shaders.count(code->hash) != 0;
+            }
+            if (!rock)
+                return false;
+            if (surface_draws_frame != frames)
+            {
+                surface_draws_frame = frames;
+                surface_draws = 0;
+            }
+            surface_draws++;
+            const char *moved = nullptr;
+            bool drawn;
+            {
+                StateGuard guard(gpu.context(), moved);
+                drawn = gpu.draw_surface_mask({ indexed, count, instances, first, vertex_offset, first_instance }, frames);
+            }
+            if (moved)
+            {
+                trip(moved);
+                return false;
+            }
+            return drawn;
+        }
+
         // The scene capture's checks cost one branch while it does not run. DrawAuto comes as a draw of 0 vertices, which
         // draws nothing to replay.
         // Leaf shading: the game's vegetation lighting drawn with our copy of its constants, in its place.
@@ -1661,6 +1759,8 @@ namespace enhancements
             const bool skip = on_draw_any(cmd_list);
             if (!skip && draw_leaves(cmd_list, false, vertices, instances, first_vertex, 0, first_instance))
                 return true;
+            if (!skip && draw_surface(cmd_list, false, vertices, instances, first_vertex, 0, first_instance))
+                return true;
             return draw_physical(cmd_list, false, vertices, instances, first_vertex, 0, first_instance) || skip;
         }
 
@@ -1670,6 +1770,8 @@ namespace enhancements
                 replay_scene({ ReplayKind::indexed, indices, instances, first_index, vertex_offset, first_instance, nullptr, 0 });
             const bool skip = on_draw_any(cmd_list);
             if (!skip && draw_leaves(cmd_list, true, indices, instances, first_index, vertex_offset, first_instance))
+                return true;
+            if (!skip && draw_surface(cmd_list, true, indices, instances, first_index, vertex_offset, first_instance))
                 return true;
             return draw_physical(cmd_list, true, indices, instances, first_index, vertex_offset, first_instance) || skip;
         }
@@ -2777,6 +2879,56 @@ namespace enhancements
                     log(reshade::log::level::info, character_light.enabled ? "studio lighting for characters is on, with " + std::to_string(character_light.lights.size())
                         + " lights." : std::string("studio lighting for characters is off."));
                 settings = with_character_light(with_shot(applied, shot), character_light);
+                if (surface_box.take(surface, surface_seen))
+                {
+                    rock_shaders = std::unordered_set<uint64_t>(surface.rock.begin(), surface.rock.end());
+                    rock_shaders.insert(learned.begin(), learned.end());
+                    surface_kinds.clear();
+                    if (surface.census != census_asked)
+                    {
+                        census_asked = surface.census;
+                        census_frame = frames + 1;
+                        census.clear();
+                    }
+                    else
+                        log(reshade::log::level::info, "surface detail: strength " + std::to_string(surface.strength) + ", " + std::to_string(rock_shaders.size())
+                            + " rock shaders.");
+                }
+                if (census_frame != 0 && frames > census_frame)
+                {
+                    std::vector<std::pair<uint64_t, uint32_t>> counted(census.begin(), census.end());
+                    std::sort(counted.begin(), counted.end(), [](const auto &a, const auto &b) { return a.second > b.second; });
+                    std::string said = "surface detail: census " + std::to_string(census_asked) + " of frame " + std::to_string(census_frame) + ", "
+                        + std::to_string(counted.size()) + " pixel shaders:";
+                    for (const auto &[hash, n] : counted)
+                    {
+                        char text[48];
+                        std::snprintf(text, sizeof text, " %016llx %u", static_cast<unsigned long long>(hash), n);
+                        said += text;
+                    }
+                    log(reshade::log::level::info, said);
+                    census_frame = 0;
+                    // The shaders that drew with the rocks shown and not with them hidden draw rock.
+                    if (surface.hidden)
+                    {
+                        learned.clear();
+                        std::string rocks = "surface detail: rock shaders learned:";
+                        for (const auto &[hash, n] : shown_census)
+                            if (hash != 0 && census.count(hash) == 0)
+                            {
+                                learned.push_back(hash);
+                                char text[24];
+                                std::snprintf(text, sizeof text, " %016llx", static_cast<unsigned long long>(hash));
+                                rocks += text;
+                            }
+                        log(reshade::log::level::info, rocks + (learned.empty() ? " none." : "."));
+                        rock_shaders.insert(learned.begin(), learned.end());
+                        surface_kinds.clear();
+                    }
+                    else
+                        shown_census = census;
+                }
+                settings.surface_detail = rock_shaders.empty() || surface.strength <= 0 || !surface_loaded() ? 0.0f : surface.strength;
                 settings.traced_lights = shot.active && !shot_lights.empty();
             }
             shot_frame = !capture && shot.active;
@@ -3000,6 +3152,26 @@ extern "C" void EnhancementsSetCharacterLights(const EnhancementsCharacterLights
     if (raw != nullptr && raw->size >= offsetof(EnhancementsCharacterLights, enabled) + sizeof raw->enabled)
         std::memcpy(&copy, raw, std::min<size_t>(raw->size, sizeof copy));
     character_light_box.put(parse_character_lights(&copy));
+}
+
+extern "C" void EnhancementsSetSurfaceDetail(float strength, const uint64_t *rock_shaders, uint32_t count)
+{
+    static std::atomic<uint64_t> censuses { 0 };
+    static SurfaceDetail last;
+    SurfaceDetail detail = last;
+    // -1 a census of the scene as it is, -2 one with the rocks hidden, from which the rock shaders are learned.
+    if (std::isfinite(strength) && strength < 0)
+    {
+        detail.census = ++censuses;
+        detail.hidden = strength < -1.5f;
+    }
+    else
+    {
+        detail.strength = std::isfinite(strength) ? std::clamp(strength, 0.0f, 4.0f) : 0.0f;
+        detail.rock.assign(rock_shaders ? rock_shaders : nullptr, rock_shaders ? rock_shaders + std::min<uint32_t>(count, 4096) : nullptr);
+    }
+    last = detail;
+    surface_box.put(detail);
 }
 
 extern "C" void EnhancementsSetGameLights(const EnhancementsShotLight *lights, uint32_t count)
