@@ -859,6 +859,7 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kCharacterBalanceAdaptPs, sizeof kCharacterBalanceAdaptPs, nullptr, &made.character_balance_adapt_ps_))
             && SUCCEEDED(device->CreatePixelShader(kSurfaceDetailPs, sizeof kSurfaceDetailPs, nullptr, &made.surface_detail_ps_))
             && SUCCEEDED(device->CreatePixelShader(kSkyDomeViewPs, sizeof kSkyDomeViewPs, nullptr, &made.sky_dome_view_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kSkyDirectionPs, sizeof kSkyDirectionPs, nullptr, &made.sky_direction_ps_))
             && SUCCEEDED(device->CreatePixelShader(kSurfaceMaskAPs, sizeof kSurfaceMaskAPs, nullptr, &made.surface_mask_a_ps_))
             && SUCCEEDED(device->CreatePixelShader(kSurfaceMaskBPs, sizeof kSurfaceMaskBPs, nullptr, &made.surface_mask_b_ps_))
             && SUCCEEDED(device->CreatePixelShader(kGatherAveragePs, sizeof kGatherAveragePs, nullptr, &made.gather_average_ps_))
@@ -998,6 +999,11 @@ namespace enhancements
         c->VSSetShader(fullscreen_vs_.Get(), nullptr, 0);
         c->PSSetShader(shader, nullptr, 0);
         c->PSSetConstantBuffers(0, 1, buffers);
+        if (sky_camera_made_)
+        {
+            ID3D11Buffer *const sky[] = { sky_camera() };
+            c->PSSetConstantBuffers(7, 1, sky);
+        }
         c->PSSetSamplers(0, kSamplerSlots, samplers);
         c->OMSetRenderTargets(target_count, targets, nullptr);
         c->PSSetShaderResources(0, srv_count, srvs);
@@ -2527,6 +2533,11 @@ namespace enhancements
             c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
             c->VSSetShader(stars_vs_.Get(), nullptr, 0);
             c->VSSetConstantBuffers(0, 1, buffers);
+            if (sky_camera_made_)
+            {
+                ID3D11Buffer *const sky[] = { sky_camera() };
+                c->VSSetConstantBuffers(7, 1, sky);
+            }
             c->VSSetSamplers(0, kSamplerSlots, samplers);
             c->VSSetShaderResources(0, kSrvSlots, star_in);
             c->PSSetShader(stars_ps_.Get(), nullptr, 0);
@@ -3196,7 +3207,113 @@ namespace enhancements
         ours[10] = sky_multiple_srv_.Get();
         ours[14] = last_auto_exposure();
         draw_in_place(w, game_direction ? sky_dome_view_ps_.Get() : sky_dome_ps_.Get(), ours, nullptr);
+        if (game_direction)
+            find_sky_camera(w, map);
         return true;
+    }
+
+    void Gpu::find_sky_camera(const GameDraw &w, const FrameMap &map)
+    {
+        ID3D11Device *d = device_.Get();
+        ID3D11DeviceContext1 *c = context_.Get();
+        if (sky_camera_failed_)
+            return;
+        if (!sky_camera_made_)
+        {
+            sky_camera_failed_ = true;
+            constexpr UINT kBytes = 7 * 16;
+            const D3D11_BUFFER_DESC raw = { kBytes, D3D11_USAGE_DEFAULT, D3D11_BIND_UNORDERED_ACCESS, 0, 0, 0 };
+            const D3D11_BUFFER_DESC cb = { kBytes, D3D11_USAGE_DEFAULT, D3D11_BIND_CONSTANT_BUFFER, 0, 0, 0 };
+            const D3D11_BUFFER_DESC frame = { 16, D3D11_USAGE_DYNAMIC, D3D11_BIND_CONSTANT_BUFFER, D3D11_CPU_ACCESS_WRITE, 0, 0 };
+            const float zeros[7 * 4] = {};
+            const D3D11_SUBRESOURCE_DATA none = { zeros, 0, 0 };
+            D3D11_UNORDERED_ACCESS_VIEW_DESC view = {};
+            view.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+            view.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+            view.Buffer.NumElements = 7;
+            if (FAILED(d->CreateBuffer(&raw, &none, &sky_camera_buffer_)) || FAILED(d->CreateBuffer(&cb, &none, &sky_camera_cb_))
+                || FAILED(d->CreateBuffer(&cb, &none, &sky_camera_unknown_cb_)) || FAILED(d->CreateBuffer(&frame, nullptr, &sky_camera_frame_cb_))
+                || FAILED(d->CreateUnorderedAccessView(sky_camera_buffer_.Get(), &view, &sky_camera_uav_))
+                || FAILED(d->CreateComputeShader(kSkyCameraCs, sizeof kSkyCameraCs, nullptr, &sky_camera_cs_)))
+                return;
+            sky_camera_failed_ = false;
+            sky_camera_made_ = true;
+        }
+        if (!sky_direction_.sync(d, map.render, DXGI_FORMAT_R16G16B16A16_FLOAT))
+            return;
+        // The dome again with no depth test, into our target alone, then the game's state back.
+        ID3D11RenderTargetView *game_targets[D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
+        ID3D11DepthStencilView *game_depth = nullptr;
+        c->OMGetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, game_targets, &game_depth);
+        ComPtr<ID3D11DepthStencilState> game_ds;
+        UINT game_ref = 0;
+        c->OMGetDepthStencilState(&game_ds, &game_ref);
+        ComPtr<ID3D11BlendState> game_blend;
+        FLOAT game_factor[4];
+        UINT game_mask = 0;
+        c->OMGetBlendState(&game_blend, game_factor, &game_mask);
+        ComPtr<ID3D11PixelShader> game_ps;
+        ID3D11ClassInstance *classes[256] = {};
+        UINT class_count = 256;
+        c->PSGetShader(&game_ps, classes, &class_count);
+        const float zero[4] = {};
+        c->ClearRenderTargetView(sky_direction_.rtv(), zero);
+        ID3D11RenderTargetView *const ours[] = { sky_direction_.rtv() };
+        c->OMSetRenderTargets(1, ours, nullptr);
+        c->OMSetDepthStencilState(no_depth_.Get(), 0);
+        c->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
+        c->PSSetShader(sky_direction_ps_.Get(), nullptr, 0);
+        if (w.indexed)
+            c->DrawIndexedInstanced(w.count, w.instances, w.first, w.vertex_offset, w.first_instance);
+        else
+            c->DrawInstanced(w.count, w.instances, w.first, w.first_instance);
+        c->OMSetRenderTargets(D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, game_targets, game_depth);
+        c->OMSetDepthStencilState(game_ds.Get(), game_ref);
+        c->OMSetBlendState(game_blend.Get(), game_factor, game_mask);
+        c->PSSetShader(game_ps.Get(), classes, class_count);
+        for (ID3D11RenderTargetView *v : game_targets)
+            if (v)
+                v->Release();
+        if (game_depth)
+            game_depth->Release();
+        for (UINT i = 0; i < class_count; i++)
+            if (classes[i])
+                classes[i]->Release();
+        // The turn from it, keeping the last frame's, then a copy the shaders read as constants.
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        if (FAILED(c->Map(sky_camera_frame_cb_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+            return;
+        const uint32_t last[4] = { sky_camera_frame_ + 1 == frame_ ? 1u : 0u };
+        std::memcpy(mapped.pData, last, sizeof last);
+        c->Unmap(sky_camera_frame_cb_.Get(), 0);
+        ComPtr<ID3D11ComputeShader> game_cs;
+        c->CSGetShader(&game_cs, nullptr, nullptr);
+        ID3D11Buffer *game_cs_cb = nullptr;
+        c->CSGetConstantBuffers(0, 1, &game_cs_cb);
+        ID3D11ShaderResourceView *game_cs_srv = nullptr;
+        c->CSGetShaderResources(0, 1, &game_cs_srv);
+        ID3D11UnorderedAccessView *game_cs_uav = nullptr;
+        c->CSGetUnorderedAccessViews(0, 1, &game_cs_uav);
+        ID3D11Buffer *const frame_cb[] = { sky_camera_frame_cb_.Get() };
+        ID3D11ShaderResourceView *const in[] = { sky_direction_.srv() };
+        ID3D11UnorderedAccessView *const out[] = { sky_camera_uav_.Get() };
+        c->CSSetShader(sky_camera_cs_.Get(), nullptr, 0);
+        c->CSSetConstantBuffers(0, 1, frame_cb);
+        c->CSSetShaderResources(0, 1, in);
+        c->CSSetUnorderedAccessViews(0, 1, out, nullptr);
+        c->Dispatch(1, 1, 1);
+        c->CSSetShader(game_cs.Get(), nullptr, 0);
+        c->CSSetConstantBuffers(0, 1, &game_cs_cb);
+        c->CSSetShaderResources(0, 1, &game_cs_srv);
+        c->CSSetUnorderedAccessViews(0, 1, &game_cs_uav, nullptr);
+        if (game_cs_cb)
+            game_cs_cb->Release();
+        if (game_cs_srv)
+            game_cs_srv->Release();
+        if (game_cs_uav)
+            game_cs_uav->Release();
+        c->CopyResource(sky_camera_cb_.Get(), sky_camera_buffer_.Get());
+        sky_camera_frame_ = frame_;
     }
 
     void Gpu::draw_in_place(const GameDraw &w, ID3D11PixelShader *ps, ID3D11ShaderResourceView *const *srvs, ID3D11BlendState *blend)

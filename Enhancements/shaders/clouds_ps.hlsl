@@ -9,6 +9,7 @@
 #include "scatter.hlsli"
 #include "sky.hlsli"
 #include "cloud_light.hlsli"
+#include "sky_camera.hlsli"
 
 Texture2D<float> cloud_map : register(t5);      // the weather map
 Texture3D<float4> shape_noise : register(t7);   // cloud_shape_cs.hlsl's
@@ -153,7 +154,7 @@ float4 main(float4 position : SV_Position) : SV_Target0
     // The camera from our own constants, so the clouds draw also when the game renders no sun shadows, as after sunset.
     float3x3 to_world = transpose((float3x3)world_to_view);
     float3 origin = mul(to_world, -float3(world_to_view[0].w, world_to_view[1].w, world_to_view[2].w));
-    float3 dir = normalize(mul(to_world, view_position(uv, 1)));
+    float3 dir = normalize(sky_world_from_view(view_position(uv, 1)));
     float top = cloud_base + cloud_thickness;
     skew_direction = float2(cos(radians(cloud_pad)), sin(radians(cloud_pad)));
     bool physical = sky_cloud_physical > 0.5;

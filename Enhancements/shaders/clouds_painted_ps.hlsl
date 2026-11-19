@@ -6,6 +6,7 @@
 #include "scatter.hlsli"
 #include "sky.hlsli"
 #include "cloud_light.hlsli"
+#include "sky_camera.hlsli"
 
 Texture2D<float3> scene : register(t0);     // mirror of the game's HDR scene
 
@@ -27,7 +28,7 @@ float3 main(float4 position : SV_Position) : SV_Target0
     float3 color = scene.Load(int3(pixel, 0));
     float3x3 to_world = transpose((float3x3)world_to_view);
     float3 origin = mul(to_world, -float3(world_to_view[0].w, world_to_view[1].w, world_to_view[2].w));
-    float3 dir = normalize(mul(to_world, view_position(position.xy * render_size.zw, 1)));
+    float3 dir = normalize(sky_world_from_view(view_position(position.xy * render_size.zw, 1)));
     float mid = cloud_base + cloud_thickness * 0.5;
     float t = (mid - origin.y) / (origin.y < mid ? max(dir.y, 0.01) : min(dir.y, -0.01));
     float2 at = origin.xz + dir.xz * t + cloud_wind;

@@ -3,6 +3,7 @@
 // star lies between pixel centers, so a star neither flickers nor jumps while the camera turns.
 #include "common.hlsli"
 #include "sky.hlsli"
+#include "sky_camera.hlsli"
 
 Buffer<float4> stars : register(t0);    // two a star: its J2000 direction, then its light in sun units
 
@@ -24,7 +25,7 @@ Star main(uint vertex : SV_VertexID, uint instance : SV_InstanceID)
     o.light = 0;
     float3 e = stars[instance * 2].xyz, flux = stars[instance * 2 + 1].rgb;
     float3 world = e.x * sky_stars_x + e.y * sky_stars_y + e.z * sky_stars_z;
-    float3 view = mul((float3x3)world_to_view, world);
+    float3 view = sky_view_from_world(world);
     if (world.y < -0.02 || view.z > -1e-3 || dot(world, sky_toward_moon) > cos(kMoonCover))
         return o;
     float4 clip = mul(view_to_clip, float4(view, 0));

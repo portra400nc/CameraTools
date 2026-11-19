@@ -5,20 +5,7 @@
 #include "common.hlsli"
 #include "sky.hlsli"
 #include "sky_drawn.hlsli"
-
-struct Dome
-{
-    float4 position : SV_Position;
-    float4 t0 : TEXCOORD0;
-    float4 t1 : TEXCOORD1;
-    float4 t2 : TEXCOORD2;
-    float4 t3 : TEXCOORD3;
-    float4 t4 : TEXCOORD4;
-    float2 t5 : TEXCOORD5;
-    float4 t6 : TEXCOORD6;
-    float4 t7 : TEXCOORD7;
-    float4 toward : TEXCOORD8;
-};
+#include "sky_dome_inputs.hlsli"
 
 float4 main(Dome dome) : SV_Target0
 {

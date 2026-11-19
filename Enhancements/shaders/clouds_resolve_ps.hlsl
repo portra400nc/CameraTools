@@ -4,6 +4,7 @@
 // average is held within the range of the march's 3x3 neighborhood, widened, so it cannot keep a cloud that drifted away.
 #include "common.hlsli"
 #include "cloud_filter.hlsli"
+#include "sky_camera.hlsli"
 
 Texture2D<float4> current : register(t5);   // quarter size
 Texture2D<float4> history : register(t6);   // half size
@@ -32,12 +33,12 @@ float4 main(float4 position : SV_Position) : SV_Target0
     high += margin;
 
     float3 view = view_position(uv, 1);
-    float3 world = mul(normalize(view), (float3x3)world_to_view);
+    float3 world = sky_world_from_view(normalize(view));
     // The clouds drifted: last frame, what lies in this direction lay upwind, at the layer's middle.
     float mid = cloud_base + cloud_thickness * 0.5 - cloud_camera_height;
     float reach = abs(world.y) > 0.01 && mid * world.y > 0 ? min(mid / world.y, cloud_map_extent * 0.35) : cloud_map_extent * 0.35;
     world = normalize(world * reach + float3(cloud_wind_step.x, 0, cloud_wind_step.y));
-    float3 before = mul((float3x3)cloud_prev_world_to_view, world);
+    float3 before = sky_last_view_from_world(world);
     float4 clip = mul(cloud_prev_view_to_clip, float4(before * 1000, 1));
     if (clip.w <= 0)
         return spread;

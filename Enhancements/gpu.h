@@ -520,6 +520,8 @@ namespace enhancements
         // turns; else the pushed camera does (sky_dome_ps.hlsl). false, and nothing drawn, before the sky pass has made
         // the tables.
         bool draw_sky_dome(const GameDraw &draw, const FrameMap &map, const SkyDraw &sky, const Camera &camera, bool flip, bool game_direction);
+        // The frame now starting: the sky camera (sky_camera_cs.hlsl) counts as known only in the frame it was found.
+        void start_frame(uint64_t frame) { frame_ = frame; }
         // Copies the grade a tone map shader's layout names from the game's bound pixel shader constants at b0 into
         // game_grade_. Called at the game's tone map draw before any pass of ours draws, since a pass binds its own b0.
         // false when no constants are bound or they are too small for the layout.
@@ -657,7 +659,7 @@ namespace enhancements
         bool sync_sky_tables(const std::shared_ptr<const Atmosphere> &atmosphere);
         ComPtr<ID3D11ComputeShader> dof_scatter_cs_, cloud_shape_cs_, cloud_detail_cs_;
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, ambient_specular_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_, cloud_map_ps_, clouds_ps_, clouds_apply_ps_, clouds_resolve_ps_, clouds_painted_ps_,
-            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, character_light_ps_, character_shadow_ps_, character_sun_ps_, grass_capture_ps_, grass_ps_, grass_apply_ps_, character_balance_ps_, character_balance_adapt_ps_, surface_detail_ps_, sky_dome_view_ps_, surface_mask_a_ps_, surface_mask_b_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
+            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, character_light_ps_, character_shadow_ps_, character_sun_ps_, grass_capture_ps_, grass_ps_, grass_apply_ps_, character_balance_ps_, character_balance_adapt_ps_, surface_detail_ps_, sky_dome_view_ps_, sky_direction_ps_, surface_mask_a_ps_, surface_mask_b_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
             apply_gather_ps_, reflect_apply_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_, dof_soften_ps_, dof_behind_ps_,
             dof_sprite_ps_, dof_lift_ps_, dof_display_in_ps_, dof_display_out_ps_, dof_near_ps_, dof_near_mask_ps_, dof_near_fill_ps_, flare_visibility_ps_, flare_ps_,
             dng_ps_, dng_flare_ps_, exposure_meter_ps_, exposure_adapt_ps_;
@@ -741,6 +743,15 @@ namespace enhancements
         ComPtr<ID3D11ShaderResourceView> surface_texture_;
         ComPtr<ID3D11Buffer> surface_constants_;
         std::unordered_map<ID3D11DepthStencilState *, ComPtr<ID3D11DepthStencilState>> surface_depth_;
+        // The camera's turn found from the game's sky dome (sky_camera.hlsli), bound at b7 for the clouds and the stars.
+        Scratch sky_direction_;                         // RGBA16F the dome's direction at each pixel, w 1 where it drew
+        ComPtr<ID3D11Buffer> sky_camera_buffer_, sky_camera_cb_, sky_camera_unknown_cb_, sky_camera_frame_cb_;
+        ComPtr<ID3D11UnorderedAccessView> sky_camera_uav_;
+        ComPtr<ID3D11ComputeShader> sky_camera_cs_;
+        bool sky_camera_made_ = false, sky_camera_failed_ = false;
+        uint64_t frame_ = 0, sky_camera_frame_ = UINT64_MAX;
+        void find_sky_camera(const GameDraw &draw, const FrameMap &map);
+        ID3D11Buffer *sky_camera() const { return sky_camera_frame_ == frame_ ? sky_camera_cb_.Get() : sky_camera_unknown_cb_.Get(); }
         static constexpr UINT kGrassSourceBytes = 64 << 10, kGrassMaxCopies = 8;
         ComPtr<ID3D11Buffer> grass_source_vb_, grass_source_ib_, grass_source_args_, grass_copy_vb_, grass_copy_ib_, grass_copy_constants_;
         ComPtr<ID3D11ShaderResourceView> grass_source_vb_srv_, grass_source_ib_srv_, grass_source_args_srv_;

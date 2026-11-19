@@ -2821,6 +2821,7 @@ namespace enhancements
                 run_flare(reinterpret_cast<ID3D11Resource *>(chain->get_current_back_buffer().handle));
 
             frames++;
+            gpu.start_frame(frames);
             presents.store(frames, std::memory_order_relaxed);
             if ((grass_layered || grass_unlayered) && frames >= grass_logged_at + 3600)
             {
