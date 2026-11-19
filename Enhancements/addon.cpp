@@ -127,6 +127,7 @@ namespace enhancements
         Mailbox<SurfaceDetail> surface_box;
         // The pick: its frame, the shaders numbered in it from 1, and the request it answers.
         uint64_t pick_asked = 0, pick_frame = 0;
+        bool pick_snapshot = false;         // the pick frame is a snapshot of every shader on screen, which marks none
         std::vector<uint64_t> pick_shaders;
         uint64_t surface_logged_at = 0;     // the frame surface detail logs its rock draws again
         uint32_t surface_draws = 0;         // surface draws masked in surface_draws_frame
@@ -3202,15 +3203,80 @@ namespace enhancements
                     else
                         log(reshade::log::level::info, "surface detail: strength " + std::to_string(surface.strength) + ".");
                 }
+                // A snapshot: the add-on watches for surface-detail/snapshot, and applies surface-detail/mark.txt, both
+                // written from outside (the Deck tools), so the shaders on screen can be marked by number, several at once.
+                if (frames % 30 == 0)
+                {
+                    std::error_code ignored;
+                    const fs::path folder = output_root() / "surface-detail";
+                    if (fs::exists(folder / "snapshot", ignored) && pick_frame == 0)
+                    {
+                        fs::remove(folder / "snapshot", ignored);
+                        pick_frame = frames + 1;
+                        pick_shaders.clear();
+                        pick_snapshot = true;
+                    }
+                    if (fs::exists(folder / "mark.txt", ignored))
+                    {
+                        std::ifstream in(folder / "mark.txt");
+                        std::string said = "surface detail: marked";
+                        for (std::string line; std::getline(in, line);)
+                        {
+                            char *end = nullptr;
+                            const uint64_t hash = std::strtoull(line.c_str(), &end, 16);
+                            const std::string name = end ? std::string(end + std::strspn(end, " ")) : std::string();
+                            for (uint8_t t = 0; hash != 0 && t < kSurfaceTypes; t++)
+                                if (name.rfind(kSurfaceNames[t], 0) == 0)
+                                {
+                                    surface_types[hash] = t;
+                                    said += " " + line.substr(0, 16) + " " + kSurfaceNames[t];
+                                }
+                        }
+                        in.close();
+                        fs::remove(folder / "mark.txt", ignored);
+                        surface_kinds.clear();
+                        save_surface_types();
+                        log(reshade::log::level::info, said + ".");
+                    }
+                }
                 if (pick_frame != 0 && frames > pick_frame + 2)
-                    if (const std::optional<uint32_t> id = gpu.read_surface_pick())
+                    if (const std::optional<Gpu::PickImage> image = gpu.read_surface_pick())
                     {
                         pick_frame = 0;
-                        if (*id == 0 || *id > pick_shaders.size() || pick_shaders[*id - 1] == 0)
+                        if (pick_snapshot)
+                        {
+                            // Every shader's number at every pixel, and the list of them: the Deck tools draw them in
+                            // colors with their numbers for the user to choose from.
+                            pick_snapshot = false;
+                            const fs::path folder = output_root() / "surface-detail";
+                            {
+                                std::ofstream out(folder / "snapshot.bin.part", std::ios::binary | std::ios::trunc);
+                                out.write(reinterpret_cast<const char *>(&image->width), 4);
+                                out.write(reinterpret_cast<const char *>(&image->height), 4);
+                                std::vector<uint16_t> narrow(image->ids.begin(), image->ids.end());
+                                out.write(reinterpret_cast<const char *>(narrow.data()), static_cast<std::streamsize>(narrow.size() * 2));
+                            }
+                            {
+                                std::ofstream out(folder / "snapshot.txt", std::ios::trunc);
+                                for (size_t i = 0; i < pick_shaders.size(); i++)
+                                {
+                                    const auto typed = surface_types.find(pick_shaders[i]);
+                                    char text[64];
+                                    std::snprintf(text, sizeof text, "%zu %016llx %s\n", i + 1, static_cast<unsigned long long>(pick_shaders[i]),
+                                        typed != surface_types.end() ? kSurfaceNames[typed->second] : "unknown");
+                                    out << text;
+                                }
+                            }
+                            std::error_code ignored;
+                            fs::rename(folder / "snapshot.bin.part", folder / "snapshot.bin", ignored);
+                            log(reshade::log::level::info, "surface detail: a snapshot of " + std::to_string(pick_shaders.size()) + " shaders on screen.");
+                        }
+                        else if (const uint32_t id = image->ids[size_t(image->height / 2) * image->width + image->width / 2];
+                                 id == 0 || id > pick_shaders.size() || pick_shaders[id - 1] == 0)
                             log(reshade::log::level::warning, "surface detail: the pick found no G-buffer draw at the screen's middle.");
                         else
                         {
-                            const uint64_t hash = pick_shaders[*id - 1];
+                            const uint64_t hash = pick_shaders[id - 1];
                             surface_types[hash] = surface.pick_type;
                             surface_kinds.clear();
                             save_surface_types();
@@ -3236,7 +3302,9 @@ namespace enhancements
                     log(reshade::log::level::info, said);
                     census_frame = 0;
                     // The shaders that drew with the type's renderers shown and not with them hidden draw that type.
-                    if (surface.hidden != 0 && surface.hidden < kSurfaceTypes)
+                    // Only rock is learned this way: hiding the far terrain's renderers also drops plants and buildings
+                    // drawn by shared shaders, so ground is marked by hand (a snapshot's mark.txt).
+                    if (surface.hidden == kSurfaceRock)
                     {
                         std::string found = std::string("surface detail: ") + kSurfaceNames[surface.hidden] + " shaders learned:";
                         for (const auto &[hash, n] : shown_census)

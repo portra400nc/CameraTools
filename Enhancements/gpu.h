@@ -514,10 +514,15 @@ namespace enhancements
         bool draw_surface_id(const GameDraw &draw, uint64_t frame, const float color[4]);
         // The pick's: the game's draw, then again with number id into a pick target of ours (surface_pick_ps.hlsl).
         bool draw_surface_pick(const GameDraw &draw, uint64_t frame, uint32_t id);
-        // At the end of the pick frame's G-buffer pass: the number under the screen's middle, into a readback.
+        // At the end of the pick frame's G-buffer pass: its numbers, into a readback.
         void copy_surface_pick(uint64_t frame);
-        // That number once the GPU has it; 0 where no G-buffer draw drew. Empty while it is not ready.
-        std::optional<uint32_t> read_surface_pick();
+        // Those numbers once the GPU has them, row by row; 0 where no G-buffer draw drew. Empty while not ready.
+        struct PickImage
+        {
+            uint32_t width = 0, height = 0;
+            std::vector<uint32_t> ids;
+        };
+        std::optional<PickImage> read_surface_pick();
         const char *surface_failure = "";   // what run_surface_detail could not make, for the log
         // The detail map blended into the G-buffer where this frame's mask still shows, at the end of the G-buffer pass.
         std::optional<GameCall> run_surface_detail(const FrameMap &map, float strength, const Camera &camera, bool flip, uint64_t frame);

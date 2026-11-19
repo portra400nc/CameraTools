@@ -1956,20 +1956,23 @@ namespace enhancements
         surface_pick_copied_ = false;
         if (surface_pick_frame_ != frame || !surface_pick_.texture())
             return;
-        if (!surface_pick_back_)
-        {
-            const D3D11_TEXTURE2D_DESC one = { 1, 1, 1, 1, DXGI_FORMAT_R32_UINT, { 1, 0 }, D3D11_USAGE_STAGING, 0, D3D11_CPU_ACCESS_READ, 0 };
-            if (FAILED(device_->CreateTexture2D(&one, nullptr, &surface_pick_back_)))
-                return;
-        }
         D3D11_TEXTURE2D_DESC desc;
         surface_pick_.texture()->GetDesc(&desc);
-        const D3D11_BOX middle = { desc.Width / 2, desc.Height / 2, 0, desc.Width / 2 + 1, desc.Height / 2 + 1, 1 };
-        context_->CopySubresourceRegion(surface_pick_back_.Get(), 0, 0, 0, 0, surface_pick_.texture(), 0, &middle);
+        D3D11_TEXTURE2D_DESC back {};
+        if (surface_pick_back_)
+            surface_pick_back_->GetDesc(&back);
+        if (!surface_pick_back_ || back.Width != desc.Width || back.Height != desc.Height)
+        {
+            surface_pick_back_.Reset();
+            const D3D11_TEXTURE2D_DESC whole = { desc.Width, desc.Height, 1, 1, DXGI_FORMAT_R32_UINT, { 1, 0 }, D3D11_USAGE_STAGING, 0, D3D11_CPU_ACCESS_READ, 0 };
+            if (FAILED(device_->CreateTexture2D(&whole, nullptr, &surface_pick_back_)))
+                return;
+        }
+        context_->CopyResource(surface_pick_back_.Get(), surface_pick_.texture());
         surface_pick_copied_ = true;
     }
 
-    std::optional<uint32_t> Gpu::read_surface_pick()
+    std::optional<Gpu::PickImage> Gpu::read_surface_pick()
     {
         if (!surface_pick_copied_)
             return std::nullopt;
@@ -1977,10 +1980,14 @@ namespace enhancements
         // A one-off wait of a frame at most: the caller asks a few frames after the copy.
         if (FAILED(context_->Map(surface_pick_back_.Get(), 0, D3D11_MAP_READ, 0, &mapped)))
             return std::nullopt;
-        const uint32_t id = *static_cast<const uint32_t *>(mapped.pData);
+        D3D11_TEXTURE2D_DESC desc;
+        surface_pick_back_->GetDesc(&desc);
+        PickImage image { desc.Width, desc.Height, std::vector<uint32_t>(size_t(desc.Width) * desc.Height) };
+        for (uint32_t y = 0; y < desc.Height; y++)
+            std::memcpy(image.ids.data() + size_t(y) * desc.Width, static_cast<const uint8_t *>(mapped.pData) + size_t(y) * mapped.RowPitch, desc.Width * 4);
         context_->Unmap(surface_pick_back_.Get(), 0);
         surface_pick_copied_ = false;
-        return id;
+        return image;
     }
 
     bool Gpu::load_surface_detail(const std::string &dds, std::string &why, uint8_t type)
