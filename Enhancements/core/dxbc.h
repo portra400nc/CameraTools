@@ -49,6 +49,9 @@ namespace enhancements
     // when its inputs sit in the same registers, so each layout has its own: 1 for SV_POSITION, TEXCOORD0, COLOR0 and
     // TEXCOORD1 to TEXCOORD5 in registers 0 to 7, 2 for the same without TEXCOORD2, in 0 to 6. 0 for any other.
     int world_position_layout(const OutputSignature &signature);
+    // The same for a pixel shader's inputs, which name the layout of whatever stage feeds it, such as a domain shader
+    // after tessellation.
+    int world_position_layout(const std::vector<SignatureElement> &inputs);
 
     // The game's sky dome vertex shader writes the direction from the camera to each vertex, normalized, in TEXCOORD8.xyz:
     // true when the signature is SV_POSITION and TEXCOORD0 to TEXCOORD8 in registers 0 to 9, as sky_dome_view_ps.hlsl

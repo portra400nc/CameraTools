@@ -60,6 +60,10 @@ int main()
         check("a54d4773bdfcf885: world position layout 1, TEXCOORD3 to 5 in registers 5 to 7", rock && world_position_layout(*rock) == 1);
         check("258b2bebb4f71cc6: world position layout 2, without TEXCOORD2", short_rock && world_position_layout(*short_rock) == 2);
         check("44041f47a8b7383f: no SV_POSITION, so no layout", tessellated && world_position_layout(*tessellated) == 0);
+        const std::vector<uint8_t> rock_ps = load("8694141c9f507f64.ps.dxbc"), short_ps = load("708fa44c30de342d.ps.dxbc");
+        const auto rock_in = parse_input_elements(rock_ps.data(), rock_ps.size()), short_in = parse_input_elements(short_ps.data(), short_ps.size());
+        check("8694141c9f507f64: a rock pixel shader reads layout 1, as tessellated rocks feed it", rock_in && world_position_layout(*rock_in) == 1);
+        check("708fa44c30de342d: a rock pixel shader reads layout 2", short_in && world_position_layout(*short_in) == 2);
         const auto dome = parse(load("0a2e8968a7a6bcde.vs.dxbc"));
         check("0a2e8968a7a6bcde: the sky dome's direction in TEXCOORD8, register 9", dome && sky_direction_layout(*dome));
         check("a54d4773bdfcf885: a rock's outputs are not the dome's", rock && !sky_direction_layout(*rock));

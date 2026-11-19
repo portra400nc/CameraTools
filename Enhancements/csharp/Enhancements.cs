@@ -744,8 +744,15 @@ namespace CameraToolsEnhancements
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void SetSurfaceDetailCall(float strength, [In] ulong[] rockTextures, uint count);
 
-        // Optional: an add-on without it still connects.
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate uint SurfaceWantsLearnCall();
+
+        // Optional: an add-on without them still connects.
         private static SetSurfaceDetailCall setSurfaceDetail;
+        private static SurfaceWantsLearnCall surfaceWantsLearn;
+
+        // Whether the add-on saw a G-buffer shader no learn has classified, once: then a learn is due.
+        public static bool SurfaceWantsLearn() => addOn != null && surfaceWantsLearn != null && surfaceWantsLearn() != 0;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void SetCelestialCall(ref EnhancementsCelestial celestial);
@@ -1098,6 +1105,7 @@ namespace CameraToolsEnhancements
             }
             rejected = IntPtr.Zero;
             TryExport(module, "EnhancementsSetSurfaceDetail", out setSurfaceDetail);
+            TryExport(module, "EnhancementsSurfaceWantsLearn", out surfaceWantsLearn);
             addOn = new AddOn(module, apply, setCamera, getStatus, describe, compare, setAccumulate, depthAt, captureScene, saveTrace, setShot, saveFrame,
                 developDng, writeDng, setShotLights, setGameLights, setCharacterLights, setCelestial, getWorldLight);
             Connections++;

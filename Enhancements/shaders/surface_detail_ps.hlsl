@@ -7,6 +7,7 @@
 
 Texture2D<float4> albedo : register(t5);    // mirror of rt1, sRGB-encoded as stored
 Texture2D<float4> mask : register(t6);      // the rock's world position and view depth this frame, zero elsewhere
+Texture2D<float> mask_depth : register(t8); // the depth buffer's value the rock wrote
 Texture2D<float4> detail : register(t7);    // rg the tangent-space normal's xy, b the color's luminance around 0.5, a roughness
 SamplerState anisotropic_wrap : register(s4);
 
@@ -58,10 +59,8 @@ GBuffer main(float4 position : SV_Position)
     float4 m = mask.Load(int3(pixel, 0));
     if (m.w <= 0)
         return stored;
-    // The view depth the depth buffer holds now, against the rock's: a nearer one means a later draw covers the rock.
-    // The projection only scales depth here, so the pushed camera's serves.
-    float depth_now = -view_position_at(pixel).z;
-    if (depth_now < m.w * 0.995 - 0.02)
+    // The depth buffer now against the rock's: reversed, so a larger value means a later draw in front covers the rock.
+    if (depth.Load(int3(pixel, 0)) > mask_depth.Load(int3(pixel, 0)) * 1.0005 + 1e-7)
         return stored;
     float distance = m.w;
     // Two octaves: the map at its own scale near the camera, and seven times larger, which carries the cliffs farther out.

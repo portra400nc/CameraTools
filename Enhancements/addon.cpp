@@ -1076,7 +1076,7 @@ namespace enhancements
                     {
                         surface_logged_at = frames + 600;
                         log(reshade::log::level::info, "surface detail: " + std::to_string(surface_draws) + " rock draws masked this frame, the pass "
-                            + (ran ? "ran." : "failed."));
+                            + (ran ? std::string("ran.") : std::string("failed: ") + gpu.surface_failure + "."));
                     }
                 }
                 if (moved)
@@ -1688,6 +1688,11 @@ namespace enhancements
         std::unordered_map<uint64_t, int> surface_layouts;     // vertex shader object -> world_position_layout
         std::unordered_map<uint64_t, uint32_t> census, shown_census;
         std::vector<uint64_t> learned;
+        // surface-detail/rock-shaders.txt's, with what was learned since: the rock shaders, and the G-buffer shaders a learn
+        // found draw something else. A G-buffer shader in neither asks CameraTools for a learn (surface_wants_learn).
+        std::unordered_set<uint64_t> remembered, not_rock;
+        std::atomic<bool> surface_wants_learn { false };
+        std::unordered_set<uint64_t> unclassified;  // the shaders that asked for the next learn
         enum class SurfaceState : uint8_t { unloaded, loaded, failed };
         SurfaceState surface_state = SurfaceState::unloaded;
 
@@ -1701,6 +1706,19 @@ namespace enhancements
                 std::string why;
                 const bool ok = gpu.load_surface_detail(bytes, why);
                 surface_state = ok ? SurfaceState::loaded : SurfaceState::failed;
+                // The rock shaders learned before, one hash a line: a shader's hash is its bytecode's, the same each launch.
+                std::ifstream known(output_root() / "surface-detail" / "rock-shaders.txt");
+                // A leading '-' marks a shader that draws something else.
+                for (std::string line; std::getline(known, line);)
+                {
+                    const bool other = !line.empty() && line[0] == '-';
+                    if (const uint64_t hash = std::strtoull(line.c_str() + (other ? 1 : 0), nullptr, 16); hash != 0)
+                        (other ? not_rock : remembered).insert(hash);
+                }
+                rock_shaders.insert(remembered.begin(), remembered.end());
+                surface_kinds.clear();
+                log(reshade::log::level::info, "surface detail: " + std::to_string(remembered.size()) + " rock shaders and " + std::to_string(not_rock.size())
+                    + " other G-buffer shaders remembered.");
                 log(ok ? reshade::log::level::info : reshade::log::level::warning,
                     ok ? "surface detail: the rock map is loaded from " + file.u8string() + "." : "surface detail: " + file.u8string() + " did not load: " + why + ".");
             }
@@ -1728,11 +1746,18 @@ namespace enhancements
             {
                 const std::optional<ShaderCode> code = shaders.find(shader);
                 rock = surface_kinds[shader] = code && rock_shaders.count(code->hash) != 0;
+                if (code && !rock && not_rock.count(code->hash) == 0 && census_frame == 0)
+                {
+                    unclassified.insert(code->hash);
+                    surface_wants_learn = true;
+                }
             }
             if (!rock)
                 return false;
-            // The vertex shader's outputs say which mask shader links to it; one with neither layout draws no detail.
-            const uint64_t vertex = gpu.bound_vertex_shader();
+            // The vertex shader's outputs say which mask shader links to it, or for a tessellated draw the rock pixel
+            // shader's inputs, which the domain shader feeds; a draw with neither layout, as a depth-only one, draws no detail.
+            const bool tessellated = gpu.tessellated();
+            const uint64_t vertex = tessellated ? gpu.bound_pixel_shader() : gpu.bound_vertex_shader();
             const auto laid = surface_layouts.find(vertex);
             int layout;
             if (laid != surface_layouts.end())
@@ -1740,12 +1765,23 @@ namespace enhancements
             else
             {
                 const std::optional<ShaderCode> code = shaders.find(vertex);
-                const std::optional<OutputSignature> outputs = code && code->code
-                    ? parse_output_signature(reinterpret_cast<const uint8_t *>(code->code->data()), code->code->size()) : std::nullopt;
-                layout = surface_layouts[vertex] = outputs ? world_position_layout(*outputs) : 0;
+                const uint8_t *bytes = code && code->code ? reinterpret_cast<const uint8_t *>(code->code->data()) : nullptr;
+                const size_t size = bytes ? code->code->size() : 0;
+                if (tessellated)
+                {
+                    const std::optional<std::vector<SignatureElement>> inputs = bytes ? parse_input_elements(bytes, size) : std::nullopt;
+                    layout = inputs ? world_position_layout(*inputs) : 0;
+                }
+                else
+                {
+                    const std::optional<OutputSignature> outputs = bytes ? parse_output_signature(bytes, size) : std::nullopt;
+                    layout = outputs ? world_position_layout(*outputs) : 0;
+                }
+                surface_layouts[vertex] = layout;
                 char hash[24];
                 std::snprintf(hash, sizeof hash, "%016llx", static_cast<unsigned long long>(code ? code->hash : 0));
-                log(reshade::log::level::info, std::string("surface detail: rock vertex shader ") + hash + " has world position layout " + std::to_string(layout) + ".");
+                log(reshade::log::level::info, std::string("surface detail: rock ") + (tessellated ? "pixel shader (tessellated) " : "vertex shader ") + hash
+                    + " has world position layout " + std::to_string(layout) + ".");
             }
             if (layout == 0)
                 return false;
@@ -2948,6 +2984,7 @@ namespace enhancements
                 {
                     rock_shaders = std::unordered_set<uint64_t>(surface.rock.begin(), surface.rock.end());
                     rock_shaders.insert(learned.begin(), learned.end());
+                    rock_shaders.insert(remembered.begin(), remembered.end());
                     surface_kinds.clear();
                     surface_layouts.clear();
                     if (surface.census != census_asked)
@@ -2990,11 +3027,45 @@ namespace enhancements
                         log(reshade::log::level::info, rocks + (learned.empty() ? " none." : "."));
                         rock_shaders.insert(learned.begin(), learned.end());
                         surface_kinds.clear();
+                        // Remembered for later launches, with the shaders that kept drawing as something else.
+                        bool added = false;
+                        for (uint64_t hash : learned)
+                        {
+                            added |= remembered.insert(hash).second;
+                            not_rock.erase(hash);
+                        }
+                        for (const auto &[hash, n] : shown_census)
+                            if (hash != 0 && remembered.count(hash) == 0)
+                                added |= not_rock.insert(hash).second;
+                        // Those that asked for this learn but drew in neither frame, as a passing effect, are not rock
+                        // either, or they would ask again and again.
+                        for (uint64_t hash : unclassified)
+                            if (remembered.count(hash) == 0)
+                                added |= not_rock.insert(hash).second;
+                        unclassified.clear();
+                        if (added)
+                        {
+                            std::error_code ignored;
+                            fs::create_directories(output_root() / "surface-detail", ignored);
+                            std::ofstream out(output_root() / "surface-detail" / "rock-shaders.txt", std::ios::trunc);
+                            for (uint64_t hash : remembered)
+                            {
+                                char text[24];
+                                std::snprintf(text, sizeof text, "%016llx\n", static_cast<unsigned long long>(hash));
+                                out << text;
+                            }
+                            for (uint64_t hash : not_rock)
+                            {
+                                char text[24];
+                                std::snprintf(text, sizeof text, "-%016llx\n", static_cast<unsigned long long>(hash));
+                                out << text;
+                            }
+                        }
                     }
                     else
                         shown_census = census;
                 }
-                settings.surface_detail = rock_shaders.empty() || surface.strength <= 0 || !surface_loaded() ? 0.0f : surface.strength;
+                settings.surface_detail = surface.strength <= 0 || !surface_loaded() ? 0.0f : surface.strength;
                 settings.traced_lights = shot.active && !shot_lights.empty();
             }
             shot_frame = !capture && shot.active;
@@ -3218,6 +3289,11 @@ extern "C" void EnhancementsSetCharacterLights(const EnhancementsCharacterLights
     if (raw != nullptr && raw->size >= offsetof(EnhancementsCharacterLights, enabled) + sizeof raw->enabled)
         std::memcpy(&copy, raw, std::min<size_t>(raw->size, sizeof copy));
     character_light_box.put(parse_character_lights(&copy));
+}
+
+extern "C" uint32_t EnhancementsSurfaceWantsLearn()
+{
+    return surface_wants_learn.exchange(false) ? 1 : 0;
 }
 
 extern "C" void EnhancementsSetSurfaceDetail(float strength, const uint64_t *rock_shaders, uint32_t count)

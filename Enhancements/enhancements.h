@@ -1089,6 +1089,9 @@ ENHANCEMENTS_EXPORT void EnhancementsSetGameLights(const EnhancementsShotLight *
 // logged by pixel shader hash: -1 of the scene as it is, -2 with the rocks hidden, after which the
 // shaders that drew in the first and not in the second are taken as rock shaders too.
 ENHANCEMENTS_EXPORT void EnhancementsSetSurfaceDetail(float strength, const uint64_t *rock_shaders, uint32_t count);
+// 1 once when a G-buffer draw used a pixel shader no learn has classified yet, as in a region not seen before: the caller
+// then learns (-1, hide the rocks, -2) so the new rock shaders take detail too.
+ENHANCEMENTS_EXPORT uint32_t EnhancementsSurfaceWantsLearn();
 
 // Sets studio lighting and the world's light for characters (EnhancementsCharacterLights); null or disabled turns both off.
 // Version 28 added it.

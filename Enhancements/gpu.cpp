@@ -1801,7 +1801,8 @@ namespace enhancements
             return false;
         D3D11_TEXTURE2D_DESC desc;
         texture->GetDesc(&desc);
-        if (!surface_mask_.sync(d, { desc.Width, desc.Height }, DXGI_FORMAT_R32G32B32A32_FLOAT))
+        if (!surface_mask_.sync(d, { desc.Width, desc.Height }, DXGI_FORMAT_R32G32B32A32_FLOAT)
+            || !surface_mask_depth_.sync(d, { desc.Width, desc.Height }, DXGI_FORMAT_R32_FLOAT))
             return false;
         ComPtr<ID3D11DepthStencilState> game;
         UINT reference = 0;
@@ -1824,10 +1825,11 @@ namespace enhancements
         {
             const float zero[4] = {};
             c->ClearRenderTargetView(surface_mask_.rtv(), zero);
+            c->ClearRenderTargetView(surface_mask_depth_.rtv(), zero);
             surface_mask_frame_ = frame;
         }
-        ID3D11RenderTargetView *const mask[] = { surface_mask_.rtv() };
-        c->OMSetRenderTargets(1, mask, depth.Get());
+        ID3D11RenderTargetView *const mask[] = { surface_mask_.rtv(), surface_mask_depth_.rtv() };
+        c->OMSetRenderTargets(2, mask, depth.Get());
         c->OMSetDepthStencilState(equal.Get(), 0);
         c->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
         c->PSSetShader(layout == 1 ? surface_mask_a_ps_.Get() : surface_mask_b_ps_.Get(), nullptr, 0);
@@ -1885,12 +1887,23 @@ namespace enhancements
         const Texture &albedo = *map[Entry::albedo], &normals = *map[Entry::normals], &depth = *map[Entry::depth];
         ID3D11Device *d = device_.Get();
         Constants constants;
-        if (!albedo_.sync(d, native(albedo), static_cast<DXGI_FORMAT>(albedo.format), false)
-            || !albedo_out_.sync(d, native(albedo), static_cast<DXGI_FORMAT>(albedo.format), true)
-            || !normals_.sync(d, native(normals), static_cast<DXGI_FORMAT>(normals.format), false)
-            || !surface_normals_out_.sync(d, native(normals), static_cast<DXGI_FORMAT>(normals.format), true)
-            || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false) || !pass_constants(camera, map.render, flip, constants))
+        surface_failure = !albedo_.sync(d, native(albedo), static_cast<DXGI_FORMAT>(albedo.format), false) ? "albedo"
+            : !albedo_out_.sync(d, native(albedo), static_cast<DXGI_FORMAT>(albedo.format), true) ? "albedo out"
+            : !normals_.sync(d, native(normals), static_cast<DXGI_FORMAT>(normals.format), false) ? "normals"
+            : !surface_normals_out_.sync(d, native(normals), static_cast<DXGI_FORMAT>(normals.format), true) ? "normals out"
+            : !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false) ? "depth" : "";
+        if (*surface_failure)
             return std::nullopt;
+        // The pass needs no camera: the mask holds the rock's world position and depth. Only the size is used.
+        if (!pass_constants(camera, map.render, flip, constants))
+        {
+            constants = {};
+            constants.render_size[0] = static_cast<float>(map.render.width);
+            constants.render_size[1] = static_cast<float>(map.render.height);
+            constants.render_size[2] = 1.0f / map.render.width;
+            constants.render_size[3] = 1.0f / map.render.height;
+            constants.flip = flip ? 1.0f : 0.0f;
+        }
         upload(constants);
         ID3D11DeviceContext1 *c = context_.Get();
         D3D11_MAPPED_SUBRESOURCE mapped;
@@ -1905,9 +1918,9 @@ namespace enhancements
         ID3D11Buffer *const own[] = { surface_constants_.Get() };
         c->PSSetConstantBuffers(1, 1, own);
         ID3D11ShaderResourceView *const srvs[] = { nullptr, normals_.srv(), depth_.srv(), depth_.stencil_srv(), nullptr, albedo_.srv(), surface_mask_.srv(),
-            surface_texture_.Get() };
+            surface_texture_.Get(), surface_mask_depth_.srv() };
         ID3D11RenderTargetView *const targets[] = { surface_normals_out_.rtv(), albedo_out_.rtv() };
-        draw_fullscreen(surface_detail_ps_.Get(), srvs, 8, targets, 2, map.render);
+        draw_fullscreen(surface_detail_ps_.Get(), srvs, 9, targets, 2, map.render);
         surface_normals_out_.copy_to(c, native(normals));
         albedo_out_.copy_to(c, native(albedo));
         return GameCall::keep;
@@ -3369,6 +3382,13 @@ namespace enhancements
         for (UINT i = 0; i < class_count; i++)
             if (classes[i])
                 classes[i]->Release();
+    }
+
+    bool Gpu::tessellated() const
+    {
+        ComPtr<ID3D11DomainShader> domain;
+        context_->DSGetShader(&domain, nullptr, nullptr);
+        return domain != nullptr;
     }
 
     bool Gpu::blends_into(uint64_t resource) const

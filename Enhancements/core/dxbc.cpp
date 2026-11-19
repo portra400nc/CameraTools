@@ -231,7 +231,7 @@ namespace enhancements
         return std::nullopt;
     }
 
-    int world_position_layout(const OutputSignature &signature)
+    int world_position_layout(const std::vector<SignatureElement> &elements)
     {
         struct Want
         {
@@ -246,17 +246,22 @@ namespace enhancements
             return a.size() == std::strlen(b) && std::equal(a.begin(), a.end(), b, [](char x, char y) { return std::toupper(static_cast<unsigned char>(x)) == y; });
         };
         const auto matches = [&](const Want *want, size_t count) {
-            if (signature.stage != ShaderStageKind::vs || signature.elements.size() < count)
+            if (elements.size() < count)
                 return false;
             for (size_t i = 0; i < count; i++)
             {
-                const SignatureElement &e = signature.elements[i];
+                const SignatureElement &e = elements[i];
                 if (!same(e.semantic, want[i].semantic) || e.index != want[i].index || e.reg != i || e.mask != 0xF)
                     return false;
             }
             return true;
         };
         return matches(kWith, std::size(kWith)) ? 1 : matches(kWithout, std::size(kWithout)) ? 2 : 0;
+    }
+
+    int world_position_layout(const OutputSignature &signature)
+    {
+        return signature.stage == ShaderStageKind::vs ? world_position_layout(signature.elements) : 0;
     }
 
     bool sky_direction_layout(const OutputSignature &signature)

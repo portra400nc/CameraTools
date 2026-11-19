@@ -484,6 +484,8 @@ namespace enhancements
 
         // The pixel and the vertex shader bound now, as the handles ReShade's pipeline events name them by, or 0.
         uint64_t bound_pixel_shader() const;
+        // Whether a domain shader is bound: the draw is tessellated.
+        bool tessellated() const;
         // Whether the bound draw blends into resource as its first render target: a see-through draw into the scene.
         bool blends_into(uint64_t resource) const;
         uint64_t bound_vertex_shader() const;
@@ -506,6 +508,7 @@ namespace enhancements
         // so the mask holds the rock's world position and view depth. Call it inside a StateGuard; false, with nothing
         // drawn, when the draw binds no render target or depth, or a resource of ours failed.
         bool draw_surface_mask(const GameDraw &draw, uint64_t frame, int layout);
+        const char *surface_failure = "";   // what run_surface_detail could not make, for the log
         // The detail map blended into the G-buffer where this frame's mask still shows, at the end of the G-buffer pass.
         std::optional<GameCall> run_surface_detail(const FrameMap &map, float strength, const Camera &camera, bool flip, uint64_t frame);
         // The detail map from a DX10 DDS of RGBA8 with its mips. false, with why, for anything else.
@@ -740,6 +743,7 @@ namespace enhancements
         ComPtr<ID3D11ComputeShader> leaf_cs_;
         bool leaf_made_ = false, leaf_failed_ = false;
         Scratch surface_mask_;                      // RGBA32F the rock's world position and view depth this frame, zero elsewhere
+        Scratch surface_mask_depth_;                // R32F the depth buffer's value the rock wrote
         uint64_t surface_mask_frame_ = UINT64_MAX;  // the frame the mask was cleared for
         Mirror surface_normals_out_;
         ComPtr<ID3D11ShaderResourceView> surface_texture_;
