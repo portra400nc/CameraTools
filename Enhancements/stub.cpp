@@ -169,37 +169,51 @@ namespace
         return hash;
     }
 
-    // The first mip's rows as uploaded: row_pitch apart, of format_row_pitch bytes each, so padding the driver chose
-    // does not change the hash.
-    uint64_t first_mip_hash(const resource_desc &desc, const subresource_data &data)
+    // The mip a texture's fingerprint is taken from: the first no larger than 64 pixels a side, which every resolution of
+    // a streamed texture has alike, where its first mip changes as the streaming loads and drops its larger ones.
+    uint32_t fingerprint_level(const resource_desc &desc)
     {
-        const uint32_t row = format_row_pitch(desc.texture.format, desc.texture.width);
-        const uint32_t rows = format_slice_pitch(desc.texture.format, row, desc.texture.height) / std::max<uint32_t>(row, 1);
+        uint32_t level = 0;
+        while (level + 1 < std::max<uint32_t>(desc.texture.levels, 1) && std::max(desc.texture.width >> level, desc.texture.height >> level) > 64)
+            level++;
+        return level;
+    }
+
+    // That mip's rows as uploaded: row_pitch apart, of format_row_pitch bytes each, so padding the driver chose does not
+    // change the hash, and its size with them.
+    uint64_t mip_hash(const resource_desc &desc, uint32_t level, const subresource_data &data)
+    {
+        const uint32_t width = std::max(desc.texture.width >> level, 1u), height = std::max(desc.texture.height >> level, 1u);
+        const uint32_t row = format_row_pitch(desc.texture.format, width);
+        const uint32_t rows = format_slice_pitch(desc.texture.format, row, height) / std::max<uint32_t>(row, 1);
         std::vector<uint8_t> packed(size_t(row) * rows);
         for (uint32_t y = 0; y < rows; y++)
             std::memcpy(packed.data() + size_t(y) * row, static_cast<const uint8_t *>(data.data) + size_t(y) * data.row_pitch, row);
-        return texture_hash(packed.data(), packed.size());
+        return texture_hash(packed.data(), packed.size()) ^ (uint64_t(width) << 32 | height);
     }
 
     void on_init_resource(device *, const resource_desc &desc, const subresource_data *initial, resource_usage, resource resource)
     {
         if (desc.type != resource_type::texture_2d || initial == nullptr || initial->data == nullptr || desc.texture.width == 0)
             return;
-        const uint64_t hash = first_mip_hash(desc, *initial);
+        const uint32_t level = fingerprint_level(desc);
+        if (initial[level].data == nullptr)
+            return;
+        const uint64_t hash = mip_hash(desc, level, initial[level]);
         AcquireSRWLockExclusive(&textures_lock);
         textures[resource.handle] = hash;
         ReleaseSRWLockExclusive(&textures_lock);
     }
 
-    // A texture created empty and filled after, as a streamed one may be: its first mip when it arrives whole.
+    // A texture created empty and filled after, as a streamed one may be: its fingerprint's mip when it arrives whole.
     bool on_update_texture_region(device *device, const subresource_data &data, resource resource, uint32_t subresource, const subresource_box *box)
     {
-        if (subresource != 0 || box != nullptr || data.data == nullptr)
+        if (box != nullptr || data.data == nullptr)
             return false;
         const resource_desc desc = device->get_resource_desc(resource);
-        if (desc.type != resource_type::texture_2d)
+        if (desc.type != resource_type::texture_2d || subresource != fingerprint_level(desc))
             return false;
-        const uint64_t hash = first_mip_hash(desc, data);
+        const uint64_t hash = mip_hash(desc, subresource, data);
         AcquireSRWLockExclusive(&textures_lock);
         textures[resource.handle] = hash;
         ReleaseSRWLockExclusive(&textures_lock);

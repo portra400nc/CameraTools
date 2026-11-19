@@ -35,8 +35,9 @@ namespace enhancements
         void (*add_shader)(uint64_t handle, ShaderStage stage, const void *code, size_t size);
         void (*remove_shader)(uint64_t handle);
         bool (*find_shader)(uint64_t handle, ShaderCode *code);
-        // A texture's fingerprint: a hash of its first mip's pixels as the game uploaded them, so the same texture has the
-        // same one each launch, as 3DMigoto's texture hashes. False for a texture the game drew into or never uploaded.
+        // A texture's fingerprint: a hash of the pixels of its mip of at most 64 pixels a side, as the game uploaded them, so
+        // the same texture has the same one each launch and at every resolution its streaming loads, as 3DMigoto's texture
+        // hashes. False for a texture the game drew into or never uploaded.
         bool (*find_texture)(uint64_t resource, uint64_t *hash);
     };
 }
