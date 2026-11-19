@@ -862,6 +862,9 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kSkyDirectionPs, sizeof kSkyDirectionPs, nullptr, &made.sky_direction_ps_))
             && SUCCEEDED(device->CreatePixelShader(kSurfaceMaskAPs, sizeof kSurfaceMaskAPs, nullptr, &made.surface_mask_a_ps_))
             && SUCCEEDED(device->CreatePixelShader(kSurfaceMaskBPs, sizeof kSurfaceMaskBPs, nullptr, &made.surface_mask_b_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kSurfaceMaskCPs, sizeof kSurfaceMaskCPs, nullptr, &made.surface_mask_c_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kSurfaceIdPs, sizeof kSurfaceIdPs, nullptr, &made.surface_id_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kSurfaceMaskDPs, sizeof kSurfaceMaskDPs, nullptr, &made.surface_mask_d_ps_))
             && SUCCEEDED(device->CreatePixelShader(kGatherAveragePs, sizeof kGatherAveragePs, nullptr, &made.gather_average_ps_))
             && SUCCEEDED(device->CreatePixelShader(kGatherFilterPs, sizeof kGatherFilterPs, nullptr, &made.gather_filter_ps_))
             && SUCCEEDED(device->CreatePixelShader(kApplyGatherPs, sizeof kApplyGatherPs, nullptr, &made.apply_gather_ps_))
@@ -1785,7 +1788,7 @@ namespace enhancements
         return true;
     }
 
-    bool Gpu::draw_surface_mask(const GameDraw &draw, uint64_t frame, int layout)
+    bool Gpu::draw_surface_mask(const GameDraw &draw, uint64_t frame, int layout, uint8_t type)
     {
         ID3D11Device *d = device_.Get();
         ID3D11DeviceContext1 *c = context_.Get();
@@ -1802,7 +1805,7 @@ namespace enhancements
         D3D11_TEXTURE2D_DESC desc;
         texture->GetDesc(&desc);
         if (!surface_mask_.sync(d, { desc.Width, desc.Height }, DXGI_FORMAT_R32G32B32A32_FLOAT)
-            || !surface_mask_depth_.sync(d, { desc.Width, desc.Height }, DXGI_FORMAT_R32_FLOAT))
+            || !surface_mask_depth_.sync(d, { desc.Width, desc.Height }, DXGI_FORMAT_R32G32_FLOAT) || !surface_type_cb_)
             return false;
         ComPtr<ID3D11DepthStencilState> game;
         UINT reference = 0;
@@ -1815,7 +1818,14 @@ namespace enhancements
                 return false;
         }
         const auto issue = [&] {
-            if (draw.indexed)
+            if (draw.args)
+            {
+                if (draw.indexed)
+                    c->DrawIndexedInstancedIndirect(draw.args, draw.args_offset);
+                else
+                    c->DrawInstancedIndirect(draw.args, draw.args_offset);
+            }
+            else if (draw.indexed)
                 c->DrawIndexedInstanced(draw.count, draw.instances, draw.first, draw.vertex_offset, draw.first_instance);
             else
                 c->DrawInstanced(draw.count, draw.instances, draw.first, draw.first_instance);
@@ -1832,12 +1842,96 @@ namespace enhancements
         c->OMSetRenderTargets(2, mask, depth.Get());
         c->OMSetDepthStencilState(equal.Get(), 0);
         c->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
-        c->PSSetShader(layout == 1 ? surface_mask_a_ps_.Get() : surface_mask_b_ps_.Get(), nullptr, 0);
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        if (FAILED(c->Map(surface_type_cb_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+            return true;
+        const float kind[4] = { static_cast<float>(type) };
+        std::memcpy(mapped.pData, kind, sizeof kind);
+        c->Unmap(surface_type_cb_.Get(), 0);
+        ID3D11Buffer *const type_cb[] = { surface_type_cb_.Get() };
+        c->PSSetConstantBuffers(13, 1, type_cb);
+        if (layout == 3)
+        {
+            // The near terrain's camera position, from its own vertex shader's cb1.
+            ID3D11Buffer *game = nullptr;
+            UINT first = 0, count = 0;
+            c->VSGetConstantBuffers1(1, 1, &game, &first, &count);
+            if (!game)
+                return true;
+            c->PSSetConstantBuffers1(12, 1, &game, &first, &count);
+            game->Release();
+        }
+        ID3D11PixelShader *const masks[] = { nullptr, surface_mask_a_ps_.Get(), surface_mask_b_ps_.Get(), surface_mask_c_ps_.Get(), surface_mask_d_ps_.Get() };
+        c->PSSetShader(masks[std::clamp(layout, 1, 4)], nullptr, 0);
         issue();
         return true;
     }
 
-    bool Gpu::load_surface_detail(const std::string &dds, std::string &why)
+    bool Gpu::draw_surface_id(const GameDraw &draw, uint64_t frame, const float color[4])
+    {
+        ID3D11Device *d = device_.Get();
+        ID3D11DeviceContext1 *c = context_.Get();
+        ComPtr<ID3D11RenderTargetView> target;
+        ComPtr<ID3D11DepthStencilView> depth;
+        c->OMGetRenderTargets(1, &target, &depth);
+        if (!target || !depth || !surface_type_cb_)
+            return false;
+        ComPtr<ID3D11Resource> resource;
+        target->GetResource(&resource);
+        ComPtr<ID3D11Texture2D> texture;
+        if (FAILED(resource.As(&texture)))
+            return false;
+        D3D11_TEXTURE2D_DESC desc;
+        texture->GetDesc(&desc);
+        if (!surface_ids_.sync(d, { desc.Width, desc.Height }, DXGI_FORMAT_R8G8B8A8_UNORM))
+            return false;
+        ComPtr<ID3D11DepthStencilState> game;
+        UINT reference = 0;
+        c->OMGetDepthStencilState(&game, &reference);
+        ComPtr<ID3D11DepthStencilState> &equal = surface_depth_[game.Get()];
+        if (!equal)
+        {
+            D3D11_DEPTH_STENCIL_DESC ds = { TRUE, D3D11_DEPTH_WRITE_MASK_ZERO, D3D11_COMPARISON_EQUAL, FALSE, 0, 0, {}, {} };
+            if (FAILED(d->CreateDepthStencilState(&ds, &equal)))
+                return false;
+        }
+        const auto issue = [&] {
+            if (draw.args)
+            {
+                if (draw.indexed)
+                    c->DrawIndexedInstancedIndirect(draw.args, draw.args_offset);
+                else
+                    c->DrawInstancedIndirect(draw.args, draw.args_offset);
+            }
+            else if (draw.indexed)
+                c->DrawIndexedInstanced(draw.count, draw.instances, draw.first, draw.vertex_offset, draw.first_instance);
+            else
+                c->DrawInstanced(draw.count, draw.instances, draw.first, draw.first_instance);
+        };
+        issue();
+        if (surface_ids_frame_ != frame)
+        {
+            const float zero[4] = {};
+            c->ClearRenderTargetView(surface_ids_.rtv(), zero);
+            surface_ids_frame_ = frame;
+        }
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        if (FAILED(c->Map(surface_type_cb_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+            return true;
+        std::memcpy(mapped.pData, color, 16);
+        c->Unmap(surface_type_cb_.Get(), 0);
+        ID3D11Buffer *const cb[] = { surface_type_cb_.Get() };
+        c->PSSetConstantBuffers(13, 1, cb);
+        ID3D11RenderTargetView *const ids[] = { surface_ids_.rtv() };
+        c->OMSetRenderTargets(1, ids, depth.Get());
+        c->OMSetDepthStencilState(equal.Get(), 0);
+        c->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
+        c->PSSetShader(surface_id_ps_.Get(), nullptr, 0);
+        issue();
+        return true;
+    }
+
+    bool Gpu::load_surface_detail(const std::string &dds, std::string &why, uint8_t type)
     {
         uint32_t height = 0, width = 0, mips = 0, format = 0;
         if (dds.size() < 148 || dds.compare(0, 4, "DDS ") != 0 || dds.compare(84, 4, "DX10") != 0)
@@ -1870,10 +1964,16 @@ namespace enhancements
         const D3D11_TEXTURE2D_DESC texture = { width, height, mips, 1, DXGI_FORMAT_R8G8B8A8_UNORM, { 1, 0 }, D3D11_USAGE_IMMUTABLE, D3D11_BIND_SHADER_RESOURCE, 0, 0 };
         ComPtr<ID3D11Texture2D> made;
         const D3D11_BUFFER_DESC constants = { 16, D3D11_USAGE_DYNAMIC, D3D11_BIND_CONSTANT_BUFFER, D3D11_CPU_ACCESS_WRITE, 0, 0 };
-        if (FAILED(device_->CreateTexture2D(&texture, levels.data(), &made)) || FAILED(device_->CreateShaderResourceView(made.Get(), nullptr, &surface_texture_))
-            || FAILED(device_->CreateBuffer(&constants, nullptr, &surface_constants_)))
+        if (type == 0 || type >= 3)
         {
-            surface_texture_.Reset();
+            why = "no such surface type";
+            return false;
+        }
+        if (FAILED(device_->CreateTexture2D(&texture, levels.data(), &made)) || FAILED(device_->CreateShaderResourceView(made.Get(), nullptr, &surface_maps_[type]))
+            || (!surface_constants_ && FAILED(device_->CreateBuffer(&constants, nullptr, &surface_constants_)))
+            || (!surface_type_cb_ && FAILED(device_->CreateBuffer(&constants, nullptr, &surface_type_cb_))))
+        {
+            surface_maps_[type].Reset();
             why = "D3D11 refused a resource";
             return false;
         }
@@ -1882,7 +1982,7 @@ namespace enhancements
 
     std::optional<GameCall> Gpu::run_surface_detail(const FrameMap &map, float strength, const Camera &camera, bool flip, uint64_t frame)
     {
-        if (surface_mask_frame_ != frame || !surface_texture_ || !surface_constants_ || !map[Entry::albedo] || !map[Entry::normals] || !map[Entry::depth])
+        if ((surface_mask_frame_ != frame && surface_ids_frame_ != frame) || !surface_maps_[1] || !surface_constants_ || !map[Entry::albedo] || !map[Entry::normals] || !map[Entry::depth])
             return GameCall::keep;
         const Texture &albedo = *map[Entry::albedo], &normals = *map[Entry::normals], &depth = *map[Entry::depth];
         ID3D11Device *d = device_.Get();
@@ -1918,9 +2018,9 @@ namespace enhancements
         ID3D11Buffer *const own[] = { surface_constants_.Get() };
         c->PSSetConstantBuffers(1, 1, own);
         ID3D11ShaderResourceView *const srvs[] = { nullptr, normals_.srv(), depth_.srv(), depth_.stencil_srv(), nullptr, albedo_.srv(), surface_mask_.srv(),
-            surface_texture_.Get(), surface_mask_depth_.srv() };
+            surface_maps_[1].Get(), surface_mask_depth_.srv(), surface_maps_[2].Get(), surface_ids_frame_ == frame ? surface_ids_.srv() : nullptr };
         ID3D11RenderTargetView *const targets[] = { surface_normals_out_.rtv(), albedo_out_.rtv() };
-        draw_fullscreen(surface_detail_ps_.Get(), srvs, 9, targets, 2, map.render);
+        draw_fullscreen(surface_detail_ps_.Get(), srvs, 11, targets, 2, map.render);
         surface_normals_out_.copy_to(c, native(normals));
         albedo_out_.copy_to(c, native(albedo));
         return GameCall::keep;

@@ -7,7 +7,7 @@ namespace CameraTools
 {
     // Surface detail: the Enhancements add-on blends a rock detail map into the G-buffer where rock is drawn. It knows rock
     // by pixel shader, which a learn finds: a census of the G-buffer draws by shader, then another with every renderer of a
-    // rock material (miHoYo/Terrain/BlendStone) hidden for a few frames; the shaders that drop out draw rock. The add-on
+    // type's material (miHoYo/Terrain/BlendStone for rock) hidden for a few frames; the shaders that drop out draw that type. The add-on
     // remembers what each shader draws across launches and asks for a learn only when it sees a G-buffer shader it has not
     // classified, as in a region not visited before. Finding the renderers to hide takes about a second.
     internal static class SurfaceDetail
@@ -50,7 +50,13 @@ namespace CameraTools
             }
         }
 
-        private static IEnumerable<Renderer> RockRenderers()
+        // The types the add-on learns, in its numbering, by the Unity shaders that draw them.
+        // The types the add-on learns, in its numbering, by the Unity shaders that draw them. Ground's near terrain is a
+        // Terrain component, not a renderer, so its learn also stops the terrains drawing their ground.
+        private static readonly (int Type, string Shader)[] Types = { (1, "BlendStone"), (2, "Terrain Mesh") };
+        private static readonly List<Terrain> hiddenTerrains = new();
+
+        private static IEnumerable<Renderer> RenderersOf(string pattern)
         {
             var seen = new Dictionary<IntPtr, bool>();
             foreach (var o in UnityEngine.Object.FindObjectsOfType(Il2CppType.Of<Renderer>()))
@@ -65,7 +71,7 @@ namespace CameraTools
                     if (!seen.TryGetValue(material.Pointer, out bool rock))
                     {
                         var shader = material.shader;
-                        seen[material.Pointer] = rock = shader != null && shader.name.Contains("BlendStone");
+                        seen[material.Pointer] = rock = shader != null && shader.name.Contains(pattern);
                     }
                     if (rock)
                     {
@@ -76,36 +82,61 @@ namespace CameraTools
             }
         }
 
+        // A census as the scene is, then for each type one with its renderers hidden for a few frames, then the end.
         private static void Learning()
         {
             if (wait-- > 0)
                 return;
-            switch (step++)
+            step++;
+            if (step == 1)
+            {
+                Enhancements.SetSurfaceDetail(-1f, null);
+                wait = 4;
+                return;
+            }
+            int index = (step - 2) / 3, part = (step - 2) % 3;
+            if (index >= Types.Length)
+            {
+                Enhancements.SetSurfaceDetail(-100f, null);
+                Melon<CameraTools>.Logger.Msg("Surface detail: learned; the add-on's log names the shaders.");
+                learnedAt = Time.unscaledTime;
+                step = -1;
+                sent = -1;
+                return;
+            }
+            switch (part)
             {
                 case 0:
-                    Enhancements.SetSurfaceDetail(-1f, null);
-                    wait = 4;
-                    break;
-                case 1:
                     hidden.Clear();
-                    hidden.AddRange(RockRenderers());
+                    hidden.AddRange(RenderersOf(Types[index].Shader));
                     foreach (var renderer in hidden)
                         renderer.enabled = false;
+                    hiddenTerrains.Clear();
+                    if (Types[index].Type == 2)
+                        // This build keeps only drawHeightmap's setter: an active terrain is taken to draw its ground.
+                        foreach (var terrain in Terrain.activeTerrains)
+                            if (terrain)
+                            {
+                                terrain.set_drawHeightmap(false);
+                                hiddenTerrains.Add(terrain);
+                            }
                     wait = 3;
                     break;
-                case 2:
-                    Enhancements.SetSurfaceDetail(-2f, null);
+                case 1:
+                    Enhancements.SetSurfaceDetail(-1f - Types[index].Type, null);
                     wait = 4;
                     break;
                 default:
                     foreach (var renderer in hidden)
                         if (renderer)
                             renderer.enabled = true;
-                    Melon<CameraTools>.Logger.Msg($"Surface detail: learned with {hidden.Count} rock renderers hidden; the add-on's log names the shaders.");
+                    foreach (var terrain in hiddenTerrains)
+                        if (terrain)
+                            terrain.set_drawHeightmap(true);
+                    Melon<CameraTools>.Logger.Msg($"Surface detail: learn of {Types[index].Shader} with {hidden.Count} renderers and {hiddenTerrains.Count} terrains hidden.");
+                    hiddenTerrains.Clear();
                     hidden.Clear();
-                    learnedAt = Time.unscaledTime;
-                    step = -1;
-                    sent = -1;
+                    wait = 3;
                     break;
             }
         }

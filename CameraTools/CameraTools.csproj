@@ -29,6 +29,7 @@
     <Reference Include="$(Il2CppAssemblies)\UnityEngine.PhysicsModule.dll" Private="false" />
     <Reference Include="$(Il2CppAssemblies)\UnityEngine.AnimationModule.dll" Private="false" />
     <Reference Include="$(Il2CppAssemblies)\UnityEngine.ParticleSystemModule.dll" Private="false" />
+    <Reference Include="$(Il2CppAssemblies)\UnityEngine.TerrainModule.dll" Private="false" />
     <Reference Include="$(Il2CppAssemblies)\UnityEngine.IMGUIModule.dll" Private="false" />
     <Reference Include="$(Il2CppAssemblies)\UnityEngine.UIModule.dll" Private="false" />
     <Reference Include="$(Il2CppAssemblies)\UnityEngine.TextRenderingModule.dll" Private="false" />

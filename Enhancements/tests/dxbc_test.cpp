@@ -64,6 +64,11 @@ int main()
         const auto rock_in = parse_input_elements(rock_ps.data(), rock_ps.size()), short_in = parse_input_elements(short_ps.data(), short_ps.size());
         check("8694141c9f507f64: a rock pixel shader reads layout 1, as tessellated rocks feed it", rock_in && world_position_layout(*rock_in) == 1);
         check("708fa44c30de342d: a rock pixel shader reads layout 2", short_in && world_position_layout(*short_in) == 2);
+        const auto near_ground = parse(load("bcf1021a010848a2.vs.dxbc")), far_ground = parse(load("3e5803102d267879.vs.dxbc"));
+        check("bcf1021a010848a2: the near terrain's layout 3, the view vector in TEXCOORD3", near_ground && world_position_layout(*near_ground) == 3);
+        check("3e5803102d267879: the far terrain writes no position, so no layout", far_ground && world_position_layout(*far_ground) == 0);
+        const auto system_terrain = parse(load("4818d0acf0098bcf.vs.dxbc"));
+        check("4818d0acf0098bcf: the terrain system's layout 4, the world position in TEXCOORD1 to 3 .w", system_terrain && world_position_layout(*system_terrain) == 4);
         const auto dome = parse(load("0a2e8968a7a6bcde.vs.dxbc"));
         check("0a2e8968a7a6bcde: the sky dome's direction in TEXCOORD8, register 9", dome && sky_direction_layout(*dome));
         check("a54d4773bdfcf885: a rock's outputs are not the dome's", rock && !sky_direction_layout(*rock));

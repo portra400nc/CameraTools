@@ -19,16 +19,21 @@ struct Rock
     float4 row2 : TEXCOORD5;
 };
 
+cbuffer SurfaceType : register(b13)
+{
+    float surface_type;         // 1 rock, 2 ground
+};
+
 struct Mask
 {
     float4 world : SV_Target0;  // the world position and the view depth
-    float depth : SV_Target1;   // the depth buffer's value, by which the detail pass sees a later draw in front
+    float2 depth : SV_Target1;  // the depth buffer's value, by which the detail pass sees a later draw in front, and the type
 };
 
 Mask main(Rock rock)
 {
     Mask m;
     m.world = float4(rock.row0.w, rock.row1.w, rock.row2.w, rock.position.w);
-    m.depth = rock.position.z;
+    m.depth = float2(rock.position.z, surface_type);
     return m;
 }

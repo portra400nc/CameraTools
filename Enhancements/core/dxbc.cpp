@@ -256,7 +256,20 @@ namespace enhancements
             }
             return true;
         };
-        return matches(kWith, std::size(kWith)) ? 1 : matches(kWithout, std::size(kWithout)) ? 2 : 0;
+        static const Want kTerrain[] = { { "SV_POSITION", 0 }, { "COLOR", 0 }, { "TEXCOORD", 0 }, { "TEXCOORD", 1 }, { "TEXCOORD", 2 } };
+        const bool terrain = elements.size() >= 6 && [&] {
+            for (size_t i = 0; i < std::size(kTerrain); i++)
+            {
+                const SignatureElement &e = elements[i];
+                if (!same(e.semantic, kTerrain[i].semantic) || e.index != kTerrain[i].index || e.reg != i || e.mask != 0xF)
+                    return false;
+            }
+            const SignatureElement &v = elements[5];
+            return same(v.semantic, "TEXCOORD") && v.index == 3 && v.reg == 5 && (v.mask & 0x7) == 0x7;
+        }();
+        static const Want kSystemTerrain[] = { { "SV_POSITION", 0 }, { "TEXCOORD", 0 }, { "TEXCOORD", 1 }, { "TEXCOORD", 2 }, { "TEXCOORD", 3 } };
+        return matches(kWith, std::size(kWith)) ? 1 : matches(kWithout, std::size(kWithout)) ? 2 : terrain ? 3
+            : matches(kSystemTerrain, std::size(kSystemTerrain)) ? 4 : 0;
     }
 
     int world_position_layout(const OutputSignature &signature)

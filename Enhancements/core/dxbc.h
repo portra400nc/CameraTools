@@ -47,7 +47,11 @@ namespace enhancements
     // Surface detail's pixel shaders read a draw's world position from the vertex shader's TEXCOORD3 to TEXCOORD5 .w, the
     // rows of Unity's tangent-to-world matrix with the position after them. A pixel shader links to a vertex shader only
     // when its inputs sit in the same registers, so each layout has its own: 1 for SV_POSITION, TEXCOORD0, COLOR0 and
-    // TEXCOORD1 to TEXCOORD5 in registers 0 to 7, 2 for the same without TEXCOORD2, in 0 to 6. 0 for any other.
+    // TEXCOORD1 to TEXCOORD5 in registers 0 to 7, 2 for the same without TEXCOORD2, in 0 to 6. 3 for the near terrain's:
+    // SV_POSITION, COLOR0 and TEXCOORD0 to TEXCOORD3 in registers 0 to 5, TEXCOORD3.xyz the vector from the point to the
+    // camera, whose position the vertex shader's cb1 row 5 holds. 4 for the near terrain drawn by the game's own terrain
+    // system: SV_POSITION and TEXCOORD0 to TEXCOORD3 in registers 0 to 4, the world position in TEXCOORD1 to TEXCOORD3 .w.
+    // 0 for any other.
     int world_position_layout(const OutputSignature &signature);
     // The same for a pixel shader's inputs, which name the layout of whatever stage feeds it, such as a domain shader
     // after tessellation.
