@@ -858,6 +858,8 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kCharacterBalancePs, sizeof kCharacterBalancePs, nullptr, &made.character_balance_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCharacterBalanceAdaptPs, sizeof kCharacterBalanceAdaptPs, nullptr, &made.character_balance_adapt_ps_))
             && SUCCEEDED(device->CreatePixelShader(kSurfaceDetailPs, sizeof kSurfaceDetailPs, nullptr, &made.surface_detail_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kSurfaceMaskAPs, sizeof kSurfaceMaskAPs, nullptr, &made.surface_mask_a_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kSurfaceMaskBPs, sizeof kSurfaceMaskBPs, nullptr, &made.surface_mask_b_ps_))
             && SUCCEEDED(device->CreatePixelShader(kGatherAveragePs, sizeof kGatherAveragePs, nullptr, &made.gather_average_ps_))
             && SUCCEEDED(device->CreatePixelShader(kGatherFilterPs, sizeof kGatherFilterPs, nullptr, &made.gather_filter_ps_))
             && SUCCEEDED(device->CreatePixelShader(kApplyGatherPs, sizeof kApplyGatherPs, nullptr, &made.apply_gather_ps_))
@@ -1776,7 +1778,7 @@ namespace enhancements
         return true;
     }
 
-    bool Gpu::draw_surface_mask(const GameDraw &draw, uint64_t frame)
+    bool Gpu::draw_surface_mask(const GameDraw &draw, uint64_t frame, int layout)
     {
         ID3D11Device *d = device_.Get();
         ID3D11DeviceContext1 *c = context_.Get();
@@ -1792,7 +1794,7 @@ namespace enhancements
             return false;
         D3D11_TEXTURE2D_DESC desc;
         texture->GetDesc(&desc);
-        if (!surface_mask_.sync(d, { desc.Width, desc.Height }, DXGI_FORMAT_R10G10B10A2_UNORM))
+        if (!surface_mask_.sync(d, { desc.Width, desc.Height }, DXGI_FORMAT_R32G32B32A32_FLOAT))
             return false;
         ComPtr<ID3D11DepthStencilState> game;
         UINT reference = 0;
@@ -1820,6 +1822,8 @@ namespace enhancements
         ID3D11RenderTargetView *const mask[] = { surface_mask_.rtv() };
         c->OMSetRenderTargets(1, mask, depth.Get());
         c->OMSetDepthStencilState(equal.Get(), 0);
+        c->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
+        c->PSSetShader(layout == 1 ? surface_mask_a_ps_.Get() : surface_mask_b_ps_.Get(), nullptr, 0);
         issue();
         return true;
     }

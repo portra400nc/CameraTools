@@ -53,6 +53,14 @@ namespace
 
 int main()
 {
+    {
+        // The rock vertex shaders of 2026-11-16's captures, which surface detail reads the world position from.
+        const auto rock = parse(load("a54d4773bdfcf885.vs.dxbc")), short_rock = parse(load("258b2bebb4f71cc6.vs.dxbc")),
+            tessellated = parse(load("44041f47a8b7383f.vs.dxbc"));
+        check("a54d4773bdfcf885: world position layout 1, TEXCOORD3 to 5 in registers 5 to 7", rock && world_position_layout(*rock) == 1);
+        check("258b2bebb4f71cc6: world position layout 2, without TEXCOORD2", short_rock && world_position_layout(*short_rock) == 2);
+        check("44041f47a8b7383f: no SV_POSITION, so no layout", tessellated && world_position_layout(*tessellated) == 0);
+    }
     const std::vector<uint8_t> packed = load("d13184314dc3a9c2.vs.dxbc"), hull_feed = load("f41ee402a971d845.vs.dxbc"),
         position_only = load("ddf425b5aabfc702.vs.dxbc"), domain = load("2adc971cc2058b7a.ds.dxbc"), pixel = load("482d98462fb30496.ps.dxbc");
     {

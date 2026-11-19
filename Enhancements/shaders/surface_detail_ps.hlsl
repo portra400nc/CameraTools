@@ -1,11 +1,12 @@
 // Surface detail: one draw writes the G-buffer's normals and albedo with a tiling detail map blended in, into mirrors of
 // them that are copied back over the game's before its lighting reads them. Only pixels a rock draw wrote this frame take
-// it: the mask holds the normal each rock draw wrote, so a pixel whose final normal differs was covered by a later draw
-// and keeps its stored values exactly, as does every other pixel.
+// it: the mask holds the rock's world position and view depth as its own draw computed them (surface_mask.hlsli), so the
+// detail is fixed to the rock whatever the camera does. A pixel whose depth now lies nearer than the mask's was covered by
+// a later draw and keeps its stored values exactly, as does every other pixel.
 #include "gbuffer.hlsli"
 
 Texture2D<float4> albedo : register(t5);    // mirror of rt1, sRGB-encoded as stored
-Texture2D<float4> mask : register(t6);      // the rock draws' rt0 this frame, zero elsewhere
+Texture2D<float4> mask : register(t6);      // the rock's world position and view depth this frame, zero elsewhere
 Texture2D<float4> detail : register(t7);    // rg the tangent-space normal's xy, b the color's luminance around 0.5, a roughness
 SamplerState anisotropic_wrap : register(s4);
 
@@ -25,13 +26,6 @@ struct GBuffer
 
 float3 srgb_to_linear(float3 c) { return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4); }
 float3 linear_to_srgb(float3 c) { return c <= 0.0031308 ? c * 12.92 : 1.055 * pow(c, 1 / 2.4) - 0.055; }
-
-float3 world_position_at(int2 pixel)
-{
-    float3 view = view_position_at(pixel);
-    float3 translation = float3(world_to_view._m03, world_to_view._m13, world_to_view._m23);
-    return mul(view - translation, (float3x3)world_to_view);
-}
 
 static const float kFarScale = 7;     // the coarse octave's repeat over the fine one's
 static const float kFarFade = 300;    // meters: no coarse octave past here
@@ -62,9 +56,14 @@ GBuffer main(float4 position : SV_Position)
     stored.normal = normals.Load(int3(pixel, 0));
     stored.albedo = albedo.Load(int3(pixel, 0));
     float4 m = mask.Load(int3(pixel, 0));
-    if (all(m.rgb == 0) || any(abs(m.rgb - stored.normal.rgb) > 0.5 / 1023))
+    if (m.w <= 0)
         return stored;
-    float distance = length(view_position_at(pixel));
+    // The view depth the depth buffer holds now, against the rock's: a nearer one means a later draw covers the rock.
+    // The projection only scales depth here, so the pushed camera's serves.
+    float depth_now = -view_position_at(pixel).z;
+    if (depth_now < m.w * 0.995 - 0.02)
+        return stored;
+    float distance = m.w;
     // Two octaves: the map at its own scale near the camera, and seven times larger, which carries the cliffs farther out.
     float near_share = strength * saturate((fade_far - distance) / max(fade_far - fade_near, 1e-3));
     float far_share = strength * saturate((kFarFade - distance) / (kFarFade - fade_near)) * 0.8;
@@ -73,7 +72,7 @@ GBuffer main(float4 position : SV_Position)
     float3 n = normalize(stored.normal.rgb * 2 - 1);
     float3 w = pow(abs(n), 4);
     w /= dot(w, 1);
-    float3 p = world_position_at(pixel);
+    float3 p = m.xyz;
     float shade_near, shade_far;
     float3 detailed = detail_normal(n, w, p / tile, shade_near);
     detailed = normalize(lerp(n, detailed, saturate(near_share)));

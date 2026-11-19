@@ -1,6 +1,7 @@
 // The shell: ReShade events in, FrameEvents to the tracker, plans to the GPU, reports to the status mailbox.
 // Everything that decides lives in core/; everything that draws lives in gpu.cpp.
 #include "enhancements.h"
+#include "core/dxbc.h"
 #include "core/alpha_bake.h"
 #include "core/compare.h"
 #include "core/dng.h"
@@ -1664,6 +1665,7 @@ namespace enhancements
         uint64_t surface_seen = 0, census_asked = 0, census_frame = 0, surface_draws_frame = 0;
         std::unordered_set<uint64_t> rock_shaders;
         std::unordered_map<uint64_t, bool> surface_kinds;
+        std::unordered_map<uint64_t, int> surface_layouts;     // vertex shader object -> world_position_layout
         std::unordered_map<uint64_t, uint32_t> census, shown_census;
         std::vector<uint64_t> learned;
         enum class SurfaceState : uint8_t { unloaded, loaded, failed };
@@ -1709,6 +1711,24 @@ namespace enhancements
             }
             if (!rock)
                 return false;
+            // The vertex shader's outputs say which mask shader links to it; one with neither layout draws no detail.
+            const uint64_t vertex = gpu.bound_vertex_shader();
+            const auto laid = surface_layouts.find(vertex);
+            int layout;
+            if (laid != surface_layouts.end())
+                layout = laid->second;
+            else
+            {
+                const std::optional<ShaderCode> code = shaders.find(vertex);
+                const std::optional<OutputSignature> outputs = code && code->code
+                    ? parse_output_signature(reinterpret_cast<const uint8_t *>(code->code->data()), code->code->size()) : std::nullopt;
+                layout = surface_layouts[vertex] = outputs ? world_position_layout(*outputs) : 0;
+                char hash[24];
+                std::snprintf(hash, sizeof hash, "%016llx", static_cast<unsigned long long>(code ? code->hash : 0));
+                log(reshade::log::level::info, std::string("surface detail: rock vertex shader ") + hash + " has world position layout " + std::to_string(layout) + ".");
+            }
+            if (layout == 0)
+                return false;
             if (surface_draws_frame != frames)
             {
                 surface_draws_frame = frames;
@@ -1719,7 +1739,7 @@ namespace enhancements
             bool drawn;
             {
                 StateGuard guard(gpu.context(), moved);
-                drawn = gpu.draw_surface_mask({ indexed, count, instances, first, vertex_offset, first_instance }, frames);
+                drawn = gpu.draw_surface_mask({ indexed, count, instances, first, vertex_offset, first_instance }, frames, layout);
             }
             if (moved)
             {
@@ -2884,6 +2904,7 @@ namespace enhancements
                     rock_shaders = std::unordered_set<uint64_t>(surface.rock.begin(), surface.rock.end());
                     rock_shaders.insert(learned.begin(), learned.end());
                     surface_kinds.clear();
+                    surface_layouts.clear();
                     if (surface.census != census_asked)
                     {
                         census_asked = surface.census;

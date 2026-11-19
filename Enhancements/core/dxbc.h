@@ -44,6 +44,12 @@ namespace enhancements
     enum class TessellatorDomain : uint8_t { isoline = 1, tri = 2, quad = 3 };
     std::optional<TessellatorDomain> tessellator_domain(const uint8_t *code, size_t size);
 
+    // Surface detail's pixel shaders read a draw's world position from the vertex shader's TEXCOORD3 to TEXCOORD5 .w, the
+    // rows of Unity's tangent-to-world matrix with the position after them. A pixel shader links to a vertex shader only
+    // when its inputs sit in the same registers, so each layout has its own: 1 for SV_POSITION, TEXCOORD0, COLOR0 and
+    // TEXCOORD1 to TEXCOORD5 in registers 0 to 7, 2 for the same without TEXCOORD2, in 0 to 6. 0 for any other.
+    int world_position_layout(const OutputSignature &signature);
+
     // One D3D11_SO_DECLARATION_ENTRY, without the stream, which is always 0.
     struct SoEntry
     {

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <iterator>
 
 namespace enhancements
 {
@@ -228,5 +229,33 @@ namespace enhancements
             if (e.system_value == kPosition)
                 return SoDeclaration { { SoEntry { e.semantic, e.index, 0, 4, 0 } }, 16 };
         return std::nullopt;
+    }
+
+    int world_position_layout(const OutputSignature &signature)
+    {
+        struct Want
+        {
+            const char *semantic;
+            uint32_t index;
+        };
+        static const Want kWith[] = { { "SV_POSITION", 0 }, { "TEXCOORD", 0 }, { "COLOR", 0 }, { "TEXCOORD", 1 }, { "TEXCOORD", 2 }, { "TEXCOORD", 3 },
+            { "TEXCOORD", 4 }, { "TEXCOORD", 5 } };
+        static const Want kWithout[] = { { "SV_POSITION", 0 }, { "TEXCOORD", 0 }, { "COLOR", 0 }, { "TEXCOORD", 1 }, { "TEXCOORD", 3 }, { "TEXCOORD", 4 },
+            { "TEXCOORD", 5 } };
+        const auto same = [](const std::string &a, const char *b) {
+            return a.size() == std::strlen(b) && std::equal(a.begin(), a.end(), b, [](char x, char y) { return std::toupper(static_cast<unsigned char>(x)) == y; });
+        };
+        const auto matches = [&](const Want *want, size_t count) {
+            if (signature.stage != ShaderStageKind::vs || signature.elements.size() < count)
+                return false;
+            for (size_t i = 0; i < count; i++)
+            {
+                const SignatureElement &e = signature.elements[i];
+                if (!same(e.semantic, want[i].semantic) || e.index != want[i].index || e.reg != i || e.mask != 0xF)
+                    return false;
+            }
+            return true;
+        };
+        return matches(kWith, std::size(kWith)) ? 1 : matches(kWithout, std::size(kWithout)) ? 2 : 0;
     }
 }
