@@ -679,6 +679,8 @@ namespace enhancements
         bool frame_camera_made_ = false, frame_camera_failed_ = false;
         uint64_t frame_ = 0, frame_camera_frame_ = UINT64_MAX;
         uint32_t frame_camera_tries_ = 0;
+        uint64_t frame_camera_seen_frame_ = UINT64_MAX;
+        ID3D11Buffer *frame_camera_last_ = nullptr;     // the b1 last copied this frame, compared only, never dereferenced
         ComPtr<ID3D11Buffer> gather_apply_;    // core/trace.h's GatherApplyConstants, at b2 for the gather's draws
         ComPtr<ID3D11Buffer> dof_constants_;   // core/dof.h's DofConstants, at b1 for the depth of field's draws
         ComPtr<ID3D11Buffer> flare_constants_; // core/flare.h's FlareConstants, at b1 for the lens flare's draw

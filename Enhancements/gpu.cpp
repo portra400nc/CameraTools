@@ -986,9 +986,13 @@ namespace enhancements
 
     void Gpu::capture_frame_camera(uint64_t frame)
     {
-        if (frame_camera_frame_ != frame)
+        if (frame_camera_seen_frame_ != frame)
+        {
+            frame_camera_seen_frame_ = frame;
+            frame_camera_last_ = nullptr;
             frame_camera_tries_ = 0;
-        if (frame_camera_failed_ || frame_camera_tries_ >= 4)
+        }
+        if (frame_camera_failed_ || frame_camera_tries_ >= 16)
             return;
         ID3D11Device *d = device_.Get();
         ID3D11DeviceContext1 *c = context_.Get();
@@ -1026,8 +1030,11 @@ namespace enhancements
         D3D11_BUFFER_DESC desc;
         game->GetDesc(&desc);
         const UINT start = first * 16;
-        if (desc.ByteWidth == 560 && start == 0)
+        // Each new b1 of the 560-byte layout: some frames open with one that holds zeros, which the compute shader turns
+        // down, and the frame's own camera buffer then serves the rest of the G-buffer pass.
+        if (desc.ByteWidth == 560 && start == 0 && game != frame_camera_last_)
         {
+            frame_camera_last_ = game;
             const D3D11_BOX box = { 0, 0, 0, kFrameCameraRows * 16, 1, 1 };
             c->CopySubresourceRegion(frame_camera_raw_.Get(), 0, 0, 0, 0, game, 0, &box);
             ID3D11ShaderResourceView *const in[] = { frame_camera_raw_srv_.Get() };
