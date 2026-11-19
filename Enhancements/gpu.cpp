@@ -975,6 +975,75 @@ namespace enhancements
             return;
         std::memcpy(mapped.pData, &constants, sizeof constants);
         context_->Unmap(constants_.Get(), 0);
+        // This frame's camera over the pushed one's matrices, the first 192 bytes.
+        if (frame_camera_frame_ == frame_ && constants_live_)
+        {
+            context_->CopyResource(constants_live_.Get(), constants_.Get());
+            const D3D11_BOX matrices = { 0, 0, 0, 12 * 16, 1, 1 };
+            context_->CopySubresourceRegion(constants_live_.Get(), 0, 0, 0, 0, frame_camera_out_.Get(), 0, &matrices);
+        }
+    }
+
+    void Gpu::capture_frame_camera(uint64_t frame)
+    {
+        if (frame_camera_frame_ != frame)
+            frame_camera_tries_ = 0;
+        if (frame_camera_failed_ || frame_camera_tries_ >= 4)
+            return;
+        ID3D11Device *d = device_.Get();
+        ID3D11DeviceContext1 *c = context_.Get();
+        if (!frame_camera_made_)
+        {
+            frame_camera_failed_ = true;
+            D3D11_BUFFER_DESC live = {};
+            constants_->GetDesc(&live);
+            live.Usage = D3D11_USAGE_DEFAULT;
+            live.CPUAccessFlags = 0;
+            const D3D11_BUFFER_DESC raw = { kFrameCameraRows * 16, D3D11_USAGE_DEFAULT, D3D11_BIND_SHADER_RESOURCE, 0, 0, 0 };
+            const D3D11_BUFFER_DESC out = { 12 * 16, D3D11_USAGE_DEFAULT, D3D11_BIND_UNORDERED_ACCESS, 0, 0, 0 };
+            D3D11_SHADER_RESOURCE_VIEW_DESC raw_view = {};
+            raw_view.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+            raw_view.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+            raw_view.Buffer.NumElements = kFrameCameraRows;
+            D3D11_UNORDERED_ACCESS_VIEW_DESC out_view = {};
+            out_view.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+            out_view.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+            out_view.Buffer.NumElements = 12;
+            if (FAILED(d->CreateBuffer(&live, nullptr, &constants_live_)) || FAILED(d->CreateBuffer(&raw, nullptr, &frame_camera_raw_))
+                || FAILED(d->CreateBuffer(&out, nullptr, &frame_camera_out_))
+                || FAILED(d->CreateShaderResourceView(frame_camera_raw_.Get(), &raw_view, &frame_camera_raw_srv_))
+                || FAILED(d->CreateUnorderedAccessView(frame_camera_out_.Get(), &out_view, &frame_camera_out_uav_))
+                || FAILED(d->CreateComputeShader(kFrameCameraCs, sizeof kFrameCameraCs, nullptr, &frame_camera_cs_)))
+                return;
+            frame_camera_failed_ = false;
+            frame_camera_made_ = true;
+        }
+        ID3D11Buffer *game = nullptr;
+        UINT first = 0, count = 0;
+        c->VSGetConstantBuffers1(1, 1, &game, &first, &count);
+        if (!game)
+            return;
+        D3D11_BUFFER_DESC desc;
+        game->GetDesc(&desc);
+        const UINT start = first * 16;
+        if (desc.ByteWidth == 560 && start == 0)
+        {
+            const D3D11_BOX box = { 0, 0, 0, kFrameCameraRows * 16, 1, 1 };
+            c->CopySubresourceRegion(frame_camera_raw_.Get(), 0, 0, 0, 0, game, 0, &box);
+            ID3D11ShaderResourceView *const in[] = { frame_camera_raw_srv_.Get() };
+            ID3D11UnorderedAccessView *const out[] = { frame_camera_out_uav_.Get() };
+            c->CSSetShader(frame_camera_cs_.Get(), nullptr, 0);
+            c->CSSetShaderResources(0, 1, in);
+            c->CSSetUnorderedAccessViews(0, 1, out, nullptr);
+            c->Dispatch(1, 1, 1);
+            ID3D11ShaderResourceView *const no_in[] = { nullptr };
+            ID3D11UnorderedAccessView *const no_out[] = { nullptr };
+            c->CSSetShaderResources(0, 1, no_in);
+            c->CSSetUnorderedAccessViews(0, 1, no_out, nullptr);
+            frame_camera_frame_ = frame;
+            frame_camera_tries_++;
+        }
+        game->Release();
     }
 
     void Gpu::draw_fullscreen(ID3D11PixelShader *shader, ID3D11ShaderResourceView *const *srvs, UINT srv_count, ID3D11RenderTargetView *target, Size size,
@@ -988,7 +1057,7 @@ namespace enhancements
     {
         ID3D11DeviceContext1 *c = context_.Get();
         ID3D11SamplerState *const samplers[kSamplerSlots] = { point_.Get(), linear_.Get(), lit_compare_.Get(), wrap_.Get(), anisotropic_wrap_.Get() };
-        ID3D11Buffer *const buffers[1] = { constants_.Get() };
+        ID3D11Buffer *const buffers[1] = { b0() };
         const D3D11_VIEWPORT viewport = { 0, 0, static_cast<float>(size.width), static_cast<float>(size.height), 0, 1 };
         c->IASetInputLayout(nullptr);
         c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -2514,7 +2583,7 @@ namespace enhancements
         if (sky.stars && star_count_ > 0)
         {
             // draw_fullscreen's state with the stars' shaders: a strip of 4 vertices a star, added where the sky shows.
-            ID3D11Buffer *const buffers[] = { constants_.Get() };
+            ID3D11Buffer *const buffers[] = { b0() };
             ID3D11SamplerState *const samplers[kSamplerSlots] = { point_.Get(), linear_.Get(), lit_compare_.Get(), wrap_.Get(), anisotropic_wrap_.Get() };
             ID3D11ShaderResourceView *const star_in[kSrvSlots] = { stars_srv_.Get(), nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
                 sky_transmittance_srv_.Get(), sky_multiple_srv_.Get() };
@@ -3216,7 +3285,7 @@ namespace enhancements
         c->OMGetBlendState(&game_blend, game_factor, &game_mask);
 
         ID3D11SamplerState *const samplers[kSamplers] = { point_.Get(), linear_.Get(), lit_compare_.Get(), wrap_.Get() };
-        ID3D11Buffer *const buffers[] = { constants_.Get() };
+        ID3D11Buffer *const buffers[] = { b0() };
         c->PSSetShaderResources(0, kGameSlots, srvs);
         c->PSSetSamplers(0, kSamplers, samplers);
         c->PSSetConstantBuffers(0, 1, buffers);
