@@ -339,7 +339,8 @@ namespace CameraTools
                     break;
                 case ShotPhase.Tracing:
                     run.Stalled = TracedShot.Stalled(ref run.Baseline, status);
-                    if (status.TraceSamples == 0 && now - run.PhaseBegan > TracedShot.NoSampleTimeout)
+                    float waited = now - run.PhaseBegan;
+                    if (status.TraceSamples == 0 && (waited > TracedShot.NoSampleLimit || (waited > TracedShot.NoSampleTimeout && status.TraceMraysX100 == 0)))
                     {
                         string none = $"no sample {now - run.PhaseBegan:0.0} s after the scene was ready; the add-on says: {Enhancements.Describe()}";
                         if (Retry(status, now, none))

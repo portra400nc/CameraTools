@@ -80,8 +80,10 @@ namespace CameraTools
         public const float DefaultSurfaceGloss = 0.5f, DefaultReflectedLight = 16f, MaxReflectedLight = 32f;
         // Starts without a sample after which the wait says what keeps changing.
         public const uint StalledStarts = 8;
-        // A trace with no sample after this long is not running at all: the add-on's plan skips it, and it would wait forever.
-        public const float NoSampleTimeout = 60f;
+        // A trace that has traced no rays after this long is not running at all: the add-on's plan skips it, and it would wait
+        // forever. One that traces but has no full pass yet is slow, not stuck: a 4K pass over a dense scene, such as inside a
+        // building, takes the Deck about two minutes, so it waits up to NoSampleLimit.
+        public const float NoSampleTimeout = 60f, NoSampleLimit = 600f;
         public const uint Faces = 7;
         // Presents each turned face is held before its capture, against the add-on's 45. The camera only turns, so nothing
         // streams in: at 6, a Deck capture matched one at 45 in depth and in the lit pictures of every surface, and only the
