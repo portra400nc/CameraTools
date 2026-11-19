@@ -120,8 +120,13 @@ namespace enhancements
             uint64_t census = 0;            // asks for a census when it changes
             uint8_t hidden = 0;             // the census is of a frame with this type's renderers hidden: learn its shaders
             bool finish = false;            // a learn ended: the shaders it saw and did not learn as a type draw something else
+            uint64_t pick = 0;              // asks, when it changes, for the shader under the screen's middle to take pick_type
+            uint8_t pick_type = 0;
         };
         Mailbox<SurfaceDetail> surface_box;
+        // The pick: its frame, the shaders numbered in it from 1, and the request it answers.
+        uint64_t pick_asked = 0, pick_frame = 0;
+        std::vector<uint64_t> pick_shaders;
         uint64_t surface_logged_at = 0;     // the frame surface detail logs its rock draws again
         uint32_t surface_draws = 0;         // surface draws masked in surface_draws_frame
         uint32_t surface_ground_draws = 0;  // of them ground's
@@ -1070,6 +1075,17 @@ namespace enhancements
         bool on_step(Step step)
         {
             const FrameMap &map = tracker.map();
+            // The G-buffer is whole by the combine step, which runs whenever the enhancements do, whatever the strength.
+            if (step == Step::combine && pick_frame == frames && gpu.ready())
+            {
+                const char *moved = nullptr;
+                {
+                    StateGuard guard(gpu.context(), moved);
+                    gpu.copy_surface_pick(frames);
+                }
+                if (moved)
+                    trip(moved);
+            }
             if (step == Step::gbuffer_done && settings.enabled && settings.surface_detail > 0 && gpu.ready())
             {
                 const char *moved = nullptr;
@@ -1694,6 +1710,7 @@ namespace enhancements
         // draws something else. A G-buffer shader in neither asks CameraTools for a learn (surface_wants_learn).
         std::unordered_map<uint64_t, uint8_t> surface_types;
         std::atomic<bool> surface_wants_learn { false };
+        std::atomic<uint64_t> last_pick { 0 };      // the shader the last pick marked, for the caller to show
         std::unordered_set<uint64_t> unclassified;  // the shaders that asked for the next learn
         std::unordered_set<uint64_t> id_logged;     // the debug view's pixel shaders listed in the log
         enum class SurfaceState : uint8_t { unloaded, loaded, failed };
@@ -1764,6 +1781,27 @@ namespace enhancements
             {
                 const std::optional<ShaderCode> code = shaders.find(gpu.bound_pixel_shader());
                 census[code ? code->hash : 0]++;
+            }
+            // The pick frame: each draw again with its shader's number, so the middle of the screen names one.
+            if (pick_frame == frames && gpu.ready())
+            {
+                const std::optional<ShaderCode> code = shaders.find(gpu.bound_pixel_shader());
+                const uint64_t hash = code ? code->hash : 0;
+                auto at = std::find(pick_shaders.begin(), pick_shaders.end(), hash);
+                if (at == pick_shaders.end())
+                    at = pick_shaders.insert(pick_shaders.end(), hash);
+                const char *moved = nullptr;
+                bool drawn;
+                {
+                    StateGuard guard(gpu.context(), moved);
+                    drawn = gpu.draw_surface_pick(draw, frames, static_cast<uint32_t>(at - pick_shaders.begin()) + 1);
+                }
+                if (moved)
+                {
+                    trip(moved);
+                    return false;
+                }
+                return drawn;
             }
             if (!settings.enabled || settings.surface_detail <= 0 || !gpu.ready())
                 return false;
@@ -3067,7 +3105,13 @@ namespace enhancements
                 {
                     surface_kinds.clear();
                     surface_layouts.clear();
-                    if (surface.finish)
+                    if (surface.pick != pick_asked)
+                    {
+                        pick_asked = surface.pick;
+                        pick_frame = frames + 1;
+                        pick_shaders.clear();
+                    }
+                    else if (surface.finish)
                     {
                         // The shaders the learn saw and did not learn as a type, and those that asked for it but drew in
                         // neither frame, as a passing effect, draw something else; or they would ask again and again.
@@ -3089,6 +3133,25 @@ namespace enhancements
                     else
                         log(reshade::log::level::info, "surface detail: strength " + std::to_string(surface.strength) + ".");
                 }
+                if (pick_frame != 0 && frames > pick_frame + 2)
+                    if (const std::optional<uint32_t> id = gpu.read_surface_pick())
+                    {
+                        pick_frame = 0;
+                        if (*id == 0 || *id > pick_shaders.size() || pick_shaders[*id - 1] == 0)
+                            log(reshade::log::level::warning, "surface detail: the pick found no G-buffer draw at the screen's middle.");
+                        else
+                        {
+                            const uint64_t hash = pick_shaders[*id - 1];
+                            surface_types[hash] = surface.pick_type;
+                            surface_kinds.clear();
+                            save_surface_types();
+                            char text[160];
+                            std::snprintf(text, sizeof text, "surface detail: picked %016llx at the screen's middle, now %s.", static_cast<unsigned long long>(hash),
+                                kSurfaceNames[std::min<uint8_t>(surface.pick_type, kSurfaceTypes - 1)]);
+                            log(reshade::log::level::info, text);
+                            last_pick = hash;
+                        }
+                    }
                 if (census_frame != 0 && frames > census_frame)
                 {
                     std::vector<std::pair<uint64_t, uint32_t>> counted(census.begin(), census.end());
@@ -3347,6 +3410,11 @@ extern "C" void EnhancementsSetCharacterLights(const EnhancementsCharacterLights
     character_light_box.put(parse_character_lights(&copy));
 }
 
+extern "C" uint64_t EnhancementsSurfaceLastPick()
+{
+    return last_pick.load();
+}
+
 extern "C" uint32_t EnhancementsSurfaceWantsLearn()
 {
     return surface_wants_learn.exchange(false) ? 1 : 0;
@@ -3358,8 +3426,15 @@ extern "C" void EnhancementsSetSurfaceDetail(float strength, const uint64_t *, u
     static SurfaceDetail last;
     SurfaceDetail detail = last;
     detail.finish = false;
-    // -1 a census of the scene as it is, -1 - type one with that type's renderers hidden, -100 the learn's end.
-    if (std::isfinite(strength) && strength <= -99.5f)
+    // -1 a census of the scene as it is, -1 - type one with that type's renderers hidden, -100 the learn's end, -200 - type
+    // the shader under the screen's middle takes that type (0 other).
+    if (std::isfinite(strength) && strength <= -199.5f)
+    {
+        static std::atomic<uint64_t> picks { 0 };
+        detail.pick = ++picks;
+        detail.pick_type = static_cast<uint8_t>(std::clamp(static_cast<int>(-strength - 200 + 0.5f), 0, 255));
+    }
+    else if (std::isfinite(strength) && strength <= -99.5f)
         detail.finish = true;
     else if (std::isfinite(strength) && strength < 0)
     {

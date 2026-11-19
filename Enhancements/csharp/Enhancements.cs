@@ -747,6 +747,13 @@ namespace CameraToolsEnhancements
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate uint SurfaceWantsLearnCall();
 
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate ulong SurfaceLastPickCall();
+        private static SurfaceLastPickCall surfaceLastPick;
+
+        // The pixel shader the last pick marked, 0 before any or without the export.
+        public static ulong SurfaceLastPick() => addOn != null && surfaceLastPick != null ? surfaceLastPick() : 0;
+
         // Optional: an add-on without them still connects.
         private static SetSurfaceDetailCall setSurfaceDetail;
         private static SurfaceWantsLearnCall surfaceWantsLearn;
@@ -1106,6 +1113,7 @@ namespace CameraToolsEnhancements
             rejected = IntPtr.Zero;
             TryExport(module, "EnhancementsSetSurfaceDetail", out setSurfaceDetail);
             TryExport(module, "EnhancementsSurfaceWantsLearn", out surfaceWantsLearn);
+            TryExport(module, "EnhancementsSurfaceLastPick", out surfaceLastPick);
             addOn = new AddOn(module, apply, setCamera, getStatus, describe, compare, setAccumulate, depthAt, captureScene, saveTrace, setShot, saveFrame,
                 developDng, writeDng, setShotLights, setGameLights, setCharacterLights, setCelestial, getWorldLight);
             Connections++;

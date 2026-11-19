@@ -22,6 +22,17 @@ namespace CameraTools
         private static int step = -1, wait;
         private static readonly List<Renderer> hidden = new();
 
+        private static ulong shownPick;
+        private static string pickedAs;
+
+        // From the probe: the pixel shader under the screen's middle takes a type, 2 ground or 0 none. The add-on answers
+        // a frame or two later; Update shows it.
+        public static void Pick(int type)
+        {
+            if (Enhancements.SetSurfaceDetail(-200f - type, null))
+                pickedAs = type == 2 ? "ground" : type == 1 ? "rock" : "no detail";
+        }
+
         // From the probe: learn now.
         public static void Learn()
         {
@@ -37,6 +48,13 @@ namespace CameraTools
             {
                 Learning();
                 return;
+            }
+            if (pickedAs != null && Enhancements.SurfaceLastPick() is var picked && picked != shownPick)
+            {
+                shownPick = picked;
+                CameraUi.Toast($"Surface detail: {picked:x16} marked as {pickedAs}", whileHidden: true);
+                Melon<CameraTools>.Logger.Msg($"Surface detail: pixel shader {picked:x16} marked as {pickedAs}.");
+                pickedAs = null;
             }
             if (Strength != sent && Enhancements.SetSurfaceDetail(Strength, null))
             {

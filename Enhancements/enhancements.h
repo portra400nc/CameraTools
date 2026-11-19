@@ -1092,6 +1092,8 @@ ENHANCEMENTS_EXPORT void EnhancementsSetSurfaceDetail(float strength, const uint
 // 1 once when a G-buffer draw used a pixel shader no learn has classified yet, as in a region not seen before: the caller
 // then learns (-1, hide the rocks, -2) so the new rock shaders take detail too.
 ENHANCEMENTS_EXPORT uint32_t EnhancementsSurfaceWantsLearn();
+// The pixel shader hash the last pick (EnhancementsSetSurfaceDetail -200 - type) marked, 0 before any.
+ENHANCEMENTS_EXPORT uint64_t EnhancementsSurfaceLastPick();
 
 // Sets studio lighting and the world's light for characters (EnhancementsCharacterLights); null or disabled turns both off.
 // Version 28 added it.

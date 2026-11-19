@@ -865,6 +865,7 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kSurfaceMaskCPs, sizeof kSurfaceMaskCPs, nullptr, &made.surface_mask_c_ps_))
             && SUCCEEDED(device->CreatePixelShader(kSurfaceIdPs, sizeof kSurfaceIdPs, nullptr, &made.surface_id_ps_))
             && SUCCEEDED(device->CreatePixelShader(kSurfaceMaskDPs, sizeof kSurfaceMaskDPs, nullptr, &made.surface_mask_d_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kSurfacePickPs, sizeof kSurfacePickPs, nullptr, &made.surface_pick_ps_))
             && SUCCEEDED(device->CreatePixelShader(kGatherAveragePs, sizeof kGatherAveragePs, nullptr, &made.gather_average_ps_))
             && SUCCEEDED(device->CreatePixelShader(kGatherFilterPs, sizeof kGatherFilterPs, nullptr, &made.gather_filter_ps_))
             && SUCCEEDED(device->CreatePixelShader(kApplyGatherPs, sizeof kApplyGatherPs, nullptr, &made.apply_gather_ps_))
@@ -1867,14 +1868,22 @@ namespace enhancements
         return true;
     }
 
-    bool Gpu::draw_surface_id(const GameDraw &draw, uint64_t frame, const float color[4])
+    bool Gpu::redraw_into(const GameDraw &draw, uint64_t frame, Scratch &into, DXGI_FORMAT format, uint64_t &cleared, ID3D11PixelShader *ps,
+        const void *constants)
     {
         ID3D11Device *d = device_.Get();
         ID3D11DeviceContext1 *c = context_.Get();
         ComPtr<ID3D11RenderTargetView> target;
         ComPtr<ID3D11DepthStencilView> depth;
         c->OMGetRenderTargets(1, &target, &depth);
-        if (!target || !depth || !surface_type_cb_)
+        if (!surface_type_cb_)
+        {
+            // Made with the maps, which a pick does not wait for.
+            const D3D11_BUFFER_DESC constants = { 16, D3D11_USAGE_DYNAMIC, D3D11_BIND_CONSTANT_BUFFER, D3D11_CPU_ACCESS_WRITE, 0, 0 };
+            if (FAILED(d->CreateBuffer(&constants, nullptr, &surface_type_cb_)))
+                return false;
+        }
+        if (!target || !depth)
             return false;
         ComPtr<ID3D11Resource> resource;
         target->GetResource(&resource);
@@ -1883,7 +1892,7 @@ namespace enhancements
             return false;
         D3D11_TEXTURE2D_DESC desc;
         texture->GetDesc(&desc);
-        if (!surface_ids_.sync(d, { desc.Width, desc.Height }, DXGI_FORMAT_R8G8B8A8_UNORM))
+        if (!into.sync(d, { desc.Width, desc.Height }, format))
             return false;
         ComPtr<ID3D11DepthStencilState> game;
         UINT reference = 0;
@@ -1909,26 +1918,69 @@ namespace enhancements
                 c->DrawInstanced(draw.count, draw.instances, draw.first, draw.first_instance);
         };
         issue();
-        if (surface_ids_frame_ != frame)
+        if (cleared != frame)
         {
             const float zero[4] = {};
-            c->ClearRenderTargetView(surface_ids_.rtv(), zero);
-            surface_ids_frame_ = frame;
+            c->ClearRenderTargetView(into.rtv(), zero);
+            cleared = frame;
         }
         D3D11_MAPPED_SUBRESOURCE mapped;
         if (FAILED(c->Map(surface_type_cb_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
             return true;
-        std::memcpy(mapped.pData, color, 16);
+        std::memcpy(mapped.pData, constants, 16);
         c->Unmap(surface_type_cb_.Get(), 0);
         ID3D11Buffer *const cb[] = { surface_type_cb_.Get() };
         c->PSSetConstantBuffers(13, 1, cb);
-        ID3D11RenderTargetView *const ids[] = { surface_ids_.rtv() };
-        c->OMSetRenderTargets(1, ids, depth.Get());
+        ID3D11RenderTargetView *const out[] = { into.rtv() };
+        c->OMSetRenderTargets(1, out, depth.Get());
         c->OMSetDepthStencilState(equal.Get(), 0);
         c->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
-        c->PSSetShader(surface_id_ps_.Get(), nullptr, 0);
+        c->PSSetShader(ps, nullptr, 0);
         issue();
         return true;
+    }
+
+    bool Gpu::draw_surface_id(const GameDraw &draw, uint64_t frame, const float color[4])
+    {
+        return redraw_into(draw, frame, surface_ids_, DXGI_FORMAT_R8G8B8A8_UNORM, surface_ids_frame_, surface_id_ps_.Get(), color);
+    }
+
+    bool Gpu::draw_surface_pick(const GameDraw &draw, uint64_t frame, uint32_t id)
+    {
+        const uint32_t constants[4] = { id };
+        return redraw_into(draw, frame, surface_pick_, DXGI_FORMAT_R32_UINT, surface_pick_frame_, surface_pick_ps_.Get(), constants);
+    }
+
+    void Gpu::copy_surface_pick(uint64_t frame)
+    {
+        surface_pick_copied_ = false;
+        if (surface_pick_frame_ != frame || !surface_pick_.texture())
+            return;
+        if (!surface_pick_back_)
+        {
+            const D3D11_TEXTURE2D_DESC one = { 1, 1, 1, 1, DXGI_FORMAT_R32_UINT, { 1, 0 }, D3D11_USAGE_STAGING, 0, D3D11_CPU_ACCESS_READ, 0 };
+            if (FAILED(device_->CreateTexture2D(&one, nullptr, &surface_pick_back_)))
+                return;
+        }
+        D3D11_TEXTURE2D_DESC desc;
+        surface_pick_.texture()->GetDesc(&desc);
+        const D3D11_BOX middle = { desc.Width / 2, desc.Height / 2, 0, desc.Width / 2 + 1, desc.Height / 2 + 1, 1 };
+        context_->CopySubresourceRegion(surface_pick_back_.Get(), 0, 0, 0, 0, surface_pick_.texture(), 0, &middle);
+        surface_pick_copied_ = true;
+    }
+
+    std::optional<uint32_t> Gpu::read_surface_pick()
+    {
+        if (!surface_pick_copied_)
+            return std::nullopt;
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        // A one-off wait of a frame at most: the caller asks a few frames after the copy.
+        if (FAILED(context_->Map(surface_pick_back_.Get(), 0, D3D11_MAP_READ, 0, &mapped)))
+            return std::nullopt;
+        const uint32_t id = *static_cast<const uint32_t *>(mapped.pData);
+        context_->Unmap(surface_pick_back_.Get(), 0);
+        surface_pick_copied_ = false;
+        return id;
     }
 
     bool Gpu::load_surface_detail(const std::string &dds, std::string &why, uint8_t type)

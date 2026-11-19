@@ -512,6 +512,12 @@ namespace enhancements
         bool draw_surface_mask(const GameDraw &draw, uint64_t frame, int layout, uint8_t type);
         // The debug view's: the game's draw, then again in color into an id target of ours (surface_id_ps.hlsl).
         bool draw_surface_id(const GameDraw &draw, uint64_t frame, const float color[4]);
+        // The pick's: the game's draw, then again with number id into a pick target of ours (surface_pick_ps.hlsl).
+        bool draw_surface_pick(const GameDraw &draw, uint64_t frame, uint32_t id);
+        // At the end of the pick frame's G-buffer pass: the number under the screen's middle, into a readback.
+        void copy_surface_pick(uint64_t frame);
+        // That number once the GPU has it; 0 where no G-buffer draw drew. Empty while it is not ready.
+        std::optional<uint32_t> read_surface_pick();
         const char *surface_failure = "";   // what run_surface_detail could not make, for the log
         // The detail map blended into the G-buffer where this frame's mask still shows, at the end of the G-buffer pass.
         std::optional<GameCall> run_surface_detail(const FrameMap &map, float strength, const Camera &camera, bool flip, uint64_t frame);
@@ -670,7 +676,7 @@ namespace enhancements
         bool sync_sky_tables(const std::shared_ptr<const Atmosphere> &atmosphere);
         ComPtr<ID3D11ComputeShader> dof_scatter_cs_, cloud_shape_cs_, cloud_detail_cs_;
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, ambient_specular_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_, cloud_map_ps_, clouds_ps_, clouds_apply_ps_, clouds_resolve_ps_, clouds_painted_ps_,
-            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, character_light_ps_, character_shadow_ps_, character_sun_ps_, grass_capture_ps_, grass_ps_, grass_apply_ps_, character_balance_ps_, character_balance_adapt_ps_, surface_detail_ps_, sky_dome_view_ps_, sky_direction_ps_, surface_mask_a_ps_, surface_mask_b_ps_, surface_mask_c_ps_, surface_mask_d_ps_, surface_id_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
+            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, character_light_ps_, character_shadow_ps_, character_sun_ps_, grass_capture_ps_, grass_ps_, grass_apply_ps_, character_balance_ps_, character_balance_adapt_ps_, surface_detail_ps_, sky_dome_view_ps_, sky_direction_ps_, surface_mask_a_ps_, surface_mask_b_ps_, surface_mask_c_ps_, surface_mask_d_ps_, surface_id_ps_, surface_pick_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
             apply_gather_ps_, reflect_apply_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_, dof_soften_ps_, dof_behind_ps_,
             dof_sprite_ps_, dof_lift_ps_, dof_display_in_ps_, dof_display_out_ps_, dof_near_ps_, dof_near_mask_ps_, dof_near_fill_ps_, flare_visibility_ps_, flare_ps_,
             dng_ps_, dng_flare_ps_, exposure_meter_ps_, exposure_adapt_ps_;
@@ -750,6 +756,12 @@ namespace enhancements
         bool leaf_made_ = false, leaf_failed_ = false;
         Scratch surface_mask_;                      // RGBA32F the rock's world position and view depth this frame, zero elsewhere
         Scratch surface_ids_;                       // RGBA8 the debug view's colors by pixel shader
+        Scratch surface_pick_;                      // R32_UINT the pick frame's numbers by pixel shader
+        uint64_t surface_pick_frame_ = UINT64_MAX;
+        ComPtr<ID3D11Texture2D> surface_pick_back_;
+        bool surface_pick_copied_ = false;
+        bool redraw_into(const GameDraw &draw, uint64_t frame, Scratch &target, DXGI_FORMAT format, uint64_t &cleared, ID3D11PixelShader *ps,
+            const void *constants);
         uint64_t surface_ids_frame_ = UINT64_MAX;
         Scratch surface_mask_depth_;                // RG32F the depth buffer's value the surface wrote, and its type
         uint64_t surface_mask_frame_ = UINT64_MAX;  // the frame the mask was cleared for
