@@ -19,7 +19,7 @@ namespace enhancements
         bool sky_wanted(const Settings &s) { return s.sky.enabled; }
         bool traced_lights_wanted(const Settings &s) { return s.traced_lights; }
         bool traced_foliage_wanted(const Settings &s) { return s.trace.enabled; }
-        bool transmission_wanted(const Settings &s) { return s.transmission > 0; }
+        bool transmission_wanted(const Settings &s) { return s.transmission > 0 || s.leaf_shading > 0; }
         bool grass_wanted(const Settings &s) { return s.grass_roots > 0; }
         bool character_light_wanted(const Settings &s) { return s.character_light.enabled; }
         bool tonemap_wanted(const Settings &s) { return s.tonemap.enabled; }
@@ -961,8 +961,9 @@ namespace enhancements
                 steps.add(spec.at);
         if (settings.view != View::off)
             steps.add(kViews[static_cast<size_t>(settings.view)].snapshot_at);
-        // Light through leaves copies its leaves at the combine step, where the stencil and the G-buffer still hold them.
-        if (settings.transmission > 0)
+        // Light through leaves and Leaf shading copy the leaves at the combine step, where the stencil and the G-buffer still
+        // hold them.
+        if (settings.transmission > 0 || settings.leaf_shading > 0)
             steps.add(Step::combine);
         // Plug-ins draw into the G-buffer when its pass ends, and read it whole at the combine step.
         if (settings.plugins)

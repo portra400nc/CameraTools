@@ -128,7 +128,7 @@ cbuffer Constants : register(b0)
     float scene_gain;           // 2 ^ EnhancementsSceneLight.exposure_ev, for scene_light_ps.hlsl
     float transmission_strength;    // EnhancementsTransmission.strength, for transmission_ps.hlsl
     float grass_roots;          // EnhancementsGrass.root_shade, for grass_ps.hlsl
-    float grass_pad;
+    float leaf_light;           // EnhancementsLeaves.shading, for transmission_ps.hlsl
 };
 
 SamplerState point_clamp : register(s0);

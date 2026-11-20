@@ -397,7 +397,7 @@ namespace enhancements
         std::optional<GameCall> run_grass(const FrameMap &map, float roots, const Camera &camera, bool flip);
         // Light through leaves: the sun's light grass and leaves let through, by strength, added to the HDR scene where
         // capture_leaves found them this frame. Keeps the scene without that copy. Empty when a texture of ours failed.
-        std::optional<GameCall> run_transmission(const FrameMap &map, float strength, const Camera &camera, bool flip);
+        std::optional<GameCall> run_transmission(const FrameMap &map, float strength, float leaf_light, const Camera &camera, bool flip);
         std::optional<GameCall> run_atmosphere(const FrameMap &map, const AtmosphereSettings &settings, const Camera &camera, bool flip, float drift_x, float drift_z);
         // The cloud layer: bake the cells around the camera into cloud_map_, march the slab at half size into cloud_rays_
         // with the game's camera constants gather_sun copied, and lay the result over the sky's pixels. wind is the meters
@@ -501,10 +501,6 @@ namespace enhancements
             ID3D11Buffer *args = nullptr;   // an indirect draw's arguments, which then stand in for the counts above
             uint32_t args_offset = 0;
         };
-        // The game's vegetation lighting draw (the combine pass's, stencil 136), drawn again with a copy of its cb0 that
-        // shades leaves by their facing at strength (leaf_constants_cs.hlsl). Call it inside a StateGuard. false when a
-        // buffer of ours failed or the draw binds too little; the game's draw then runs.
-        bool draw_leaves(const GameDraw &draw, float strength);
 
         // One of the game's water draws, with its own geometry and state, drawn with our water pixel shader in place of
         // its own; the pixel shader's bindings are the game's again after. The first of a frame that has no copy of the
@@ -708,7 +704,9 @@ namespace enhancements
             back_buffer_, sun_atlas_, albedo_, material_id_, albedo_out_, specular_in_, specular_out_, reflection_in_, reflection_out_, smoothness_in_, smoothness_out_;
         Scratch ao_;                // R8_UNORM raw occlusion, 1 = open
         Scratch traced_foliage_;    // R8_UNORM the trace's shade on grass and leaves, 1 elsewhere
-        Scratch leaves_;            // RGBA8 light through leaves' copy: a leaf's albedo as stored and its sunlight, zero elsewhere
+        Scratch leaves_;            // RGBA8 the leaves' copy: a leaf's albedo as stored and its sunlight, zero elsewhere
+        Scratch leaf_normals_;      // RGBA8 the leaves' world normals, and a mark for trees' and bushes' leaves
+        Scratch leaf_light_;        // RGBA16F the diffuse irradiance on the leaves
         Mirror leaf_albedo_;        // the G-buffer's albedo at the combine step, for capture_leaves
         Scratch grass_;             // R8_UNORM: grass_capture_ps.hlsl's blades and ground
         Scratch grass_factor_;      // R16G16B16A16_FLOAT: grass_ps.hlsl's factor for the HDR scene
@@ -729,11 +727,6 @@ namespace enhancements
         ComPtr<ID3D11SamplerState> grass_port_sampler_;
         UINT grass_port_indices_ = 0;
         bool grass_port_made_ = false, grass_port_failed_ = false;
-        static constexpr UINT kLeafConstantBytes = 4096;
-        ComPtr<ID3D11Buffer> leaf_raw_, leaf_cb_, leaf_constants_;
-        ComPtr<ID3D11UnorderedAccessView> leaf_raw_uav_;
-        ComPtr<ID3D11ComputeShader> leaf_cs_;
-        bool leaf_made_ = false, leaf_failed_ = false;
         // The camera's turn found from the game's sky dome (sky_camera.hlsli), bound at b7 for the clouds and the stars.
         Scratch sky_direction_;                         // RGBA16F the dome's direction at each pixel, w 1 where it drew
         ComPtr<ID3D11Buffer> sky_camera_buffer_, sky_camera_cb_, sky_camera_unknown_cb_, sky_camera_frame_cb_;

@@ -145,7 +145,7 @@ namespace enhancements
         float scene_gain;
         float transmission_strength;
         float grass_roots;
-        float grass_pad;
+        float leaf_light;
     };
     static_assert(sizeof(Constants) == 960 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
@@ -1535,7 +1535,12 @@ namespace enhancements
         leaves_fresh_ = false;
         const std::optional<Texture> &mask = map[Entry::shadow_mask], &albedo = map[Entry::albedo], &depth = map[Entry::depth];
         ID3D11Device *d = device_.Get();
-        if (!mask || !albedo || !depth || !leaves_.sync(d, map.render, DXGI_FORMAT_R8G8B8A8_UNORM)
+        const std::optional<Texture> &normals = map[Entry::normals];
+        if (!mask || !albedo || !depth || !normals || !leaves_.sync(d, map.render, DXGI_FORMAT_R8G8B8A8_UNORM)
+            || !leaf_normals_.sync(d, map.render, DXGI_FORMAT_R8G8B8A8_UNORM) || !leaf_light_.sync(d, map.render, DXGI_FORMAT_R16G16B16A16_FLOAT)
+            || !map[Entry::ambient_diffuse]
+            || !irradiance_in_.sync(d, native(*map[Entry::ambient_diffuse]), static_cast<DXGI_FORMAT>(map[Entry::ambient_diffuse]->format), false)
+            || !normals_.sync(d, native(*normals), static_cast<DXGI_FORMAT>(normals->format), false)
             || !shadow_mask_in_.sync(d, native(*mask), static_cast<DXGI_FORMAT>(mask->format), false)
             || !leaf_albedo_.sync(d, native(*albedo), static_cast<DXGI_FORMAT>(albedo->format), false)
             || !depth_.sync(d, native(*depth), static_cast<DXGI_FORMAT>(depth->format), false))
@@ -1544,8 +1549,12 @@ namespace enhancements
         shadow_mask_in_.copy_from(c, native(*mask));
         leaf_albedo_.copy_from(c, native(*albedo));
         depth_.copy_from(c, native(*depth));
-        ID3D11ShaderResourceView *const srvs[] = { shadow_mask_in_.srv(), nullptr, depth_.srv(), depth_.stencil_srv(), nullptr, leaf_albedo_.srv() };
-        draw_fullscreen(leaf_capture_ps_.Get(), srvs, 6, leaves_.rtv(), map.render);
+        normals_.copy_from(c, native(*normals));
+        irradiance_in_.copy_from(c, native(*map[Entry::ambient_diffuse]));
+        ID3D11ShaderResourceView *const srvs[] = { shadow_mask_in_.srv(), normals_.srv(), depth_.srv(), depth_.stencil_srv(), nullptr, leaf_albedo_.srv(),
+            irradiance_in_.srv() };
+        ID3D11RenderTargetView *const targets[] = { leaves_.rtv(), leaf_normals_.rtv(), leaf_light_.rtv() };
+        draw_fullscreen(leaf_capture_ps_.Get(), srvs, 7, targets, 3, map.render);
         leaves_fresh_ = true;
         return true;
     }
@@ -1714,72 +1723,6 @@ namespace enhancements
     {
         size = sizeof kGrassPortPs;
         return kGrassPortPs;
-    }
-
-    bool Gpu::draw_leaves(const GameDraw &draw, float strength)
-    {
-        ID3D11Device *d = device_.Get();
-        ID3D11DeviceContext1 *c = context_.Get();
-        if (leaf_failed_)
-            return false;
-        if (!leaf_made_)
-        {
-            leaf_failed_ = true;
-            D3D11_BUFFER_DESC raw = { kLeafConstantBytes, D3D11_USAGE_DEFAULT, D3D11_BIND_UNORDERED_ACCESS, 0, 0, 0 };
-            D3D11_BUFFER_DESC cb = { kLeafConstantBytes, D3D11_USAGE_DEFAULT, D3D11_BIND_CONSTANT_BUFFER, 0, 0, 0 };
-            D3D11_BUFFER_DESC constants = { 16, D3D11_USAGE_DYNAMIC, D3D11_BIND_CONSTANT_BUFFER, D3D11_CPU_ACCESS_WRITE, 0, 0 };
-            D3D11_UNORDERED_ACCESS_VIEW_DESC view = {};
-            view.Format = DXGI_FORMAT_R32_UINT;
-            view.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
-            view.Buffer.NumElements = kLeafConstantBytes / 4;
-            if (FAILED(d->CreateBuffer(&raw, nullptr, &leaf_raw_)) || FAILED(d->CreateBuffer(&cb, nullptr, &leaf_cb_))
-                || FAILED(d->CreateBuffer(&constants, nullptr, &leaf_constants_)) || FAILED(d->CreateUnorderedAccessView(leaf_raw_.Get(), &view, &leaf_raw_uav_))
-                || FAILED(d->CreateComputeShader(kLeafConstantsCs, sizeof kLeafConstantsCs, nullptr, &leaf_cs_)))
-                return false;
-            leaf_failed_ = false;
-            leaf_made_ = true;
-        }
-        // The draw's cb0 from the start of its bound range, which must reach cb0[241].
-        ID3D11Buffer *game = nullptr;
-        UINT first = 0, count = 0;
-        c->PSGetConstantBuffers1(0, 1, &game, &first, &count);
-        if (!game)
-            return false;
-        D3D11_BUFFER_DESC desc;
-        game->GetDesc(&desc);
-        const UINT start = first * 16;
-        const UINT bytes = start < desc.ByteWidth ? std::min({ count != 0 ? count * 16 : desc.ByteWidth - start, desc.ByteWidth - start, kLeafConstantBytes }) : 0;
-        if (bytes < 242 * 16)
-        {
-            game->Release();
-            return false;
-        }
-        const D3D11_BOX box = { start, 0, 0, start + bytes, 1, 1 };
-        c->CopySubresourceRegion(leaf_raw_.Get(), 0, 0, 0, 0, game, 0, &box);
-        game->Release();
-        D3D11_MAPPED_SUBRESOURCE mapped;
-        if (FAILED(c->Map(leaf_constants_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
-            return false;
-        const float leaf[4] = { strength };
-        std::memcpy(mapped.pData, leaf, sizeof leaf);
-        c->Unmap(leaf_constants_.Get(), 0);
-        ID3D11Buffer *const own[] = { leaf_constants_.Get() };
-        ID3D11UnorderedAccessView *const uav[] = { leaf_raw_uav_.Get() };
-        c->CSSetShader(leaf_cs_.Get(), nullptr, 0);
-        c->CSSetConstantBuffers(0, 1, own);
-        c->CSSetUnorderedAccessViews(0, 1, uav, nullptr);
-        c->Dispatch(1, 1, 1);
-        ID3D11UnorderedAccessView *const none[] = { nullptr };
-        c->CSSetUnorderedAccessViews(0, 1, none, nullptr);
-        const D3D11_BOX back = { 0, 0, 0, bytes, 1, 1 };
-        c->CopySubresourceRegion(leaf_cb_.Get(), 0, 0, 0, 0, leaf_raw_.Get(), 0, &back);
-        ID3D11Buffer *const patched[] = { leaf_cb_.Get() };
-        c->PSSetConstantBuffers(0, 1, patched);
-        if (draw.indexed)
-            c->DrawIndexedInstanced(draw.count, draw.instances, draw.first, draw.vertex_offset, draw.first_instance);
-        else
-            c->DrawInstanced(draw.count, draw.instances, draw.first, draw.first_instance);
-        return true;
     }
 
     bool Gpu::make_grass_port()
@@ -2054,7 +1997,7 @@ namespace enhancements
         return GameCall::keep;
     }
 
-    std::optional<GameCall> Gpu::run_transmission(const FrameMap &map, float strength, const Camera &camera, bool flip)
+    std::optional<GameCall> Gpu::run_transmission(const FrameMap &map, float strength, float leaf_light, const Camera &camera, bool flip)
     {
         // The leaves capture_leaves copied at this frame's combine step, once.
         if (!leaves_fresh_)
@@ -2068,12 +2011,13 @@ namespace enhancements
             || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false) || !pass_constants(camera, map.render, flip, constants))
             return std::nullopt;
         constants.transmission_strength = strength;
+        constants.leaf_light = leaf_light;
         upload(constants);
         ID3D11DeviceContext1 *c = context_.Get();
         scene_in_.copy_from(c, native(scene));
         depth_.copy_from(c, native(depth));
-        ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), nullptr, depth_.srv(), nullptr, leaves_.srv() };
-        draw_fullscreen(transmission_ps_.Get(), srvs, 5, scene_out_.rtv(), map.render);
+        ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), nullptr, depth_.srv(), nullptr, leaves_.srv(), leaf_normals_.srv(), leaf_light_.srv() };
+        draw_fullscreen(transmission_ps_.Get(), srvs, 7, scene_out_.rtv(), map.render);
         scene_out_.copy_to(c, native(scene));
         return GameCall::keep;
     }
