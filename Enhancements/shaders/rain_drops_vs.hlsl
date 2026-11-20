@@ -15,6 +15,7 @@
 #include "rain_layers.hlsli"
 
 Texture2D<float> atlas : register(t5);              // mirror of the game's sun atlas, copied at its shadow-mask draw
+Texture2D<float3> glow : register(t6);              // the HDR scene before the rain with its mips, black when unbound
 SamplerComparisonState lit_compare : register(s2);  // bilinear, GREATER_EQUAL: lit where the point is at least as near
                                                     // the sun as what the atlas holds
 
@@ -39,6 +40,11 @@ static const float kReflect = 0.06;                 // the sky a drop reflects, 
 // A drop is a wide-angle lens: most of what it bends toward the eye comes from the bright sky above, so against darker
 // scenery it shows as a light streak, and against the sky it nearly vanishes.
 static const float kSkyThrough = 1.2;
+// The light around a drop's line of sight that it scatters forward toward the eye: lamps, lit windows and the moon behind
+// rain light it, as the main light's lobes do for the sun. The scene blurred over two widths stands in for the forward lobe
+// over the light around: a few degrees and a few tens of degrees across.
+static const float kGlow = 1.5;
+static const float2 kGlowLevels = float2(4, 6);
 static const float3 kFlashTint = float3(0.85, 0.92, 1.1);   // as rain_ps.hlsl's
 
 uint3 pcg3d(uint3 v)
@@ -157,6 +163,8 @@ RainStreak main(uint vertex : SV_VertexID, uint instance : SV_InstanceID)
     o.shape = float4(length_px, drawn, across);
 
     float3 light = (kReflect + kSkyThrough) * sky_color + 2 * rain_flash * kFlashTint * sky_color;
+    float2 seen = 0.5 * (a + b) * render_size.zw;
+    light += kGlow * 0.5 * (glow.SampleLevel(linear_clamp, seen, kGlowLevels.x) + glow.SampleLevel(linear_clamp, seen, kGlowLevels.y));
     if (dot(toward_sun, toward_sun) > 0)
     {
         float3 middle = rel - 0.5 * velocity * kShutter;

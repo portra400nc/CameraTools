@@ -2075,22 +2075,30 @@ namespace enhancements
         depth_.copy_from(c, native(depth));
         ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), nullptr, depth_.srv() };
         draw_fullscreen(rain_ps_.Get(), srvs, 3, scene_out_.rtv(), map.render);
+        // Blurred copies of the scene, for the light behind and around each drop. Without them the drops show the sky's only.
+        const bool glowing = amount > 0 && rain_glow_.sync(d, scene_in_.size(), scene_format, true);
+        if (glowing)
+        {
+            c->CopySubresourceRegion(rain_glow_.texture(), 0, 0, 0, 0, scene_in_.texture(), 0, nullptr);
+            c->GenerateMips(rain_glow_.srv());
+        }
         if (amount > 0)
         {
             // draw_fullscreen's state with the drops' shaders: a strip of 4 vertices a drop, blended over the splashes.
             ID3D11Buffer *const buffers[] = { constants_.Get(), game_sun_[0].Get(), game_sun_[1].Get(), game_sun_[2].Get(), game_sun_[3].Get() };
             ID3D11SamplerState *const samplers[kSamplerSlots] = { point_.Get(), linear_.Get(), lit_compare_.Get(), wrap_.Get(), anisotropic_wrap_.Get() };
-            ID3D11ShaderResourceView *const drop_in[] = { nullptr, nullptr, nullptr, nullptr, nullptr, shaded ? sun_atlas_.srv() : nullptr };
+            ID3D11ShaderResourceView *const drop_in[] = { nullptr, nullptr, nullptr, nullptr, nullptr, shaded ? sun_atlas_.srv() : nullptr,
+                glowing ? rain_glow_.srv() : nullptr };
             c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
             c->VSSetShader(rain_drops_vs_.Get(), nullptr, 0);
             c->VSSetConstantBuffers(0, 5, buffers);
             c->VSSetSamplers(0, kSamplerSlots, samplers);
-            c->VSSetShaderResources(0, 6, drop_in);
+            c->VSSetShaderResources(0, 7, drop_in);
             c->PSSetShader(rain_drops_ps_.Get(), nullptr, 0);
             c->OMSetBlendState(over_.Get(), nullptr, 0xFFFFFFFF);
             c->DrawInstanced(4, rain_drop_count(), 0, 0);
-            ID3D11ShaderResourceView *const none[6] = {};
-            c->VSSetShaderResources(0, 6, none);
+            ID3D11ShaderResourceView *const none[7] = {};
+            c->VSSetShaderResources(0, 7, none);
         }
         scene_out_.copy_to(c, native(scene));
         return GameCall::keep;

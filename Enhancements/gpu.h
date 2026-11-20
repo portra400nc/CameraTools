@@ -802,6 +802,7 @@ namespace enhancements
         ComPtr<ID3D11Texture2D> depth_texel_;   // 1x1 R32G8X24_TYPELESS, CPU-readable
         bool depth_texel_pending_ = false;      // copied and not yet read
         Snapshot pending_, shown_;
+        Scratch rain_glow_;         // the HDR scene before the rain, with mips: the light around each drop that it scatters forward
         Scratch exposure_meter_;    // 64x32 R32G32_FLOAT with mips: the auto exposure's log2 luminance sums and counts
         Scratch exposure_[2];       // 1x1 R32_FLOAT: the auto exposure's stops, this frame's and the last's in turn
         uint32_t exposure_at_ = 0;  // the one this frame writes
