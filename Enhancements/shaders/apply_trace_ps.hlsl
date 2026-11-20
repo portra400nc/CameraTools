@@ -93,12 +93,20 @@ Targets main(float4 position : SV_Position)
         averages = float2(h.z < kBlurBelow ? blurred.x : averages.x, h.w < kBlurBelow ? blurred.y : averages.y);
     }
     bool foliage = is_foliage(s);
-    if (h.w > 0 && foliage)
+    bool grass = foliage && (is_grass(s) || (uint(material.Load(int3(pixel, 0)) * 255 + 0.5) & 0x3Fu) == kTallGrassMaterial);
+    if (h.w > 0 && grass)
     {
-        // A blade or leaf lets sunlight through, and its shadows on the next are soft: the traced sun, blurred, at half its
+        // A blade lets sunlight through, and its shadows on the next are soft: the traced sun, blurred, at half its
         // strength. Shadows the game's own shadow map casts, as a tree's on the grass, stay whole.
         float sun = blurred_averages(pixel, view_position_at(pixel).z, view_normal_at(pixel)).y;
         o.mask = float2(min(game_mask.x, lerp(1, sun, trace_params.z * kFoliageSunShadow)), game_mask.y);
+    }
+    else if (h.w > 0 && foliage)
+    {
+        // A tree's or bush's leaf keeps its own traced sun, at the share the traced foliage shade gives leaves: a
+        // canopy's leaves sit at about one depth, so a blur smeared the shade of inner leaves over the edges of the
+        // ones in front, which Leaf shading, lighting leaves through the mask, showed.
+        o.mask = float2(min(game_mask.x, lerp(1, averages.y, trace_params.z * kLeafSunShare)), game_mask.y);
     }
     else if (h.w > 0)
         o.mask = float2(lerp(1, averages.y, trace_params.z), game_mask.y);
@@ -106,7 +114,6 @@ Targets main(float4 position : SV_Position)
         o.irradiance *= trace_params.w * lerp(1, averages.x, trace_params.y);
     if (foliage)
     {
-        bool grass = is_grass(s) || (uint(material.Load(int3(pixel, 0)) * 255 + 0.5) & 0x3Fu) == kTallGrassMaterial;
         o.foliage = float2(min(lerp(1, h.z > 0 ? averages.x : 1, trace_params.y) * lerp(1, h.w > 0 ? averages.y : 1, trace_params.z * (grass ? kGrassSunShare : kLeafSunShare)), 0.99), grass);
     }
     return o;
