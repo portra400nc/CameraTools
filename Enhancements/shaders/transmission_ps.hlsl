@@ -20,6 +20,20 @@ Texture2D<float3> leaf_light_in : register(t6); // the diffuse irradiance on the
 
 static const float kThrough = 1.5;          // the sun a leaf passes on, at strength 1, against its lit side's
 static const float kWrap = 0.5;             // the wrapped Lambert's: (N.L + w) / (1 + w)
+// The game paints leaves brighter and more saturated than real ones, which its leaf ramp hid and physical light shows:
+// measured on a pair of traced shots, the canopy came out 1.5 times as bright and saturation 0.66 against 0.55. A
+// leaf's color loses up to this much of its brightness and of its saturation, in proportion to how saturated it is, so
+// green leaves take it all and white or pale flowers, drawn with the leaves, keep their color.
+static const float kLeafDarken = 0.35, kLeafDesaturate = 0.3;
+
+// The leaf's color as a real leaf's would be: darker and less saturated by its own saturation.
+float3 leaf_albedo(float3 albedo)
+{
+    float high = max(albedo.r, max(albedo.g, albedo.b)), low = min(albedo.r, min(albedo.g, albedo.b));
+    float saturation = high > 1e-4 ? (high - low) / high : 0;
+    float lum = dot(albedo, float3(0.2126, 0.7152, 0.0722));
+    return lerp(albedo, lum, kLeafDesaturate * saturation) * (1 - kLeafDarken * saturation);
+}
 
 float3 srgb_to_linear(float3 c) { return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4); }
 
@@ -37,7 +51,7 @@ float4 main(float4 position : SV_Position) : SV_Target0
     {
         float3 n = normalize(nl.rgb * 2 - 1);
         float sun = saturate((dot(n, toward_sun) + kWrap) / (1 + kWrap)) * l.a;
-        float3 lit = albedo * (leaf_light_in.Load(int3(pixel, 0)) + sun_color * sun);
+        float3 lit = leaf_albedo(albedo) * (leaf_light_in.Load(int3(pixel, 0)) + sun_color * sun);
         color = lerp(color, lit, saturate(leaf_light));
     }
     if (transmission_strength > 0 && l.a > 0)
