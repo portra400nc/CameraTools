@@ -758,8 +758,10 @@ namespace enhancements
             }
             if (frame.reflecting)
             {
+                // A ray a pixel each run: a loop of them in the kernel took it from 51 temporaries to 69.
                 c->CSSetShader(reflect_cs_.Get(), nullptr, 0);
-                c->Dispatch(kGroupsPerTile, parts[i].count, 1);
+                for (uint32_t ray = 0; ray < static_cast<uint32_t>(frame.reflect.params[3]); ray++)
+                    c->Dispatch(kGroupsPerTile, parts[i].count, 1);
             }
             if (i == 0)
                 c->End(flight.end.Get());

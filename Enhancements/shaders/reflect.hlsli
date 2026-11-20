@@ -1,7 +1,7 @@
 // A traced shot's reflections: one ray a sample from the GGX lobe of a world pixel, lit as the gather's rays are, whose mean
 // replaces the probes the game's combine pass reads. The includer defines what gather.hlsli asks for, and
 //   float load_smoothness(int2 pixel), uint load_material(int2 pixel)  G-buffer rt4, and rt3's id without its top two bits
-//   float4 reflect_params   x: what scales roughness, y: how much brighter light sources get, w unused
+//   float4 reflect_params   x: what scales roughness, y: how much brighter light sources get, w the rays a pixel takes a pass
 #ifndef REFLECT_HLSLI
 #define REFLECT_HLSLI
 #include "reflect_common.hlsli"

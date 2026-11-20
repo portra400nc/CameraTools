@@ -220,6 +220,9 @@ namespace enhancements
         {
             c.params[0] = 1 - settings.gloss;
             c.params[1] = settings.reflected_light;
+            // A glossy lobe of the bright sky needs about 256 rays for reflect_apply_ps.hlsl's filter to leave no mottling at
+            // 4K: four for each of the gather's 64 samples, from four runs of the kernel a pass.
+            c.params[3] = 4;
         }
         return c;
     }
