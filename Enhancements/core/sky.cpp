@@ -618,28 +618,4 @@ namespace enhancements
         result.bolt = result.bolt > 0.02f ? std::min(result.bolt, 1.5f) : 0;
         return result;
     }
-
-    std::optional<ShelterMove> shelter_move(const std::optional<ShelterPlace> &previous, const Vec3d &camera)
-    {
-        if (!std::isfinite(camera[0]) || !std::isfinite(camera[1]) || !std::isfinite(camera[2]))
-            return std::nullopt;
-        ShelterMove move;
-        move.place.camera = camera;
-        const double half = kShelterCells * kShelterCell / 2;
-        for (int axis = 0; axis < 2; axis++)
-            move.place.origin[axis] = static_cast<float>(std::round(camera[axis * 2] / kShelterSnap) * kShelterSnap - half);
-        if (!previous)
-            return move;
-        const double dx = camera[0] - previous->camera[0], dy = camera[1] - previous->camera[1], dz = camera[2] - previous->camera[2];
-        move.clear = !(std::sqrt(dx * dx + dy * dy + dz * dz) <= kShelterJump);
-        for (int axis = 0; axis < 2; axis++)
-        {
-            const long cells = std::lround((move.place.origin[axis] - previous->origin[axis]) / kShelterCell);
-            move.clear = move.clear || std::labs(cells) >= kShelterCells;
-            move.shift[axis] = static_cast<int>(cells);
-        }
-        if (move.clear)
-            move.shift = {};
-        return move;
-    }
 }

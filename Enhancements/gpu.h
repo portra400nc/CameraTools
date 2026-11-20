@@ -351,11 +351,10 @@ namespace enhancements
         // moved the game's state, if anything did; ran is whether it drew.
         const char *run_scene_light(const FrameMap &map, float exposure_ev, bool &ran);
 
-        // Rain over the scene: mirror in the HDR scene and depth; raise rain's shelter map from the depth, moved with the
-        // camera; draw splashes on near ground in the open and the lightning's flash and bolt into scene_out_, then blend
-        // the falling drops over it, one instance a cell of rain_layers.hlsli's layers, amount the share of cells holding a
-        // drop where nothing shelters it, on seconds of the game's clock and slanted by the wind; copy out over the game's
-        // HDR scene. The drops glow with camera's main light where sun, when given, lets this frame's atlas light them.
+        // Rain over the scene: mirror in the HDR scene and depth; draw splashes on near ground and the lightning's flash and
+        // bolt into scene_out_, then blend the falling drops over it, one instance a cell of rain_layers.hlsli's layers,
+        // amount the share of cells holding a drop, on seconds of the game's clock and slanted by the wind; copy out over the
+        // game's HDR scene. The drops glow with camera's main light where sun, when given, lets this frame's atlas light them.
         std::optional<GameCall> run_rain(const FrameMap &map, float amount, const Lightning &lightning, const Camera &camera, bool flip, float seconds, float wind_radians,
             const SunShadowConstants *sun);
 
@@ -656,7 +655,7 @@ namespace enhancements
         Scratch sky_view_[5];       // sky_view_ps.hlsl's tables, kSkyViewSize, R32G32B32A32_FLOAT
         // The physical sky's tables from atmosphere when it is not the one uploaded. false when a texture failed.
         bool sync_sky_tables(const std::shared_ptr<const Atmosphere> &atmosphere);
-        ComPtr<ID3D11ComputeShader> dof_scatter_cs_, cloud_shape_cs_, cloud_detail_cs_, rain_shelter_cs_;
+        ComPtr<ID3D11ComputeShader> dof_scatter_cs_, cloud_shape_cs_, cloud_detail_cs_;
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, ambient_specular_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_, cloud_map_ps_, clouds_ps_, clouds_apply_ps_, clouds_resolve_ps_, clouds_painted_ps_,
             tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, character_light_ps_, character_shadow_ps_, character_sun_ps_, grass_capture_ps_, grass_ps_, grass_apply_ps_, character_balance_ps_, character_balance_adapt_ps_, sky_dome_view_ps_, sky_direction_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
             apply_gather_ps_, reflect_apply_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_, dof_soften_ps_, dof_behind_ps_,
@@ -804,10 +803,6 @@ namespace enhancements
         bool depth_texel_pending_ = false;      // copied and not yet read
         Snapshot pending_, shown_;
         Scratch rain_glow_;         // the HDR scene before the rain, with mips: the light around each drop that it scatters forward
-        // R32_UINT, kShelterCells a side: rain's shelter map (shelter_move in core/sky.h) and the spare a shift copies it into.
-        Scratch rain_shelter_, rain_shelter_spare_;
-        std::optional<ShelterPlace> rain_shelter_place_;    // where the map lay in rain_shelter_frame_
-        uint64_t rain_shelter_frame_ = 0;
         Scratch exposure_meter_;    // 64x32 R32G32_FLOAT with mips: the auto exposure's log2 luminance sums and counts
         Scratch exposure_[2];       // 1x1 R32_FLOAT: the auto exposure's stops, this frame's and the last's in turn
         uint32_t exposure_at_ = 0;  // the one this frame writes

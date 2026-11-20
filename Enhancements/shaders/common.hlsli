@@ -129,9 +129,6 @@ cbuffer Constants : register(b0)
     float transmission_strength;    // EnhancementsTransmission.strength, for transmission_ps.hlsl
     float grass_roots;          // EnhancementsGrass.root_shade, for grass_ps.hlsl
     float leaf_light;           // EnhancementsLeaves.shading, for transmission_ps.hlsl
-    float2 shelter_origin;      // the rain's shelter map's corner, world x and z: ShelterPlace in core/sky.h
-    float shelter_cell;         // meters, 0 while the rain has no shelter map
-    uint shelter_phase;         // the pixel of each 2x2 block rain_shelter_cs.hlsl reads this frame, 0 to 3
 };
 
 SamplerState point_clamp : register(s0);

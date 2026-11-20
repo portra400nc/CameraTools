@@ -1,7 +1,6 @@
 // Rain's fullscreen pass, before rain_drops_vs.hlsl draws the drops over it: drops landing on upward ground near the
-// camera, as a bright crown and a ring, a share of them by rain_amount and the gusts, where the shelter map sees no cover over
-// the ground. A thunderstorm's lightning flashes over all of it, brightest in the clouds toward its bolt, which is drawn in
-// the open sky.
+// camera, as a bright crown and a ring, a share of them by rain_amount and the gusts. A thunderstorm's lightning flashes
+// over all of it, brightest in the clouds toward its bolt, which is drawn in the open sky.
 #include "common.hlsli"
 #include "rain.hlsli"
 
@@ -78,17 +77,14 @@ float4 main(float4 position : SV_Position) : SV_Target0
     {
         float up = saturate((abs(normal.y) - 0.6) / 0.3);
         float3 translation = float3(world_to_view._m03, world_to_view._m13, world_to_view._m23);
-        float3 world = mul(view - translation, (float3x3)world_to_view);
-        float2 ground = world.xz;
-        // Dry under a roof or a canopy the shelter map saw well over this ground.
-        float exposed = 1 - shelter_cover(world, float2(0.4, 0.2));
+        float2 ground = mul(view - translation, (float3x3)world_to_view).xz;
         float2 spot = floor(ground / kSplashCell);
         float2 h = hash2(spot + 71.3);
         float period = 0.35 + 0.6 * h.x;
         float phase = rain_time / period + h.y;
         float cycle = floor(phase), age = frac(phase) * period;
         float2 pick = hash2(spot * 1.7 + cycle * 3.1);
-        if (exposed > 0 && pick.x < rain_amount * rain_gust(azimuth))
+        if (pick.x < rain_amount * rain_gust(azimuth))
         {
             float2 center = (spot + 0.3 + 0.4 * hash2(spot + cycle * 7.7)) * kSplashCell;
             float d = length(ground - center);
@@ -96,7 +92,7 @@ float4 main(float4 position : SV_Position) : SV_Target0
             float ring_width = max(0.008, pixel_m);
             float ring = saturate(1 - abs(d - (0.02 + age * 0.5)) / ring_width) * pow(saturate(1 - age / 0.22), 2) * (0.008 / ring_width);
             float crown = saturate(1 - d / max(0.015, pixel_m)) * saturate(1 - age / 0.07);
-            float splash = (0.6 * ring + crown) * (0.6 + 0.4 * pick.y) * up * exposed * saturate((kSplashReach - scene_meters) / 6);
+            float splash = (0.6 * ring + crown) * (0.6 + 0.4 * pick.y) * up * saturate((kSplashReach - scene_meters) / 6);
             color = lerp(color, sky_color * 3 * rain_light, saturate(splash) * 0.6);
         }
     }
