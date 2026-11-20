@@ -22,12 +22,12 @@ static const float kWind = 4;                       // meters per second sideway
 static const float2 kDiameter = float2(0.0015, 0.0025);     // meters, a drop's least and most
 static const float2 kSpeed = float2(7, 9);          // meters per second, those drops' terminal speeds
 // The share of a pixel a streak takes where it is a pixel or more wide. A drop covers each point of its streak only for
-// its own length over the streak's, under 1%, but a camera's streaks show more than that.
-static const float kOpacity = 0.03;
+// its own length over the streak's, under 1%, but a camera's streaks show far more than that: 3% left the rain unseen.
+static const float kOpacity = 0.25;
 // A farther layer's drop stands for this power of its cell over the nearest layer's cell. 3 would keep the rain's mean
 // light, and leave far rain as sparse bright lines; the mist draws the rain far off.
 static const float kFarBoost = 1.5;
-static const float kMaxCover = 0.25;
+static const float kMaxCover = 0.5;
 static const float kHandOver = 0.25;                // the outer share of a layer's reach over which the next takes its drops
 static const float2 kNear = float2(0.35, 0.8);      // meters: drops this near are out of focus, and fade out
 // The light a drop scatters over what reaches its face, diffraction's forward peak included, into two forward
@@ -36,6 +36,9 @@ static const float kScatter = 2;
 static const float2 kLobes = float2(0.9, 0.6);
 static const float kNarrowShare = 0.5;
 static const float kReflect = 0.06;                 // the sky a drop reflects, averaged over its face
+// A drop is a wide-angle lens: most of what it bends toward the eye comes from the bright sky above, so against darker
+// scenery it shows as a light streak, and against the sky it nearly vanishes.
+static const float kSkyThrough = 1.2;
 static const float3 kFlashTint = float3(0.85, 0.92, 1.1);   // as rain_ps.hlsl's
 
 uint3 pcg3d(uint3 v)
@@ -153,7 +156,7 @@ RainStreak main(uint vertex : SV_VertexID, uint instance : SV_InstanceID)
     o.inverse_meters = (vertex & 1u) != 0 ? -1 / tail.z : -1 / head.z;
     o.shape = float4(length_px, drawn, across);
 
-    float3 light = kReflect * sky_color + 2 * rain_flash * kFlashTint * sky_color;
+    float3 light = (kReflect + kSkyThrough) * sky_color + 2 * rain_flash * kFlashTint * sky_color;
     if (dot(toward_sun, toward_sun) > 0)
     {
         float3 middle = rel - 0.5 * velocity * kShutter;
@@ -162,7 +165,9 @@ RainStreak main(uint vertex : SV_VertexID, uint instance : SV_InstanceID)
         // The game lights a white surface facing the sun with sun_color, so the sun's irradiance is pi times it.
         light += kPi * sun_color * kScatter * phase * sun_visibility(middle, meters);
     }
-    float cover = min(kOpacity * width / drawn * pow(cell / nearest_cell, kFarBoost), kMaxCover);
+    // Thinner than the pixel it is drawn across: its light spreads over the pixel, kept brighter than its share, as the old
+    // rain's was, so a far drop still reads.
+    float cover = min(kOpacity * sqrt(width / drawn) * pow(cell / nearest_cell, kFarBoost), kMaxCover);
     o.light = float4(light, cover * weight * smoothstep(kNear.x, kNear.y, meters));
     return o;
 }

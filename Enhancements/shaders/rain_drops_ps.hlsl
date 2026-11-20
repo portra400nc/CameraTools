@@ -7,7 +7,7 @@
 Texture2D<float3> scene : register(t0);     // mirror of the HDR scene before rain_ps.hlsl
 Texture2D<float> depth : register(t2);      // mirror of the main depth, reversed Z
 
-static const float kTransmit = 0.9;         // the share of what lies behind a drop that comes through it
+static const float kTransmit = 0.4;         // the share of what lies behind a drop that comes through it, the rest is kSkyThrough's
 static const float kBend = 1.5;             // what lies behind shows mirrored across the streak, this many times as far out
 static const float kTaper = 0.15;           // the share of a streak's length over which each end fades
 static const float3 kFlashTint = float3(0.85, 0.92, 1.1);   // as rain_ps.hlsl's
