@@ -1,7 +1,7 @@
 // Shared by the rain shaders, after common.hlsli: the hashes, the noise and the gusts that thicken and thin the splashes
 // and the drops alike, and the drops' streak from their vertex shader to their pixel shader.
 
-static const float kShutter = 1.0 / 25;     // the seconds a streak shows of a drop's fall, a film camera's blur
+static const float kShutter = 1.0 / 80;     // the seconds a streak shows of a drop's fall: 9 to 11 cm, as a 1/80 s photo shows rain
 
 float2 hash2(float2 p)
 {
