@@ -194,6 +194,10 @@ namespace
 
     void on_init_resource(device *, const resource_desc &desc, const subresource_data *initial, resource_usage, resource resource)
     {
+        // A new resource may take a freed one's handle, whose fingerprint must not carry over to it.
+        AcquireSRWLockExclusive(&textures_lock);
+        textures.erase(resource.handle);
+        ReleaseSRWLockExclusive(&textures_lock);
         if (desc.type != resource_type::texture_2d || initial == nullptr || initial->data == nullptr || desc.texture.width == 0)
             return;
         const uint32_t level = fingerprint_level(desc);
@@ -206,16 +210,54 @@ namespace
     }
 
     // A texture created empty and filled after, as a streamed one may be: its fingerprint's mip when it arrives whole.
+    bool covers_level(const resource_desc &desc, uint32_t level, const subresource_box *box)
+    {
+        return box == nullptr || (box->left == 0 && box->top == 0 && box->right >= std::max(desc.texture.width >> level, 1u)
+            && box->bottom >= std::max(desc.texture.height >> level, 1u));
+    }
+
     bool on_update_texture_region(device *device, const subresource_data &data, resource resource, uint32_t subresource, const subresource_box *box)
     {
-        if (box != nullptr || data.data == nullptr)
+        if (data.data == nullptr)
             return false;
         const resource_desc desc = device->get_resource_desc(resource);
-        if (desc.type != resource_type::texture_2d || subresource != fingerprint_level(desc))
+        if (desc.type != resource_type::texture_2d || subresource != fingerprint_level(desc) || !covers_level(desc, subresource, box))
             return false;
         const uint64_t hash = mip_hash(desc, subresource, data);
         AcquireSRWLockExclusive(&textures_lock);
         textures[resource.handle] = hash;
+        ReleaseSRWLockExclusive(&textures_lock);
+        return false;
+    }
+
+    // The game's texture streaming makes a texture of another resolution and copies the mips the two share into it on the
+    // GPU, the fingerprint's among them: the copy carries the fingerprint over. So does a whole texture's copy.
+    bool on_copy_texture_region(command_list *cmd_list, resource source, uint32_t source_subresource, const subresource_box *source_box, resource dest,
+        uint32_t dest_subresource, const subresource_box *dest_box, filter_mode)
+    {
+        device *d = cmd_list->get_device();
+        const resource_desc from = d->get_resource_desc(source), to = d->get_resource_desc(dest);
+        if (from.type != resource_type::texture_2d || to.type != resource_type::texture_2d)
+            return false;
+        const uint32_t from_level = source_subresource % std::max<uint32_t>(from.texture.levels, 1), to_level = dest_subresource % std::max<uint32_t>(to.texture.levels, 1);
+        if (source_subresource != fingerprint_level(from) || dest_subresource != fingerprint_level(to) || !covers_level(from, from_level, source_box)
+            || std::max(from.texture.width >> from_level, 1u) != std::max(to.texture.width >> to_level, 1u)
+            || std::max(from.texture.height >> from_level, 1u) != std::max(to.texture.height >> to_level, 1u) || (dest_box != nullptr && !covers_level(to, to_level, dest_box)))
+            return false;
+        AcquireSRWLockExclusive(&textures_lock);
+        const auto known = textures.find(source.handle);
+        if (known != textures.end())
+            textures[dest.handle] = known->second;
+        ReleaseSRWLockExclusive(&textures_lock);
+        return false;
+    }
+
+    bool on_copy_resource(command_list *, resource source, resource dest)
+    {
+        AcquireSRWLockExclusive(&textures_lock);
+        const auto known = textures.find(source.handle);
+        if (known != textures.end())
+            textures[dest.handle] = known->second;
         ReleaseSRWLockExclusive(&textures_lock);
         return false;
     }
@@ -459,6 +501,8 @@ extern "C" __declspec(dllexport) bool AddonInit(HMODULE addon_module, HMODULE re
     reshade::register_event<addon_event::init_resource>(on_init_resource);
     reshade::register_event<addon_event::update_texture_region>(on_update_texture_region);
     reshade::register_event<addon_event::destroy_resource>(on_destroy_resource);
+    reshade::register_event<addon_event::copy_texture_region>(on_copy_texture_region);
+    reshade::register_event<addon_event::copy_resource>(on_copy_resource);
 #define ENHANCEMENTS_REGISTER(name) register_forward<addon_event::name>();
     ENHANCEMENTS_FORWARDED_EVENTS(ENHANCEMENTS_REGISTER)
 #undef ENHANCEMENTS_REGISTER
