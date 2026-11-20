@@ -2408,7 +2408,7 @@ namespace enhancements
             }
             scene_gpu.init(gpu.device(), gpu.context(), gpu.no_write(), gpu.no_depth());
             trace_gpu.init(gpu.device(), gpu.context());
-            log(reshade::log::level::info, "ready.");
+            log(reshade::log::level::info, "ready." + gpu.memory_note());
         }
 
         std::string megabytes(uint64_t bytes)
