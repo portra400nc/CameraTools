@@ -138,6 +138,7 @@ namespace CameraTools
             {
                 if (busy.Resized || Window != busy.Before.Window)
                     Graphics.Resize(busy.Before.Window, quiet: true);
+                Graphics.RememberWindow(null);
             }),
             // Off after the shot whatever they were before, as the user asked, unless sphere lights need them.
             ("ReShade's effects", _ => ReShade.SetEffects(Lights.KeepsEffectsOn)),
@@ -288,6 +289,7 @@ namespace CameraTools
                 if (resize is var (size, after) && ReShade.Status.Presents >= after)
                 {
                     resize = null;
+                    Graphics.RememberWindow(busy.Before.Window);
                     Graphics.Resize(size, quiet: true);
                 }
                 var bridge = ReShade.Status;

@@ -135,6 +135,17 @@ namespace CameraTools
         private static bool worldLogged;
         private static (float At, string When)? pendingLog;
         private static (float At, ScreenSize Wanted, bool Refreshed, bool Quiet)? pendingSize;
+        private static MelonPreferences_Entry<string> windowToRestore;
+        private static bool windowChecked;
+
+        // The screenshot's: the size to come back to while a shot has the window at its own size, null once it is back.
+        public static void RememberWindow(ScreenSize? size)
+        {
+            if (windowToRestore == null)
+                return;
+            windowToRestore.Value = size?.ToString() ?? "";
+            MelonPreferences.Save();
+        }
 
         // The unscaled time CameraTools last changed a game setting or the window size, or applied the render resolution
         // again after a size change.
@@ -161,6 +172,8 @@ namespace CameraTools
                 Melon<CameraTools>.Logger.Warning($"CameraToolsGraphics {name} = \"{slotEntries[i].Value}\" is not a resolution; using {fallback}.");
                 slots[i] = fallback;
             }
+            windowToRestore = category.CreateEntry("WindowToRestore", "", is_hidden: true,
+                description: "The window size a screenshot changed away from, while it runs: a game closed mid-shot gets it back at the next launch.");
             hideOutlines = category.CreateEntry("HideOutlines", false,
                 description: "Hide the outlines the game draws around characters, NPCs and weapons. Presets and the screenshot button leave it as it is.");
             presetEntries = new MelonPreferences_Entry<string>[own.Length];
@@ -190,6 +203,20 @@ namespace CameraTools
 
         public static void Update()
         {
+            // A game closed while a screenshot had the window at its size, 4K for one, starts at that size: put it back.
+            if (!windowChecked && windowToRestore != null)
+            {
+                windowChecked = true;
+                if (ScreenSize.TryParse(windowToRestore.Value, out var before))
+                {
+                    RememberWindow(null);
+                    if (Screen.width != before.Width || Screen.height != before.Height)
+                    {
+                        Melon<CameraTools>.Logger.Msg($"Graphics: the game closed during a screenshot; the window goes back to {before}.");
+                        Resize(before, quiet: true);
+                    }
+                }
+            }
             try
             {
                 float now = Time.unscaledTime;
