@@ -281,6 +281,8 @@ namespace enhancements
         // false: ENHANCEMENTS_ERROR_SHADER.
         bool init(ID3D11Device *device, ID3D11DeviceContext *context);
         bool ready() const { return context_ != nullptr; }
+        // " GPU memory in use: ..." of the adapter's local and shared memory, for a log line; empty where DXGI cannot say.
+        std::string memory_note() const;
         ID3D11Device *device() const { return device_.Get(); }
         ID3D11DeviceContext1 *context() const { return context_.Get(); }
 

@@ -1,4 +1,6 @@
 #include "gpu.h"
+
+#include <dxgi1_4.h>
 #include "trace_gpu.h"
 #include "core/exposure.h"
 
@@ -3184,6 +3186,22 @@ namespace enhancements
         for (UINT i = 0; i < class_count; i++)
             if (classes[i])
                 classes[i]->Release();
+    }
+
+    std::string Gpu::memory_note() const
+    {
+        if (!device_)
+            return "";
+        ComPtr<IDXGIDevice> dxgi;
+        ComPtr<IDXGIAdapter> adapter;
+        ComPtr<IDXGIAdapter3> adapter3;
+        if (FAILED(device_.As(&dxgi)) || FAILED(dxgi->GetAdapter(&adapter)) || FAILED(adapter.As(&adapter3)))
+            return "";
+        DXGI_QUERY_VIDEO_MEMORY_INFO local {}, shared {};
+        if (FAILED(adapter3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &local))
+            || FAILED(adapter3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL, &shared)))
+            return "";
+        return " GPU memory in use: " + std::to_string(local.CurrentUsage >> 20) + " MB local, " + std::to_string(shared.CurrentUsage >> 20) + " MB shared.";
     }
 
     bool Gpu::tessellated() const

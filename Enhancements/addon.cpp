@@ -2917,7 +2917,8 @@ namespace enhancements
                     log(reshade::log::level::info, shot.active ? "a traced shot begins: the trace and the gather run over the applied settings"
                         + (applied.enabled ? std::string() : std::string(", whose master switch is off, so alone")) + ", " + (shot.samples != 0
                         ? std::to_string(shot.samples) : "the applied") + " samples within " + (shot.budget_ms != 0 ? std::to_string(int(shot.budget_ms)) + " ms"
-                        : std::string("the applied budget")) + " a frame." : std::string("the traced shot ended; the applied settings run as before."));
+                        : std::string("the applied budget")) + " a frame." : std::string("the traced shot ended; the applied settings run as before.")
+                        + gpu.memory_note());
                 if (character_light_box.take(character_light, character_light_seen) && character_light.enabled != settings.character_light.enabled)
                     log(reshade::log::level::info, character_light.enabled ? "studio lighting for characters is on, with " + std::to_string(character_light.lights.size())
                         + " lights." : std::string("studio lighting for characters is off."));
