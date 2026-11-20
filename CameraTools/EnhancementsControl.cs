@@ -100,7 +100,7 @@ namespace CameraTools
                     },
                 };
                 // Last in Experimental features, once the hidden traced shot is unlocked.
-                if (field.Id == Enhancement.WeatherMist)
+                if (field.Id == Enhancement.WeatherRain)
                     yield return new ToggleRow("Live path tracing", () => LiveTrace.On, on => { if (on != LiveTrace.On) LiveTrace.Toggle(); })
                     {
                         Shown = () => !Folded && !ExperimentalFolded && EnhancementsShot.Shown,
@@ -180,7 +180,7 @@ namespace CameraTools
             // The game's clouds keep its painted lighting, which the physical sky's contradicts.
             GameClouds.Update(Enhancements.Connected && (EnhancementsModel.CloudsRun(Running) || EnhancementsModel.SkyDrawn(Running)));
             WeatherFollow.Update(Enhancements.Connected && EnhancementsModel.WeatherRuns(Running), Running);
-            GameRain.Update(WeatherFollow.Current?.Rain > 0f);
+            GameRain.Update(WeatherFollow.Current?.Rain > 0f && Running.On(Enhancement.WeatherRain));
             var now = DepthOfField.Frame;
             if (connections != Enhancements.Connections)
             {
