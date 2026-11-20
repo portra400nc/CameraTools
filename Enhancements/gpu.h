@@ -565,7 +565,7 @@ namespace enhancements
         // While frame gathers, the occlusion is the gather's: the apply draw writes only the sun, and the gather's draws
         // (gather_average_ps.hlsl, gather_filter_ps.hlsl and apply_gather_ps.hlsl) write the irradiance, and for a gather
         // view its picture into gather_view_. A save then also copies the view's albedo and what the draws wrote.
-        std::optional<GameCall> run_trace(const FrameMap &map, const TraceFrame &frame, const TraceSettings &settings, const GatherSettings &gather,
+        std::optional<GameCall> run_trace(const FrameMap &map, const TraceFrame &frame, const TraceSettings &settings, const GatherSettings &gather, float leaf_light,
             const Camera &camera, bool flip, View view, const TraceSave *save, bool &saved, TraceGpu &trace);
         // A save while the trace pass does not run, its scene STALE: mirrors in this frame's normals, depth, shadow mask and
         // diffuse irradiance, and copies them with the history as it was for trace.read_save. Copies only; no pipeline

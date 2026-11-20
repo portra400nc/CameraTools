@@ -22,7 +22,8 @@ float3 main(float4 position : SV_Position) : SV_Target0
     int2 pixel = int2(position.xy);
     float3 game = irradiance.Load(int3(pixel, 0));
     float4 h = history[uint(pixel.y) * trace_render.x + uint(pixel.x)];
-    if (!is_world(stencil.Load(int3(pixel, 0)).g) || !(h.z > 0))
+    uint s = stencil.Load(int3(pixel, 0)).g;
+    if (!is_world(s) || !(h.z > 0))
         return game;
     float4 bounce = bounce_in.Load(int3(pixel, 0));
     float4 sky = sky_in.Load(int3(pixel, 0));
@@ -30,6 +31,11 @@ float3 main(float4 position : SV_Position) : SV_Target0
     float strength = gather_apply.x;    // gather.strength up to 1: above, the gather brightened its hits
     float own = gather_modes.z != 0u ? sky.w : h.x / h.z;
     float3 lit = strength * bounce.rgb;
+    // Trees' and bushes' leaves under Leaf shading, which lights them from this irradiance: the game's sky light by
+    // their own traced occlusion, unfiltered, and the bounce. A canopy's leaves sit at about one depth and facing, so the
+    // filtered sky light and share smoothed over their gaps the shade a leaf in front of another keeps.
+    if (leaf_light > 0 && (s == 136 || s == 137))
+        return game * (level * lerp(1, h.x / h.z, trace_params.y)) + lit;
     if (gather_modes.x == kSkyMap)
         return level * sky.rgb + lit;
     float share = gather_modes.x == kSkyOcclusion ? own : own * bounce.w / max(sky.w, 1e-3);

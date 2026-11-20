@@ -1307,7 +1307,7 @@ namespace enhancements
                                 restart = restart_text(trace_frame->restart, trace_gpu.started_key(), trace_frame->key);
                         }
                         if (trace_frame)
-                            call = gpu.run_trace(map, *trace_frame, settings.trace, settings.gather, camera, settings.flip, report.view, save ? &*save : nullptr,
+                            call = gpu.run_trace(map, *trace_frame, settings.trace, settings.gather, settings.leaf_shading, camera, settings.flip, report.view, save ? &*save : nullptr,
                                 saved, trace_gpu);
                         if (!restart.empty())
                             log(reshade::log::level::info, "the trace's samples start again (" + std::string(kTraceRestartNames[static_cast<size_t>(trace_frame->restart)])

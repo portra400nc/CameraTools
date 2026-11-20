@@ -1029,7 +1029,7 @@ namespace enhancements
     }
 
     std::optional<GameCall> Gpu::run_trace(const FrameMap &map, const TraceFrame &frame, const TraceSettings &settings, const GatherSettings &gather,
-        const Camera &camera, bool flip, View view, const TraceSave *save, bool &saved, TraceGpu &trace)
+        float leaf_light, const Camera &camera, bool flip, View view, const TraceSave *save, bool &saved, TraceGpu &trace)
     {
         saved = false;
         const std::optional<Texture> &mask = map[Entry::shadow_mask];
@@ -1061,6 +1061,7 @@ namespace enhancements
                 || !gather_sky_filtered_.sync(d, map.render, DXGI_FORMAT_R16G16B16A16_FLOAT)
                 || (shown != GatherView::none && !gather_view_.sync(d, map.render, DXGI_FORMAT_R16G16B16A16_FLOAT))))
             return std::nullopt;
+        constants.leaf_light = leaf_light;
         upload(constants);
         ID3D11DeviceContext1 *c = context_.Get();
         if (mask)
