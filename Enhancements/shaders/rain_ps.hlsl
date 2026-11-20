@@ -1,44 +1,14 @@
-// Rain: streaks of falling drops in layers on cylinders around the camera, a meter and a half to 25 meters away, fixed in
-// the world's directions so turning the camera turns through them. Each layer is cut
-// into columns, each with its own speed and start, and those into cells, a share of which, by rain_amount and the gusts,
-// holds one drop at a place, length and brightness of its own, slanted by the wind; nearer scenery hides a layer behind it.
-// The drops are sparse, thin and faint, as a camera sees rain: the sky's light, sky_color, which small lenses show from the
-// bright sky above, blurred over a twenty-fifth of a second. Drops land on upward ground near
-// the camera as a bright crown and a ring. A thunderstorm's lightning flashes over all of it, brightest in the clouds
-// toward its bolt, which is drawn in the open sky.
+// Rain's fullscreen pass, before rain_drops_vs.hlsl draws the drops over it: drops landing on upward ground near the
+// camera, as a bright crown and a ring, a share of them by rain_amount and the gusts. A thunderstorm's lightning flashes
+// over all of it, brightest in the clouds toward its bolt, which is drawn in the open sky.
 #include "common.hlsli"
+#include "rain.hlsli"
 
 Texture2D<float3> scene : register(t0);     // mirror of the HDR scene
 Texture2D<float> depth : register(t2);      // mirror of the main depth, reversed Z
 
-static const uint kLayers = 6;
-static const float kNear = 1.5, kStep = 1.7;    // the layers' radii in meters: 1.5, 2.6, 4.3, 7.4, 12.5, 21.3
-static const float kFall = 13;                  // a drop's mean speed in meters per second, a downpour's fastest
-static const float kShutter = 1.0 / 25;         // the seconds a streak shows of a drop's fall, a film camera's blur
-static const float kFill = 0.3;                 // the share of cells a downpour fills
-static const float kDropWidth = 0.002;          // meters
 static const float kSplashReach = 18;           // meters from the camera that splashes show
 static const float kSplashCell = 0.35;          // meters of ground per landing spot
-
-float2 hash2(float2 p)
-{
-    p = frac(p * float2(0.1031, 0.1030));
-    p += dot(p, p.yx + 33.33);
-    return frac((p.xx + p.yx) * p.yx);
-}
-
-float noise1(float x)
-{
-    float i = floor(x), f = frac(x);
-    return lerp(hash2(float2(i, 3.7)).x, hash2(float2(i + 1, 3.7)).x, f * f * (3 - 2 * f));
-}
-
-float noise2(float2 p)
-{
-    float2 i = floor(p), f = frac(p);
-    f = f * f * (3 - 2 * f);
-    return lerp(lerp(hash2(i).x, hash2(i + float2(1, 0)).x, f.x), lerp(hash2(i + float2(0, 1)).x, hash2(i + 1).x, f.x), f.y);
-}
 
 // A bolt's sideways wander in radians at s, 0 at its top to 1 at the ground.
 float bolt_wander(float s, float seed)
@@ -100,9 +70,6 @@ float4 main(float4 position : SV_Position) : SV_Target0
     }
 
     float rain_light = 1 + rain_flash * 1.2;
-    float3 drop = sky_color * 2.5 * rain_light;
-    // Gusts: the rain thickens and thins in sheets drifting around the camera.
-    float gust = lerp(0.45, 1.35, noise2(float2(azimuth * 1.6 - rain_time * 0.12, rain_time * 0.2)));
 
     // Splashes on upward ground near the camera: each spot of ground takes a drop every half second or so, at a place of its
     // own each time, as a crown at once and then a ring spreading out.
@@ -117,7 +84,7 @@ float4 main(float4 position : SV_Position) : SV_Target0
         float phase = rain_time / period + h.y;
         float cycle = floor(phase), age = frac(phase) * period;
         float2 pick = hash2(spot * 1.7 + cycle * 3.1);
-        if (pick.x < rain_amount * gust)
+        if (pick.x < rain_amount * rain_gust(azimuth))
         {
             float2 center = (spot + 0.3 + 0.4 * hash2(spot + cycle * 7.7)) * kSplashCell;
             float d = length(ground - center);
@@ -130,43 +97,5 @@ float4 main(float4 position : SV_Position) : SV_Target0
         }
     }
 
-    float flat = length(dir.xz);
-    if (flat < 0.05 || rain_amount <= 0)
-        return float4(color, 1);
-    // The wind blows the drops aside as they fall: a slant of up to half a meter a meter.
-    float2 wind = float2(cos(rain_wind), sin(rain_wind));
-    float slant = 0.5 * dot(wind, float2(-sin(azimuth), cos(azimuth)));
-    float cover = 0;
-    float radius = kNear;
-    [unroll] for (uint i = 0; i < kLayers; i++, radius *= kStep)
-    {
-        float t = radius / flat;
-        if (t > scene_meters)
-            break;
-        // The layer's columns: drops a few centimeters apart near, wider far, where more of them fall in one pixel. Each
-        // column falls at its own speed from its own start, so no two line up.
-        float cell_w = 0.05 * sqrt(radius), cell_h = 1.2;
-        float height = dir.y * t;
-        float across = azimuth * radius + height * slant;
-        float column = floor(across / cell_w);
-        float2 rc = hash2(float2(column, i * 13.7 + 3.1));
-        float speed = kFall * (0.75 + 0.5 * rc.x);
-        float down = height + speed * rain_time + rc.y * 50;
-        float row = floor(down / cell_h);
-        float2 r = hash2(float2(column, row) + i * 41.7);
-        float2 r2 = hash2(float2(row, column) * 1.37 + i * 9.1 + 5);
-        if (r.x > rain_amount * gust * kFill)
-            continue;
-        float streak = speed * kShutter * (0.6 + 0.8 * r2.y);
-        float start = r2.x * (cell_h - streak);
-        float along = frac(down / cell_h) * cell_h - start;
-        // The streak's width on screen: its own, or a pixel and a half's, with its light spread over that.
-        float pixel_m = t * pixel_angle;
-        float width = max(kDropWidth, pixel_m), share = sqrt(kDropWidth / width);
-        float dx = abs(frac(across / cell_w) - (0.15 + 0.7 * r.y)) * cell_w;
-        float taper = saturate(along / (streak * 0.3)) * saturate((streak - along) / (streak * 0.2));
-        cover += saturate(1 - dx / (width * 0.75)) * taper * share * (0.5 + 0.5 * frac(r2.x * 7.3)) * saturate(1 - radius / 30);
-    }
-    // A drop bends the bright sky above toward the eye, a few times the light that reaches the air around it.
-    return float4(lerp(color, drop, saturate(cover) * 0.35), 1);
+    return float4(color, 1);
 }

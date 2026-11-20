@@ -151,8 +151,9 @@ namespace enhancements
         // the march, and the camera brings the sun's direction and the sun and sky colors.
         { PassId::light_shafts, "light-shafts", Step::bloom, { Entry::depth, Entry::hdr_scene, Entry::sun_atlas }, true, SunUse::required,
           light_shafts_wanted },
-        // In front of the mist and the shafts, and blurred with the rest by the depth of field.
-        { PassId::rain, "rain", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::none, rain_wanted },
+        // In front of the mist and the shafts, and blurred with the rest by the depth of field. The sun's atlas keeps the
+        // main light's glow off drops in shadow.
+        { PassId::rain, "rain", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::optional, rain_wanted },
         // Last at bloom, so haze and mist blur with what lies behind them; the camera's projection gives the focal length.
         { PassId::depth_of_field, "depth-of-field", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::none, depth_of_field_wanted },
         // At bloom only the sun's visibility, from the depth and, off the picture, the atlas when this frame's passed their

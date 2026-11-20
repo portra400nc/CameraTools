@@ -23,6 +23,17 @@
 
 namespace enhancements
 {
+#include "shaders/rain_layers.hlsli"
+
+    // Rain's drops, one instance a cell of every layer.
+    UINT rain_drop_count()
+    {
+        UINT count = 0;
+        for (const int cells : kRainCells)
+            count += static_cast<UINT>(cells * cells * cells);
+        return count;
+    }
+
     // Mirrors shaders/common.hlsli's cbuffer Constants : register(b0). One layout for every shader.
     struct Constants
     {
@@ -808,6 +819,9 @@ namespace enhancements
         add.BlendEnable = TRUE;
         add.SrcBlend = add.DestBlend = add.SrcBlendAlpha = add.DestBlendAlpha = D3D11_BLEND_ONE;
         add.BlendOp = add.BlendOpAlpha = D3D11_BLEND_OP_ADD;
+        // Premultiplied: out = source + target * (1 - source alpha).
+        D3D11_BLEND_DESC over = additive;
+        over.RenderTarget[0].DestBlend = over.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
         D3D11_TEXTURE2D_DESC depth_texel = {};
         depth_texel.Width = depth_texel.Height = depth_texel.MipLevels = depth_texel.ArraySize = 1;
         depth_texel.Format = DXGI_FORMAT_R32G8X24_TYPELESS;
@@ -893,6 +907,8 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kWaterPs, sizeof kWaterPs, nullptr, &made.water_ps_))
             && SUCCEEDED(device->CreatePixelShader(kSkyDomePs, sizeof kSkyDomePs, nullptr, &made.sky_dome_ps_))
             && SUCCEEDED(device->CreatePixelShader(kRainPs, sizeof kRainPs, nullptr, &made.rain_ps_))
+            && SUCCEEDED(device->CreateVertexShader(kRainDropsVs, sizeof kRainDropsVs, nullptr, &made.rain_drops_vs_))
+            && SUCCEEDED(device->CreatePixelShader(kRainDropsPs, sizeof kRainDropsPs, nullptr, &made.rain_drops_ps_))
             && SUCCEEDED(device->CreatePixelShader(kSceneLightPs, sizeof kSceneLightPs, nullptr, &made.scene_light_ps_))
             && SUCCEEDED(device->CreateBlendState(&water_blend, &made.water_blend_))
             && SUCCEEDED(device->CreateVertexShader(kStarsVs, sizeof kStarsVs, nullptr, &made.stars_vs_))
@@ -922,6 +938,7 @@ namespace enhancements
             && SUCCEEDED(device->CreateBlendState(&blend, &made.opaque_))
             && SUCCEEDED(device->CreateBlendState(&additive, &made.additive_))
             && SUCCEEDED(device->CreateBlendState(&no_write, &made.no_write_))
+            && SUCCEEDED(device->CreateBlendState(&over, &made.over_))
             && SUCCEEDED(device->CreateTexture2D(&depth_texel, nullptr, &made.depth_texel_))
             && SUCCEEDED(device->CreateDepthStencilState(&depth, &made.no_depth_))
             && SUCCEEDED(device->CreateRasterizerState(&rasterizer, &made.no_cull_));
@@ -2027,7 +2044,8 @@ namespace enhancements
         return GameCall::keep;
     }
 
-    std::optional<GameCall> Gpu::run_rain(const FrameMap &map, float amount, const Lightning &lightning, const Camera &camera, bool flip, float seconds, float wind_radians)
+    std::optional<GameCall> Gpu::run_rain(const FrameMap &map, float amount, const Lightning &lightning, const Camera &camera, bool flip, float seconds, float wind_radians,
+        const SunShadowConstants *sun)
     {
         const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
         const auto scene_format = static_cast<DXGI_FORMAT>(scene.format);
@@ -2043,12 +2061,37 @@ namespace enhancements
         constants.rain_bolt = lightning.bolt;
         constants.rain_bolt_azimuth = lightning.azimuth;
         constants.rain_bolt_seed = lightning.seed;
+        // No cascades tells the drops there is no atlas to read.
+        const bool shaded = sun && sun_ready_;
+        constants.sun_cascades = shaded ? sun->cascades : 0;
+        if (shaded)
+        {
+            constants.sun_columns = sun->columns;
+            constants.sun_rows = sun->rows;
+        }
         upload(constants);
         ID3D11DeviceContext1 *c = context_.Get();
         scene_in_.copy_from(c, native(scene));
         depth_.copy_from(c, native(depth));
         ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), nullptr, depth_.srv() };
         draw_fullscreen(rain_ps_.Get(), srvs, 3, scene_out_.rtv(), map.render);
+        if (amount > 0)
+        {
+            // draw_fullscreen's state with the drops' shaders: a strip of 4 vertices a drop, blended over the splashes.
+            ID3D11Buffer *const buffers[] = { constants_.Get(), game_sun_[0].Get(), game_sun_[1].Get(), game_sun_[2].Get(), game_sun_[3].Get() };
+            ID3D11SamplerState *const samplers[kSamplerSlots] = { point_.Get(), linear_.Get(), lit_compare_.Get(), wrap_.Get(), anisotropic_wrap_.Get() };
+            ID3D11ShaderResourceView *const drop_in[] = { nullptr, nullptr, nullptr, nullptr, nullptr, shaded ? sun_atlas_.srv() : nullptr };
+            c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+            c->VSSetShader(rain_drops_vs_.Get(), nullptr, 0);
+            c->VSSetConstantBuffers(0, 5, buffers);
+            c->VSSetSamplers(0, kSamplerSlots, samplers);
+            c->VSSetShaderResources(0, 6, drop_in);
+            c->PSSetShader(rain_drops_ps_.Get(), nullptr, 0);
+            c->OMSetBlendState(over_.Get(), nullptr, 0xFFFFFFFF);
+            c->DrawInstanced(4, rain_drop_count(), 0, 0);
+            ID3D11ShaderResourceView *const none[6] = {};
+            c->VSSetShaderResources(0, 6, none);
+        }
         scene_out_.copy_to(c, native(scene));
         return GameCall::keep;
     }

@@ -347,13 +347,16 @@ namespace enhancements
         // shafts_view_ for snapshot_light_shafts. Empty when gather_sun copied nothing this frame or a texture of ours failed.
         std::optional<GameCall> run_light_shafts(const FrameMap &map, const LightShaftSettings &settings, const Camera &camera,
             const SunShadowConstants &sun, bool flip, bool view);
-        // Rain over the scene: streaks of falling drops in layers around the camera, amount the share of cells holding one,
-        // on seconds of the game's clock, slanted by the wind, lit by camera's sky color, with splashes on near ground and
-        // the lightning's flash and bolt.
         // The scene's light: lifts the tone map's output in place by 2 ^ exposure_ev, keeping black and white. Returns what
         // moved the game's state, if anything did; ran is whether it drew.
         const char *run_scene_light(const FrameMap &map, float exposure_ev, bool &ran);
-        std::optional<GameCall> run_rain(const FrameMap &map, float amount, const Lightning &lightning, const Camera &camera, bool flip, float seconds, float wind_radians);
+
+        // Rain over the scene: mirror in the HDR scene and depth; draw splashes on near ground and the lightning's flash and
+        // bolt into scene_out_, then blend the falling drops over it, one instance a cell of rain_layers.hlsli's layers,
+        // amount the share of cells holding a drop, on seconds of the game's clock and slanted by the wind; copy out over the
+        // game's HDR scene. The drops glow with camera's main light where sun, when given, lets this frame's atlas light them.
+        std::optional<GameCall> run_rain(const FrameMap &map, float amount, const Lightning &lightning, const Camera &camera, bool flip, float seconds, float wind_radians,
+            const SunShadowConstants *sun);
 
         // The atmosphere pass: mirror in the HDR scene and depth; draw out = in * T + (sky + sun * sun_scatter * phase) *
         // (1 - T) on pixels with depth, where T is the transmittance of the height-fading haze along the view ray, and in
@@ -638,8 +641,8 @@ namespace enhancements
 
         ComPtr<ID3D11Device> device_;
         ComPtr<ID3D11DeviceContext1> context_;
-        ComPtr<ID3D11VertexShader> fullscreen_vs_, dof_sprite_vs_, stars_vs_;
-        ComPtr<ID3D11PixelShader> sky_view_ps_, sky_ps_, sky_dome_ps_, stars_ps_, aerial_lit_ps_, water_ps_, rain_ps_, scene_light_ps_, traced_foliage_ps_, leaf_capture_ps_, transmission_ps_;
+        ComPtr<ID3D11VertexShader> fullscreen_vs_, dof_sprite_vs_, stars_vs_, rain_drops_vs_;
+        ComPtr<ID3D11PixelShader> sky_view_ps_, sky_ps_, sky_dome_ps_, stars_ps_, aerial_lit_ps_, water_ps_, rain_ps_, rain_drops_ps_, scene_light_ps_, traced_foliage_ps_, leaf_capture_ps_, transmission_ps_;
         ComPtr<ID3D11BlendState> water_blend_;  // target 0: the color added; the others untouched
         ComPtr<ID3D11Buffer> night_lamps_constants_;  // core/night_lamps.h NightLamps at b4
         // The physical sky's air tables, R32G32B32A32_FLOAT, uploaded from sky_air_; the moon's face, R8G8B8A8_UNORM 512 a side;
@@ -699,7 +702,7 @@ namespace enhancements
         bool sun_ready_ = false;
         uint64_t water_frame_ = ~0ull;          // the frame whose HDR scene copy_water_scene copied
         Mirror water_scene_;                // gather_sun copied the constants and the atlas this frame
-        ComPtr<ID3D11BlendState> opaque_, additive_, no_write_;
+        ComPtr<ID3D11BlendState> opaque_, additive_, no_write_, over_;
         ComPtr<ID3D11DepthStencilState> no_depth_;
         ComPtr<ID3D11RasterizerState> no_cull_;
         Mirror irradiance_in_, irradiance_out_, shadow_mask_in_, shadow_mask_out_, scene_in_, scene_out_, bloom_in_, tonemap_out_, normals_, depth_,
