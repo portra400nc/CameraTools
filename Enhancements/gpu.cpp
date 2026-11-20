@@ -1507,7 +1507,7 @@ namespace enhancements
         return GameCall::keep;
     }
 
-    std::optional<GameCall> Gpu::run_traced_foliage(const FrameMap &map, const Camera &camera, bool flip)
+    std::optional<GameCall> Gpu::run_traced_foliage(const FrameMap &map, float leaf_light, const Camera &camera, bool flip)
     {
         // The shade the trace's apply draw wrote at this frame's combine step, once.
         if (!traced_foliage_fresh_)
@@ -1520,6 +1520,7 @@ namespace enhancements
         if (!scene_in_.sync(d, native(scene), scene_format, false) || !scene_out_.sync(d, native(scene), scene_format, true)
             || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false) || !pass_constants(camera, map.render, flip, constants))
             return std::nullopt;
+        constants.leaf_light = leaf_light;
         upload(constants);
         ID3D11DeviceContext1 *c = context_.Get();
         scene_in_.copy_from(c, native(scene));

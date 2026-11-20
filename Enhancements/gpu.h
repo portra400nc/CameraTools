@@ -360,7 +360,7 @@ namespace enhancements
         // The traced foliage pass: the HDR scene's grass and leaves times the shade the trace's apply draw wrote at this
         // frame's combine step, which the game's foliage lighting does not take from the irradiance and the mask. Keeps the
         // scene when the trace wrote none this frame. Empty when a texture of ours failed.
-        std::optional<GameCall> run_traced_foliage(const FrameMap &map, const Camera &camera, bool flip);
+        std::optional<GameCall> run_traced_foliage(const FrameMap &map, float leaf_light, const Camera &camera, bool flip);
         // Light through leaves' copy at the combine step, after our passes: each grass and leaf pixel's albedo and its sun
         // visibility in the shadow mask into leaves_. false when an entry or a texture of ours is missing.
         bool capture_leaves(const FrameMap &map);

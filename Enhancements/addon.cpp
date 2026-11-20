@@ -1203,11 +1203,10 @@ namespace enhancements
                         call = gpu.run_wetness(map, settings.wetness, wetness_amount(settings.wetness, camera), camera, settings.flip);
                         break;
                     case PassId::traced_foliage:
-                        call = gpu.run_traced_foliage(map, sky_camera(), settings.flip);
+                        call = gpu.run_traced_foliage(map, settings.leaf_shading, sky_camera(), settings.flip);
                         break;
                     case PassId::transmission:
-                        // Traced shots and live tracing keep the game's leaf lighting: their traced shade already darkens leaves.
-                        call = gpu.run_transmission(map, settings.transmission, shot_frame ? 0.0f : settings.leaf_shading, sky_camera(), settings.flip);
+                        call = gpu.run_transmission(map, settings.transmission, settings.leaf_shading, sky_camera(), settings.flip);
                         break;
                     case PassId::grass:
                         call = gpu.run_grass(map, settings.grass_roots, sky_camera(), settings.flip);

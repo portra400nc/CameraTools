@@ -5,7 +5,8 @@
 // light of its own, ignoring the diffuse irradiance and the shadow mask that light every other surface: flat, banded and
 // bright inside the canopy. The pass lights trees' and bushes' leaves as the game lights the rest of the world, from the
 // irradiance (ours with Ambient light, occluded deeper in a canopy) and the sun through the shadow mask, which the
-// canopy's own leaves darken inside, by a wrapped Lambert, as a canopy's spread leaf angles soften it.
+// canopy's own leaves darken inside, by a wrapped Lambert, as a canopy's spread leaf angles soften it. In traced shots
+// both are the trace's: its occlusion and bounce in the irradiance, its sun visibility in the mask.
 //
 // Light through leaves. A leaf between the camera and the sun glows most, in a narrow forward lobe, and a little at any
 // angle the sun reaches its far side; the light comes out tinted twice by the leaf, as it passes through its color.

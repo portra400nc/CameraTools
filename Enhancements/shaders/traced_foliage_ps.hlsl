@@ -3,7 +3,9 @@
 // foliage at about the same depth, a few pixels wide at 720 lines and wider in proportion above, so the thin shadows
 // blades cast on each other merge into a clump's soft shade instead of drawing dark lines. Leaves keep their own: a
 // canopy's leaves sit at about one depth, so the blur smeared the shade of inner leaves over the edges of the ones in
-// front. Writes the whole target, because the result is copied over the game's HDR scene whole.
+// front. With Leaf shading on, trees' and bushes' leaves keep their light: Leaf shading lights them from the traced
+// irradiance and sun visibility themselves, which this shade stands in for when the game's leaf lighting, which reads
+// neither, draws them. Writes the whole target, because the result is copied over the game's HDR scene whole.
 #include "common.hlsli"
 
 Texture2D<float3> scene : register(t0);     // mirror of the HDR scene
@@ -23,7 +25,7 @@ float4 main(float4 position : SV_Position) : SV_Target0
     if (own.x >= 1 || depth.Load(int3(pixel, 0)) <= 0)
         return float4(color, 1);
     if (own.y < 0.5)
-        return float4(color * own.x, 1);
+        return float4(color * lerp(own.x, 1, saturate(leaf_light)), 1);
     int stride = max(1, int(render_size.y / 720 + 0.5));
     float z = view_z(pixel), sum = 0, total = 0;
     [loop] for (int y = -kReach; y <= kReach; y++)
