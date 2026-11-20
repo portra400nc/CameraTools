@@ -176,6 +176,36 @@ namespace enhancements
     // alone, so a paused game holds it and a shot taken again sees the same strike.
     Lightning lightning_at(double seconds, float rate);
 
+    // Rain's shelter map: a top-down grid fixed in the world around the camera holding the highest surface the depth buffer
+    // showed in each cell, which shaders/rain_shelter_cs.hlsl raises every rain frame. Drops and splashes under a higher
+    // surface, a roof or a tree's canopy, are not drawn. The map keeps what it saw while the camera stays near, so a roof
+    // seen once keeps its shelter while the camera looks away.
+    constexpr int kShelterCells = 256;          // a side: 64 meters
+    constexpr float kShelterCell = 0.25f;       // meters
+    // Meters the map's corner moves by. Its contents then shift by whole cells, and only every 16 meters the camera goes.
+    constexpr double kShelterSnap = 16;
+    // Meters the camera moves in one frame that only a teleport or another world does: what the map held is elsewhere.
+    constexpr double kShelterJump = 30;
+
+    struct ShelterPlace
+    {
+        Vec3d camera {};                // world
+        std::array<float, 2> origin {}; // world x and z of the low edges of cell (0, 0); its columns run along x, its rows z
+    };
+
+    struct ShelterMove
+    {
+        ShelterPlace place;
+        bool clear = true;              // nothing kept: the first frame, a jump, or a move past the whole map
+        // Cells along x and z the corner moved: the new map's cell i is the old map's cell i + shift.
+        std::array<int, 2> shift {};
+    };
+
+    // Where the map lies for a camera at camera, which keeps 24 to 40 meters of map on every side of it, and what it keeps
+    // of the map at previous, the place of the last frame's map, or none when the last frame drew no rain. None when the
+    // camera's position is not finite.
+    std::optional<ShelterMove> shelter_move(const std::optional<ShelterPlace> &previous, const Vec3d &camera);
+
     struct SkyResult
     {
         SkyRequest request;

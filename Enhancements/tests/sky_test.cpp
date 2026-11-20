@@ -320,6 +320,21 @@ int main()
             strikes > 70 && strikes < 140 && bolts > 40 && brightest > 0.8f && brightest <= 1.5f && dark_without && repeats);
     }
     {
+        const std::optional<ShelterMove> first = shelter_move(std::nullopt, { 10, 5, -10 });
+        check("the shelter map's first frame clears it, its corner 32 meters below the camera's nearest 16 on x and z",
+            first && first->clear && first->place.origin[0] == -16 && first->place.origin[1] == -48 && first->shift[0] == 0 && first->shift[1] == 0);
+        const std::optional<ShelterMove> still = shelter_move(first->place, { 11, 5, -10.5 });
+        check("a meter's move keeps the map where it is", still && !still->clear && still->place.origin[0] == -16 && still->shift[0] == 0 && still->shift[1] == 0);
+        const std::optional<ShelterMove> on = shelter_move(still->place, { 26, 5, -10.5 });
+        check("past the halfway to the next 16 meters on x, the corner moves 16 meters and the contents 64 cells",
+            on && !on->clear && on->place.origin[0] == 0 && on->place.origin[1] == -48 && on->shift[0] == 64 && on->shift[1] == 0);
+        const std::optional<ShelterMove> back = shelter_move(on->place, { 26, 5, -30 });
+        check("back along z by 16 meters, the contents shift -64 cells", back && !back->clear && back->shift[0] == 0 && back->shift[1] == -64);
+        const std::optional<ShelterMove> jump = shelter_move(back->place, { 26, 40, -30 });
+        check("a 35 meter jump in one frame clears the map, with no shift", jump && jump->clear && jump->shift[0] == 0 && jump->shift[1] == 0);
+        check("a camera that is not finite has no map", !shelter_move(std::nullopt, { NAN, 0, 0 }));
+    }
+    {
         // The world's light at the drawn sky's exposure, for a day light of 1.5 and the default exposure.
         const Atmosphere clear = make_atmosphere(SkySettings {});
         const auto lit = [&clear](float sun, float moon, float phase) {

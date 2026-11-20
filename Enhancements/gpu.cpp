@@ -25,6 +25,8 @@ namespace enhancements
 {
 #include "shaders/rain_layers.hlsli"
 
+    static_assert(kShelterSide == kShelterCells, "rain_layers.hlsli's shelter map must be core/sky.h's");
+
     // Rain's drops, one instance a cell of every layer.
     UINT rain_drop_count()
     {
@@ -159,8 +161,11 @@ namespace enhancements
         float transmission_strength;
         float grass_roots;
         float leaf_light;
+        float shelter_origin[2];
+        float shelter_cell;
+        uint32_t shelter_phase;
     };
-    static_assert(sizeof(Constants) == 960 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
+    static_assert(sizeof(Constants) == 976 && offsetof(Constants, shelter_origin) == 960 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
         && offsetof(Constants, cloud_toward_sun) == 560 && offsetof(Constants, tone_shadows) == 480 && offsetof(Constants, accum_gain) == 488 && offsetof(Constants, flare_sun_uv) == 456 && offsetof(Constants, wetness) == 408 && offsetof(Constants, shafts_anisotropy) == 432 && offsetof(Constants, label) == 272 && offsetof(Constants, sun_color) == 304
         && offsetof(Constants, sky_color) == 320 && offsetof(Constants, bloom_strength) == 352 && offsetof(Constants, sun_cascades) == 368
@@ -909,6 +914,7 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kRainPs, sizeof kRainPs, nullptr, &made.rain_ps_))
             && SUCCEEDED(device->CreateVertexShader(kRainDropsVs, sizeof kRainDropsVs, nullptr, &made.rain_drops_vs_))
             && SUCCEEDED(device->CreatePixelShader(kRainDropsPs, sizeof kRainDropsPs, nullptr, &made.rain_drops_ps_))
+            && SUCCEEDED(device->CreateComputeShader(kRainShelterCs, sizeof kRainShelterCs, nullptr, &made.rain_shelter_cs_))
             && SUCCEEDED(device->CreatePixelShader(kSceneLightPs, sizeof kSceneLightPs, nullptr, &made.scene_light_ps_))
             && SUCCEEDED(device->CreateBlendState(&water_blend, &made.water_blend_))
             && SUCCEEDED(device->CreateVertexShader(kStarsVs, sizeof kStarsVs, nullptr, &made.stars_vs_))
@@ -2069,12 +2075,59 @@ namespace enhancements
             constants.sun_columns = sun->columns;
             constants.sun_rows = sun->rows;
         }
+        // The shelter map goes on from the last frame's only when that frame drew rain too: a frame without could have
+        // changed the world under it.
+        const bool continued = rain_shelter_place_ && (rain_shelter_frame_ == frame_ || rain_shelter_frame_ + 1 == frame_);
+        const std::optional<ShelterMove> move = amount > 0 ? shelter_move(continued ? rain_shelter_place_ : std::nullopt, camera_position(camera))
+                                                           : std::nullopt;
+        const Size shelter_size = { kShelterCells, kShelterCells };
+        const bool sheltered = move && rain_shelter_.sync(d, shelter_size, DXGI_FORMAT_R32_UINT, false, true)
+            && rain_shelter_spare_.sync(d, shelter_size, DXGI_FORMAT_R32_UINT, false, true);
+        if (sheltered)
+        {
+            constants.shelter_origin[0] = move->place.origin[0];
+            constants.shelter_origin[1] = move->place.origin[1];
+            constants.shelter_cell = kShelterCell;
+            constants.shelter_phase = static_cast<uint32_t>(frame_ & 3);
+        }
         upload(constants);
         ID3D11DeviceContext1 *c = context_.Get();
         scene_in_.copy_from(c, native(scene));
         depth_.copy_from(c, native(depth));
-        ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), nullptr, depth_.srv() };
-        draw_fullscreen(rain_ps_.Get(), srvs, 3, scene_out_.rtv(), map.render);
+        if (sheltered)
+        {
+            const UINT nothing[4] = {};
+            const int sx = move->shift[0], sz = move->shift[1];
+            if (move->clear)
+                c->ClearUnorderedAccessViewUint(rain_shelter_.uav(), nothing);
+            else if (sx != 0 || sz != 0)
+            {
+                // The cells both places cover, into the spare at their new places, which then becomes the map.
+                c->ClearUnorderedAccessViewUint(rain_shelter_spare_.uav(), nothing);
+                const D3D11_BOX kept = { static_cast<UINT>(std::max(sx, 0)), static_cast<UINT>(std::max(sz, 0)), 0,
+                    static_cast<UINT>(kShelterCells + std::min(sx, 0)), static_cast<UINT>(kShelterCells + std::min(sz, 0)), 1 };
+                c->CopySubresourceRegion(rain_shelter_spare_.texture(), 0, static_cast<UINT>(std::max(-sx, 0)), static_cast<UINT>(std::max(-sz, 0)), 0,
+                    rain_shelter_.texture(), 0, &kept);
+                std::swap(rain_shelter_, rain_shelter_spare_);
+            }
+            ID3D11Buffer *const buffers[] = { constants_.Get() };
+            ID3D11ShaderResourceView *const in[] = { nullptr, nullptr, depth_.srv(), depth_.stencil_srv() };
+            ID3D11UnorderedAccessView *const out[] = { rain_shelter_.uav() };
+            c->CSSetShader(rain_shelter_cs_.Get(), nullptr, 0);
+            c->CSSetConstantBuffers(0, 1, buffers);
+            c->CSSetShaderResources(0, 4, in);
+            c->CSSetUnorderedAccessViews(0, 1, out, nullptr);
+            c->Dispatch((map.render.width / 2 + 8) / 8, (map.render.height / 2 + 8) / 8, 1);
+            ID3D11ShaderResourceView *const no_srvs[4] = {};
+            ID3D11UnorderedAccessView *const no_uavs[1] = {};
+            c->CSSetUnorderedAccessViews(0, 1, no_uavs, nullptr);
+            c->CSSetShaderResources(0, 4, no_srvs);
+            rain_shelter_place_ = move->place;
+            rain_shelter_frame_ = frame_;
+        }
+        ID3D11ShaderResourceView *const shelter = sheltered ? rain_shelter_.srv() : nullptr;
+        ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), nullptr, depth_.srv(), nullptr, shelter };
+        draw_fullscreen(rain_ps_.Get(), srvs, 5, scene_out_.rtv(), map.render);
         // Blurred copies of the scene, for the light behind and around each drop. Without them the drops show the sky's only.
         const bool glowing = amount > 0 && rain_glow_.sync(d, scene_in_.size(), scene_format, true);
         if (glowing)
@@ -2087,7 +2140,7 @@ namespace enhancements
             // draw_fullscreen's state with the drops' shaders: a strip of 4 vertices a drop, blended over the splashes.
             ID3D11Buffer *const buffers[] = { constants_.Get(), game_sun_[0].Get(), game_sun_[1].Get(), game_sun_[2].Get(), game_sun_[3].Get() };
             ID3D11SamplerState *const samplers[kSamplerSlots] = { point_.Get(), linear_.Get(), lit_compare_.Get(), wrap_.Get(), anisotropic_wrap_.Get() };
-            ID3D11ShaderResourceView *const drop_in[] = { nullptr, nullptr, nullptr, nullptr, nullptr, shaded ? sun_atlas_.srv() : nullptr,
+            ID3D11ShaderResourceView *const drop_in[] = { nullptr, nullptr, nullptr, nullptr, shelter, shaded ? sun_atlas_.srv() : nullptr,
                 glowing ? rain_glow_.srv() : nullptr };
             c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
             c->VSSetShader(rain_drops_vs_.Get(), nullptr, 0);

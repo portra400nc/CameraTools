@@ -8,7 +8,7 @@
 // A drop is clear water, so most of what it shows is what lies behind it, which rain_drops_ps.hlsl adds. Its own light,
 // figured here once a drop, is the main light scattered forward through it, where the sun atlas lights it, a little of
 // the sky it reflects, and lightning's flash. Seen away from the main light, rain is faint; toward the sun or the moon,
-// within a few tens of degrees, its drops glow.
+// within a few tens of degrees, its drops glow. Nothing falls under the cover the shelter map saw.
 #include "sun.hlsli"
 #include "scatter.hlsli"
 #include "rain.hlsli"
@@ -30,6 +30,9 @@ static const float kOpacity = 0.25;
 static const float kFarBoost = 1.5;
 static const float kMaxCover = 0.5;
 static const float kHandOver = 0.25;                // the outer share of a layer's reach over which the next takes its drops
+// Meters a surface over a drop's head may stand before the shelter map hides the drop, and the meters over which it fades
+// out above that, so a streak ends at the roof over it rather than popping out.
+static const float2 kShelter = float2(0.15, 0.3);
 static const float2 kNear = float2(0.35, 0.8);      // meters: drops this near are out of focus, and fade out
 // The light a drop scatters over what reaches its face, diffraction's forward peak included, into two forward
 // Henyey-Greenstein lobes: the narrow one the glow right around the light, the wide one the glow tens of degrees off.
@@ -136,6 +139,8 @@ RainStreak main(uint vertex : SV_VertexID, uint instance : SV_InstanceID)
     float weight = 1 - smoothstep(reach * (1 - kHandOver), reach, span);
     if (layer > 0)
         weight *= smoothstep(inner * (1 - kHandOver), inner, span);
+    // None under a roof or a canopy the shelter map saw.
+    weight *= 1 - shelter_cover(camera + rel, kShelter);
     float live = saturate(rain_amount * rain_gust(atan2(rel.z, rel.x)));
     if (weight <= 0 || r2.x >= live)
         return o;
