@@ -1149,9 +1149,10 @@ namespace enhancements
         {
             ID3D11Buffer *const own[] = { trace.reflect_constants() };
             c->PSSetConstantBuffers(4, 1, own);
-            ID3D11ShaderResourceView *const srvs[] = { trace.reflect_sum_srv(), reflection_in_.srv(), smoothness_in_.srv(), depth_.stencil_srv() };
+            ID3D11ShaderResourceView *const srvs[] = { trace.reflect_sum_srv(), normals_.srv(), depth_.srv(), depth_.stencil_srv(), nullptr, reflection_in_.srv(),
+                smoothness_in_.srv() };
             ID3D11RenderTargetView *const targets[] = { reflection_out_.rtv(), smoothness_out_.rtv() };
-            draw_fullscreen(reflect_apply_ps_.Get(), srvs, 4, targets, 2, map.render);
+            draw_fullscreen(reflect_apply_ps_.Get(), srvs, 7, targets, 2, map.render);
             ID3D11ShaderResourceView *const none[kSrvSlots] = {};
             c->PSSetShaderResources(0, kSrvSlots, none);
             reflection_out_.copy_to(c, native(*probes));
