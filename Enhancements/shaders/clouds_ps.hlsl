@@ -1,7 +1,7 @@
 // The volume clouds' march, at a quarter of the size: each ray from the game's camera crosses the layer between cloud_base
 // and cloud_base + cloud_thickness in cloud_steps samples. As Frostbite and Horizon Zero Dawn build them, the weather map
 // says where clouds stand, their type how dense they are up the layer, the shape noise gives them bodies and the erosion
-// noise eats their edges. Each sample inside a cloud looks toward the light through five samples spaced wider and wider,
+// noise eats their edges. Each sample inside a cloud looks toward the light through six samples spaced wider and wider,
 // and is lit by the light through them with multiple scattering and by the sky. The result depends on the ray's direction
 // alone, so clouds_resolve_ps.hlsl averages it over frames and clouds_apply_ps.hlsl filters it to full size.
 #include "sun.hlsli"
@@ -18,7 +18,13 @@ Texture2D<float4> cloud_types : register(t12);  // core/clouds.h's table: a row 
 
 static const float kShapeTile = 6;     // cloud sizes the shape noise spans before it repeats
 static const float kDetailTile = 0.8;
-static const float kCloudTypes = 4;    // ENHANCEMENTS_CLOUD_TYPE_COUNT
+static const float kCloudTypes = 5;    // ENHANCEMENTS_CLOUD_TYPE_COUNT
+// By ENHANCEMENTS_CLOUD_TYPE_*: how far full weather raises the cover at no and at full Coverage, for the towering cumulus
+// past 1 at a tower's middle so it stands solid and the shape noise forms billows over its sides (its Coverage says how
+// many towers stand instead); and the share of the layer the weakest weather still raises a cloud through, so towers
+// stand at many heights.
+static const float2 kCover[5] = { float2(0.35, 0.85), float2(0.35, 0.85), float2(0.35, 0.85), float2(0.35, 0.85), float2(1.5, 1.5) };
+static const float kShortest[5] = { 0.55, 0.55, 0.55, 0.55, 0.3 };
 // How deep the erosion noise eats into a body at full erosion and Edge detail.
 static const float kErosionDepth = 0.35;
 
@@ -47,11 +53,12 @@ float cloud_body(float3 p, out float h, out float erosion)
     if (weather <= 0.01)
         return 0;
     // Where the weather is weaker the clouds grow less tall: the type's profile is read higher up.
-    float4 type = cloud_types.SampleLevel(linear_clamp, float2(h / lerp(0.55, 1, weather), (cloud_type + 0.5) / kCloudTypes), 0);
+    uint kind = min((uint)cloud_type, 4u);
+    float4 type = cloud_types.SampleLevel(linear_clamp, float2(h / lerp(kShortest[kind], 1, weather), (kind + 0.5) / kCloudTypes), 0);
     erosion = type.g;
     // Even under full weather the cover stays below 1, so the noise carves the body rather than the clouds turning into
     // extruded slabs of the map; the type's spread adds to it.
-    float cover = saturate(weather * lerp(0.35, 0.85, cloud_coverage) + type.b + coverage_boost);
+    float cover = saturate(weather * lerp(kCover[kind].x, kCover[kind].y, cloud_coverage) + type.b + coverage_boost);
     float n = shape_noise.SampleLevel(linear_wrap, c / (cloud_size * kShapeTile), 0);
     return saturate(remap(n * type.r, 1 - cover, 1, 0, 1)) * cover;
 }
@@ -85,20 +92,36 @@ bool cloud_near(float3 p)
     return near;
 }
 
-// Optical depth from p toward the light, through samples at 5% to 94% of the layer's thickness along the light; only the
-// nearest sees the detail.
+// Optical depth from p toward the light, through six samples from 3% to 150% of a cloud's size along it: the nearest two,
+// with the detail, shade a billow's far side and the hollows between billows; the rest, the cloud's body behind it.
+static const float kLightTaps[6] = { 0.03, 0.085, 0.19, 0.38, 0.77, 1.54 };
 float depth_toward_light(float3 p, float3 l)
 {
-    float depth = 0, from = 0, at = cloud_thickness * 0.05;
-    [unroll] for (int j = 0; j < 5; j++)
+    float depth = 0, from = 0;
+    [unroll] for (int j = 0; j < 6; j++)
     {
-        float h;
-        float sigma = j < 1 ? cloud_extinction(p + l * at, h) : cloud_extinction_coarse(p + l * at);
+        float at = kLightTaps[j] * cloud_size, h;
+        float sigma = j < 2 ? cloud_extinction(p + l * at, h) : cloud_extinction_coarse(p + l * at);
         depth += sigma * (at - from);
         from = at;
-        at *= 2.1;
     }
     return depth;
+}
+
+// Sunlight scattered toward the eye after Frostbite (Hillaire 2016, 5.6): three octaves of multiple scattering, each
+// through half the optical depth, half as strong and half as forward, of a forward and a weaker backward Henyey-Greenstein
+// lobe. Halving the depth keeps a billow's shaded side dark, where the painted layer's quartering lit it nearly through.
+float volume_scattered(float c, float od)
+{
+    float lit = 0, a = 1, b = 1, g = 1;
+    [unroll] for (int k = 0; k < 3; k++)
+    {
+        lit += b * (0.55 * henyey_greenstein(c, 0.8 * g) + 0.45 * henyey_greenstein(c, -0.3 * g)) * exp(-od * a);
+        a *= 0.5;
+        b *= 0.5;
+        g *= 0.5;
+    }
+    return lit;
 }
 
 float4 main(float4 position : SV_Position) : SV_Target0
@@ -193,9 +216,7 @@ float4 main(float4 position : SV_Position) : SV_Target0
         }
         empty = 0;
         float od = depth_toward_light(p, l);
-        float lit = scattered(c, od);
-        // Light reaching a cloud's sunlit skin has not yet scattered toward the eye: the powder term darkens it a little.
-        lit *= lerp(1, 1 - exp(-od * 2), 0.4);
+        float lit = volume_scattered(c, od);
         float3 light = (physical ? physical_sunlight(origin, p) : sun) * lit + sky * (0.2 + 0.8 * h);
         float through = exp(-sigma * step);
         float fade = exp(-t / cloud_fade);

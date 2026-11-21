@@ -73,7 +73,8 @@ namespace enhancements
             && offsetof(EnhancementsSettings, sky) == 420 && offsetof(EnhancementsSettings, clouds) == 428 && offsetof(EnhancementsSettings, aerial) == 484
             && offsetof(EnhancementsSettings, water) == 488 && offsetof(EnhancementsSettings, sunset) == 504 && offsetof(EnhancementsSettings, cloud_pattern) == 508 && offsetof(EnhancementsSettings, rain) == 512 && offsetof(EnhancementsSettings, mist) == 520 && offsetof(EnhancementsSettings, scene_light) == 528 && offsetof(EnhancementsSettings, transmission) == 532 && offsetof(EnhancementsSettings, grass) == 536 && sizeof(EnhancementsGrass) == 20 && offsetof(EnhancementsSettings, leaves) == 556 && sizeof(EnhancementsSettings) == 560);
         static_assert(ENHANCEMENTS_CLOUD_TYPE_STRATOCUMULUS == static_cast<int>(CloudType::stratocumulus) && ENHANCEMENTS_CLOUD_TYPE_STRATUS == static_cast<int>(CloudType::stratus)
-            && ENHANCEMENTS_CLOUD_TYPE_CUMULONIMBUS == static_cast<int>(CloudType::cumulonimbus) && ENHANCEMENTS_CLOUD_TYPE_COUNT == static_cast<int>(CloudType::count));
+            && ENHANCEMENTS_CLOUD_TYPE_CUMULONIMBUS == static_cast<int>(CloudType::cumulonimbus)
+            && ENHANCEMENTS_CLOUD_TYPE_TOWERING == static_cast<int>(CloudType::towering) && ENHANCEMENTS_CLOUD_TYPE_COUNT == static_cast<int>(CloudType::count));
         static_assert(ENHANCEMENTS_CLOUD_PATTERN_STREAKS == static_cast<int>(CloudPattern::streaks)
             && ENHANCEMENTS_CLOUD_PATTERN_COUNT == static_cast<int>(CloudPattern::count));
         static_assert(ENHANCEMENTS_FLARE_SOURCE_MANUAL == static_cast<int>(FlareSource::manual)

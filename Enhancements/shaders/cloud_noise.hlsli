@@ -38,36 +38,6 @@ float tiling_worley(float3 uvw, int n)
     return 1 - saturate(sqrt(best));
 }
 
-float tiling_perlin(float3 uvw, int n)
-{
-    float3 p = uvw * n;
-    int3 cell = int3(floor(p));
-    float3 f = p - cell;
-    float3 u = f * f * f * (f * (f * 6 - 15) + 10);
-    float corner[8];
-    for (int k = 0; k < 8; k++)
-    {
-        int3 o = int3(k & 1, (k >> 1) & 1, k >> 2);
-        float3 g = normalize(cloud_random3(cell + o, n, 7u) * 2 - 1 + 1e-4);
-        corner[k] = dot(g, f - o);
-    }
-    float x00 = lerp(corner[0], corner[1], u.x), x10 = lerp(corner[2], corner[3], u.x);
-    float x01 = lerp(corner[4], corner[5], u.x), x11 = lerp(corner[6], corner[7], u.x);
-    return lerp(lerp(x00, x10, u.y), lerp(x01, x11, u.y), u.z);
-}
-
-float tiling_perlin_fbm(float3 uvw, int n, int octaves)
-{
-    float total = 0, amplitude = 1, norm = 0;
-    for (int i = 0; i < octaves; i++)
-    {
-        total += amplitude * tiling_perlin(uvw, n << i);
-        norm += amplitude;
-        amplitude *= 0.5;
-    }
-    return total / norm;
-}
-
 float worley_fbm(float3 uvw, int n)
 {
     return tiling_worley(uvw, n) * 0.625 + tiling_worley(uvw, n * 2) * 0.25 + tiling_worley(uvw, n * 4) * 0.125;

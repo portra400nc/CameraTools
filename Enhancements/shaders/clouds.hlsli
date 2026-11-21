@@ -70,11 +70,40 @@ float2 pattern_at(float2 c)
     return float2(cover, dot(p.rgb, float3(0.2126, 0.7152, 0.0722)));
 }
 
+// The towering cumulus's weather: towers scattered one to a cell of six cloud sizes, standing in as many cells as
+// Coverage asks, each a dome 0.4 to 0.85 of a cell across and 0.55 to 1 high, its rim warped by broad noise. Peaked domes
+// let the cover fall from the tower's middle to its rim, so the shape noise forms billows all over its sides; the broad
+// patches of cloud_weather rise to a plateau, which left smooth blobs or an overcast.
+float cloud_towers(float2 c)
+{
+    float cell = cloud_size * 6;
+    float2 warp = float2(cloud_fbm(float3(c / cell * 1.7, 3.1), 2), cloud_fbm(float3(c / cell * 1.7 + 4.3, 6.7), 2)) - 0.5;
+    float2 p = c / cell + warp * 0.35;
+    int2 home = int2(floor(p));
+    float w = 0;
+    for (int y = -1; y <= 1; y++)
+        for (int x = -1; x <= 1; x++)
+        {
+            int2 at = home + int2(x, y);
+            uint2 a = cloud_hash(at), b = cloud_hash(at + int2(7919, 104729));
+            float4 r = float4(a & 0xffffu, b & 0xffffu) / 65535.0;
+            if (r.x >= cloud_coverage)
+                continue;
+            float2 center = at + 0.15 + 0.7 * r.yz;
+            float radius = 0.2 + 0.225 * r.w;
+            float d = length(p - center) / radius;
+            w = max(w, lerp(0.55, 1, frac(r.w * 7.31)) * saturate(1 - d * d));
+        }
+    return w;
+}
+
 // The weather map's value at a point of cloud space (world x and z plus the drift): 0 clear sky to 1 where the clouds
 // stand thickest and tallest, as Coverage spreads or thins them. Broad warped patches some six cells across, drawn out
 // along the wind; the shape noise gives the clouds inside them their bodies.
 float cloud_weather(float2 c)
 {
+    if (cloud_type == 4)    // ENHANCEMENTS_CLOUD_TYPE_TOWERING
+        return cloud_towers(c);
     float2 wind = float2(cos(radians(cloud_pad)), sin(radians(cloud_pad)));
     float2 p = float2(dot(c, wind) / (cloud_size * cloud_stretch), dot(c, float2(-wind.y, wind.x)) / cloud_size) / 6;
     float wx = cloud_fbm(float3(p * 0.5, 0.5), 2) - 0.5;

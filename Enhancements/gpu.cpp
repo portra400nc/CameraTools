@@ -2285,7 +2285,7 @@ namespace enhancements
         scene_in_.copy_from(c, native(scene));
         depth_.copy_from(c, native(depth));
         const CloudMapKey key = { cloud_map_.texture(), { constants.cloud_map_center[0], constants.cloud_map_center[1] }, constants.cloud_map_extent,
-            settings.coverage, settings.size, settings.stretch, settings.wind_direction, constants.cloud_pattern };
+            settings.coverage, settings.size, settings.stretch, settings.wind_direction, constants.cloud_pattern, constants.cloud_type };
         if (!(key == cloud_map_key_))
         {
             ID3D11ShaderResourceView *const bake[] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, lattice_srv_.Get() };

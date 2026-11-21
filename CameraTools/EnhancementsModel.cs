@@ -428,6 +428,8 @@ namespace CameraTools
                     settings.Rain.Lightning = 0f;
                 }
             }
+            if (ProbeTowers)
+                ApplyProbeTowers(ref settings);
             if (settings.Enabled == 0 && (settings.DepthOfField.Enabled != 0 || settings.LensSoftness.Radius > 0f))
             {
                 settings.Enabled = 1;
@@ -521,6 +523,30 @@ namespace CameraTools
         // For the probe only while the volume clouds are rebuilt: they stand in for the painted patterns, but cirrus, which
         // they cannot draw.
         public static bool ProbeVolumeClouds { get; set; }
+
+        // For the probe only while the towering cumulus is tuned: the volume clouds as tall towers of billows, whatever
+        // Type and Weather chose, keeping their coverage. It has no Type of its own until its look is settled.
+        public static bool ProbeTowers { get; set; }
+
+        public static float ProbeTowersCoverage { get; set; } = 0.4f;
+
+        // The probe's sky light and edge detail for the towers, by ProbeTowersLook.
+        public static readonly (float SkyLight, float EdgeDetail)[] ProbeTowersLooks = { (1f, 0.8f), (0.5f, 0.8f), (0.5f, 2f), (0.3f, 2f), (0.3f, 3f) };
+        public static int ProbeTowersLook { get; set; }
+
+        private static void ApplyProbeTowers(ref EnhancementsSettings settings)
+        {
+            settings.Clouds.Type = EnhancementsCloudType.Towering;
+            settings.Clouds.Base = 1200f;
+            settings.Clouds.Thickness = 6500f;
+            settings.Clouds.Size = 1300f;
+            settings.Clouds.Density = 0.08f;
+            settings.Clouds.Coverage = ProbeTowersCoverage;
+            settings.Clouds.Stretch = 1f;
+            settings.Clouds.Ambient *= ProbeTowersLooks[ProbeTowersLook].SkyLight;
+            settings.Clouds.Detail = ProbeTowersLooks[ProbeTowersLook].EdgeDetail;
+            settings.CloudPattern.Pattern = EnhancementsCloudPatternKind.Noise;
+        }
 
         // The add-on's pattern for a cloud type: its painted one, or the volume clouds' noise while the probe asks for them.
         public static EnhancementsCloudPatternKind PatternOf(CloudKind kind) =>

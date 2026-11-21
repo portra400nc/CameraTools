@@ -1,19 +1,19 @@
-// The volume clouds' shape noise, 128 texels a side, one channel as Frostbite keeps it: Perlin-Worley, the billowy body
-// of a cloud, carved by Worley fbm at three rising frequencies (Schneider, "The Real-time Volumetric Cloudscapes of
-// Horizon Zero Dawn", 2015).
+// The volume clouds' shape noise, 128 texels a side, one channel as Frostbite keeps it: Worley fbm at three rising
+// frequencies, round billows within round billows. Perlin-Worley (Schneider, "The Real-time Volumetric Cloudscapes of
+// Horizon Zero Dawn", 2015) made lumpy, doughy bodies in the towering cumulus prototype (.work/clouds/towers/proto.py).
+// The fbm spans only about 0.25 to 0.72, so it is stretched over 0 to 1, or the weather map's dome alone would shape a
+// cloud and the billows would show only at its rim; the power rounds the billows' tops.
 #include "cloud_noise.hlsli"
 
 RWTexture3D<unorm float> shape : register(u0);
 
 static const float kSize = 128;
+static const float kLow = 0.25, kHigh = 0.72;   // its 2nd and 98th percentiles
 
 [numthreads(4, 4, 4)]
 void main(uint3 id : SV_DispatchThreadID)
 {
     float3 uvw = (id + 0.5) / kSize;
-    float perlin = saturate(tiling_perlin_fbm(uvw, 4, 4) * 0.7 + 0.5);
-    float worley = tiling_worley(uvw, 4) * 0.625 + tiling_worley(uvw, 8) * 0.25 + tiling_worley(uvw, 14) * 0.125;
-    float perlin_worley = worley + perlin * (1 - worley);
-    float carve = worley_fbm(uvw, 8) * 0.625 + worley_fbm(uvw, 16) * 0.25 + (tiling_worley(uvw, 32) * 0.75 + tiling_worley(uvw, 64) * 0.25) * 0.125;
-    shape[id] = saturate((perlin_worley - (carve - 1)) / (2 - carve));
+    float worley = worley_fbm(uvw, 4);
+    shape[id] = pow(saturate((worley - kLow) / (kHigh - kLow)), 1.5);
 }

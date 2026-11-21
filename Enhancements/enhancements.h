@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 51
+#define ENHANCEMENTS_VERSION 52
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -554,6 +554,7 @@ enum
     ENHANCEMENTS_CLOUD_TYPE_STRATOCUMULUS,     // low rolls and lumps packed into a layer
     ENHANCEMENTS_CLOUD_TYPE_STRATUS,           // a flat, smooth sheet
     ENHANCEMENTS_CLOUD_TYPE_CUMULONIMBUS,      // towers through the whole layer that spread into an anvil at the top
+    ENHANCEMENTS_CLOUD_TYPE_TOWERING,          // towering cumulus (congestus): tall towers of round billows, solid inside; version 52
     ENHANCEMENTS_CLOUD_TYPE_COUNT,
 };
 

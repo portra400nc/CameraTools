@@ -295,7 +295,7 @@ namespace CameraToolsEnhancements
     }
 
     // ENHANCEMENTS_CLOUD_TYPE_* in enhancements.h, in order.
-    internal enum EnhancementsCloudType : uint { Cumulus, Stratocumulus, Stratus, Cumulonimbus }
+    internal enum EnhancementsCloudType : uint { Cumulus, Stratocumulus, Stratus, Cumulonimbus, Towering }
 
     // ENHANCEMENTS_CLOUD_PATTERN_* in enhancements.h, in order.
     internal enum EnhancementsCloudPatternKind : uint { Noise, Heaps, Broken, Overcast, Puffs, Patches, Streaks }
@@ -685,7 +685,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 51;
+        private const uint Version = 52;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
