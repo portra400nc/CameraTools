@@ -569,7 +569,7 @@ typedef struct EnhancementsClouds
     float size;                 // meters across one cloud cell (default 380)
     float stretch;              // the cells' length along the wind over their width, 1 to 6 (default 1.5)
     float density;              // extinction per meter inside a cloud (default 0.06)
-    float detail;               // how much the fine noise erodes the edges, 0 to 1 (default 0.8)
+    float detail;               // how much the fine noise erodes the edges, 0 to 3, past 1 deeper (default 0.8)
     float wind_speed;           // meters per second (default 8)
     float wind_direction;       // degrees from world +x toward +z (default 30)
     float sun;                  // multiplies the main light on the clouds (default 1)

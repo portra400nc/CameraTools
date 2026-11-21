@@ -2190,11 +2190,15 @@ namespace enhancements
         const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
         const auto scene_format = static_cast<DXGI_FORMAT>(scene.format);
         const Size half = { (map.render.width + 1) / 2, (map.render.height + 1) / 2 }, quarter = { (half.width + 1) / 2, (half.height + 1) / 2 };
+        // A towering cumulus marches every pixel of the half-size history each frame: at a quarter of the size its billows'
+        // shading fell between the rays (.work/clouds/towers deck8).
+        const bool every = settings.type == CloudType::towering;
+        const Size rays = every ? half : quarter;
         ID3D11Device *d = device_.Get();
         Constants constants;
         if (!scene_in_.sync(d, native(scene), scene_format, false) || !scene_out_.sync(d, native(scene), scene_format, true)
             || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false)
-            || !cloud_map_.sync(d, { kCloudMapSize, kCloudMapSize }, DXGI_FORMAT_R16_FLOAT) || !cloud_rays_.sync(d, quarter, DXGI_FORMAT_R16G16B16A16_FLOAT)
+            || !cloud_map_.sync(d, { kCloudMapSize, kCloudMapSize }, DXGI_FORMAT_R16_FLOAT) || !cloud_rays_.sync(d, rays, DXGI_FORMAT_R16G16B16A16_FLOAT)
             || !cloud_history_[0].sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT) || !cloud_history_[1].sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT)
             || !pass_constants(camera, map.render, flip, constants))
             return std::nullopt;
@@ -2249,7 +2253,7 @@ namespace enhancements
         cloud_prev_wind_[0] = wind[0];
         cloud_prev_wind_[1] = wind[1];
         constants.cloud_blend = !continues ? 1.0f : std::max(0.3f / (1.0f + static_cast<float>(cloud_still_) / 16.0f), 0.03f);
-        constants.cloud_block = static_cast<float>(frame & 3);
+        constants.cloud_block = every ? 4.0f : static_cast<float>(frame & 3);
         std::memcpy(constants.cloud_prev_world_to_view, continues ? cloud_prev_world_to_view_ : camera.world_to_view, sizeof constants.cloud_prev_world_to_view);
         std::memcpy(constants.cloud_prev_view_to_clip, continues ? cloud_prev_view_to_clip_ : camera.view_to_clip, sizeof constants.cloud_prev_view_to_clip);
         std::memcpy(cloud_prev_world_to_view_, camera.world_to_view, sizeof cloud_prev_world_to_view_);
@@ -2296,7 +2300,7 @@ namespace enhancements
         c->PSSetConstantBuffers(1, 4, game);
         ID3D11ShaderResourceView *const march[] = { nullptr, nullptr, depth_.srv(), nullptr, nullptr, cloud_map_.srv(), lattice_srv_.Get(),
             cloud_shape_srv_.Get(), cloud_detail_srv_.Get(), sky_transmittance_srv_.Get(), sky_multiple_srv_.Get(), nullptr, cloud_types_srv_.Get() };
-        draw_fullscreen(clouds_ps_.Get(), march, 13, cloud_rays_.rtv(), quarter);
+        draw_fullscreen(clouds_ps_.Get(), march, 13, cloud_rays_.rtv(), rays);
         Scratch &old = cloud_history_[cloud_history_at_], &now = cloud_history_[cloud_history_at_ ^ 1];
         cloud_history_at_ ^= 1;
         ID3D11ShaderResourceView *const resolve[] = { nullptr, nullptr, nullptr, nullptr, nullptr, cloud_rays_.srv(), old.srv() };

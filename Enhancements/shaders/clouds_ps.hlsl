@@ -17,8 +17,8 @@ Texture3D<float> erosion_noise : register(t8);  // cloud_detail_cs.hlsl's
 Texture2D<float4> cloud_types : register(t12);  // core/clouds.h's table: a row a type, r density, g erosion, b spread
 
 static const float kShapeTile = 6;     // cloud sizes the shape noise spans before it repeats
-// By ENHANCEMENTS_CLOUD_TYPE_*: cloud sizes the erosion noise spans. Its cells run from a quarter to a thirty-second of
-// the tile; a towering cumulus's billows want 230 m and smaller, where 0.8 cut it into 500 m chunks.
+// By ENHANCEMENTS_CLOUD_TYPE_*: cloud sizes the erosion noise spans. Its largest cells are half the tile; a towering
+// cumulus's billows want some 230 m, where 0.8 cut it into 500 m chunks and 0.18 repeated as a lattice.
 static const float kDetailTiles[5] = { 0.8, 0.8, 0.8, 0.8, 0.35 };
 static float detail_tile = 0.8;  // this type's, set by main
 static const float kCloudTypes = 5;    // ENHANCEMENTS_CLOUD_TYPE_COUNT
@@ -39,10 +39,14 @@ static float2 skew_direction;
 static float detail_weight = 1;
 static float coverage_boost = 0;
 
+// By ENHANCEMENTS_CLOUD_TYPE_*: how far the tops lean downwind, as a share of the layer's thickness. A towering cumulus
+// 6.5 km tall leaned 3 km at half, a slanted slab.
+static const float kLean[5] = { 0.5, 0.5, 0.5, 0.5, 0.1 };
+
 // Where the noises read p: its world place with the drift, the tops leaning downwind.
 float3 cloud_space(float3 p, float h)
 {
-    float2 c = p.xz + cloud_wind + skew_direction * h * cloud_thickness * 0.5;
+    float2 c = p.xz + cloud_wind + skew_direction * h * cloud_thickness * kLean[min((uint)cloud_type, 4u)];
     return float3(c.x, p.y, c.y);
 }
 
@@ -131,9 +135,10 @@ float volume_scattered(float c, float od)
 
 float4 main(float4 position : SV_Position) : SV_Target0
 {
-    // This frame's pixel of the 2x2 block of the half-size history that this quarter-size pixel covers.
+    // This frame's pixel of the 2x2 block of the half-size history that this quarter-size pixel covers, or with block 4
+    // this half-size pixel itself.
     uint block = (uint)cloud_block;
-    float2 pixel = floor(position.xy) * 2 + float2(block & 1, block >> 1) + 0.5;
+    float2 pixel = block > 3 ? floor(position.xy) + 0.5 : floor(position.xy) * 2 + float2(block & 1, block >> 1) + 0.5;
     float2 uv = pixel * 2 * render_size.zw;
     // The camera from our own constants, so the clouds draw also when the game renders no sun shadows, as after sunset.
     float3x3 to_world = transpose((float3x3)world_to_view);

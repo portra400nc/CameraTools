@@ -236,9 +236,12 @@ int main()
     raw.size = sizeof raw;
     raw.clouds = { 1, 2.0f, 3000, 1, 5, 9, -1, 0.5f, 10, 45, 2, 0.5f, 200, 1 };
     const CloudSettings clouds = parse_settings(raw).clouds;
-    check("the clouds read their block and clamp it: coverage to 1, thickness to 10 m, size to 20 m, stretch to 6, density to 0, steps to 64, stratocumulus kept",
+    raw.clouds.detail = 4;
+    const float detail = parse_settings(raw).clouds.detail;
+    raw.clouds.detail = 0.5f;
+    check("the clouds read their block and clamp it: coverage to 1, detail to 3, thickness to 10 m, size to 20 m, stretch to 6, density to 0, steps to 64, stratocumulus kept",
         clouds.enabled && clouds.coverage == 1 && clouds.base == 3000 && clouds.thickness == 10 && clouds.size == 20 && clouds.stretch == 6
-            && clouds.density == 0 && clouds.detail == 0.5f && clouds.wind_speed == 10 && clouds.wind_direction == 45 && clouds.sun == 2
+            && clouds.density == 0 && clouds.detail == 0.5f && detail == 3 && clouds.wind_speed == 10 && clouds.wind_direction == 45 && clouds.sun == 2
             && clouds.ambient == 0.5f && clouds.steps == 64 && clouds.type == CloudType::stratocumulus && kPasses[11].id == PassId::clouds && kPasses[11].wanted(parse_settings(raw)));
     raw.clouds.type = 3;
     check("type 3 reads as cumulonimbus", parse_settings(raw).clouds.type == CloudType::cumulonimbus);

@@ -519,7 +519,7 @@ namespace enhancements
             s.clouds.size = finite_or(c.size, d.size, 20.0f, 20000.0f);
             s.clouds.stretch = finite_or(c.stretch, d.stretch, 1.0f, 6.0f);
             s.clouds.density = finite_or(c.density, d.density, 0.0f, 1.0f);
-            s.clouds.detail = finite_or(c.detail, d.detail, 0.0f, 1.0f);
+            s.clouds.detail = finite_or(c.detail, d.detail, 0.0f, 3.0f);
             s.clouds.wind_speed = finite_or(c.wind_speed, d.wind_speed, 0.0f, 200.0f);
             s.clouds.wind_direction = finite_or(c.wind_direction, d.wind_direction, -360.0f, 360.0f);
             s.clouds.sun = finite_or(c.sun, d.sun, 0.0f, 20.0f);
