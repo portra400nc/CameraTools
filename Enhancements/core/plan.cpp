@@ -72,8 +72,8 @@ namespace enhancements
             && offsetof(EnhancementsSettings, lens_softness) == 412 && offsetof(EnhancementsSettings, auto_exposure) == 416
             && offsetof(EnhancementsSettings, sky) == 420 && offsetof(EnhancementsSettings, clouds) == 428 && offsetof(EnhancementsSettings, aerial) == 484
             && offsetof(EnhancementsSettings, water) == 488 && offsetof(EnhancementsSettings, sunset) == 504 && offsetof(EnhancementsSettings, cloud_pattern) == 508 && offsetof(EnhancementsSettings, rain) == 512 && offsetof(EnhancementsSettings, mist) == 520 && offsetof(EnhancementsSettings, scene_light) == 528 && offsetof(EnhancementsSettings, transmission) == 532 && offsetof(EnhancementsSettings, grass) == 536 && sizeof(EnhancementsGrass) == 20 && offsetof(EnhancementsSettings, leaves) == 556 && sizeof(EnhancementsSettings) == 560);
-        static_assert(ENHANCEMENTS_CLOUD_SHAPE_STREAKS == static_cast<int>(CloudShape::streaks) && ENHANCEMENTS_CLOUD_SHAPE_SHEET == static_cast<int>(CloudShape::sheet)
-            && ENHANCEMENTS_CLOUD_SHAPE_COUNT == static_cast<int>(CloudShape::count));
+        static_assert(ENHANCEMENTS_CLOUD_TYPE_STRATOCUMULUS == static_cast<int>(CloudType::stratocumulus) && ENHANCEMENTS_CLOUD_TYPE_STRATUS == static_cast<int>(CloudType::stratus)
+            && ENHANCEMENTS_CLOUD_TYPE_CUMULONIMBUS == static_cast<int>(CloudType::cumulonimbus) && ENHANCEMENTS_CLOUD_TYPE_COUNT == static_cast<int>(CloudType::count));
         static_assert(ENHANCEMENTS_CLOUD_PATTERN_STREAKS == static_cast<int>(CloudPattern::streaks)
             && ENHANCEMENTS_CLOUD_PATTERN_COUNT == static_cast<int>(CloudPattern::count));
         static_assert(ENHANCEMENTS_FLARE_SOURCE_MANUAL == static_cast<int>(FlareSource::manual)
@@ -507,7 +507,7 @@ namespace enhancements
             s.water.size = finite_or(raw.water.size, PhysicalWaterSettings {}.size, 0.25f, 4.0f);
         if (knows(offsetof(EnhancementsSettings, sunset), sizeof raw.sunset))
             s.sky.sunset = finite_or(raw.sunset.strength, 0.0f, 0.0f, 1.0f);
-        if (knows(offsetof(EnhancementsSettings, clouds), offsetof(EnhancementsClouds, shape)))
+        if (knows(offsetof(EnhancementsSettings, clouds), offsetof(EnhancementsClouds, type)))
         {
             const CloudSettings d;
             const EnhancementsClouds &c = raw.clouds;
@@ -524,8 +524,8 @@ namespace enhancements
             s.clouds.sun = finite_or(c.sun, d.sun, 0.0f, 20.0f);
             s.clouds.ambient = finite_or(c.ambient, d.ambient, 0.0f, 20.0f);
             s.clouds.steps = std::clamp<uint32_t>(c.steps, 8, 64);
-            if (knows(offsetof(EnhancementsSettings, clouds) + offsetof(EnhancementsClouds, shape), sizeof c.shape))
-                s.clouds.shape = c.shape < static_cast<uint32_t>(CloudShape::count) ? static_cast<CloudShape>(c.shape) : CloudShape::heaps;
+            if (knows(offsetof(EnhancementsSettings, clouds) + offsetof(EnhancementsClouds, type), sizeof c.type))
+                s.clouds.type = c.type < static_cast<uint32_t>(CloudType::count) ? static_cast<CloudType>(c.type) : CloudType::cumulus;
         }
         if (knows(offsetof(EnhancementsSettings, cloud_pattern), sizeof raw.cloud_pattern))
         {

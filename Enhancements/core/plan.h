@@ -41,7 +41,7 @@ namespace enhancements
     };
 
     // EnhancementsSky's.
-    enum class CloudShape : uint8_t { heaps, streaks, sheet, count };  // ENHANCEMENTS_CLOUD_SHAPE_*
+    enum class CloudType : uint8_t { cumulus, stratocumulus, stratus, cumulonimbus, count };  // ENHANCEMENTS_CLOUD_TYPE_*
     enum class CloudPattern : uint8_t { noise, heaps, broken, overcast, puffs, patches, streaks, count };  // ENHANCEMENTS_CLOUD_PATTERN_*
 
     struct CloudSettings
@@ -59,7 +59,7 @@ namespace enhancements
         float sun = 1.0f;
         float ambient = 1.0f;
         uint32_t steps = 16;
-        CloudShape shape = CloudShape::heaps;
+        CloudType type = CloudType::cumulus;
         CloudPattern pattern = CloudPattern::noise;     // EnhancementsCloudPattern's
     };
 

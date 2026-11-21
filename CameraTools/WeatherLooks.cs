@@ -84,8 +84,8 @@ namespace CameraTools
             settings.Clouds.Detail = look.EdgeDetail;
             settings.Clouds.Sun = look.CloudSun;
             settings.Clouds.Ambient = look.CloudSky;
-            settings.Clouds.Shape = kind.Shape;
-            settings.CloudPattern.Pattern = kind.Pattern;
+            settings.Clouds.Type = kind.Type;
+            settings.CloudPattern.Pattern = EnhancementsModel.PatternOf(kind);
             settings.Sky.Haze = MathF.Round(look.Haziness * 100f) / 100f;
             float density = look.Mist * mist;
             settings.Atmosphere.Enabled = density > 0f ? 1u : 0u;

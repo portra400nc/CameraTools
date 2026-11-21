@@ -762,8 +762,8 @@ namespace enhancements
         Scratch shafts_;            // half size, R16G16B16A16_FLOAT: rgb the mist's raw in-scatter, a its transmittance
         Scratch shafts_meters_;     // half size, R16_FLOAT: the meters each ray marched
         Scratch shafts_view_;       // R16G16B16A16_FLOAT: the mist's in-scatter at full size, for the light-shafts view
-        ComPtr<ID3D11Texture3D> cloud_shape_, cloud_detail_;     // 128 and 32 a side, R8G8B8A8_UNORM
-        ComPtr<ID3D11ShaderResourceView> cloud_shape_srv_, cloud_detail_srv_;
+        ComPtr<ID3D11Texture3D> cloud_shape_, cloud_detail_;     // 128 and 32 a side, R8_UNORM
+        ComPtr<ID3D11ShaderResourceView> cloud_shape_srv_, cloud_detail_srv_, cloud_types_srv_;     // cloud_types_: core/clouds.h's table
         bool cloud_noise_ready_ = false;
         ComPtr<ID3D11ShaderResourceView> cloud_pattern_srv_;    // BC7 with its mips, as the pattern's DDS file holds it, for clouds_painted_ps_
         CloudPattern cloud_pattern_ = CloudPattern::noise;      // the one cloud_pattern_srv_ holds
@@ -773,11 +773,11 @@ namespace enhancements
         {
             ID3D11Texture2D *texture = nullptr;
             float center[2] = {};
-            float extent = 0, coverage = 0, size = 0, stretch = 0, wind_direction = 0, shape = 0, pattern = 0;
+            float extent = 0, coverage = 0, size = 0, stretch = 0, wind_direction = 0, pattern = 0;
             bool operator==(const CloudMapKey &o) const
             {
                 return texture == o.texture && center[0] == o.center[0] && center[1] == o.center[1] && extent == o.extent && coverage == o.coverage
-                    && size == o.size && stretch == o.stretch && wind_direction == o.wind_direction && shape == o.shape && pattern == o.pattern;
+                    && size == o.size && stretch == o.stretch && wind_direction == o.wind_direction && pattern == o.pattern;
             }
         } cloud_map_key_;
         Scratch cloud_rays_;        // half size, R16G16B16A16_FLOAT: rgb the clouds' in-scatter, a their transmittance
@@ -791,12 +791,12 @@ namespace enhancements
         struct CloudLook
         {
             float coverage = 0, base = 0, thickness = 0, size = 0, stretch = 0, density = 0, detail = 0, sun = 0, ambient = 0, wind_direction = 0;
-            uint32_t steps = 0, shape = 0, pattern = 0;
+            uint32_t steps = 0, type = 0, pattern = 0;
             ID3D11Texture2D *texture = nullptr;
             bool operator==(const CloudLook &o) const
             {
                 return coverage == o.coverage && base == o.base && thickness == o.thickness && size == o.size && stretch == o.stretch && density == o.density
-                    && detail == o.detail && sun == o.sun && ambient == o.ambient && wind_direction == o.wind_direction && steps == o.steps && shape == o.shape
+                    && detail == o.detail && sun == o.sun && ambient == o.ambient && wind_direction == o.wind_direction && steps == o.steps && type == o.type
                     && pattern == o.pattern && texture == o.texture;
             }
         } cloud_look_;

@@ -213,23 +213,28 @@ Check("the table holds 115 fields, each at its own id's place, with the master s
     var cloudOff = EnhancementsModel.Settings(cloudFresh, cloudLens).Clouds;
     Check("the clouds are off by default, as Altocumulus at sunlight 4, sky light 1, wind 8 m/s toward 30 degrees and 48 steps",
         cloudOff is { Enabled: 0, Coverage: 0.55f, Base: 3000f, Thickness: 600f, Size: 250f, Stretch: 1.5f, Density: 0.04f, Detail: 0.8f, Sun: 4f, Ambient: 1f,
-            WindSpeed: 8f, WindDirection: 30f, Steps: 48, Shape: EnhancementsCloudShape.Heaps }
+            WindSpeed: 8f, WindDirection: 30f, Steps: 48, Type: EnhancementsCloudType.Stratocumulus }
         && EnhancementsModel.Detail(EnhancementsModel.Field(Enhancement.CloudType), cloudFresh) == "Small puffs in high rows");
     var cloudOn = EnhancementsModel.Edit(EnhancementsModel.Edit(cloudFresh, Enhancement.Enabled, 1f), Enhancement.Clouds, 1f);
     var cloudCirrus = EnhancementsModel.Edit(cloudOn, Enhancement.CloudType, 5f);
     var cloudStreaks = EnhancementsModel.Settings(cloudCirrus, cloudLens).Clouds;
     Check("Cirrus sets the shape rows and runs Azurite's painted streaks 8000 m up, stretched 3 times along the wind",
-        EnhancementsModel.Settings(cloudCirrus, cloudLens).CloudPattern.Pattern == EnhancementsCloudPatternKind.Streaks && cloudStreaks is { Enabled: 1, Coverage: 0.55f, Base: 8000f, Thickness: 300f, Size: 800f, Density: 0.002f, Detail: 1f, Stretch: 3f, Shape: EnhancementsCloudShape.Streaks }
+        EnhancementsModel.Settings(cloudCirrus, cloudLens).CloudPattern.Pattern == EnhancementsCloudPatternKind.Streaks && cloudStreaks is { Enabled: 1, Coverage: 0.55f, Base: 8000f, Thickness: 300f, Size: 800f, Density: 0.002f, Detail: 1f, Stretch: 3f, Type: EnhancementsCloudType.Stratus }
         && EnhancementsModel.CloudsRun(cloudCirrus) && !EnhancementsModel.CloudsRun(EnhancementsModel.Edit(cloudCirrus, Enhancement.Enabled, 0f)));
     var cloudCustom = EnhancementsModel.Edit(cloudCirrus, Enhancement.CloudHeight, 9000f);
     Check("moving a shape row makes Type Custom and keeps the last type's streaks",
-        (int)cloudCustom[Enhancement.CloudType] == EnhancementsModel.CustomClouds && EnhancementsModel.Settings(cloudCustom, cloudLens).Clouds is { Base: 9000f, Stretch: 3f, Shape: EnhancementsCloudShape.Streaks }
+        (int)cloudCustom[Enhancement.CloudType] == EnhancementsModel.CustomClouds && EnhancementsModel.Settings(cloudCustom, cloudLens).Clouds is { Base: 9000f, Stretch: 3f, Type: EnhancementsCloudType.Stratus }
         && EnhancementsModel.Detail(EnhancementsModel.Field(Enhancement.CloudType), cloudCustom) == "Your own shape");
     var cloudStratus = EnhancementsModel.Edit(cloudCustom, Enhancement.CloudType, 2f);
     Check("Stratus after Custom sets its own rows and draws a sheet of Azurite's painted overcast",
         EnhancementsModel.Settings(cloudStratus, cloudLens).CloudPattern.Pattern == EnhancementsCloudPatternKind.Overcast
-        && EnhancementsModel.Settings(cloudStratus, cloudLens).Clouds is { Coverage: 0.88f, Base: 1000f, Size: 1000f, Detail: 0.5f, Shape: EnhancementsCloudShape.Sheet }
+        && EnhancementsModel.Settings(cloudStratus, cloudLens).Clouds is { Coverage: 0.88f, Base: 1000f, Size: 1000f, Detail: 0.5f, Type: EnhancementsCloudType.Stratus }
         && (int)cloudStratus[Enhancement.CloudType] == 2);
+    EnhancementsModel.ProbeVolumeClouds = true;
+    Check("the probe's volume clouds stand in for Stratus's painted overcast as stratus, and leave Cirrus painted",
+        EnhancementsModel.Settings(cloudStratus, cloudLens) is { CloudPattern.Pattern: EnhancementsCloudPatternKind.Noise, Clouds.Type: EnhancementsCloudType.Stratus }
+        && EnhancementsModel.Settings(cloudCirrus, cloudLens).CloudPattern.Pattern == EnhancementsCloudPatternKind.Streaks);
+    EnhancementsModel.ProbeVolumeClouds = false;
     Check("moving Sunlight or Wind leaves Type as it is",
         (int)EnhancementsModel.Edit(cloudStratus, Enhancement.CloudSunlight, 3f)[Enhancement.CloudType] == 2 && (int)EnhancementsModel.Edit(cloudStratus, Enhancement.CloudWind, 20f)[Enhancement.CloudType] == 2);
     Check("the wind stops while the game is paused and halves at half speed",
@@ -328,7 +333,7 @@ Check("Ambient light's Color is the game's at 1 and gray at 0, and the tone map'
         var weathered = EnhancementsModel.Settings(user, weatherLens, rain);
         var halfMist = EnhancementsModel.Settings(user.With(Enhancement.WeatherMist, 50), weatherLens, rain);
         Check("with Weather on, Rain's look goes to the add-on: stratus at its height, its haziness, and its mist as the Haze effect, which Mist scales",
-            weathered.Clouds is { Enabled: 1, Base: 900f, Shape: EnhancementsCloudShape.Sheet } && weathered.CloudPattern.Pattern == EnhancementsCloudPatternKind.Overcast
+            weathered.Clouds is { Enabled: 1, Base: 900f, Type: EnhancementsCloudType.Stratus } && weathered.CloudPattern.Pattern == EnhancementsCloudPatternKind.Overcast
             && weathered.Sky.Haze == 0.3f && weathered.Atmosphere.Enabled == 1 && weathered.Atmosphere.Density > 0f && weathered.Rain.Amount == 0.5f
             && EnhancementsModel.Settings(user, weatherLens, WeatherLooks.Look(WeatherKind.Thunderstorm, user)).Rain.Amount == 1f && EnhancementsModel.Settings(user, weatherLens, WeatherLooks.Look(WeatherKind.Thunderstorm, user)).Rain.Lightning == 1f && weathered.Rain.Lightning == 0f && weathered.Mist.Patchiness == 0.6f && weathered.SceneLight.ExposureEv == 0f && EnhancementsModel.Settings(user, weatherLens, WeatherLooks.Look(WeatherKind.Snow, user)).SceneLight.ExposureEv == 1.5f && weathered.Mist.Size == 40f && EnhancementsModel.Settings(user, weatherLens, sunny).Mist.Patchiness == 0f && EnhancementsModel.Settings(user, weatherLens, sunny).Rain.Amount == 0f
             && Math.Abs(halfMist.Atmosphere.Density - weathered.Atmosphere.Density / 2f) < 1e-9f);

@@ -291,11 +291,11 @@ namespace CameraToolsEnhancements
         public float Sun;                   // multiplies the main light on the clouds
         public float Ambient;               // multiplies the sky light on the clouds
         public uint Steps;                  // march samples per ray, 8 to 64
-        public EnhancementsCloudShape Shape;
+        public EnhancementsCloudType Type;  // the volume clouds' type; the painted patterns take none
     }
 
-    // ENHANCEMENTS_CLOUD_SHAPE_* in enhancements.h, in order.
-    internal enum EnhancementsCloudShape : uint { Heaps, Streaks, Sheet }
+    // ENHANCEMENTS_CLOUD_TYPE_* in enhancements.h, in order.
+    internal enum EnhancementsCloudType : uint { Cumulus, Stratocumulus, Stratus, Cumulonimbus }
 
     // ENHANCEMENTS_CLOUD_PATTERN_* in enhancements.h, in order.
     internal enum EnhancementsCloudPatternKind : uint { Noise, Heaps, Broken, Overcast, Puffs, Patches, Streaks }
@@ -685,7 +685,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 50;
+        private const uint Version = 51;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

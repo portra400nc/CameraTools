@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 50
+#define ENHANCEMENTS_VERSION 51
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -545,13 +545,16 @@ typedef struct EnhancementsSunset
     float strength;             // 0 (the default) the real atmosphere, 1 the most; clamped to 0..1
 } EnhancementsSunset;
 
-// The clouds' shape, values of EnhancementsClouds.shape.
+// The volume clouds' type, values of EnhancementsClouds.type: how dense a cloud is up its layer, how much the fine noise
+// erodes it there, and how far it spreads at the top. Version 51 made the shape field the type; its old values 0 (heaps),
+// 1 and 2 (sheet) read as the types they drew most like.
 enum
 {
-    ENHANCEMENTS_CLOUD_SHAPE_HEAPS = 0,    // puffs, sheets and heaps with flat bases
-    ENHANCEMENTS_CLOUD_SHAPE_STREAKS,      // thin fibers drawn out along the wind, as cirrus
-    ENHANCEMENTS_CLOUD_SHAPE_SHEET,        // an overcast sheet, thicker and darker in patches, as stratus
-    ENHANCEMENTS_CLOUD_SHAPE_COUNT,
+    ENHANCEMENTS_CLOUD_TYPE_CUMULUS = 0,       // heaps with flat bases and billowing tops
+    ENHANCEMENTS_CLOUD_TYPE_STRATOCUMULUS,     // low rolls and lumps packed into a layer
+    ENHANCEMENTS_CLOUD_TYPE_STRATUS,           // a flat, smooth sheet
+    ENHANCEMENTS_CLOUD_TYPE_CUMULONIMBUS,      // towers through the whole layer that spread into an anvil at the top
+    ENHANCEMENTS_CLOUD_TYPE_COUNT,
 };
 
 // Clouds: a layer of our own over the sky's pixels (depth 0), marched through a slab between two world heights and lit
@@ -571,7 +574,8 @@ typedef struct EnhancementsClouds
     float sun;                  // multiplies the main light on the clouds (default 1)
     float ambient;              // multiplies the sky light on the clouds (default 1)
     uint32_t steps;             // march samples per ray, 8 to 64 (default 16)
-    uint32_t shape;             // ENHANCEMENTS_CLOUD_SHAPE_*; unknown values read as HEAPS, the default
+    uint32_t type;              // ENHANCEMENTS_CLOUD_TYPE_*; unknown values read as CUMULUS, the default. The painted
+                                // patterns take no type.
 } EnhancementsClouds;
 
 // Where the clouds' cover comes from, values of EnhancementsCloudPattern.pattern: our noise, or a painted cloud texture of

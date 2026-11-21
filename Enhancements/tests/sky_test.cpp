@@ -236,12 +236,12 @@ int main()
     raw.size = sizeof raw;
     raw.clouds = { 1, 2.0f, 3000, 1, 5, 9, -1, 0.5f, 10, 45, 2, 0.5f, 200, 1 };
     const CloudSettings clouds = parse_settings(raw).clouds;
-    check("the clouds read their block and clamp it: coverage to 1, thickness to 10 m, size to 20 m, stretch to 6, density to 0, steps to 64, streaks kept",
+    check("the clouds read their block and clamp it: coverage to 1, thickness to 10 m, size to 20 m, stretch to 6, density to 0, steps to 64, stratocumulus kept",
         clouds.enabled && clouds.coverage == 1 && clouds.base == 3000 && clouds.thickness == 10 && clouds.size == 20 && clouds.stretch == 6
             && clouds.density == 0 && clouds.detail == 0.5f && clouds.wind_speed == 10 && clouds.wind_direction == 45 && clouds.sun == 2
-            && clouds.ambient == 0.5f && clouds.steps == 64 && clouds.shape == CloudShape::streaks && kPasses[11].id == PassId::clouds && kPasses[11].wanted(parse_settings(raw)));
-    raw.clouds.shape = 2;
-    check("shape 2 reads as a sheet", parse_settings(raw).clouds.shape == CloudShape::sheet);
+            && clouds.ambient == 0.5f && clouds.steps == 64 && clouds.type == CloudType::stratocumulus && kPasses[11].id == PassId::clouds && kPasses[11].wanted(parse_settings(raw)));
+    raw.clouds.type = 3;
+    check("type 3 reads as cumulonimbus", parse_settings(raw).clouds.type == CloudType::cumulonimbus);
     raw.cloud_pattern.pattern = ENHANCEMENTS_CLOUD_PATTERN_OVERCAST;
     check("pattern 3 reads as the painted overcast", parse_settings(raw).clouds.pattern == CloudPattern::overcast);
     raw.cloud_pattern.pattern = 9;
@@ -251,11 +251,11 @@ int main()
     check("a caller from before the pattern gets our noise", parse_settings(raw).clouds.pattern == CloudPattern::noise);
     raw.size = sizeof raw;
     raw.cloud_pattern.pattern = 0;
-    raw.clouds.shape = 7;
-    check("an unknown shape reads as heaps", parse_settings(raw).clouds.shape == CloudShape::heaps);
-    raw.clouds.shape = 1;
-    raw.size = offsetof(EnhancementsSettings, clouds) + offsetof(EnhancementsClouds, shape);
-    check("a caller built before the shape draws heaps", parse_settings(raw).clouds.enabled && parse_settings(raw).clouds.shape == CloudShape::heaps);
+    raw.clouds.type = 7;
+    check("an unknown type reads as cumulus", parse_settings(raw).clouds.type == CloudType::cumulus);
+    raw.clouds.type = 1;
+    raw.size = offsetof(EnhancementsSettings, clouds) + offsetof(EnhancementsClouds, type);
+    check("a caller built before the type draws cumulus", parse_settings(raw).clouds.enabled && parse_settings(raw).clouds.type == CloudType::cumulus);
     raw.size = offsetof(EnhancementsSettings, clouds);
     check("a caller built before the clouds draws none", !parse_settings(raw).clouds.enabled && parse_settings(raw).clouds.coverage == 0.5f);
     {

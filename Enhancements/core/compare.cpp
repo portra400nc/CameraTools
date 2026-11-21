@@ -15,6 +15,8 @@ namespace enhancements
         static_assert(ENHANCEMENTS_COMPARE_MAX == kCompareMax && sizeof(EnhancementsVariant) == 32 + sizeof(EnhancementsSettings));
         const char *const kCloudPatternNames[] = { "noise", "heaps", "broken", "overcast", "puffs", "patches", "streaks" };
         static_assert(std::size(kCloudPatternNames) == static_cast<size_t>(CloudPattern::count));
+        const char *const kCloudTypeNames[] = { "cumulus", "stratocumulus", "stratus", "cumulonimbus" };
+        static_assert(std::size(kCloudTypeNames) == static_cast<size_t>(CloudType::count));
         static_assert(sizeof(EnhancementsSettings) == 560, "settings_tsv writes every field: give a new one a column");
         // compare_remaining took the padding at the end, so a caller built before it still sends 72 bytes. The accumulator's
         // three fields follow, and the scene capture's three took the 4 bytes of padding after them and one more row, so a
@@ -178,7 +180,7 @@ namespace enhancements
                           "\tlens_flare.size\tlens_flare.warmth\tlens_flare.chromatic\tlens_flare.visibility_seconds\tlens_flare.filled_arcs\tlens_flare.place\tlens_flare.rainbow\tlens_flare.texture"
                           "\tambient.neutral\ttonemap.shadows\ttonemap.highlights\tlens_softness.radius\ttonemap.auto_exposure\tsky.physical\tsky.haze"
                           "\tclouds.enabled\tclouds.coverage\tclouds.base\tclouds.thickness\tclouds.size\tclouds.stretch\tclouds.density"
-                          "\tclouds.detail\tclouds.wind_speed\tclouds.wind_direction\tclouds.sun\tclouds.ambient\tclouds.steps\tclouds.shape\tsky.aerial\twater.enabled\twater.clarity\twater.waves\twater.size\tsky.sunset\tclouds.pattern\train.amount\train.lightning\tmist.patchiness\tmist.size\tscene_light.exposure_ev\ttransmission.strength\tgrass.root_shade\tgrass.layers\tgrass.port\tgrass.copies\tgrass.height\tleaves.shading\n";
+                          "\tclouds.detail\tclouds.wind_speed\tclouds.wind_direction\tclouds.sun\tclouds.ambient\tclouds.steps\tclouds.type\tsky.aerial\twater.enabled\twater.clarity\twater.waves\twater.size\tsky.sunset\tclouds.pattern\train.amount\train.lightning\tmist.patchiness\tmist.size\tscene_light.exposure_ev\ttransmission.strength\tgrass.root_shade\tgrass.layers\tgrass.port\tgrass.copies\tgrass.height\tleaves.shading\n";
         for (size_t i = 0; i < variants.size(); i++)
         {
             const Settings &s = variants[i].settings;
@@ -222,7 +224,7 @@ namespace enhancements
                 + number(a.neutral) + '\t' + number(t.shadows) + '\t' + number(t.highlights) + '\t' + number(d.softness) + '\t' + number(t.auto_exposure) + '\t' + (s.sky.enabled ? "1" : "0") + '\t' + number(s.sky.haze) + '\t'
                 + (k.enabled ? "1" : "0") + '\t' + number(k.coverage) + '\t' + number(k.base) + '\t' + number(k.thickness) + '\t' + number(k.size) + '\t'
                 + number(k.stretch) + '\t' + number(k.density) + '\t' + number(k.detail) + '\t' + number(k.wind_speed) + '\t' + number(k.wind_direction) + '\t'
-                + number(k.sun) + '\t' + number(k.ambient) + '\t' + std::to_string(k.steps) + '\t' + (k.shape == CloudShape::streaks ? "streaks" : k.shape == CloudShape::sheet ? "sheet" : "heaps") + '\t'
+                + number(k.sun) + '\t' + number(k.ambient) + '\t' + std::to_string(k.steps) + '\t' + kCloudTypeNames[static_cast<size_t>(k.type)] + '\t'
                 + number(s.sky.aerial) + '\t' + (s.water.enabled ? "1" : "0") + '\t' + number(s.water.clarity) + '\t' + number(s.water.waves) + '\t' + number(s.water.size) + '\t' + number(s.sky.sunset) + '\t' + kCloudPatternNames[static_cast<size_t>(k.pattern)] + '\t' + number(s.rain) + '\t' + number(s.lightning) + '\t' + number(s.atmosphere.patchiness) + '\t' + number(s.atmosphere.patch_size) + '\t' + number(s.scene_light) + '\t' + number(s.transmission) + '\t' + number(s.grass_roots) + '\t' + std::to_string(s.grass_layers) + '\t' + std::to_string(s.grass_port) + '\t' + std::to_string(s.grass_copies) + '\t' + number(s.grass_height) + '\t' + number(s.leaf_shading) + '\n';
         }
         return out;

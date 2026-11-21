@@ -165,10 +165,10 @@ namespace CameraTools
     // wind follows, so they stand still while the game is paused.
     internal readonly record struct LensView(bool FreeCamera, float Aspect, int Miniature, ShotStage Shot, EyeSight? Eye = null, float GameSpeed = 1f);
 
-    // One of Clouds' Types: its row's name and line, the shape rows it sets, and the stretch, shape and painted pattern it
-    // gives the add-on, which have no rows. Custom keeps those of the last type picked.
+    // One of Clouds' Types: its row's name and line, the shape rows it sets, and the stretch, volume cloud type and painted
+    // pattern it gives the add-on, which have no rows. Custom keeps those of the last type picked.
     internal readonly record struct CloudKind(string Name, string Detail, float Coverage, float Height, float Thickness, float Size, float Density,
-        float EdgeDetail, float Stretch, EnhancementsCloudShape Shape, EnhancementsCloudPatternKind Pattern);
+        float EdgeDetail, float Stretch, EnhancementsCloudType Type, EnhancementsCloudPatternKind Pattern);
 
     // The Enhancements category's rules, apart from the game, the preferences and the add-on, so tests run them.
     internal static class EnhancementsModel
@@ -190,12 +190,12 @@ namespace CameraTools
         // Clouds' Types, in the row's order before Custom.
         public static readonly CloudKind[] CloudKinds =
         {
-            new("Altocumulus", "Small puffs in high rows", 55f, 3000f, 600f, 250f, 0.04f, 0.8f, 1.5f, EnhancementsCloudShape.Heaps, EnhancementsCloudPatternKind.Puffs),
-            new("Stratocumulus", "A low sheet with blue gaps", 75f, 1800f, 700f, 500f, 0.04f, 0.8f, 1.3f, EnhancementsCloudShape.Heaps, EnhancementsCloudPatternKind.Broken),
-            new("Stratus", "A flat grey layer over the whole sky", 88f, 1000f, 400f, 1000f, 0.08f, 0.5f, 1.3f, EnhancementsCloudShape.Sheet, EnhancementsCloudPatternKind.Overcast),
-            new("Cumulus", "Tall heaps on a clear day", 50f, 1500f, 1500f, 400f, 0.04f, 0.8f, 1f, EnhancementsCloudShape.Heaps, EnhancementsCloudPatternKind.Heaps),
-            new("High patches", "Thin patches far up", 45f, 4500f, 400f, 200f, 0.03f, 0.9f, 2.5f, EnhancementsCloudShape.Heaps, EnhancementsCloudPatternKind.Patches),
-            new("Cirrus", "Thin streaks of ice very high up", 55f, 8000f, 300f, 800f, 0.002f, 1f, 3f, EnhancementsCloudShape.Streaks, EnhancementsCloudPatternKind.Streaks),
+            new("Altocumulus", "Small puffs in high rows", 55f, 3000f, 600f, 250f, 0.04f, 0.8f, 1.5f, EnhancementsCloudType.Stratocumulus, EnhancementsCloudPatternKind.Puffs),
+            new("Stratocumulus", "A low sheet with blue gaps", 75f, 1800f, 700f, 500f, 0.04f, 0.8f, 1.3f, EnhancementsCloudType.Stratocumulus, EnhancementsCloudPatternKind.Broken),
+            new("Stratus", "A flat grey layer over the whole sky", 88f, 1000f, 400f, 1000f, 0.08f, 0.5f, 1.3f, EnhancementsCloudType.Stratus, EnhancementsCloudPatternKind.Overcast),
+            new("Cumulus", "Tall heaps on a clear day", 50f, 1500f, 1500f, 400f, 0.04f, 0.8f, 1f, EnhancementsCloudType.Cumulus, EnhancementsCloudPatternKind.Heaps),
+            new("High patches", "Thin patches far up", 45f, 4500f, 400f, 200f, 0.03f, 0.9f, 2.5f, EnhancementsCloudType.Stratocumulus, EnhancementsCloudPatternKind.Patches),
+            new("Cirrus", "Thin streaks of ice very high up", 55f, 8000f, 300f, 800f, 0.002f, 1f, 3f, EnhancementsCloudType.Stratus, EnhancementsCloudPatternKind.Streaks),
         };
         // Type's last option, the user's own shape.
         public static readonly int CustomClouds = CloudKinds.Length;
@@ -387,7 +387,7 @@ namespace CameraTools
             settings.Atmosphere.SunScatter = values[Enhancement.HazeSunGlow];
             settings.Atmosphere.Anisotropy = values[Enhancement.HazeGlowTowardSun];
             settings.Clouds = Clouds(values, lens.GameSpeed);
-            settings.CloudPattern.Pattern = CloudKinds[(int)values[Enhancement.CloudKind]].Pattern;
+            settings.CloudPattern.Pattern = PatternOf(CloudKinds[(int)values[Enhancement.CloudKind]]);
             settings.LightShafts.Enabled = Bit(Enhancement.LightShafts);
             settings.LightShafts.Strength = values[Enhancement.LightShaftStrength];
             settings.LightShafts.Density = values[Enhancement.MistDensity];
@@ -463,7 +463,7 @@ namespace CameraTools
             clouds.Sun = values[Enhancement.CloudSunlight];
             clouds.Ambient = values[Enhancement.CloudSkyLight];
             clouds.Steps = CloudSteps[(int)values[Enhancement.CloudQuality]];
-            clouds.Shape = kind.Shape;
+            clouds.Type = kind.Type;
             return clouds;
         }
 
@@ -517,6 +517,14 @@ namespace CameraTools
 
         // A debug view of the add-on's, for the probe only: the panel has no row for it.
         public static EnhancementsView ProbeView { get; set; }
+
+        // For the probe only while the volume clouds are rebuilt: they stand in for the painted patterns, but cirrus, which
+        // they cannot draw.
+        public static bool ProbeVolumeClouds { get; set; }
+
+        // The add-on's pattern for a cloud type: its painted one, or the volume clouds' noise while the probe asks for them.
+        public static EnhancementsCloudPatternKind PatternOf(CloudKind kind) =>
+            ProbeVolumeClouds && kind.Pattern != EnhancementsCloudPatternKind.Streaks ? EnhancementsCloudPatternKind.Noise : kind.Pattern;
 
         // Whether Grass's custom texture files are there, null while that is not known: CustomGrass.Found in the game.
         public static Func<bool?> CustomGrassFound { get; set; } = () => null;
