@@ -2142,6 +2142,23 @@ namespace enhancements
         ComPtr<ID3D11Texture2D> types;
         if (FAILED(d->CreateTexture2D(&desc, &data, &types)) || FAILED(d->CreateShaderResourceView(types.Get(), nullptr, &cloud_types_srv_)))
             return false;
+        // Disney's cloud, with its mips for the march's coarse samples.
+        constexpr UINT kVolume[3] = { 250, 170, 307 };     // kVolumeVoxels in shaders/clouds_ps.hlsl
+        static_assert(sizeof kCloudVolume == size_t { kVolume[0] } * kVolume[1] * kVolume[2], "data/wdas_cloud/wdas_cloud_eighth.r8's size");
+        D3D11_TEXTURE3D_DESC volume = {};
+        volume.Width = kVolume[0];
+        volume.Height = kVolume[1];
+        volume.Depth = kVolume[2];
+        volume.MipLevels = 0;
+        volume.Format = DXGI_FORMAT_R8_UNORM;
+        volume.Usage = D3D11_USAGE_DEFAULT;
+        volume.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+        volume.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
+        ComPtr<ID3D11Texture3D> cloud_volume;
+        if (FAILED(d->CreateTexture3D(&volume, nullptr, &cloud_volume)) || FAILED(d->CreateShaderResourceView(cloud_volume.Get(), nullptr, &cloud_volume_srv_)))
+            return false;
+        c->UpdateSubresource(cloud_volume.Get(), 0, nullptr, kCloudVolume, kVolume[0], kVolume[0] * kVolume[1]);
+        c->GenerateMips(cloud_volume_srv_.Get());
         cloud_noise_ready_ = true;
         return true;
     }
@@ -2299,8 +2316,9 @@ namespace enhancements
         ID3D11Buffer *const game[] = { game_sun_[0].Get(), game_sun_[1].Get(), game_sun_[2].Get(), game_sun_[3].Get() };
         c->PSSetConstantBuffers(1, 4, game);
         ID3D11ShaderResourceView *const march[] = { nullptr, nullptr, depth_.srv(), nullptr, nullptr, cloud_map_.srv(), lattice_srv_.Get(),
-            cloud_shape_srv_.Get(), cloud_detail_srv_.Get(), sky_transmittance_srv_.Get(), sky_multiple_srv_.Get(), nullptr, cloud_types_srv_.Get() };
-        draw_fullscreen(clouds_ps_.Get(), march, 13, cloud_rays_.rtv(), rays);
+            cloud_shape_srv_.Get(), cloud_detail_srv_.Get(), sky_transmittance_srv_.Get(), sky_multiple_srv_.Get(), nullptr, cloud_types_srv_.Get(),
+            cloud_volume_srv_.Get() };
+        draw_fullscreen(clouds_ps_.Get(), march, 14, cloud_rays_.rtv(), rays);
         Scratch &old = cloud_history_[cloud_history_at_], &now = cloud_history_[cloud_history_at_ ^ 1];
         cloud_history_at_ ^= 1;
         ID3D11ShaderResourceView *const resolve[] = { nullptr, nullptr, nullptr, nullptr, nullptr, cloud_rays_.srv(), old.srv() };

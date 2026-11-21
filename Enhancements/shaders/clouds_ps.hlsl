@@ -15,6 +15,7 @@ Texture2D<float> cloud_map : register(t5);      // the weather map
 Texture3D<float> shape_noise : register(t7);    // cloud_shape_cs.hlsl's
 Texture3D<float> erosion_noise : register(t8);  // cloud_detail_cs.hlsl's
 Texture2D<float4> cloud_types : register(t12);  // core/clouds.h's table: a row a type, r density, g erosion, b spread
+Texture3D<float> cloud_volume : register(t13);  // data/wdas_cloud: Disney's cloud, x across, y up, z along, with mips
 
 static const float kShapeTile = 6;     // cloud sizes the shape noise spans before it repeats
 static const float kCloudTypes = 5;    // ENHANCEMENTS_CLOUD_TYPE_COUNT
@@ -57,6 +58,33 @@ float3 cloud_space(float3 p, float h)
     return float3(c.x, p.y, c.y);
 }
 
+static const float3 kVolumeVoxels = float3(250, 170, 307);
+static float volume_lod = 0;    // the volume's mip the samples read: coarser for the search and the light far off
+
+// The towering cumulus: Disney's cloud (a real cumulus, modeled after a photograph) stood at the tower of each cell of a
+// grid of six cloud sizes, in as many cells as Coverage asks, each turned, mirrored, sized 40 to 55% of a cell along its
+// length and stretched 1 to 1.8 times up. Clouds built from noise read as sponge, popcorn or a cartoon's
+// (.work/clouds/towers). Turned any way, the cloud's footprint reaches at most 0.645 of its length from its middle, so
+// a middle 0.35 to 0.65 across its cell keeps it inside: one cell's lookup a sample, where nine cost the Deck 58 ms.
+// c is the point in cloud space, y its height.
+float cloud_volume_at(float2 c, float y)
+{
+    float cell = cloud_size * 6;
+    int2 at = int2(floor(c / cell));
+    uint2 a = cloud_hash(at), b = cloud_hash(at + int2(7919, 104729));
+    float4 r = float4(a & 0xffffu, b & 0xffffu) / 65535.0;
+    if (r.x >= cloud_coverage)
+        return 0;
+    float scale = cell * lerp(0.4, 0.55, r.w) / kVolumeVoxels.z;     // meters a voxel
+    float tall = lerp(1, 1.8, frac(r.w * 7.31));
+    float turn = frac(r.w * 13.7) * 6.2831853;
+    float2 d = c - (at + 0.35 + 0.3 * r.yz) * cell;
+    float2 local = float2(cos(turn) * d.x + sin(turn) * d.y, cos(turn) * d.y - sin(turn) * d.x);
+    local.x = frac(r.w * 3.1) > 0.5 ? -local.x : local.x;
+    float3 uvw = float3(local.x / scale, (y - cloud_base) / (scale * tall), local.y / scale) / kVolumeVoxels + float3(0.5, 0, 0.5);
+    return all(uvw >= 0) && all(uvw <= 1) ? cloud_volume.SampleLevel(linear_clamp, uvw, volume_lod) : 0;
+}
+
 // Without the erosion: the cloud body at p, 0 to 1, and the height in the layer and how much the type erodes there.
 float cloud_body(float3 p, out float h, out float erosion)
 {
@@ -65,6 +93,11 @@ float cloud_body(float3 p, out float h, out float erosion)
     if (h < 0 || h > 1)
         return 0;
     float3 c = cloud_space(p, h);
+    if (cloud_type == 4)    // ENHANCEMENTS_CLOUD_TYPE_TOWERING
+    {
+        erosion = 0.75;
+        return cloud_volume_at(c.xz, p.y);
+    }
     float weather = cloud_map.SampleLevel(linear_clamp, (c.xz - cloud_map_center) / cloud_map_extent + 0.5, 0);
     if (weather <= 0.01)
         return 0;
@@ -100,16 +133,21 @@ float cloud_extinction(float3 p, out float h)
 float cloud_extinction_coarse(float3 p)
 {
     float h, erosion;
-    return cloud_body(p, h, erosion) * cloud_density;
+    volume_lod = 1;
+    float body = cloud_body(p, h, erosion);
+    volume_lod = 0;
+    return body * cloud_density;
 }
 
 // Whether a large step's sample may be in a cloud: the body grown a little, so a sample beside a thin part still finds it.
 bool cloud_near(float3 p)
 {
     coverage_boost = 0.1;
+    volume_lod = 3;
     float h, erosion;
     bool near = cloud_body(p, h, erosion) > 0;
     coverage_boost = 0;
+    volume_lod = 0;
     return near;
 }
 

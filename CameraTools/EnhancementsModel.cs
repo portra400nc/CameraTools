@@ -531,7 +531,7 @@ namespace CameraTools
 
         public static readonly ProbeCloudKind[] ProbeCloudKinds =
         {
-            new("towering cumulus", EnhancementsCloudType.Towering, 2000f, 6500f, 1300f, 0.3f, 0.4f),
+            new("towering cumulus", EnhancementsCloudType.Towering, 2000f, 7000f, 1300f, 0.3f, 0.4f),
             new("cumulus", EnhancementsCloudType.Cumulus, 2000f, 1500f, 400f, 0.04f, 0.5f),
             new("stratocumulus", EnhancementsCloudType.Stratocumulus, 2200f, 700f, 500f, 0.04f, 0.75f),
             new("stratus", EnhancementsCloudType.Stratus, 1300f, 400f, 1000f, 0.08f, 0.88f),
@@ -546,7 +546,7 @@ namespace CameraTools
 
         // The probe's sky light, edge detail and density for the towers, by ProbeTowersLook.
         public static readonly (float SkyLight, float EdgeDetail, float Density)[] ProbeTowersLooks =
-            { (0.6f, 0.4f, 0.3f), (0.6f, 0.2f, 0.3f), (0.6f, 0.6f, 0.3f), (0.8f, 0.4f, 0.3f), (0.6f, 0.4f, 0.16f) };
+            { (0.6f, 0.2f, 0.1f), (0.6f, 0f, 0.1f), (0.6f, 0.4f, 0.1f), (0.6f, 0.2f, 0.04f), (0.6f, 0.2f, 0.25f) };
         public static int ProbeTowersLook { get; set; }
 
         private static void ApplyProbeCloud(ref EnhancementsSettings settings, ProbeCloudKind kind)

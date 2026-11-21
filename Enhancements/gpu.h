@@ -764,7 +764,7 @@ namespace enhancements
         Scratch shafts_meters_;     // half size, R16_FLOAT: the meters each ray marched
         Scratch shafts_view_;       // R16G16B16A16_FLOAT: the mist's in-scatter at full size, for the light-shafts view
         ComPtr<ID3D11Texture3D> cloud_shape_, cloud_detail_;     // 128 and 32 a side, R8_UNORM
-        ComPtr<ID3D11ShaderResourceView> cloud_shape_srv_, cloud_detail_srv_, cloud_types_srv_;     // cloud_types_: core/clouds.h's table
+        ComPtr<ID3D11ShaderResourceView> cloud_shape_srv_, cloud_detail_srv_, cloud_types_srv_, cloud_volume_srv_;  // cloud_volume_: data/wdas_cloud;     // cloud_types_: core/clouds.h's table
         bool cloud_noise_ready_ = false;
         ComPtr<ID3D11ShaderResourceView> cloud_pattern_srv_;    // BC7 with its mips, as the pattern's DDS file holds it, for clouds_painted_ps_
         CloudPattern cloud_pattern_ = CloudPattern::noise;      // the one cloud_pattern_srv_ holds

@@ -1,0 +1,13 @@
+wdas_cloud_eighth.r8 is adapted from the Walt Disney Animation Studios Cloud Data Set
+(https://disneyanimation.com/resources/clouds/), its wdas_cloud_eighth.vdb converted to raw bytes by
+../make_cloud_volume.py.
+
+Walt Disney Animation Studios Cloud Data Set
+LICENSING:
+The contents of this package are Copyright 2017 Disney Enterprises, Inc. and are licensed under the Creative Commons
+Attribution-ShareAlike 3.0 Unported License. A copy of this license is available at
+http://creativecommons.org/licenses/by-sa/3.0/. The volumetric cloud model used for reference is a photograph by Kevin
+Udy provided on the Colorado Clouds Blog at https://coclouds.com/436/cumulus/2012-07-26/ and licensed under the
+Creative Commons Attribution-ShareAlike 3.0 Unported License.
+
+wdas_cloud_eighth.r8 is licensed under the same Creative Commons Attribution-ShareAlike 3.0 Unported License.

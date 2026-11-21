@@ -151,6 +151,8 @@ def embed_data(work):
     for k, name in enumerate(CLOUD_PATTERNS):
         path = (HERE / "data" / "azurite" / f"{name}.dds").resolve().as_posix()
         lines += [f"static const unsigned char kCloudPattern{k}[] = {{", f'#embed "{path}"', "};"]
+    volume = (HERE / "data" / "wdas_cloud" / "wdas_cloud_eighth.r8").resolve().as_posix()
+    lines += ["static const unsigned char kCloudVolume[] = {", f'#embed "{volume}"', "};"]
     lines += ["#pragma clang diagnostic pop", "struct CloudPatternData { const unsigned char *bytes; unsigned long long size; };",
               "static const CloudPatternData kCloudPatterns[] = {",
               *[f"    {{ kCloudPattern{k}, sizeof kCloudPattern{k} }}," for k in range(len(CLOUD_PATTERNS))], "};", ""]
