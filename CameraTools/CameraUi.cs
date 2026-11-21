@@ -34,6 +34,9 @@ namespace CameraTools
         private static readonly PadBinding PadY = new(PadButtons.Y, PadAxis.None);
         private static readonly PadBinding PadLB = new(PadButtons.LB, PadAxis.None);
         private static readonly PadBinding PadRB = new(PadButtons.RB, PadAxis.None);
+        // Page up and down. The panel takes every camera action away, so the triggers that fly the camera are free.
+        private static readonly PadBinding PadLT = new(PadButtons.LT, PadAxis.None);
+        private static readonly PadBinding PadRT = new(PadButtons.RT, PadAxis.None);
         private static readonly PadBinding DpadUp = new(PadButtons.DpadUp, PadAxis.None);
         private static readonly PadBinding DpadDown = new(PadButtons.DpadDown, PadAxis.None);
         private static readonly PadBinding DpadLeft = new(PadButtons.DpadLeft, PadAxis.None);
@@ -49,7 +52,7 @@ namespace CameraTools
             .Append((KeyCode.KeypadMultiply, 'x'))
             .ToArray();
 
-        private static readonly Repeater up = new(), down = new(), left = new(), right = new();
+        private static readonly Repeater up = new(), down = new(), left = new(), right = new(), pageUp = new(), pageDown = new();
         private static readonly Dictionary<string, (KeyCode Key, char Typed)[]> typedKeys = new();
         private static Live live;
         private static int failures;
@@ -980,6 +983,9 @@ namespace CameraTools
                 selected = NextRow(move);
                 Reveal();
             }
+            int page = pageUp.Fire(PadLT.Held(now)) ? -1 : pageDown.Fire(PadRT.Held(now)) ? 1 : 0;
+            if (page != 0)
+                Page(page);
 
             bool stepRight = right.Fire(DpadRight.Held(now));
             bool stepLeft = left.Fire(DpadLeft.Held(now));
@@ -1158,6 +1164,27 @@ namespace CameraTools
                 if (rows[index].Row is not Section && rows[index].Visible)
                     return index;
             return selected;
+        }
+
+        // The list scrolls a whole view in direction, and the selection goes to the first row wholly in view, its section header
+        // shown above it. At either end the selection goes to the first or the last row instead.
+        private static void Page(int direction)
+        {
+            var view = live.Tabs[tab];
+            var rows = view.RowViews;
+            float before = view.Scroll;
+            ScrollTo(live, view, before + direction * ViewHeight(live));
+            int target = -1;
+            if (view.Scroll != before)
+                target = rows.FindIndex(row => row.Row is not Section && row.Visible && row.Top >= view.Scroll);
+            // A short scroll at the end would put the selection back the other way.
+            if (target < 0 || (target - selected) * direction <= 0)
+                target = direction > 0 ? rows.FindLastIndex(row => row.Row is not Section && row.Visible)
+                    : rows.FindIndex(row => row.Row is not Section && row.Visible);
+            if (target < 0)
+                return;
+            selected = target;
+            Reveal();
         }
 
         // A selected row that was just hidden hands the selection to the nearest shown row, the one above first.
