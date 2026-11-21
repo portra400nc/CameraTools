@@ -1015,11 +1015,10 @@ namespace enhancements
         c->VSSetShader(fullscreen_vs_.Get(), nullptr, 0);
         c->PSSetShader(shader, nullptr, 0);
         c->PSSetConstantBuffers(0, 1, buffers);
-        if (sky_camera_made_)
-        {
-            ID3D11Buffer *const sky[] = { sky_camera() };
-            c->PSSetConstantBuffers(7, 1, sky);
-        }
+        // Always bound, null until the sky camera is made: the slot otherwise keeps whatever buffer the game left there,
+        // and the clouds took its rows as a known sky camera on some frames, which drew the sky black or bright.
+        ID3D11Buffer *const sky[] = { sky_camera() };
+        c->PSSetConstantBuffers(7, 1, sky);
         c->PSSetSamplers(0, kSamplerSlots, samplers);
         c->OMSetRenderTargets(target_count, targets, nullptr);
         c->PSSetShaderResources(0, srv_count, srvs);
@@ -2402,11 +2401,8 @@ namespace enhancements
             c->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
             c->VSSetShader(stars_vs_.Get(), nullptr, 0);
             c->VSSetConstantBuffers(0, 1, buffers);
-            if (sky_camera_made_)
-            {
-                ID3D11Buffer *const sky[] = { sky_camera() };
-                c->VSSetConstantBuffers(7, 1, sky);
-            }
+            ID3D11Buffer *const sky[] = { sky_camera() };
+            c->VSSetConstantBuffers(7, 1, sky);
             c->VSSetSamplers(0, kSamplerSlots, samplers);
             c->VSSetShaderResources(0, kSrvSlots, star_in);
             c->PSSetShader(stars_ps_.Get(), nullptr, 0);
