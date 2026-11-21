@@ -1623,8 +1623,8 @@ namespace enhancements
         static constexpr uint64_t kWaterVertexShaders[] = { 0xf33198578260cbc6ull, 0x4f8bfd2796105d86ull, 0x65aaa919ea82fe42ull };
         // The game's sky dome. The sky objects, its sun, moon and stars, are the draws after it until the game binds other
         // targets; the see-through things it draws later, such as the giant tree over Snezhnaya, are drawn over the sky at
-        // depth 0 too and stay.
-        static constexpr uint64_t kSkyDome = 0x7b771d2354311b7bull;
+        // depth 0 too and stay. The game draws it with either pixel shader, the second in the free camera on 2026-11-21.
+        static constexpr uint64_t kSkyDomes[] = { 0x7b771d2354311b7bull, 0x4755b11bd415cd81ull };
         enum class GameShader : uint8_t { other, water, dome };
         uint64_t shader_checked = 0;    // the pixel shader object last looked up, and what it draws
         GameShader shader_kind = GameShader::other;
@@ -1640,7 +1640,7 @@ namespace enhancements
                 const std::optional<ShaderCode> code = shaders.find(bound);
                 const uint64_t hash = code ? code->hash : 0;
                 shader_kind = std::find(std::begin(kWaterShaders), std::end(kWaterShaders), hash) != std::end(kWaterShaders) ? GameShader::water
-                    : hash == kSkyDome ? GameShader::dome
+                    : std::find(std::begin(kSkyDomes), std::end(kSkyDomes), hash) != std::end(kSkyDomes) ? GameShader::dome
                     : GameShader::other;
             }
             if (shader_kind != GameShader::other)
