@@ -2432,7 +2432,7 @@ namespace enhancements
             switch (state)
             {
             case TraceState::none:
-                log(reshade::log::level::info, "the traced scene is released.");
+                log(reshade::log::level::info, "the traced scene is released." + gpu.memory_note());
                 break;
             case TraceState::building:
                 log(reshade::log::level::info, "building a traced scene; the raster passes run meanwhile.");
@@ -2882,7 +2882,10 @@ namespace enhancements
                 if (scene && scene_seen < released)
                     end_scene_capture(std::string("the caller released the scene"));
                 if (trace_asked < released)
+                {
                     trace_gpu.release();
+                    gpu.release_shot_targets();
+                }
             }
             if (scene)
                 tick_scene(chain);

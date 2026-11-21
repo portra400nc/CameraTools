@@ -3240,10 +3240,22 @@ namespace enhancements
                 classes[i]->Release();
     }
 
+    void Gpu::release_shot_targets()
+    {
+        for (Scratch *s : { &sum_, &dng_[0], &dng_[1], &gather_bounce_, &gather_sky_, &gather_bounce_filtered_, &gather_sky_filtered_, &gather_view_,
+                 &trace_view_, &traced_foliage_ })
+            s->release();
+    }
+
     std::string Gpu::memory_note() const
     {
         if (!device_)
             return "";
+        // The Deck's GPU memory comes out of the same RAM, so a long session's game leaves a traced shot too little.
+        MEMORYSTATUSEX ram {};
+        ram.dwLength = sizeof ram;
+        const std::string ram_note = GlobalMemoryStatusEx(&ram) ? " RAM free: " + std::to_string(ram.ullAvailPhys >> 20) + " of "
+            + std::to_string(ram.ullTotalPhys >> 20) + " MB." : std::string();
         ComPtr<IDXGIDevice> dxgi;
         ComPtr<IDXGIAdapter> adapter;
         ComPtr<IDXGIAdapter3> adapter3;
@@ -3252,8 +3264,8 @@ namespace enhancements
         DXGI_QUERY_VIDEO_MEMORY_INFO local {}, shared {};
         if (FAILED(adapter3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &local))
             || FAILED(adapter3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL, &shared)))
-            return "";
-        return " GPU memory in use: " + std::to_string(local.CurrentUsage >> 20) + " MB local, " + std::to_string(shared.CurrentUsage >> 20) + " MB shared.";
+            return ram_note;
+        return " GPU memory in use: " + std::to_string(local.CurrentUsage >> 20) + " MB local, " + std::to_string(shared.CurrentUsage >> 20) + " MB shared." + ram_note;
     }
 
     bool Gpu::tessellated() const

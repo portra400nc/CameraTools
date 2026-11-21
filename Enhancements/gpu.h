@@ -173,6 +173,8 @@ namespace enhancements
         ID3D11RenderTargetView *rtv(UINT layer) const { return layer == 0 ? rtv_.Get() : layer_rtvs_[layer - 1].Get(); }
         ID3D11UnorderedAccessView *uav() const { return uav_.Get(); }
         ID3D11Texture2D *texture() const { return texture_.Get(); }
+        // Frees the texture. The next sync makes it again.
+        void release() { *this = Scratch {}; }
 
     private:
         Size size_;
@@ -283,6 +285,10 @@ namespace enhancements
         bool ready() const { return context_ != nullptr; }
         // " GPU memory in use: ..." of the adapter's local and shared memory, for a log line; empty where DXGI cannot say.
         std::string memory_note() const;
+        // Frees the targets only a screenshot uses, made at the shot's size (4K takes about 700 MB): the supersampling
+        // sum, the DNG's, the gather's and the trace's own. The play size never makes them again, and the Deck's GPU
+        // shares the RAM that the game fills over a long session.
+        void release_shot_targets();
         ID3D11Device *device() const { return device_.Get(); }
         ID3D11DeviceContext1 *context() const { return context_.Get(); }
 

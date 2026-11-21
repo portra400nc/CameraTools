@@ -186,8 +186,10 @@ namespace CameraTools
             => new("Capturing the scene", $"Turning the camera, {Math.Min(done + 1, Faces)} of {Faces} directions", 0.15f * done / Faces);
 
         // Before the add-on names its target, the line has no count.
+        // Low memory comes first, as it is what to act on: tracing then runs many times slower until the game restarts.
         private static ShotProgress Tracing(uint samples, uint target, float elapsed)
-            => new(target == 0 ? "Tracing the light" : $"Tracing the light, {samples} of {target} samples", (TimeLeft(samples, target, elapsed) is { } left ? $"{left}. " : "") + Cancel,
+            => new(target == 0 ? "Tracing the light" : $"Tracing the light, {samples} of {target} samples",
+                (FreeMemory.Low ? "Memory is low, restart the game if this is slow. " : "") + (TimeLeft(samples, target, elapsed) is { } left ? $"{left}. " : "") + Cancel,
                 0.25f + 0.75f * samples / Math.Max(target, 1u));
 
         // From the samples so far, or null before the first.
