@@ -170,6 +170,8 @@ Check("a scene that went stale or failed, or another scene, is lost", TracedShot
 var tracing = Status(EnhancementsTraceState.Ready, 5, samples: 12);
 var changing = Status(EnhancementsTraceState.Ready, 5, restarts: 2910, reason: EnhancementsTraceRestart.Light);
 ShotProgress? Notice(ShotPhase phase, EnhancementsStatus status, bool stalled = false, float elapsed = 0f) => TracedShot.Progress(phase, status, stalled, elapsed);
+Check("low memory leads the tracing line with what to do", TracedShot.Progress(ShotPhase.Tracing, new EnhancementsStatus { TraceSamples = 4, TraceTarget = 64 }, false, 10f, true)?.Detail
+    .StartsWith("Memory is low, restart the game if this is slow. ") == true);
 Check("the notices: the capture's direction, its build and upload, the samples with the time left, and what keeps changing in place of 0 samples",
     Notice(ShotPhase.Capturing, Status(EnhancementsTraceState.Building, 4, remaining: 5)) == new ShotProgress("Capturing the scene", "Turning the camera, 3 of 7 directions", 0.15f * 2 / 7)
     && Notice(ShotPhase.Capturing, Status(EnhancementsTraceState.Building, 4, remaining: 7)) == new ShotProgress("Capturing the scene", "Turning the camera, 1 of 7 directions", 0f)
@@ -201,8 +203,8 @@ var fresh = EnhancementValues.Defaults;
 var outside = new LensView(false, 1.6f, 1, ShotStage.None);
 var inside = new LensView(true, 1.6f, 1, ShotStage.None);
 EnhancementsSettings Settings(EnhancementValues values) => EnhancementsModel.Settings(values, outside);
-Check("the table holds 114 fields, each at its own id's place, with the master switch and sixteen effects' switches, and 21 of the depth of field",
-    EnhancementsModel.Fields.Length == 114 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
+Check("the table holds 115 fields, each at its own id's place, with the master switch and sixteen effects' switches, and 21 of the depth of field",
+    EnhancementsModel.Fields.Length == 115 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
     && EnhancementsModel.Fields.Count(field => field.Lens) == 21
     && string.Join(",", EnhancementsModel.Effects.Select(field => field.Label)) == "Ambient light,Contact shadows,Light through leaves,Leaf shading,Skill light,Grass,Soft sun shadows,Haze,Light shafts,Wet surfaces,Tone map,Lens flare,Physical sky,Physical water,Clouds,Weather");
 {
@@ -607,7 +609,7 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
     var saved = Presets.Saved(PresetSlot.Highest, new Dictionary<int, int>(), Overrides.None, null, lens);
     string text = Presets.Text(saved);
     Check("a saved preset holds none of the depth of field's values: it ends with Weather's",
-        !text.Contains("DepthOfField") && !text.Contains("SoapBubble") && !text.Contains("BokehContrast") && text.EndsWith(";CloudKind=0;Weather=0;WeatherMist=100")
+        !text.Contains("DepthOfField") && !text.Contains("SoapBubble") && !text.Contains("BokehContrast") && text.EndsWith(";CloudKind=0;Weather=0;WeatherMist=100;WeatherRain=1")
         && skipped.Count == 0);
     var userLens = fresh.With(Enhancement.DepthOfField, 1f).With(Enhancement.DepthOfFieldFocusMode, EnhancementsModel.EyeFocus)
         .With(Enhancement.DepthOfFieldFocusSpeed, 1.5f).With(Enhancement.DepthOfFieldAperture, 5f).With(Enhancement.SoapBubble, 0.2f);
@@ -1028,9 +1030,9 @@ Check("a file from before layout 4 zooms out on 1 and the D-pad's down and in on
 Check("a zoom binding the user changed stays, and a file at layout 4 is left alone",
     ControlsModel.Migrate(CamAction.IncreaseFOV, UnityEngine.KeyCode.F, "Back+DpadUp", 3) == (UnityEngine.KeyCode.F, "Back+DpadUp")
     && ControlsModel.Migrate(CamAction.IncreaseFOV, UnityEngine.KeyCode.Alpha2, "DpadUp", 4) == (UnityEngine.KeyCode.Alpha2, "DpadUp"));
-var defaultKeys = ControlsModel.Defaults.Where(row => row.Key != UnityEngine.KeyCode.None).Select(row => row.Key).ToList();
-var defaultPads = ControlsModel.Defaults.Where(row => row.Pad != "").Select(row => row.Pad).ToList();
-Check("no two actions share a default key or controller binding",
+var defaultKeys = ControlsModel.Defaults.Where(row => row.Key != UnityEngine.KeyCode.None).Select(row => (ControlsModel.Scope(row.Action), row.Key)).ToList();
+var defaultPads = ControlsModel.Defaults.Where(row => row.Pad != "").Select(row => (ControlsModel.Scope(row.Action), row.Pad)).ToList();
+Check("no two actions of one scope share a default key or controller binding",
     defaultKeys.Distinct().Count() == defaultKeys.Count && defaultPads.Distinct().Count() == defaultPads.Count);
 
 // Rebinding.
@@ -1072,6 +1074,21 @@ ControlsModel.Settle(takenA, CamAction.TakeScreenshot, default(PadBinding));
 Check("an older file gets the screenshot on A, unless the user already put A on another action",
     settledPads[(int)CamAction.TakeScreenshot] == new PadBinding(PadButtons.A, PadAxis.None) && takenA[(int)CamAction.TakeScreenshot] == default
     && takenA[(int)CamAction.TogglePause] == new PadBinding(PadButtons.A, PadAxis.None));
+var LT = new PadBinding(PadButtons.None, PadAxis.LT);
+var RT = new PadBinding(PadButtons.None, PadAxis.RT);
+var panelPads = ControlsModel.Defaults.Select(row => PadBinding.TryParse(row.Pad, out var pad) ? pad : default).ToArray();
+ControlsModel.Settle(panelPads, CamAction.PageUp, default(PadBinding));
+ControlsModel.Settle(panelPads, CamAction.PageDown, default(PadBinding));
+Check("an older file gets page up and down on LT and RT, which move the camera only while the panel is closed",
+    panelPads[(int)CamAction.PageUp] == LT && panelPads[(int)CamAction.PageDown] == RT && panelPads[(int)CamAction.Down] == LT && panelPads[(int)CamAction.Up] == RT);
+var pageSwap = ControlsModel.Swap(panelPads, CamAction.PageDown, LT, default(PadBinding));
+Check("LT on page down swaps with page up, not with move down",
+    pageSwap == new Rebind(true, CamAction.PageUp) && panelPads[(int)CamAction.PageUp] == RT && panelPads[(int)CamAction.Down] == LT);
+var cameraSwap = ControlsModel.Swap(panelPads, CamAction.TogglePause, RT, default(PadBinding));
+Check("RT on pause swaps with move up, and page up keeps RT",
+    cameraSwap == new Rebind(true, CamAction.Up) && panelPads[(int)CamAction.PageUp] == RT);
+Check("page up and down start with no key", ControlsModel.Defaults[(int)CamAction.PageUp].Key == UnityEngine.KeyCode.None
+    && ControlsModel.Defaults[(int)CamAction.PageDown].Key == UnityEngine.KeyCode.None);
 
 {
     var start = RefocusRules.Start("the free camera turned off", 10f);

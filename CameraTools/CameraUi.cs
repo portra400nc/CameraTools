@@ -34,9 +34,6 @@ namespace CameraTools
         private static readonly PadBinding PadY = new(PadButtons.Y, PadAxis.None);
         private static readonly PadBinding PadLB = new(PadButtons.LB, PadAxis.None);
         private static readonly PadBinding PadRB = new(PadButtons.RB, PadAxis.None);
-        // Page up and down. The panel takes every camera action away, so the triggers that fly the camera are free.
-        private static readonly PadBinding PadLT = new(PadButtons.LT, PadAxis.None);
-        private static readonly PadBinding PadRT = new(PadButtons.RT, PadAxis.None);
         private static readonly PadBinding DpadUp = new(PadButtons.DpadUp, PadAxis.None);
         private static readonly PadBinding DpadDown = new(PadButtons.DpadDown, PadAxis.None);
         private static readonly PadBinding DpadLeft = new(PadButtons.DpadLeft, PadAxis.None);
@@ -983,7 +980,7 @@ namespace CameraTools
                 selected = NextRow(move);
                 Reveal();
             }
-            int page = pageUp.Fire(PadLT.Held(now)) ? -1 : pageDown.Fire(PadRT.Held(now)) ? 1 : 0;
+            int page = pageUp.Fire(Controls.PanelHeld(CamAction.PageUp)) ? -1 : pageDown.Fire(Controls.PanelHeld(CamAction.PageDown)) ? 1 : 0;
             if (page != 0)
                 Page(page);
 

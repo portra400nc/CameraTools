@@ -387,7 +387,7 @@ namespace CameraTools
                 Enter(ShotPhase.Done, now);
                 return null;
             }
-            if (TracedShot.Progress(run.Phase, status, run.Stalled, now - run.PhaseBegan) is { } progress)
+            if (TracedShot.Progress(run.Phase, status, run.Stalled, now - run.PhaseBegan, run.Phase == ShotPhase.Tracing && FreeMemory.Low) is { } progress)
                 CameraUi.Toast(progress.Title, whileHidden: true, progress.Detail, progress.Fraction);
             return null;
         }

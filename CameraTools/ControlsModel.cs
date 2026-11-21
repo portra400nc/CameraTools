@@ -48,6 +48,17 @@ namespace CameraTools
         RecordReplay,
         PlayReplay,
         TakeScreenshot,
+        // The settings panel's: read only while it is open.
+        PageUp,
+        PageDown,
+    }
+
+    // Where an action is read. A binding is unique within its scope only: the panel takes the camera's input away while it
+    // is open, so its page keys may share the triggers that move the camera.
+    public enum ActionScope
+    {
+        Camera,
+        Panel,
     }
 
     // Done is false when the change was refused. Swapped is the action that took the old binding, or null.
@@ -99,16 +110,20 @@ namespace CameraTools
             (CamAction.RecordReplay, KeyCode.KeypadMinus, "Back+DpadLeft"),
             (CamAction.PlayReplay, KeyCode.KeypadMultiply, "Back+DpadRight"),
             (CamAction.TakeScreenshot, KeyCode.Return, "A"),
+            (CamAction.PageUp, KeyCode.None, "LT"),
+            (CamAction.PageDown, KeyCode.None, "RT"),
         };
+
+        public static ActionScope Scope(CamAction action) => action is CamAction.PageUp or CamAction.PageDown ? ActionScope.Panel : ActionScope.Camera;
 
         // Layout 2 moved the camera to WASD and made the free camera's toggle the controller's L3+R3. Layout 3 removed the
         // damage numbers and enemy HP bar hotkeys, which the World tab and Hide UI cover. Layout 4 made 1 and the D-pad's
-        // down zoom out, and 2 and its up zoom in. Layout 5 added the screenshot on Enter and A. Files saved before layout 2
-        // have no layout entry and read as 1.
-        public const int Layout = 5;
+        // down zoom out, and 2 and its up zoom in. Layout 5 added the screenshot on Enter and A. Layout 6 added the settings
+        // panel's page up and down on LT and RT. Files saved before layout 2 have no layout entry and read as 1.
+        public const int Layout = 6;
 
         // The actions each layout added. Files saved before it may already have their defaults on another action.
-        public static readonly (int Layout, CamAction Action)[] Added = { (5, CamAction.TakeScreenshot) };
+        public static readonly (int Layout, CamAction Action)[] Added = { (5, CamAction.TakeScreenshot), (6, CamAction.PageUp), (6, CamAction.PageDown) };
 
         // The entries each layout removed, deleted from files saved before it.
         public static readonly (int Layout, string Name)[] Removed = { (2, "Inject"), (3, "RemoveHP"), (3, "ToggleDamage") };
@@ -165,7 +180,7 @@ namespace CameraTools
                 return new Rebind(true, null);
             if (!holds(action, binding))
                 return new Rebind(false, null);
-            int other = same.Equals(binding, none) ? -1 : Array.FindIndex(bindings, each => same.Equals(each, binding));
+            int other = same.Equals(binding, none) ? -1 : Holder(bindings, action, binding);
             var given = other >= 0 && holds((CamAction)other, old) ? old : none;
             const int toggle = (int)CamAction.ToggleFreecam;
             if (index == toggle && same.Equals(binding, none) || other == toggle && same.Equals(given, none))
@@ -176,14 +191,21 @@ namespace CameraTools
             return new Rebind(true, other >= 0 ? (CamAction)other : null);
         }
 
-        // An action a later layout added keeps its default binding only where no other action holds it already.
+        // An action a later layout added keeps its default binding only where no other action of its scope holds it already.
         public static void Settle<T>(T[] bindings, CamAction action, T none)
         {
+            if (Holder(bindings, action, bindings[(int)action]) >= 0)
+                bindings[(int)action] = none;
+        }
+
+        // The other action of action's scope that holds binding, or -1.
+        private static int Holder<T>(T[] bindings, CamAction action, T binding)
+        {
             var same = EqualityComparer<T>.Default;
-            int index = (int)action;
             for (int other = 0; other < bindings.Length; other++)
-                if (other != index && same.Equals(bindings[other], bindings[index]))
-                    bindings[index] = none;
+                if (other != (int)action && Scope((CamAction)other) == Scope(action) && same.Equals(bindings[other], binding))
+                    return other;
+            return -1;
         }
 
         // A binding still at the default a later layout changed moves to that layout's default; a binding the user changed

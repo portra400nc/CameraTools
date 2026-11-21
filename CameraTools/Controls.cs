@@ -120,6 +120,10 @@ namespace CameraTools
 
         public static (KeyCode Key, PadBinding Pad) Binding(CamAction action) => (keys[(int)action], pads[(int)action]);
 
+        // A settings panel action, read only while the panel is open and nothing waits for typing or a new binding.
+        public static bool PanelHeld(CamAction action)
+            => CameraUi.View == View.Panel && (!TextCapture && Input.GetKey(keys[(int)action]) || !PadCapture && pads[(int)action].Held(Gamepad.Current));
+
         // Rebinds as ControlsModel.Swap does, and saves to MelonPreferences.cfg.
         public static Rebind SetKey(CamAction action, KeyCode key)
         {

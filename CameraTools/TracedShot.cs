@@ -168,14 +168,15 @@ namespace CameraTools
 
         // The notice shown while a phase waits, or null for none. elapsed: seconds since the trace began. The bar runs
         // through the capture to 0.15, the build to 0.25 and the samples to 1, near each part's share of a Deck shot.
-        public static ShotProgress? Progress(ShotPhase phase, EnhancementsStatus status, bool stalled, float elapsed) => phase switch
+        // lowMemory: FreeMemory.Low, which the tracing line warns of.
+        public static ShotProgress? Progress(ShotPhase phase, EnhancementsStatus status, bool stalled, float elapsed, bool lowMemory = false) => phase switch
         {
             ShotPhase.Requesting => new ShotProgress("Capturing the scene", Cancel, 0f),
             ShotPhase.Capturing when status.SceneRemaining > 0 => Turning(Faces - Math.Min(status.SceneRemaining, Faces)),
             ShotPhase.Capturing => new ShotProgress(status.TraceState == EnhancementsTraceState.Uploading ? "Sending the scene to the GPU" : "Building the scene",
                 status.TraceTriangles > 0 ? $"{status.TraceTriangles / 1e6f:0.0} million triangles" : Cancel, 0.2f),
             ShotPhase.Tracing when stalled => new ShotProgress("Tracing the light", $"{Sentence(Changing(status.TraceRestartReason))}. {Cancel}", 0.25f),
-            ShotPhase.Tracing => Tracing(Math.Min(status.TraceSamples, status.TraceTarget), status.TraceTarget, elapsed),
+            ShotPhase.Tracing => Tracing(Math.Min(status.TraceSamples, status.TraceTarget), status.TraceTarget, elapsed, lowMemory),
             ShotPhase.Finishing => new ShotProgress("Finishing the picture", Cancel, 1f),
             _ => null,
         };
@@ -187,9 +188,9 @@ namespace CameraTools
 
         // Before the add-on names its target, the line has no count.
         // Low memory comes first, as it is what to act on: tracing then runs many times slower until the game restarts.
-        private static ShotProgress Tracing(uint samples, uint target, float elapsed)
+        private static ShotProgress Tracing(uint samples, uint target, float elapsed, bool lowMemory)
             => new(target == 0 ? "Tracing the light" : $"Tracing the light, {samples} of {target} samples",
-                (FreeMemory.Low ? "Memory is low, restart the game if this is slow. " : "") + (TimeLeft(samples, target, elapsed) is { } left ? $"{left}. " : "") + Cancel,
+                (lowMemory ? "Memory is low, restart the game if this is slow. " : "") + (TimeLeft(samples, target, elapsed) is { } left ? $"{left}. " : "") + Cancel,
                 0.25f + 0.75f * samples / Math.Max(target, 1u));
 
         // From the samples so far, or null before the first.
