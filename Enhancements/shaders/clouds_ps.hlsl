@@ -36,6 +36,8 @@ struct CloudKind
     float2 height;
     float packed;
     float anvil;
+    float cell;         // cloud sizes a grid cell spans
+    float masked;       // 1: the weather map, not Coverage alone, says which cells hold a cloud, in patches and bands
 };
 
 // By ENHANCEMENTS_CLOUD_TYPE_*. The towers (towering cumulus, cumulonimbus) stand on cloud_towers' domes: their cover
@@ -46,11 +48,11 @@ struct CloudKind
 // git tag clouds-noise has them as they were tuned).
 static const CloudKind kKinds[5] =
 {
-    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.15, 1, float2(0.4, 0.55), float2(0.3, 0.55), 0, 0 },    // cumulus
-    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.15, 1, float2(0.98, 0.98), float2(0.5, 1), 1, 0 },    // stratocumulus
-    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.1, 1, float2(0.98, 0.98), float2(0.6, 1), 1, 0 },     // stratus
-    { 0.6, float2(1.5, 1.5), 0.4, 0.6, 0.15, 0.25, 1, float2(0.4, 0.45), float2(0.55, 0.8), 0, 0.6 },  // cumulonimbus
-    { 0.6, float2(1.5, 1.5), 0.3, 1.0, 0.1, 0.25, 1, float2(0.4, 0.55), float2(0.45, 1), 0, 0 },        // towering cumulus
+    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.15, 1, float2(0.4, 0.55), float2(0.3, 0.55), 0, 0, 6, 0 },     // cumulus
+    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.15, 1, float2(0.6, 0.9), float2(0.2, 0.4), 0, 0, 1, 1 },     // stratocumulus
+    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.1, 1, float2(0.98, 0.98), float2(0.6, 1), 1, 0, 6, 0 },      // stratus
+    { 0.6, float2(1.5, 1.5), 0.4, 0.6, 0.15, 0.25, 1, float2(0.4, 0.45), float2(0.55, 0.8), 0, 0.6, 6, 0 },  // cumulonimbus
+    { 0.6, float2(1.5, 1.5), 0.3, 1.0, 0.1, 0.25, 1, float2(0.4, 0.55), float2(0.45, 1), 0, 0, 6, 0 },        // towering cumulus
 };
 static CloudKind kind_look;  // this type's, set by main
 
@@ -76,18 +78,20 @@ static float volume_lod = 0;    // the volume's mip the samples read: coarser fo
 // Clouds built from noise read as sponge, popcorn or a cartoon's (.work/clouds/towers). Turned any way, the cloud's
 // footprint reaches at most 0.645 of its length from its middle, so a middle 0.35 to 0.65 across its cell keeps it
 // inside: one cell's lookup a sample, where nine cost the Deck 58 ms. c is the point in cloud space, y its height.
-float cloud_volume_at(float2 c, float y)
+float cloud_in_cell(int2 at, float2 c, float y, float cell)
 {
-    float cell = cloud_size * 6;
-    int2 at = int2(floor(c / cell));
     uint2 a = cloud_hash(at), b = cloud_hash(at + int2(7919, 104729));
     float4 r = float4(a & 0xffffu, b & 0xffffu) / 65535.0;
-    if (r.x >= cloud_coverage)
+    // Masked, as altocumulus's cloudlets fill patches and bands of the sky, the weather at the cell's middle (which
+    // Coverage already thins or spreads) says how likely it holds one.
+    float chance = kind_look.masked > 0
+        ? cloud_map.SampleLevel(linear_clamp, ((at + 0.5) * cell - cloud_map_center) / cloud_map_extent + 0.5, 0) : cloud_coverage;
+    if (r.x >= chance)
         return 0;
     float length = cell * lerp(kind_look.size.x, kind_look.size.y, r.w);
     float tall = cloud_thickness * lerp(kind_look.height.x, kind_look.height.y, frac(r.w * 7.31));
     bool packed = kind_look.packed > 0;
-    float2 middle = packed || kind_look.anvil > 0 ? at + 0.5 : at + 0.35 + 0.3 * r.yz;
+    float2 middle = packed || kind_look.anvil > 0 ? at + 0.5 : kind_look.masked > 0 ? at + 0.4 + 0.2 * r.yz : at + 0.35 + 0.3 * r.yz;
     float turn = packed ? (frac(r.w * 13.7) > 0.5 ? 3.1415927 : 0) : frac(r.w * 13.7) * 6.2831853;
     float2 d = c - middle * cell;
     float2 local = float2(cos(turn) * d.x + sin(turn) * d.y, cos(turn) * d.y - sin(turn) * d.x);
@@ -97,6 +101,22 @@ float cloud_volume_at(float2 c, float y)
     float3 uvw = float3(local.x / (across.x * kVolumeVoxels.x), (y - cloud_base) / tall, local.y / (across.y * kVolumeVoxels.z));
     uvw.xz = uvw.xz / (1 + kind_look.anvil * smoothstep(0.6, 0.9, uvw.y)) + 0.5;
     return all(uvw >= 0) && all(uvw <= 1) ? cloud_volume.SampleLevel(linear_clamp, uvw, volume_lod) : 0;
+}
+
+float cloud_volume_at(float2 c, float y)
+{
+    float cell = cloud_size * kind_look.cell;
+    if (kind_look.masked == 0)
+        return cloud_in_cell(int2(floor(c / cell)), c, y, cell);
+    // Masked cloudlets on a plain grid stood in rows like a lattice: their grid is bent by broad noise first. They are up
+    // to 0.9 of a cell long with middles 0.4 to 0.6 across it, so neighbors touch and merge into patches; a footprint then
+    // reaches 0.58 of a cell from its middle, and the four cells nearest the point hold every cloudlet that can reach it.
+    c += (float2(cloud_fbm(float3(c / (cell * 7), 1.3), 2), cloud_fbm(float3(c / (cell * 7) + 5.1, 4.7), 2)) - 0.5) * cell * 3;
+    int2 near = int2(floor(c / cell - 0.5));
+    float best = 0;
+    [unroll] for (int k = 0; k < 4; k++)
+        best = max(best, cloud_in_cell(near + int2(k & 1, k >> 1), c, y, cell));
+    return best;
 }
 
 // Without the erosion: the cloud body at p, 0 to 1, and the height in the layer and how much the type erodes there.
@@ -166,12 +186,15 @@ bool cloud_near(float3 p)
 // Optical depth from p toward the light, through six samples from 3% to 150% of a cloud's size along it: the nearest two,
 // with the detail, shade a billow's far side and the hollows between billows; the rest, the cloud's body behind it.
 static const float kLightTaps[6] = { 0.03, 0.085, 0.19, 0.38, 0.77, 1.54 };
+// What the taps and the sky's samples are spaced by: a cloud's size, or its layer's thickness when that is smaller, so a
+// flat layer is not stepped through in one tap and shaded in bands.
+static float light_scale = 1000;
 float depth_toward_light(float3 p, float3 l)
 {
     float depth = 0, from = 0;
     [unroll] for (int j = 0; j < 6; j++)
     {
-        float at = kLightTaps[j] * cloud_size, h;
+        float at = kLightTaps[j] * light_scale, h;
         float sigma = j < 2 ? cloud_extinction(p + l * at, h) : cloud_extinction_coarse(p + l * at);
         depth += sigma * (at - from);
         from = at;
@@ -203,7 +226,7 @@ float volume_scattered(float c, float od)
 // as smooth, toy-like clouds.
 float sky_reaching(float3 p, float h)
 {
-    float near = cloud_size * 0.1, far = cloud_size * 0.33;
+    float near = light_scale * 0.1, far = light_scale * 0.33;
     float above = cloud_extinction_coarse(p + float3(0, near, 0)) * near + cloud_extinction_coarse(p + float3(0, far, 0)) * (far - near);
     return (0.25 + 0.75 * pow(saturate(h), 0.7)) * lerp(0.3, 1, exp(-above * 0.3)) + 0.25 * (1 - h);
 }
@@ -222,6 +245,7 @@ float4 main(float4 position : SV_Position) : SV_Target0
     float top = cloud_base + cloud_thickness;
     skew_direction = float2(cos(radians(cloud_pad)), sin(radians(cloud_pad)));
     kind_look = kKinds[min((uint)cloud_type, 4u)];
+    light_scale = min(cloud_size, cloud_thickness * 0.5);
     bool physical = sky_cloud_physical > 0.5;
     float t0, t1;
     if (origin.y < cloud_base)

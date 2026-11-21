@@ -2207,9 +2207,10 @@ namespace enhancements
         const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
         const auto scene_format = static_cast<DXGI_FORMAT>(scene.format);
         const Size half = { (map.render.width + 1) / 2, (map.render.height + 1) / 2 }, quarter = { (half.width + 1) / 2, (half.height + 1) / 2 };
-        // The towers march every pixel of the half-size history each frame: at a quarter of the size a towering cumulus's
-        // billows' shading fell between the rays (.work/clouds/towers deck8).
-        const bool every = full || settings.type == CloudType::towering || settings.type == CloudType::cumulonimbus || settings.type == CloudType::cumulus;
+        // A screenshot marches every pixel at the full size. Live frames march a quarter of the size, one pixel of each 2x2
+        // block of the history a frame: Disney's cloud carries no fine noise for the rays to miss, where the noise
+        // towers' billows needed every pixel at half size (.work/clouds/towers deck8).
+        const bool every = full;
         const Size history = full ? map.render : half, rays = every ? history : quarter;
         ID3D11Device *d = device_.Get();
         Constants constants;
