@@ -2109,7 +2109,7 @@ namespace enhancements
         ID3D11Device *d = device_.Get();
         ID3D11DeviceContext1 *c = context_.Get();
         const struct { UINT size; ComPtr<ID3D11Texture3D> &texture; ComPtr<ID3D11ShaderResourceView> &srv; ID3D11ComputeShader *shader; } noises[] = {
-            { 128, cloud_shape_, cloud_shape_srv_, cloud_shape_cs_.Get() }, { 32, cloud_detail_, cloud_detail_srv_, cloud_detail_cs_.Get() } };
+            { 128, cloud_shape_, cloud_shape_srv_, cloud_shape_cs_.Get() }, { 128, cloud_detail_, cloud_detail_srv_, cloud_detail_cs_.Get() } };
         for (const auto &n : noises)
         {
             D3D11_TEXTURE3D_DESC desc = {};

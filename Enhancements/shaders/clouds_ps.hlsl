@@ -32,15 +32,14 @@ struct CloudKind
 // By ENHANCEMENTS_CLOUD_TYPE_*. The towers (towering cumulus, cumulonimbus) stand on cloud_towers' domes: their cover
 // passes 1 at a tower's middle so it stands solid and the shape noise forms billows over its sides, Coverage says how
 // many towers stand, they reach many heights, and they stand nearly upright (at half the thickness a 6.5 km tower
-// leaned 3 km, a slanted slab). Their erosion cells are some 230 m (0.8 cut them into 500 m chunks, 0.18 repeated as a
-// lattice).
+// leaned 3 km, a slanted slab). Their erosion cells run from some 400 m down to 25 m.
 static const CloudKind kKinds[5] =
 {
     { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5 },     // cumulus
     { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5 },     // stratocumulus
     { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5 },     // stratus
-    { 0.35, float2(1.5, 1.5), 0.4, 0.6, 0.15 },       // cumulonimbus
-    { 0.35, float2(1.5, 1.5), 0.3, 1.0, 0.1 },        // towering cumulus
+    { 0.6, float2(1.5, 1.5), 0.4, 0.6, 0.15 },        // cumulonimbus
+    { 0.6, float2(1.5, 1.5), 0.3, 1.0, 0.1 },         // towering cumulus
 };
 static CloudKind kind_look;  // this type's, set by main
 
