@@ -27,6 +27,7 @@ struct CloudKind
     float shortest;     // the share of the layer the weakest weather still raises a cloud through
     float erosion;      // how deep the erosion noise eats into a body at full erosion and Edge detail
     float lean;         // how far the tops lean downwind, as a share of the layer's thickness
+    float swirl;        // how far the erosion's turbulence moves it, in erosion tiles
 };
 
 // By ENHANCEMENTS_CLOUD_TYPE_*. The towers (towering cumulus, cumulonimbus) stand on cloud_towers' domes: their cover
@@ -35,11 +36,11 @@ struct CloudKind
 // leaned 3 km, a slanted slab). Their erosion cells run from some 400 m down to 25 m.
 static const CloudKind kKinds[5] =
 {
-    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5 },     // cumulus
-    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5 },     // stratocumulus
-    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5 },     // stratus
-    { 0.6, float2(1.5, 1.5), 0.4, 0.6, 0.15 },        // cumulonimbus
-    { 0.6, float2(1.5, 1.5), 0.3, 1.0, 0.1 },         // towering cumulus
+    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.15 },   // cumulus
+    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.15 },   // stratocumulus
+    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.1 },    // stratus
+    { 0.6, float2(1.5, 1.5), 0.4, 0.6, 0.15, 0.25 },      // cumulonimbus
+    { 0.6, float2(1.5, 1.5), 0.3, 1.0, 0.1, 0.25 },       // towering cumulus
 };
 static CloudKind kind_look;  // this type's, set by main
 
@@ -84,7 +85,12 @@ float cloud_extinction(float3 p, out float h)
     float body = cloud_body(p, h, erosion);
     if (body <= 0)
         return 0;
-    float fine = erosion_noise.SampleLevel(linear_wrap, cloud_space(p, h) / (cloud_size * kind_look.detail_tile), 0);
+    float3 q = cloud_space(p, h) / (cloud_size * kind_look.detail_tile);
+    // Turbulence, as Horizon Zero Dawn's clouds swirl their detail: the erosion read through a slow warp of itself, so
+    // small billows tumble and fray at the rims instead of sitting as round balls.
+    float3 swirl = float3(erosion_noise.SampleLevel(linear_wrap, q * 0.23 + float3(0.31, 0.57, 0.13), 0),
+        erosion_noise.SampleLevel(linear_wrap, q * 0.23 + float3(0.71, 0.19, 0.83), 0), 0.5) - 0.5;
+    float fine = erosion_noise.SampleLevel(linear_wrap, q + swirl.xzy * kind_look.swirl, 0);
     // Wispy at the base, billowing toward the top.
     fine = lerp(fine, 1 - fine, saturate(h * 4));
     body = saturate(remap(body, fine * kind_look.erosion * erosion * cloud_detail * detail_weight, 1, 0, 1));
@@ -154,10 +160,10 @@ float sky_reaching(float3 p, float h)
 float4 main(float4 position : SV_Position) : SV_Target0
 {
     // This frame's pixel of the 2x2 block of the half-size history that this quarter-size pixel covers, or with block 4
-    // this half-size pixel itself.
+    // this half-size pixel itself, with block 5 this full-size one.
     uint block = (uint)cloud_block;
     float2 pixel = block > 3 ? floor(position.xy) + 0.5 : floor(position.xy) * 2 + float2(block & 1, block >> 1) + 0.5;
-    float2 uv = pixel * 2 * render_size.zw;
+    float2 uv = pixel * (block > 4 ? 1 : 2) * render_size.zw;
     // The camera from our own constants, so the clouds draw also when the game renders no sun shadows, as after sunset.
     float3x3 to_world = transpose((float3x3)world_to_view);
     float3 origin = mul(to_world, -float3(world_to_view[0].w, world_to_view[1].w, world_to_view[2].w));

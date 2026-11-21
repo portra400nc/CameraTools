@@ -236,9 +236,9 @@ Check("the table holds 115 fields, each at its own id's place, with the master s
         && EnhancementsModel.Settings(cloudCirrus, cloudLens).CloudPattern.Pattern == EnhancementsCloudPatternKind.Streaks);
     EnhancementsModel.ProbeVolumeClouds = false;
     EnhancementsModel.ProbeCloud = 1;
-    Check("the probe's towering cumulus stands 1200 to 7700 m high as round volume clouds at its own coverage",
+    Check("the probe's towering cumulus stands 2000 to 8500 m high as round volume clouds at its own coverage",
         EnhancementsModel.Settings(cloudStratus, cloudLens) is { CloudPattern.Pattern: EnhancementsCloudPatternKind.Noise,
-            Clouds: { Type: EnhancementsCloudType.Towering, Base: 1200f, Thickness: 6500f, Coverage: 0.4f, Stretch: 1f } });
+            Clouds: { Type: EnhancementsCloudType.Towering, Base: 2000f, Thickness: 6500f, Coverage: 0.4f, Stretch: 1f } });
     EnhancementsModel.ProbeCloud = 5;
     EnhancementsModel.ProbeCoverage = 0.7f;
     Check("the probe's cumulonimbus stands 9 km thick at the coverage the probe asks, and keeps the user's edge detail",

@@ -2184,7 +2184,7 @@ namespace enhancements
     }
 
     std::optional<GameCall> Gpu::run_clouds(const FrameMap &map, const CloudSettings &settings, const Camera &camera, const float wind[2], uint64_t frame,
-        bool flip, const SkyDraw *physical)
+        bool flip, const SkyDraw *physical, bool full)
     {
         constexpr uint32_t kCloudMapSize = 2048;    // kCloudMapSize in shaders/clouds.hlsli
         const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
@@ -2192,14 +2192,14 @@ namespace enhancements
         const Size half = { (map.render.width + 1) / 2, (map.render.height + 1) / 2 }, quarter = { (half.width + 1) / 2, (half.height + 1) / 2 };
         // The towers march every pixel of the half-size history each frame: at a quarter of the size a towering cumulus's
         // billows' shading fell between the rays (.work/clouds/towers deck8).
-        const bool every = settings.type == CloudType::towering || settings.type == CloudType::cumulonimbus;
-        const Size rays = every ? half : quarter;
+        const bool every = full || settings.type == CloudType::towering || settings.type == CloudType::cumulonimbus;
+        const Size history = full ? map.render : half, rays = every ? history : quarter;
         ID3D11Device *d = device_.Get();
         Constants constants;
         if (!scene_in_.sync(d, native(scene), scene_format, false) || !scene_out_.sync(d, native(scene), scene_format, true)
             || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false)
             || !cloud_map_.sync(d, { kCloudMapSize, kCloudMapSize }, DXGI_FORMAT_R16_FLOAT) || !cloud_rays_.sync(d, rays, DXGI_FORMAT_R16G16B16A16_FLOAT)
-            || !cloud_history_[0].sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT) || !cloud_history_[1].sync(d, half, DXGI_FORMAT_R16G16B16A16_FLOAT)
+            || !cloud_history_[0].sync(d, history, DXGI_FORMAT_R16G16B16A16_FLOAT) || !cloud_history_[1].sync(d, history, DXGI_FORMAT_R16G16B16A16_FLOAT)
             || !pass_constants(camera, map.render, flip, constants))
             return std::nullopt;
         // The camera's place in the world, from its world-to-view matrix's rotation and translation.
@@ -2253,7 +2253,7 @@ namespace enhancements
         cloud_prev_wind_[0] = wind[0];
         cloud_prev_wind_[1] = wind[1];
         constants.cloud_blend = !continues ? 1.0f : std::max(0.3f / (1.0f + static_cast<float>(cloud_still_) / 16.0f), 0.03f);
-        constants.cloud_block = every ? 4.0f : static_cast<float>(frame & 3);
+        constants.cloud_block = full ? 5.0f : every ? 4.0f : static_cast<float>(frame & 3);
         std::memcpy(constants.cloud_prev_world_to_view, continues ? cloud_prev_world_to_view_ : camera.world_to_view, sizeof constants.cloud_prev_world_to_view);
         std::memcpy(constants.cloud_prev_view_to_clip, continues ? cloud_prev_view_to_clip_ : camera.view_to_clip, sizeof constants.cloud_prev_view_to_clip);
         std::memcpy(cloud_prev_world_to_view_, camera.world_to_view, sizeof cloud_prev_world_to_view_);
@@ -2304,7 +2304,7 @@ namespace enhancements
         Scratch &old = cloud_history_[cloud_history_at_], &now = cloud_history_[cloud_history_at_ ^ 1];
         cloud_history_at_ ^= 1;
         ID3D11ShaderResourceView *const resolve[] = { nullptr, nullptr, nullptr, nullptr, nullptr, cloud_rays_.srv(), old.srv() };
-        draw_fullscreen(clouds_resolve_ps_.Get(), resolve, 7, now.rtv(), half);
+        draw_fullscreen(clouds_resolve_ps_.Get(), resolve, 7, now.rtv(), history);
         ID3D11ShaderResourceView *const apply[] = { scene_in_.srv(), nullptr, depth_.srv(), nullptr, nullptr, now.srv() };
         draw_fullscreen(clouds_apply_ps_.Get(), apply, 6, scene_out_.rtv(), map.render);
         scene_out_.copy_to(c, native(scene));

@@ -1,4 +1,4 @@
-// The cloud layer's history, at half size. This frame's march, at a quarter of the size, refreshed one pixel of every 2x2
+// The cloud layer's history, at half size (at the full size while a screenshot accumulates). This frame's march, at a quarter of the size, refreshed one pixel of every 2x2
 // block (or, at half size, every pixel); that pixel blends it into last frame's average, read where the same direction lay last frame, and the other three
 // keep the moved average. The clouds are far, so the camera's turn moves them on screen and its travel barely does. The
 // average is held within the range of the march's 3x3 neighborhood, widened, so it cannot keep a cloud that drifted away.
@@ -17,7 +17,7 @@ float4 main(float4 position : SV_Position) : SV_Target0
     int2 cell = every ? q : q / 2;
     uint2 size;
     current.GetDimensions(size.x, size.y);
-    float2 uv = position.xy * 2 * render_size.zw;
+    float2 uv = position.xy * (block > 4 ? 1 : 2) * render_size.zw;
     float4 spread = every ? current.Load(int3(q, 0)) : current.SampleLevel(linear_clamp, uv, 0);
     if (cloud_blend >= 1)
         return spread;

@@ -1232,8 +1232,9 @@ namespace enhancements
                         const float radians = settings.clouds.wind_direction * 0.01745329f, step = settings.clouds.wind_speed * frame_seconds;
                         cloud_wind[0] = std::fmod(cloud_wind[0] + std::cos(radians) * step, 1.0e5f);
                         cloud_wind[1] = std::fmod(cloud_wind[1] + std::sin(radians) * step, 1.0e5f);
+                        // A screenshot's frames, summed for its supersampling, march the clouds at the full size.
                         call = gpu.run_clouds(map, settings.clouds, cloud_camera(), cloud_wind, frames, settings.flip,
-                            sky_draw ? &*sky_draw : nullptr);
+                            sky_draw ? &*sky_draw : nullptr, accumulate.mode != AccumulateMode::off);
                         break;
                     }
                     case PassId::sky:

@@ -418,9 +418,10 @@ namespace enhancements
         // cloud_pattern_ made from the pattern's embedded texture when the pattern changed. false for noise, or when the
         // texture could not be made.
         bool sync_cloud_pattern(CloudPattern pattern);
-        // With physical, the clouds take its sunlight or moonlight at their height in place of the camera's sun.
+        // With physical, the clouds take its sunlight or moonlight at their height in place of the camera's sun. With
+        // full, as while a screenshot accumulates, they march every pixel at the full size.
         std::optional<GameCall> run_clouds(const FrameMap &map, const CloudSettings &settings, const Camera &camera,
-            const float wind[2], uint64_t frame, bool flip, const SkyDraw *physical);
+            const float wind[2], uint64_t frame, bool flip, const SkyDraw *physical, bool full);
         // The physical sky over the sky's pixels: the air's tables uploaded when the atmosphere is new, the view tables
         // drawn for this frame's lights, the sky, the sun and the moon drawn over the mirrored HDR scene, the stars added
         // where the sky shows, and the result copied over the game's. Empty when a texture of ours failed.
