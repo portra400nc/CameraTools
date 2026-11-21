@@ -49,9 +49,9 @@ int main()
     check("cumulonimbus fills most of its layer, cumulus less, stratocumulus less still and stratus least",
         reach(CloudType::cumulonimbus) > reach(CloudType::cumulus) && reach(CloudType::cumulus) > reach(CloudType::stratocumulus)
             && reach(CloudType::stratocumulus) > reach(CloudType::stratus) && reach(CloudType::stratus) > 0.2f);
-    check("a towering cumulus stands through most of its layer, more than a cumulus, rounds off at the top and spreads no anvil",
-        reach(CloudType::towering) > 0.75f && reach(CloudType::towering) > reach(CloudType::cumulus) && cloud_profile(CloudType::towering, 0.9f).density < 0.5f
-            && cloud_profile(CloudType::towering, 0.88f).spread == 0);
+    check("a towering cumulus stands full through most of its layer, more than a cumulus, ends sharply at its top and spreads no anvil",
+        reach(CloudType::towering) > 0.75f && reach(CloudType::towering) > reach(CloudType::cumulus) && cloud_profile(CloudType::towering, 0.8f).density > 0.9f
+            && cloud_profile(CloudType::towering, 0.98f).density < 0.1f && cloud_profile(CloudType::towering, 0.88f).spread == 0);
     check("only cumulonimbus spreads at its top, into an anvil, and not low down",
         cloud_profile(CloudType::cumulonimbus, 0.88f).spread > 0.3f && cloud_profile(CloudType::cumulonimbus, 0.5f).spread == 0
             && cloud_profile(CloudType::cumulus, 0.88f).spread == 0);

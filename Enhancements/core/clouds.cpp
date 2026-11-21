@@ -37,9 +37,8 @@ namespace enhancements
             return { column(h, 0.04f, 0.9f, 1.0f), 0.6f - 0.3f * smoothstep(0.75f, 0.9f, h),
                 0.45f * smoothstep(0.72f, 0.9f, h) * (1 - smoothstep(0.95f, 1.0f, h)) };
         case CloudType::towering:
-            // Full from a flat base up most of the layer and rounded at the top: the weather map's dome shapes the tower and
-            // the billows cover all of it.
-            return { column(h, 0.04f, 0.7f, 1.0f), 0.75f, 0 };
+            // Full from a flat base nearly to the top, so its tops end crisp in billows rather than thinning into a veil.
+            return { column(h, 0.04f, 0.85f, 1.0f), 0.75f, 0 };
         case CloudType::cumulus:
         case CloudType::count:
             break;

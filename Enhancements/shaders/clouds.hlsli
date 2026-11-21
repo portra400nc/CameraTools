@@ -71,9 +71,10 @@ float2 pattern_at(float2 c)
 }
 
 // The towering cumulus's weather: towers scattered one to a cell of six cloud sizes, standing in as many cells as
-// Coverage asks, each a dome 0.4 to 0.85 of a cell across and 0.55 to 1 high, its rim warped by broad noise. Peaked domes
-// let the cover fall from the tower's middle to its rim, so the shape noise forms billows all over its sides; the broad
-// patches of cloud_weather rise to a plateau, which left smooth blobs or an overcast.
+// Coverage asks, each a cluster of four domes around its middle, as a tower stacks turrets: a central one 0.55 to 1 high
+// and three beside it lower and smaller, every rim warped by broad noise. The domes fall off as 1 - d^2 toward their
+// rims, so the shape noise forms billows over the sides. One dome a tower stood as the same bell everywhere, and a flat
+// one (1 - d^4) as a capsule; the broad patches of cloud_weather rise to a plateau, which left smooth blobs or an overcast.
 float cloud_towers(float2 c)
 {
     float cell = cloud_size * 6;
@@ -89,10 +90,19 @@ float cloud_towers(float2 c)
             float4 r = float4(a & 0xffffu, b & 0xffffu) / 65535.0;
             if (r.x >= cloud_coverage)
                 continue;
-            float2 center = at + 0.15 + 0.7 * r.yz;
-            float radius = 0.2 + 0.225 * r.w;
-            float d = length(p - center) / radius;
-            w = max(w, lerp(0.55, 1, frac(r.w * 7.31)) * saturate(1 - d * d));
+            float2 center = at + 0.25 + 0.5 * r.yz;
+            float radius = 0.2 + 0.2 * r.w;
+            float height = lerp(0.55, 1, frac(r.w * 7.31));
+            for (int k = 0; k < 4; k++)
+            {
+                float4 q = float4(cloud_hash(at * 4 + int2(k * 31 + 5, k * 17 + 11)) & 0xffffu, cloud_hash(at * 4 + int2(k * 13 + 3, k * 29 + 7)) & 0xffffu) / 65535.0;
+                // The first is the central turret; the others stand to its sides, up to most of its radius out.
+                float2 dome = center + (k == 0 ? 0 : (q.xy - 0.5) * 1.4 * radius);
+                float size = radius * (k == 0 ? 0.75 : lerp(0.4, 0.65, q.z));
+                float tall = height * (k == 0 ? 1 : lerp(0.45, 0.85, q.w));
+                float d = length(p - dome) / size;
+                w = max(w, tall * saturate(1 - d * d));
+            }
         }
     return w;
 }
