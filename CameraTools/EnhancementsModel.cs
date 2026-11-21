@@ -531,8 +531,8 @@ namespace CameraTools
         public static float ProbeTowersCoverage { get; set; } = 0.4f;
 
         // The probe's sky light and edge detail for the towers, by ProbeTowersLook.
-        public static readonly (float SkyLight, float EdgeDetail)[] ProbeTowersLooks = { (1f, 0.8f), (0.5f, 0.8f), (0.5f, 2f), (0.3f, 2f), (0.3f, 3f) };
-        public static int ProbeTowersLook { get; set; }
+        public static readonly (float SkyLight, float EdgeDetail)[] ProbeTowersLooks = { (1f, 0.8f), (1f, 1f), (0.6f, 1f), (0.6f, 0.6f), (1f, 0.5f) };
+        public static int ProbeTowersLook { get; set; } = 2;
 
         private static void ApplyProbeTowers(ref EnhancementsSettings settings)
         {

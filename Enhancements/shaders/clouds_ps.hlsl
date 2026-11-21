@@ -17,7 +17,10 @@ Texture3D<float> erosion_noise : register(t8);  // cloud_detail_cs.hlsl's
 Texture2D<float4> cloud_types : register(t12);  // core/clouds.h's table: a row a type, r density, g erosion, b spread
 
 static const float kShapeTile = 6;     // cloud sizes the shape noise spans before it repeats
-static const float kDetailTile = 0.8;
+// By ENHANCEMENTS_CLOUD_TYPE_*: cloud sizes the erosion noise spans. Its cells run from a quarter to a thirty-second of
+// the tile; a towering cumulus's billows want 230 m and smaller, where 0.8 cut it into 500 m chunks.
+static const float kDetailTiles[5] = { 0.8, 0.8, 0.8, 0.8, 0.35 };
+static float detail_tile = 0.8;  // this type's, set by main
 static const float kCloudTypes = 5;    // ENHANCEMENTS_CLOUD_TYPE_COUNT
 // By ENHANCEMENTS_CLOUD_TYPE_*: how far full weather raises the cover at no and at full Coverage, for the towering cumulus
 // past 1 at a tower's middle so it stands solid and the shape noise forms billows over its sides (its Coverage says how
@@ -25,8 +28,10 @@ static const float kCloudTypes = 5;    // ENHANCEMENTS_CLOUD_TYPE_COUNT
 // stand at many heights.
 static const float2 kCover[5] = { float2(0.35, 0.85), float2(0.35, 0.85), float2(0.35, 0.85), float2(0.35, 0.85), float2(1.5, 1.5) };
 static const float kShortest[5] = { 0.55, 0.55, 0.55, 0.55, 0.3 };
-// How deep the erosion noise eats into a body at full erosion and Edge detail.
-static const float kErosionDepth = 0.35;
+// By ENHANCEMENTS_CLOUD_TYPE_*: how deep the erosion noise eats into a body at full erosion and Edge detail. Seen from a
+// few kilometers, a towering cumulus shows only its shape noise's largest billows unless the erosion cuts the smaller
+// ones into them (.work/clouds/towers sheet-j.png).
+static const float kErosionDepth[5] = { 0.35, 0.35, 0.35, 0.35, 1.0 };
 
 float remap(float x, float a, float b, float c, float d) { return c + (x - a) / (b - a) * (d - c); }
 
@@ -69,10 +74,10 @@ float cloud_extinction(float3 p, out float h)
     float body = cloud_body(p, h, erosion);
     if (body <= 0)
         return 0;
-    float fine = erosion_noise.SampleLevel(linear_wrap, cloud_space(p, h) / (cloud_size * kDetailTile), 0);
+    float fine = erosion_noise.SampleLevel(linear_wrap, cloud_space(p, h) / (cloud_size * detail_tile), 0);
     // Wispy at the base, billowing toward the top.
     fine = lerp(fine, 1 - fine, saturate(h * 4));
-    body = saturate(remap(body, fine * kErosionDepth * erosion * cloud_detail * detail_weight, 1, 0, 1));
+    body = saturate(remap(body, fine * kErosionDepth[min((uint)cloud_type, 4u)] * erosion * cloud_detail * detail_weight, 1, 0, 1));
     return body * cloud_density;
 }
 
@@ -136,6 +141,7 @@ float4 main(float4 position : SV_Position) : SV_Target0
     float3 dir = normalize(sky_world_from_view(view_position(uv, 1)));
     float top = cloud_base + cloud_thickness;
     skew_direction = float2(cos(radians(cloud_pad)), sin(radians(cloud_pad)));
+    detail_tile = kDetailTiles[min((uint)cloud_type, 4u)];
     bool physical = sky_cloud_physical > 0.5;
     float t0, t1;
     if (origin.y < cloud_base)
@@ -164,7 +170,7 @@ float4 main(float4 position : SV_Position) : SV_Target0
     // spanned whole clouds near the camera found or missed their edges by the pixel's offset, which drew stripes.
     float budget = (t1 - t0) / (cloud_steps * 0.5);
     float fine = clamp(budget * 0.12, 10, 60);
-    detail_weight = saturate(3 * cloud_size * kDetailTile / 32 / fine);
+    detail_weight = saturate(3 * cloud_size * detail_tile / 32 / fine);
     // A random offset for each pixel and frame: a patterned one left its pattern, diagonal stripes, wherever the march
     // found or missed an edge by it.
     int seed = int(cloud_phase * 65536);
