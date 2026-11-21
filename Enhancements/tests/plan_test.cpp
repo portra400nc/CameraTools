@@ -236,17 +236,19 @@ int main()
         FrameTracker tracker;
         fixture::replay(rows, tracker);
         const Plan at_bloom = plan(Step::bloom, tracker.map(), atmosphere_on(), kCamera);
-        check("the bloom plan holds the character light, the traced lights, the traced foliage, light through leaves, grass depth, the sky and the clouds off, runs atmosphere and holds light shafts, rain, the depth of field and the lens flare, off", at_bloom.count == 12
+        check("the bloom plan holds the character light, the traced lights, grass depth, the sky and the clouds off, runs atmosphere and holds light shafts, rain, the depth of field and the lens flare, off", at_bloom.count == 10
             && at_bloom.items[0].pass == PassId::character_light && at_bloom.items[0].kind == Decision::Kind::off
             && at_bloom.items[1].pass == PassId::traced_lights && at_bloom.items[1].kind == Decision::Kind::off
-            && at_bloom.items[2].pass == PassId::traced_foliage && at_bloom.items[2].kind == Decision::Kind::off
-            && at_bloom.items[3].pass == PassId::transmission && at_bloom.items[3].kind == Decision::Kind::off
-            && at_bloom.items[4].pass == PassId::grass && at_bloom.items[4].kind == Decision::Kind::off
-            && at_bloom.items[5].pass == PassId::sky && at_bloom.items[5].kind == Decision::Kind::off
-            && at_bloom.items[6].pass == PassId::clouds && at_bloom.items[6].kind == Decision::Kind::off
-            && at_bloom.items[7].pass == PassId::atmosphere && at_bloom.items[7].kind == Decision::Kind::run && at_bloom.items[8].pass == PassId::light_shafts
-            && at_bloom.items[8].kind == Decision::Kind::off && at_bloom.items[9].pass == PassId::rain && at_bloom.items[9].kind == Decision::Kind::off && at_bloom.items[10].pass == PassId::depth_of_field && at_bloom.items[10].kind == Decision::Kind::off
-            && at_bloom.items[11].pass == PassId::lens_flare && at_bloom.items[11].kind == Decision::Kind::off);
+            && at_bloom.items[2].pass == PassId::grass && at_bloom.items[2].kind == Decision::Kind::off
+            && at_bloom.items[3].pass == PassId::sky && at_bloom.items[3].kind == Decision::Kind::off
+            && at_bloom.items[4].pass == PassId::clouds && at_bloom.items[4].kind == Decision::Kind::off
+            && at_bloom.items[5].pass == PassId::atmosphere && at_bloom.items[5].kind == Decision::Kind::run && at_bloom.items[6].pass == PassId::light_shafts
+            && at_bloom.items[6].kind == Decision::Kind::off && at_bloom.items[7].pass == PassId::rain && at_bloom.items[7].kind == Decision::Kind::off && at_bloom.items[8].pass == PassId::depth_of_field && at_bloom.items[8].kind == Decision::Kind::off
+            && at_bloom.items[9].pass == PassId::lens_flare && at_bloom.items[9].kind == Decision::Kind::off);
+        check("the forward plan holds the traced foliage and light through leaves, before anything see-through is drawn over the leaves",
+            plan(Step::forward, tracker.map(), atmosphere_on(), kCamera).count == 2
+            && plan(Step::forward, tracker.map(), atmosphere_on(), kCamera).items[0].pass == PassId::traced_foliage
+            && plan(Step::forward, tracker.map(), atmosphere_on(), kCamera).items[1].pass == PassId::transmission);
         Settings lit = atmosphere_on();
         lit.traced_lights = true;
         const Plan with_lights = plan(Step::bloom, tracker.map(), lit, kCamera);
@@ -329,9 +331,9 @@ int main()
         FrameTracker tracker;
         fixture::replay(rows, tracker);
         const Plan at_bloom = plan(Step::bloom, tracker.map(), light_shafts_on(true), kCamera);
-        check("the bloom plan runs atmosphere, then light shafts with this frame's sun constants", at_bloom.count == 12
-            && at_bloom.items[7].pass == PassId::atmosphere && at_bloom.items[7].kind == Decision::Kind::run
-            && at_bloom.items[8].pass == PassId::light_shafts && at_bloom.items[8].kind == Decision::Kind::run && at_bloom.items[8].uses_sun);
+        check("the bloom plan runs atmosphere, then light shafts with this frame's sun constants", at_bloom.count == 10
+            && at_bloom.items[5].pass == PassId::atmosphere && at_bloom.items[5].kind == Decision::Kind::run
+            && at_bloom.items[6].pass == PassId::light_shafts && at_bloom.items[6].kind == Decision::Kind::run && at_bloom.items[6].uses_sun);
     }
     {
         auto rows = walk;
@@ -341,10 +343,10 @@ int main()
         FrameTracker tracker;
         fixture::replay(rows, tracker);
         const Plan read = plan(Step::bloom, tracker.map(), lens_flare_on(), kCamera);
-        check("with this frame's sun constants it reads the atlas", read.items[11].pass == PassId::lens_flare && read.items[11].kind == Decision::Kind::run
-            && read.items[11].uses_sun);
+        check("with this frame's sun constants it reads the atlas", read.items[9].pass == PassId::lens_flare && read.items[9].kind == Decision::Kind::run
+            && read.items[9].uses_sun);
         const Plan unread = plan(Step::bloom, tracker.map(), lens_flare_on(), Inputs { true, SunCheck::unread });
-        check("without them it still runs, from the depth alone", unread.items[11].kind == Decision::Kind::run && !unread.items[11].uses_sun);
+        check("without them it still runs, from the depth alone", unread.items[9].kind == Decision::Kind::run && !unread.items[9].uses_sun);
         check("the lens flare asks for the sun constants", wants_sun(lens_flare_on()));
     }
     {
@@ -1072,11 +1074,11 @@ int main()
         check("once it writes the frame sun shadows and ambient are replaced, not skipped, whatever their sun constants, and contact shadows run after it",
             traced.ran.bits == (ENHANCEMENTS_PASS_TRACE | ENHANCEMENTS_PASS_CONTACT_SHADOWS | ENHANCEMENTS_PASS_TRACED_FOLIAGE) && traced.skipped.empty() && traced.missing.empty()
             && traced.replaced.bits == (ENHANCEMENTS_PASS_SUN_SHADOWS | ENHANCEMENTS_PASS_AMBIENT)
-            && describe(traced) == std::string(kAllSteps) + "; ran trace@combine (64 ao, 32 sun) contact-shadows@combine traced-foliage@bloom; replaced sun-shadows ambient");
+            && describe(traced) == std::string(kAllSteps) + "; ran trace@combine (64 ao, 32 sun) contact-shadows@combine traced-foliage@forward; replaced sun-shadows ambient");
         rows = walk;
         FrameReport ao = run_frame(rows, trace_on(ENHANCEMENTS_TRACE_AO), Inputs { true, SunCheck::ok, TraceState::ready, true });
         check("traced occlusion alone replaces ambient alone", ao.replaced.bits == ENHANCEMENTS_PASS_AMBIENT
-            && describe(ao) == std::string(kAllSteps) + "; ran trace@combine (0 ao, 0 sun) sun-shadows@combine contact-shadows@combine traced-foliage@bloom; replaced ambient");
+            && describe(ao) == std::string(kAllSteps) + "; ran trace@combine (0 ao, 0 sun) sun-shadows@combine contact-shadows@combine traced-foliage@forward; replaced ambient");
         rows = walk;
         FrameReport sun = run_frame(rows, trace_on(ENHANCEMENTS_TRACE_SUN), Inputs { true, SunCheck::ok, TraceState::ready, true });
         check("traced sun alone replaces sun shadows, and contact shadows lower it", sun.replaced.bits == ENHANCEMENTS_PASS_SUN_SHADOWS
@@ -1124,14 +1126,14 @@ int main()
         gathered.trace_gather = 128;
         gathered.trace_sun = 32;
         check("while it gathers, the trace names its gather samples in place of its occlusion samples",
-            describe(gathered) == std::string(kAllSteps) + "; ran trace@combine (128 gather, 32 sun) contact-shadows@combine traced-foliage@bloom; replaced sun-shadows ambient");
+            describe(gathered) == std::string(kAllSteps) + "; ran trace@combine (128 gather, 32 sun) contact-shadows@combine traced-foliage@forward; replaced sun-shadows ambient");
         rows = walk;
         FrameReport unlit = run_frame(rows, trace_on(0), Inputs { true, SunCheck::ok, TraceState::ready, true });
         unlit.trace_ao = 64;
         unlit.trace_sun = 32;
         unlit.gather_without_light = true;
         check("the gather over a scene captured without light says so after the trace's outputs, which run as before",
-            describe(unlit) == std::string(kAllSteps) + "; ran trace@combine (64 ao, 32 sun) contact-shadows@combine traced-foliage@bloom; replaced sun-shadows ambient; skipped gather: scene without light");
+            describe(unlit) == std::string(kAllSteps) + "; ran trace@combine (64 ao, 32 sun) contact-shadows@combine traced-foliage@forward; replaced sun-shadows ambient; skipped gather: scene without light");
         for (const auto &[view, name] : { std::pair { ENHANCEMENTS_VIEW_BOUNCE, "bounce" }, std::pair { ENHANCEMENTS_VIEW_SKY_VISIBILITY, "sky-visibility" },
                  std::pair { ENHANCEMENTS_VIEW_SKY_MAP, "sky-map" } })
         {

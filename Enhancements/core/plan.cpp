@@ -135,11 +135,12 @@ namespace enhancements
           true, SunUse::optional, character_light_wanted },
         { PassId::traced_lights, "traced-lights", Step::bloom, { Entry::depth, Entry::hdr_scene, Entry::albedo, Entry::normals }, true, SunUse::none,
           traced_lights_wanted },
-        // After the traced lights, which light the foliage it shades, and before the haze in front of it.
-        { PassId::traced_foliage, "traced-foliage", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::none, traced_foliage_wanted },
-        // Light through leaves, after the traced foliage shade and before the haze in front of them. Its leaves, their colors
-        // and their sunlight were copied at the combine step.
-        { PassId::transmission, "transmission", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::none, transmission_wanted },
+        // Before the game draws anything see-through: the pass writes over its leaves' pixels, which would erase wings,
+        // fountain water and mist drawn over them. So the traced lights, at bloom, light the leaves after their shade.
+        { PassId::traced_foliage, "traced-foliage", Step::forward, { Entry::depth, Entry::hdr_scene }, true, SunUse::none, traced_foliage_wanted },
+        // Light through leaves, after the traced foliage shade and before anything see-through, as that pass. Its leaves,
+        // their colors and their sunlight were copied at the combine step.
+        { PassId::transmission, "transmission", Step::forward, { Entry::depth, Entry::hdr_scene }, true, SunUse::none, transmission_wanted },
         { PassId::grass, "grass", Step::bloom, { Entry::depth, Entry::hdr_scene }, true, SunUse::none, grass_wanted },
         // Over the sky's pixels before the clouds, which lie in front of it, and the haze.
         // The sun's atlas shades the distance haze where the main light does not reach the air.
