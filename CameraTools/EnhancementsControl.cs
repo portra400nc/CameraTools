@@ -24,8 +24,9 @@ namespace CameraTools
         // What the depth of field's block was last made for.
         private static LensView lens;
         private static EnhancementsView view;
-        private static bool volume, towers;
-        private static float towersCoverage;
+        private static bool volume;
+        private static int probeCloud;
+        private static float? probeCoverage;
         private static int towersLook;
         private static float? saveAt;
         // While the weather's look blends, the add-on gets it again at most this often, in real seconds.
@@ -192,13 +193,13 @@ namespace CameraTools
                 ulong generation = Enhancements.Apply(EnhancementsModel.Settings(Running, lens, WeatherFollow.Current));
                 Log($"the add-on connected and runs {Describe(Running)}, as its settings {generation}.");
             }
-            else if (now != lens || view != EnhancementsModel.ProbeView || volume != EnhancementsModel.ProbeVolumeClouds || towers != EnhancementsModel.ProbeTowers || towersCoverage != EnhancementsModel.ProbeTowersCoverage || towersLook != EnhancementsModel.ProbeTowersLook || WeatherFollow.Changed && Time.unscaledTime >= weatherSentAt + WeatherEvery)
+            else if (now != lens || view != EnhancementsModel.ProbeView || volume != EnhancementsModel.ProbeVolumeClouds || probeCloud != EnhancementsModel.ProbeCloud || probeCoverage != EnhancementsModel.ProbeCoverage || towersLook != EnhancementsModel.ProbeTowersLook || WeatherFollow.Changed && Time.unscaledTime >= weatherSentAt + WeatherEvery)
             {
                 lens = now;
                 view = EnhancementsModel.ProbeView;
                 volume = EnhancementsModel.ProbeVolumeClouds;
-                towers = EnhancementsModel.ProbeTowers;
-                towersCoverage = EnhancementsModel.ProbeTowersCoverage;
+                probeCloud = EnhancementsModel.ProbeCloud;
+                probeCoverage = EnhancementsModel.ProbeCoverage;
                 towersLook = EnhancementsModel.ProbeTowersLook;
                 weatherSentAt = Time.unscaledTime;
                 if (Enhancements.Connected)

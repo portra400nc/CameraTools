@@ -428,8 +428,8 @@ namespace CameraTools
                     settings.Rain.Lightning = 0f;
                 }
             }
-            if (ProbeTowers)
-                ApplyProbeTowers(ref settings);
+            if (ProbeCloud > 0)
+                ApplyProbeCloud(ref settings, ProbeCloudKinds[ProbeCloud - 1]);
             if (settings.Enabled == 0 && (settings.DepthOfField.Enabled != 0 || settings.LensSoftness.Radius > 0f))
             {
                 settings.Enabled = 1;
@@ -524,28 +524,45 @@ namespace CameraTools
         // they cannot draw.
         public static bool ProbeVolumeClouds { get; set; }
 
-        // For the probe only while the towering cumulus is tuned: the volume clouds as tall towers of billows, whatever
-        // Type and Weather chose, keeping their coverage. It has no Type of its own until its look is settled.
-        public static bool ProbeTowers { get; set; }
+        // For the probe only while the volume clouds' types are tuned: one type's clouds at its own heights, size, density and
+        // coverage, whatever Type and Weather chose. The towering cumulus and the cumulonimbus have no Type preset yet.
+        public readonly record struct ProbeCloudKind(string Name, EnhancementsCloudType Type, float Base, float Thickness, float Size, float Density,
+            float Coverage);
 
-        public static float ProbeTowersCoverage { get; set; } = 0.4f;
+        public static readonly ProbeCloudKind[] ProbeCloudKinds =
+        {
+            new("towering cumulus", EnhancementsCloudType.Towering, 1200f, 6500f, 1300f, 0.08f, 0.4f),
+            new("cumulus", EnhancementsCloudType.Cumulus, 1500f, 1500f, 400f, 0.04f, 0.5f),
+            new("stratocumulus", EnhancementsCloudType.Stratocumulus, 1800f, 700f, 500f, 0.04f, 0.75f),
+            new("stratus", EnhancementsCloudType.Stratus, 1000f, 400f, 1000f, 0.08f, 0.88f),
+            new("cumulonimbus", EnhancementsCloudType.Cumulonimbus, 1000f, 9000f, 1500f, 0.08f, 0.2f),
+        };
+
+        // The kind's index plus one; 0 leaves the clouds as Type and Weather chose them.
+        public static int ProbeCloud { get; set; }
+
+        // The coverage in place of the kind's own, or null.
+        public static float? ProbeCoverage { get; set; }
 
         // The probe's sky light and edge detail for the towers, by ProbeTowersLook.
         public static readonly (float SkyLight, float EdgeDetail)[] ProbeTowersLooks = { (0.6f, 0f), (0.6f, 0.2f), (0.6f, 0.4f), (0.4f, 0.2f), (0.8f, 0.2f) };
         public static int ProbeTowersLook { get; set; } = 1;
 
-        private static void ApplyProbeTowers(ref EnhancementsSettings settings)
+        private static void ApplyProbeCloud(ref EnhancementsSettings settings, ProbeCloudKind kind)
         {
-            settings.Clouds.Type = EnhancementsCloudType.Towering;
-            settings.Clouds.Base = 1200f;
-            settings.Clouds.Thickness = 6500f;
-            settings.Clouds.Size = 1300f;
-            settings.Clouds.Density = 0.08f;
-            settings.Clouds.Coverage = ProbeTowersCoverage;
+            settings.Clouds.Type = kind.Type;
+            settings.Clouds.Base = kind.Base;
+            settings.Clouds.Thickness = kind.Thickness;
+            settings.Clouds.Size = kind.Size;
+            settings.Clouds.Density = kind.Density;
+            settings.Clouds.Coverage = ProbeCoverage ?? kind.Coverage;
             settings.Clouds.Stretch = 1f;
-            settings.Clouds.Ambient *= ProbeTowersLooks[ProbeTowersLook].SkyLight;
-            settings.Clouds.Detail = ProbeTowersLooks[ProbeTowersLook].EdgeDetail;
             settings.CloudPattern.Pattern = EnhancementsCloudPatternKind.Noise;
+            if (kind.Type == EnhancementsCloudType.Towering)
+            {
+                settings.Clouds.Ambient *= ProbeTowersLooks[ProbeTowersLook].SkyLight;
+                settings.Clouds.Detail = ProbeTowersLooks[ProbeTowersLook].EdgeDetail;
+            }
         }
 
         // The add-on's pattern for a cloud type: its painted one, or the volume clouds' noise while the probe asks for them.

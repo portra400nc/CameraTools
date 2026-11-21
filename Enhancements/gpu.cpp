@@ -2190,9 +2190,9 @@ namespace enhancements
         const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
         const auto scene_format = static_cast<DXGI_FORMAT>(scene.format);
         const Size half = { (map.render.width + 1) / 2, (map.render.height + 1) / 2 }, quarter = { (half.width + 1) / 2, (half.height + 1) / 2 };
-        // A towering cumulus marches every pixel of the half-size history each frame: at a quarter of the size its billows'
-        // shading fell between the rays (.work/clouds/towers deck8).
-        const bool every = settings.type == CloudType::towering;
+        // The towers march every pixel of the half-size history each frame: at a quarter of the size a towering cumulus's
+        // billows' shading fell between the rays (.work/clouds/towers deck8).
+        const bool every = settings.type == CloudType::towering || settings.type == CloudType::cumulonimbus;
         const Size rays = every ? half : quarter;
         ID3D11Device *d = device_.Get();
         Constants constants;

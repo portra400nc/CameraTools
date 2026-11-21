@@ -17,21 +17,32 @@ Texture3D<float> erosion_noise : register(t8);  // cloud_detail_cs.hlsl's
 Texture2D<float4> cloud_types : register(t12);  // core/clouds.h's table: a row a type, r density, g erosion, b spread
 
 static const float kShapeTile = 6;     // cloud sizes the shape noise spans before it repeats
-// By ENHANCEMENTS_CLOUD_TYPE_*: cloud sizes the erosion noise spans. Its largest cells are half the tile; a towering
-// cumulus's billows want some 230 m, where 0.8 cut it into 500 m chunks and 0.18 repeated as a lattice.
-static const float kDetailTiles[5] = { 0.8, 0.8, 0.8, 0.8, 0.35 };
-static float detail_tile = 0.8;  // this type's, set by main
 static const float kCloudTypes = 5;    // ENHANCEMENTS_CLOUD_TYPE_COUNT
-// By ENHANCEMENTS_CLOUD_TYPE_*: how far full weather raises the cover at no and at full Coverage, for the towering cumulus
-// past 1 at a tower's middle so it stands solid and the shape noise forms billows over its sides (its Coverage says how
-// many towers stand instead); and the share of the layer the weakest weather still raises a cloud through, so towers
-// stand at many heights.
-static const float2 kCover[5] = { float2(0.35, 0.85), float2(0.35, 0.85), float2(0.35, 0.85), float2(0.35, 0.85), float2(1.5, 1.5) };
-static const float kShortest[5] = { 0.55, 0.55, 0.55, 0.55, 0.3 };
-// By ENHANCEMENTS_CLOUD_TYPE_*: how deep the erosion noise eats into a body at full erosion and Edge detail. Seen from a
-// few kilometers, a towering cumulus shows only its shape noise's largest billows unless the erosion cuts the smaller
-// ones into them (.work/clouds/towers sheet-j.png).
-static const float kErosionDepth[5] = { 0.35, 0.35, 0.35, 0.35, 1.0 };
+
+// What a type marches by, beside its height profile in cloud_types.
+struct CloudKind
+{
+    float detail_tile;  // cloud sizes the erosion noise spans; its largest cells are half of it
+    float2 cover;       // how far full weather raises the cover at no and at full Coverage
+    float shortest;     // the share of the layer the weakest weather still raises a cloud through
+    float erosion;      // how deep the erosion noise eats into a body at full erosion and Edge detail
+    float lean;         // how far the tops lean downwind, as a share of the layer's thickness
+};
+
+// By ENHANCEMENTS_CLOUD_TYPE_*. The towers (towering cumulus, cumulonimbus) stand on cloud_towers' domes: their cover
+// passes 1 at a tower's middle so it stands solid and the shape noise forms billows over its sides, Coverage says how
+// many towers stand, they reach many heights, and they stand nearly upright (at half the thickness a 6.5 km tower
+// leaned 3 km, a slanted slab). Their erosion cells are some 230 m (0.8 cut them into 500 m chunks, 0.18 repeated as a
+// lattice).
+static const CloudKind kKinds[5] =
+{
+    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5 },     // cumulus
+    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5 },     // stratocumulus
+    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5 },     // stratus
+    { 0.35, float2(1.5, 1.5), 0.4, 0.6, 0.15 },       // cumulonimbus
+    { 0.35, float2(1.5, 1.5), 0.3, 1.0, 0.1 },        // towering cumulus
+};
+static CloudKind kind_look;  // this type's, set by main
 
 float remap(float x, float a, float b, float c, float d) { return c + (x - a) / (b - a) * (d - c); }
 
@@ -39,14 +50,10 @@ static float2 skew_direction;
 static float detail_weight = 1;
 static float coverage_boost = 0;
 
-// By ENHANCEMENTS_CLOUD_TYPE_*: how far the tops lean downwind, as a share of the layer's thickness. A towering cumulus
-// 6.5 km tall leaned 3 km at half, a slanted slab.
-static const float kLean[5] = { 0.5, 0.5, 0.5, 0.5, 0.1 };
-
 // Where the noises read p: its world place with the drift, the tops leaning downwind.
 float3 cloud_space(float3 p, float h)
 {
-    float2 c = p.xz + cloud_wind + skew_direction * h * cloud_thickness * kLean[min((uint)cloud_type, 4u)];
+    float2 c = p.xz + cloud_wind + skew_direction * h * cloud_thickness * kind_look.lean;
     return float3(c.x, p.y, c.y);
 }
 
@@ -63,11 +70,11 @@ float cloud_body(float3 p, out float h, out float erosion)
         return 0;
     // Where the weather is weaker the clouds grow less tall: the type's profile is read higher up.
     uint kind = min((uint)cloud_type, 4u);
-    float4 type = cloud_types.SampleLevel(linear_clamp, float2(h / lerp(kShortest[kind], 1, weather), (kind + 0.5) / kCloudTypes), 0);
+    float4 type = cloud_types.SampleLevel(linear_clamp, float2(h / lerp(kind_look.shortest, 1, weather), (kind + 0.5) / kCloudTypes), 0);
     erosion = type.g;
     // Even under full weather the cover stays below 1, so the noise carves the body rather than the clouds turning into
     // extruded slabs of the map; the type's spread adds to it.
-    float cover = saturate(weather * lerp(kCover[kind].x, kCover[kind].y, cloud_coverage) + type.b + coverage_boost);
+    float cover = saturate(weather * lerp(kind_look.cover.x, kind_look.cover.y, cloud_coverage) + type.b + coverage_boost);
     float n = shape_noise.SampleLevel(linear_wrap, c / (cloud_size * kShapeTile), 0);
     return saturate(remap(n * type.r, 1 - cover, 1, 0, 1)) * cover;
 }
@@ -78,10 +85,10 @@ float cloud_extinction(float3 p, out float h)
     float body = cloud_body(p, h, erosion);
     if (body <= 0)
         return 0;
-    float fine = erosion_noise.SampleLevel(linear_wrap, cloud_space(p, h) / (cloud_size * detail_tile), 0);
+    float fine = erosion_noise.SampleLevel(linear_wrap, cloud_space(p, h) / (cloud_size * kind_look.detail_tile), 0);
     // Wispy at the base, billowing toward the top.
     fine = lerp(fine, 1 - fine, saturate(h * 4));
-    body = saturate(remap(body, fine * kErosionDepth[min((uint)cloud_type, 4u)] * erosion * cloud_detail * detail_weight, 1, 0, 1));
+    body = saturate(remap(body, fine * kind_look.erosion * erosion * cloud_detail * detail_weight, 1, 0, 1));
     return body * cloud_density;
 }
 
@@ -133,6 +140,18 @@ float volume_scattered(float c, float od)
     return lit;
 }
 
+// The share of the sky's light reaching p, after Frostbite (Hillaire 2016, 5.6): from the sky above, stronger up the
+// layer, and from the ground below, weaker, both isotropic; the light from above is dimmed by the cloud over p, through
+// two samples a tenth and a third of a cloud's size up, so the hollows between billows and a tower's lower body darken
+// (.work/clouds/towers sheet-m.png m4). Without it the sky lit every hollow as brightly as a billow's crown, which read
+// as smooth, toy-like clouds.
+float sky_reaching(float3 p, float h)
+{
+    float near = cloud_size * 0.1, far = cloud_size * 0.33;
+    float above = cloud_extinction_coarse(p + float3(0, near, 0)) * near + cloud_extinction_coarse(p + float3(0, far, 0)) * (far - near);
+    return (0.25 + 0.75 * pow(saturate(h), 0.7)) * lerp(0.3, 1, exp(-above * 0.3)) + 0.25 * (1 - h);
+}
+
 float4 main(float4 position : SV_Position) : SV_Target0
 {
     // This frame's pixel of the 2x2 block of the half-size history that this quarter-size pixel covers, or with block 4
@@ -146,7 +165,7 @@ float4 main(float4 position : SV_Position) : SV_Target0
     float3 dir = normalize(sky_world_from_view(view_position(uv, 1)));
     float top = cloud_base + cloud_thickness;
     skew_direction = float2(cos(radians(cloud_pad)), sin(radians(cloud_pad)));
-    detail_tile = kDetailTiles[min((uint)cloud_type, 4u)];
+    kind_look = kKinds[min((uint)cloud_type, 4u)];
     bool physical = sky_cloud_physical > 0.5;
     float t0, t1;
     if (origin.y < cloud_base)
@@ -175,7 +194,7 @@ float4 main(float4 position : SV_Position) : SV_Target0
     // spanned whole clouds near the camera found or missed their edges by the pixel's offset, which drew stripes.
     float budget = (t1 - t0) / (cloud_steps * 0.5);
     float fine = clamp(budget * 0.12, 10, 60);
-    detail_weight = saturate(3 * cloud_size * detail_tile / 32 / fine);
+    detail_weight = saturate(3 * cloud_size * kind_look.detail_tile / 32 / fine);
     // A random offset for each pixel and frame: a patterned one left its pattern, diagonal stripes, wherever the march
     // found or missed an edge by it.
     int seed = int(cloud_phase * 65536);
@@ -228,7 +247,7 @@ float4 main(float4 position : SV_Position) : SV_Target0
         empty = 0;
         float od = depth_toward_light(p, l);
         float lit = volume_scattered(c, od);
-        float3 light = (physical ? physical_sunlight(origin, p) : sun) * lit + sky * (0.2 + 0.8 * h);
+        float3 light = (physical ? physical_sunlight(origin, p) : sun) * lit + sky * sky_reaching(p, h);
         float through = exp(-sigma * step);
         float fade = exp(-t / cloud_fade);
         float taken = transmittance * (1 - through);

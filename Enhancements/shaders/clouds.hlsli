@@ -70,7 +70,7 @@ float2 pattern_at(float2 c)
     return float2(cover, dot(p.rgb, float3(0.2126, 0.7152, 0.0722)));
 }
 
-// The towering cumulus's weather: towers scattered one to a cell of six cloud sizes, standing in as many cells as
+// The towers' weather (towering cumulus and cumulonimbus): towers scattered one to a cell of six cloud sizes, standing in as many cells as
 // Coverage asks, each a cluster of four domes around its middle, as a tower stacks turrets: a central one 0.55 to 1 high
 // and three broad shoulders beside it, 0.3 to 0.7 of its height, every rim warped by broad noise. The domes fall off as 1 - d^2 toward their
 // rims, so the shape noise forms billows over the sides. One dome a tower stood as the same bell everywhere, and a flat
@@ -103,6 +103,13 @@ float cloud_towers(float2 c)
                 float d = length(p - dome) / size;
                 w = max(w, tall * saturate(1 - d * d));
             }
+            // A cumulonimbus's anvil: a thin, wide footprint around the tower, which the type's spread fills only near
+            // the top of the layer.
+            if (cloud_type == 3)
+            {
+                float d = length(p - center) / (radius * 2.5);
+                w = max(w, 0.08 * saturate(1 - d * d));
+            }
         }
     return w;
 }
@@ -112,7 +119,7 @@ float cloud_towers(float2 c)
 // along the wind; the shape noise gives the clouds inside them their bodies.
 float cloud_weather(float2 c)
 {
-    if (cloud_type == 4)    // ENHANCEMENTS_CLOUD_TYPE_TOWERING
+    if (cloud_type >= 3)    // ENHANCEMENTS_CLOUD_TYPE_CUMULONIMBUS and _TOWERING
         return cloud_towers(c);
     float2 wind = float2(cos(radians(cloud_pad)), sin(radians(cloud_pad)));
     float2 p = float2(dot(c, wind) / (cloud_size * cloud_stretch), dot(c, float2(-wind.y, wind.x)) / cloud_size) / 6;

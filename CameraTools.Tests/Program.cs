@@ -235,11 +235,16 @@ Check("the table holds 115 fields, each at its own id's place, with the master s
         EnhancementsModel.Settings(cloudStratus, cloudLens) is { CloudPattern.Pattern: EnhancementsCloudPatternKind.Noise, Clouds.Type: EnhancementsCloudType.Stratus }
         && EnhancementsModel.Settings(cloudCirrus, cloudLens).CloudPattern.Pattern == EnhancementsCloudPatternKind.Streaks);
     EnhancementsModel.ProbeVolumeClouds = false;
-    EnhancementsModel.ProbeTowers = true;
+    EnhancementsModel.ProbeCloud = 1;
     Check("the probe's towering cumulus stands 1200 to 7700 m high as round volume clouds at its own coverage",
         EnhancementsModel.Settings(cloudStratus, cloudLens) is { CloudPattern.Pattern: EnhancementsCloudPatternKind.Noise,
             Clouds: { Type: EnhancementsCloudType.Towering, Base: 1200f, Thickness: 6500f, Coverage: 0.4f, Stretch: 1f } });
-    EnhancementsModel.ProbeTowers = false;
+    EnhancementsModel.ProbeCloud = 5;
+    EnhancementsModel.ProbeCoverage = 0.7f;
+    Check("the probe's cumulonimbus stands 9 km thick at the coverage the probe asks, and keeps the user's edge detail",
+        EnhancementsModel.Settings(cloudStratus, cloudLens).Clouds is { Type: EnhancementsCloudType.Cumulonimbus, Thickness: 9000f, Coverage: 0.7f, Detail: 0.5f });
+    EnhancementsModel.ProbeCloud = 0;
+    EnhancementsModel.ProbeCoverage = null;
     Check("moving Sunlight or Wind leaves Type as it is",
         (int)EnhancementsModel.Edit(cloudStratus, Enhancement.CloudSunlight, 3f)[Enhancement.CloudType] == 2 && (int)EnhancementsModel.Edit(cloudStratus, Enhancement.CloudWind, 20f)[Enhancement.CloudType] == 2);
     Check("the wind stops while the game is paused and halves at half speed",
