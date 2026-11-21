@@ -544,9 +544,9 @@ namespace CameraTools
         // The coverage in place of the kind's own, or null.
         public static float? ProbeCoverage { get; set; }
 
-        // The probe's sky light, edge detail and density for the towers, by ProbeTowersLook.
-        public static readonly (float SkyLight, float EdgeDetail, float Density)[] ProbeTowersLooks =
-            { (0.6f, 0.2f, 0.1f), (0.6f, 0f, 0.1f), (0.6f, 0.4f, 0.1f), (0.6f, 0.2f, 0.04f), (0.6f, 0.2f, 0.25f) };
+        // The probe's sunlight, sky light and density for its clouds, by ProbeTowersLook.
+        public static readonly (float Sun, float SkyLight, float Density)[] ProbeTowersLooks =
+            { (1f, 1f, 0.1f), (2f, 1f, 0.1f), (2f, 1.5f, 0.1f), (2f, 1f, 0.04f), (3f, 1.5f, 0.1f) };
         public static int ProbeTowersLook { get; set; }
 
         private static void ApplyProbeCloud(ref EnhancementsSettings settings, ProbeCloudKind kind)
@@ -559,12 +559,9 @@ namespace CameraTools
             settings.Clouds.Coverage = ProbeCoverage ?? kind.Coverage;
             settings.Clouds.Stretch = 1f;
             settings.CloudPattern.Pattern = EnhancementsCloudPatternKind.Noise;
-            if (kind.Type == EnhancementsCloudType.Towering)
-            {
-                settings.Clouds.Ambient *= ProbeTowersLooks[ProbeTowersLook].SkyLight;
-                settings.Clouds.Detail = ProbeTowersLooks[ProbeTowersLook].EdgeDetail;
-                settings.Clouds.Density = ProbeTowersLooks[ProbeTowersLook].Density;
-            }
+            settings.Clouds.Sun *= ProbeTowersLooks[ProbeTowersLook].Sun;
+            settings.Clouds.Ambient *= ProbeTowersLooks[ProbeTowersLook].SkyLight;
+            settings.Clouds.Density = ProbeTowersLooks[ProbeTowersLook].Density;
         }
 
         // The add-on's pattern for a cloud type: its painted one, or the volume clouds' noise while the probe asks for them.

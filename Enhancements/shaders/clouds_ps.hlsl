@@ -29,19 +29,28 @@ struct CloudKind
     float erosion;      // how deep the erosion noise eats into a body at full erosion and Edge detail
     float lean;         // how far the tops lean downwind, as a share of the layer's thickness
     float swirl;        // how far the erosion's turbulence moves it, in erosion tiles
+    // Disney's cloud in place of the noise (1), and how it stands: each a share of a grid cell long (packed: filling its
+    // cell, edge to edge, without turning), a share of the layer tall, and how far its top spreads into an anvil.
+    float volume;
+    float2 size;
+    float2 height;
+    float packed;
+    float anvil;
 };
 
 // By ENHANCEMENTS_CLOUD_TYPE_*. The towers (towering cumulus, cumulonimbus) stand on cloud_towers' domes: their cover
 // passes 1 at a tower's middle so it stands solid and the shape noise forms billows over its sides, Coverage says how
 // many towers stand, they reach many heights, and they stand nearly upright (at half the thickness a 6.5 km tower
 // leaned 3 km, a slanted slab). Their erosion cells run from some 400 m down to 25 m.
+// Every type stands Disney's cloud since the user found it the real one; volume 0 brings a type's noise clouds back (the
+// git tag clouds-noise has them as they were tuned).
 static const CloudKind kKinds[5] =
 {
-    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.15 },   // cumulus
-    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.15 },   // stratocumulus
-    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.1 },    // stratus
-    { 0.6, float2(1.5, 1.5), 0.4, 0.6, 0.15, 0.25 },      // cumulonimbus
-    { 0.6, float2(1.5, 1.5), 0.3, 1.0, 0.1, 0.25 },       // towering cumulus
+    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.15, 1, float2(0.4, 0.55), float2(0.3, 0.55), 0, 0 },    // cumulus
+    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.15, 1, float2(0.98, 0.98), float2(0.5, 1), 1, 0 },    // stratocumulus
+    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.1, 1, float2(0.98, 0.98), float2(0.6, 1), 1, 0 },     // stratus
+    { 0.6, float2(1.5, 1.5), 0.4, 0.6, 0.15, 0.25, 1, float2(0.4, 0.45), float2(0.55, 0.8), 0, 0.6 },  // cumulonimbus
+    { 0.6, float2(1.5, 1.5), 0.3, 1.0, 0.1, 0.25, 1, float2(0.4, 0.55), float2(0.45, 1), 0, 0 },        // towering cumulus
 };
 static CloudKind kind_look;  // this type's, set by main
 
@@ -61,12 +70,12 @@ float3 cloud_space(float3 p, float h)
 static const float3 kVolumeVoxels = float3(250, 170, 307);
 static float volume_lod = 0;    // the volume's mip the samples read: coarser for the search and the light far off
 
-// The towering cumulus: Disney's cloud (a real cumulus, modeled after a photograph) stood at the tower of each cell of a
-// grid of six cloud sizes, in as many cells as Coverage asks, each turned, mirrored, sized 40 to 55% of a cell along its
-// length and stretched 1 to 1.8 times up. Clouds built from noise read as sponge, popcorn or a cartoon's
-// (.work/clouds/towers). Turned any way, the cloud's footprint reaches at most 0.645 of its length from its middle, so
-// a middle 0.35 to 0.65 across its cell keeps it inside: one cell's lookup a sample, where nine cost the Deck 58 ms.
-// c is the point in cloud space, y its height.
+// Disney's cloud (a real cumulus, modeled after a photograph) stood in each cell of a grid of six cloud sizes, in as
+// many cells as Coverage asks, as kind_look says: turned and mirrored, a share of the cell long and of the layer tall;
+// or packed, filling its cell edge to edge, only flipped, for the layers. A cumulonimbus's top spreads into an anvil.
+// Clouds built from noise read as sponge, popcorn or a cartoon's (.work/clouds/towers). Turned any way, the cloud's
+// footprint reaches at most 0.645 of its length from its middle, so a middle 0.35 to 0.65 across its cell keeps it
+// inside: one cell's lookup a sample, where nine cost the Deck 58 ms. c is the point in cloud space, y its height.
 float cloud_volume_at(float2 c, float y)
 {
     float cell = cloud_size * 6;
@@ -75,13 +84,18 @@ float cloud_volume_at(float2 c, float y)
     float4 r = float4(a & 0xffffu, b & 0xffffu) / 65535.0;
     if (r.x >= cloud_coverage)
         return 0;
-    float scale = cell * lerp(0.4, 0.55, r.w) / kVolumeVoxels.z;     // meters a voxel
-    float tall = lerp(1, 1.8, frac(r.w * 7.31));
-    float turn = frac(r.w * 13.7) * 6.2831853;
-    float2 d = c - (at + 0.35 + 0.3 * r.yz) * cell;
+    float length = cell * lerp(kind_look.size.x, kind_look.size.y, r.w);
+    float tall = cloud_thickness * lerp(kind_look.height.x, kind_look.height.y, frac(r.w * 7.31));
+    bool packed = kind_look.packed > 0;
+    float2 middle = packed || kind_look.anvil > 0 ? at + 0.5 : at + 0.35 + 0.3 * r.yz;
+    float turn = packed ? (frac(r.w * 13.7) > 0.5 ? 3.1415927 : 0) : frac(r.w * 13.7) * 6.2831853;
+    float2 d = c - middle * cell;
     float2 local = float2(cos(turn) * d.x + sin(turn) * d.y, cos(turn) * d.y - sin(turn) * d.x);
     local.x = frac(r.w * 3.1) > 0.5 ? -local.x : local.x;
-    float3 uvw = float3(local.x / scale, (y - cloud_base) / (scale * tall), local.y / scale) / kVolumeVoxels + float3(0.5, 0, 0.5);
+    // Meters a voxel across and along: packed, the footprint stretched to the cell; else the cloud's own proportions.
+    float2 across = packed ? length / kVolumeVoxels.xz : length / kVolumeVoxels.z;
+    float3 uvw = float3(local.x / (across.x * kVolumeVoxels.x), (y - cloud_base) / tall, local.y / (across.y * kVolumeVoxels.z));
+    uvw.xz = uvw.xz / (1 + kind_look.anvil * smoothstep(0.6, 0.9, uvw.y)) + 0.5;
     return all(uvw >= 0) && all(uvw <= 1) ? cloud_volume.SampleLevel(linear_clamp, uvw, volume_lod) : 0;
 }
 
@@ -93,11 +107,9 @@ float cloud_body(float3 p, out float h, out float erosion)
     if (h < 0 || h > 1)
         return 0;
     float3 c = cloud_space(p, h);
-    if (cloud_type == 4)    // ENHANCEMENTS_CLOUD_TYPE_TOWERING
-    {
-        erosion = 0.75;
+    // Disney's cloud carries its own detail, smooth and soft as a real cloud's: the noise's erosion only roughened it.
+    if (kind_look.volume > 0)
         return cloud_volume_at(c.xz, p.y);
-    }
     float weather = cloud_map.SampleLevel(linear_clamp, (c.xz - cloud_map_center) / cloud_map_extent + 0.5, 0);
     if (weather <= 0.01)
         return 0;
@@ -167,17 +179,18 @@ float depth_toward_light(float3 p, float3 l)
     return depth;
 }
 
-// Sunlight scattered toward the eye after Frostbite (Hillaire 2016, 5.6): three octaves of multiple scattering, each
-// through half the optical depth, half as strong and half as forward, of a forward and a weaker backward Henyey-Greenstein
-// lobe. Halving the depth keeps a billow's shaded side dark, where the painted layer's quartering lit it nearly through.
+// Sunlight scattered toward the eye after Frostbite (Hillaire 2016, 5.6): octaves of multiple scattering, each through
+// a quarter of the optical depth, 0.7 as strong and half as forward, of a forward and a weaker backward Henyey-Greenstein
+// lobe. A real cloud scatters its light a thousand times (Disney's reference renders it so) and glows white through:
+// three octaves at half strength left the Disney cloud gray at noon.
 float volume_scattered(float c, float od)
 {
     float lit = 0, a = 1, b = 1, g = 1;
-    [unroll] for (int k = 0; k < 3; k++)
+    [unroll] for (int k = 0; k < 5; k++)
     {
         lit += b * (0.55 * henyey_greenstein(c, 0.8 * g) + 0.45 * henyey_greenstein(c, -0.3 * g)) * exp(-od * a);
-        a *= 0.5;
-        b *= 0.5;
+        a *= 0.25;
+        b *= 0.7;
         g *= 0.5;
     }
     return lit;

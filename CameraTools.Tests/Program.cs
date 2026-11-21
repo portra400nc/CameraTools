@@ -241,7 +241,7 @@ Check("the table holds 115 fields, each at its own id's place, with the master s
             Clouds: { Type: EnhancementsCloudType.Towering, Base: 2000f, Thickness: 7000f, Coverage: 0.4f, Stretch: 1f } });
     EnhancementsModel.ProbeCloud = 5;
     EnhancementsModel.ProbeCoverage = 0.7f;
-    Check("the probe's cumulonimbus stands 9 km thick at the coverage the probe asks, and keeps the user's edge detail",
+    Check("the probe's cumulonimbus stands 9 km thick at the coverage the probe asks, and keeps the user's edge detail and sunlight",
         EnhancementsModel.Settings(cloudStratus, cloudLens).Clouds is { Type: EnhancementsCloudType.Cumulonimbus, Thickness: 9000f, Coverage: 0.7f, Detail: 0.5f });
     EnhancementsModel.ProbeCloud = 0;
     EnhancementsModel.ProbeCoverage = null;
