@@ -525,6 +525,8 @@ int main()
         const Judgement nothing = judge_face(kFaceView, none_replayed, true, false, true, camera, std::nullopt);
         check("every draw skipped: nothing, naming the commonest reason", nothing.verdict == FaceVerdict::nothing
             && nothing.why == "3 of 3 draws were skipped for no-bytecode");
+        check("a face that drew nothing, open sky, is saved holding no triangles",
+            judge_face(kFaceView, {}, true, false, true, camera, std::nullopt).verdict == FaceVerdict::ok);
         check("no camera: no_camera", judge_face(kFaceView, drawn, true, false, true, std::nullopt, std::nullopt).verdict == FaceVerdict::no_camera);
         check("a camera looking down -z for +X: wrong_face, and for -Z: ok", judge_face(ENHANCEMENTS_FACE_POS_X, drawn, true, false, true, camera, std::nullopt).verdict
             == FaceVerdict::wrong_face && judge_face(ENHANCEMENTS_FACE_NEG_Z, drawn, true, false, true, camera, std::nullopt).verdict == FaceVerdict::ok);

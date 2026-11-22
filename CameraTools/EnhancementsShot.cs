@@ -64,7 +64,6 @@ namespace CameraTools
         private static MelonPreferences_Entry<float> bounceStrength;
         private static MelonPreferences_Entry<int> bounces;
         private static MelonPreferences_Entry<bool> tracedSunShadows;
-        private static bool alternate = true;
         private static Run run;
         // The scene of the last traced shot, while the next one may use it again.
         private static SceneFacts? kept;
@@ -85,6 +84,16 @@ namespace CameraTools
 
         // Whether the Path traced lighting row is in the ReShade tab. Off, the traced shot is off too.
         public static bool Shown => shown.Value;
+
+        public static bool SaveScene
+        {
+            get => saveScene.Value;
+            set
+            {
+                saveScene.Value = value;
+                MelonPreferences.Save();
+            }
+        }
 
         // The Path traced lighting row.
         public static bool Enabled
@@ -167,16 +176,6 @@ namespace CameraTools
             {
                 if (!Enabled)
                     return false;
-                if (saveScene.Value)
-                {
-                    // Plain shots with RTGI and traced ones alternate, so both come from one pose.
-                    alternate = !alternate;
-                    if (!alternate)
-                    {
-                        Log("saving the scene for the Mac, so this shot is a plain one and the next is traced.");
-                        return false;
-                    }
-                }
                 if (!Enhancements.Connected)
                     Log("the Enhancements add-on is not loaded, so this is a plain screenshot.");
                 return Enhancements.Connected;

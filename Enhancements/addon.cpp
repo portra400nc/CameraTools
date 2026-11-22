@@ -34,6 +34,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -1632,7 +1633,8 @@ namespace enhancements
         // depth 0 too and stay. The game draws it with either pixel shader, the second in the free camera on 2026-11-21.
         static constexpr uint64_t kSkyDomes[] = { 0x7b771d2354311b7bull, 0x4755b11bd415cd81ull };
         enum class GameShader : uint8_t { other, water, dome };
-        uint64_t shader_checked = 0;    // the pixel shader object last looked up, and what it draws
+        uint64_t shader_checked = 0;    // the pixel shader object last looked up, its code's hash, and what it draws
+        uint64_t shader_hash = 0;
         GameShader shader_kind = GameShader::other;
         uint64_t vertex_checked = 0;    // the vertex shader object last looked up, and whether it is water's
         bool vertex_water = false;
@@ -1645,6 +1647,7 @@ namespace enhancements
                 shader_checked = bound;
                 const std::optional<ShaderCode> code = shaders.find(bound);
                 const uint64_t hash = code ? code->hash : 0;
+                shader_hash = hash;
                 shader_kind = std::find(std::begin(kWaterShaders), std::end(kWaterShaders), hash) != std::end(kWaterShaders) ? GameShader::water
                     : std::find(std::begin(kSkyDomes), std::end(kSkyDomes), hash) != std::end(kSkyDomes) ? GameShader::dome
                     : GameShader::other;
@@ -1775,7 +1778,14 @@ namespace enhancements
         // surfaces alone. Snow, sparks and effects in the air were taken as light on the surfaces behind them, and every
         // traced reflection or bounce that met one drew it as a bright square. Light sprites are not surfaces either; the
         // game's lamps and Skill light's lights light the bounce. These frames are never shown in a shot.
-        bool skip_see_through(command_list *cmd_list)
+        //
+        // The dome is one big mesh: a small draw with a dome's shader, of a particle that shares it, is left out too, as the
+        // squares came back on 2026-11-22 with the dome's second shader (f1f96f0). elements is the draw's vertices or
+        // indices times its instances, 0 for an indirect draw, whose size the CPU does not know.
+        static constexpr uint64_t kDomeElements = 600;
+        std::set<std::pair<uint64_t, uint64_t>> dome_draws_logged;
+
+        bool skip_see_through(command_list *cmd_list, uint64_t elements)
         {
             if (!scene_light || cmd_list != immediate || !armed.load(std::memory_order_relaxed) || !tracker.matched().has(Step::forward)
                 || tracker.matched().has(Step::bloom))
@@ -1784,7 +1794,19 @@ namespace enhancements
             if (!scene || !gpu.blends_into(static_cast<uint64_t>(scene->id)))
                 return false;
             const GameShader kind = bound_shader();
-            return kind != GameShader::water && kind != GameShader::dome;
+            if (kind == GameShader::dome)
+            {
+                const bool kept = elements >= kDomeElements;
+                if (dome_draws_logged.size() < 32 && dome_draws_logged.insert({ shader_hash, elements }).second)
+                {
+                    char hash[17];
+                    std::snprintf(hash, sizeof hash, "%016llx", static_cast<unsigned long long>(shader_hash));
+                    log(reshade::log::level::info, std::string("a face picture's frame met a see-through draw with a dome's shader ") + hash + ", "
+                        + std::to_string(elements) + " elements: " + (kept ? "kept as the dome." : "left out."));
+                }
+                return !kept;
+            }
+            return kind != GameShader::water;
         }
 
         // The scene capture's checks cost one branch while it does not run. DrawAuto comes as a draw of 0 vertices, which
@@ -1794,7 +1816,7 @@ namespace enhancements
             if (armed.load(std::memory_order_relaxed) && cmd_list == immediate && scene_frame && in_gbuffer && vertices != 0)
                 replay_scene({ ReplayKind::draw, vertices, instances, first_vertex, 0, first_instance, nullptr, 0 });
             const bool skip = on_draw_any(cmd_list);
-            if (!skip && skip_see_through(cmd_list))
+            if (!skip && skip_see_through(cmd_list, uint64_t { vertices } * instances))
                 return true;
             if (!skip && draw_surface(cmd_list, { false, vertices, instances, first_vertex, 0, first_instance }))
                 return true;
@@ -1806,7 +1828,7 @@ namespace enhancements
             if (armed.load(std::memory_order_relaxed) && cmd_list == immediate && scene_frame && in_gbuffer)
                 replay_scene({ ReplayKind::indexed, indices, instances, first_index, vertex_offset, first_instance, nullptr, 0 });
             const bool skip = on_draw_any(cmd_list);
-            if (!skip && skip_see_through(cmd_list))
+            if (!skip && skip_see_through(cmd_list, uint64_t { indices } * instances))
                 return true;
             if (!skip && draw_surface(cmd_list, { true, indices, instances, first_index, vertex_offset, first_instance }))
                 return true;
@@ -1848,7 +1870,7 @@ namespace enhancements
         bool on_draw_or_dispatch_indirect(command_list *cmd_list, indirect_command type, resource buffer, uint64_t offset, uint32_t draw_count, uint32_t)
         {
             // GPU particles, such as falling snow, draw this way too.
-            if (type != indirect_command::dispatch && skip_see_through(cmd_list))
+            if (type != indirect_command::dispatch && skip_see_through(cmd_list, 0))
                 return true;
             bool low_slots = false;
             // Without the custom clump's files, the game's own grass is multiplied as Density asks.

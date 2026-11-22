@@ -148,7 +148,7 @@ float cloud_volume_at(float2 c, float y)
     c += (float2(cloud_fbm(float3(c / (cell * 7), 1.3), 2), cloud_fbm(float3(c / (cell * 7) + 5.1, 4.7), 2)) - 0.5) * cell * 3;
     int2 near = int2(floor(c / cell - 0.5));
     float best = 0;
-    [unroll] for (int k = 0; k < 4; k++)
+    [loop] for (int k = 0; k < 4; k++)
         best = max(best, cloud_in_cell(near + int2(k & 1, k >> 1), c, y, cell));
     return best;
 }
@@ -230,7 +230,7 @@ static float light_spread = 1;
 float depth_toward_light(float3 p, float3 l)
 {
     float depth = 0, from = 0;
-    [unroll] for (int j = 0; j < 6; j++)
+    [loop] for (int j = 0; j < 6; j++)
     {
         float at = kLightTaps[j] * light_scale * light_spread, h;
         float sigma = j < 2 ? cloud_extinction(p + l * at, h) : cloud_extinction_coarse(p + l * at);

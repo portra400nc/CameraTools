@@ -757,6 +757,13 @@ namespace CameraTools
                 Sub = true,
                 Shown = () => EnhancementsShot.Enabled && EnhancementsShot.TracedReflections,
             },
+            // Temporary, for debugging the bright squares in traced shots.
+            new ToggleRow("Save scene", () => EnhancementsShot.SaveScene, on => EnhancementsShot.SaveScene = on)
+            {
+                Sub = true,
+                Shown = () => EnhancementsShot.Enabled,
+                Detail = () => "Debug: saves each face's lit picture beside the shot",
+            },
         }).ToArray());
 
         private static ToggleRow PathToggle(string label, Func<PathOptions, bool> get, Action<PathOptions, bool> set)

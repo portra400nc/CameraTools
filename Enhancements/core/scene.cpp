@@ -484,11 +484,13 @@ namespace enhancements
         std::array<uint32_t, static_cast<size_t>(DrawSkip::count)> skips {};
         for (const SceneDrawRecord &record : records)
             skips[static_cast<size_t>(record.skip)]++;
-        if (skips[0] == 0)
+        // A face that drew nothing into the G-buffer sees only sky, as the face straight up does in the open: it is saved,
+        // holding no triangles. Draws that were all skipped are another matter.
+        if (skips[0] == 0 && !records.empty())
         {
             const auto most = std::max_element(skips.begin() + 1, skips.end());
-            return { FaceVerdict::nothing, records.empty() ? std::string("the frame drew nothing into the G-buffer")
-                : std::to_string(*most) + " of " + std::to_string(records.size()) + " draws were skipped for " + kDrawSkipNames[most - skips.begin()] };
+            return { FaceVerdict::nothing, std::to_string(*most) + " of " + std::to_string(records.size()) + " draws were skipped for "
+                + kDrawSkipNames[most - skips.begin()] };
         }
         if (!camera)
             return { FaceVerdict::no_camera, "neither the game's camera constants nor a pushed camera came with the frame" };
