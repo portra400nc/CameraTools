@@ -16,19 +16,27 @@ jobs=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
 # The core compiles once, optimized and in parallel, and every test and tool links it: each used to compile all of it again,
 # one after another, and dof_test ran 313 s unoptimized against 13 s optimized.
 flags="-std=c++17 -O2 -pthread -Wall -Wextra -Werror -I .."
+cache=${ENHANCEMENTS_TEST_CACHE:-${TMPDIR:-/tmp}/enhancements-test-cache}
+mkdir -p "$cache/objects"
+# Each object is kept by a hash of its source, every header of ours and the flags, and compiles again only when one of
+# them changed: compiling the core and the tests anew took 21 s of every run.
+headers=$(cat ../*.h ../core/*.h | shasum | cut -c1-40)
 mkdir "$out/core"
-ls ../core/*.cpp fixture.cpp | xargs -P "$jobs" -I {} sh -c 'c++ $1 -c "$2" -o "$3/core/$(basename "$2" .cpp).o"' _ "$flags" {} "$out"
+ls ../core/*.cpp fixture.cpp *_test.cpp | xargs -P "$jobs" -I {} sh -c '
+    key=$( { echo "$1 $4"; cat "$2"; } | shasum | cut -c1-40)
+    [ -f "$5/objects/$key.o" ] || c++ $1 -c "$2" -o "$5/objects/$key.o.part" && mv -f "$5/objects/$key.o.part" "$5/objects/$key.o" 2>/dev/null
+    cp "$5/objects/$key.o" "$3/core/$(basename "$2" .cpp).o"' _ "$flags" {} "$out" "$headers" "$cache"
 mv "$out/core/fixture.o" "$out/fixture.o"
-ls *_test.cpp | sed 's/\.cpp$//' | xargs -P "$jobs" -I {} sh -c 'c++ $1 "$2.cpp" "$3/fixture.o" "$3"/core/*.o -o "$3/$2"' _ "$flags" {} "$out"
-# The tools link only the code they reach, so a tool's binary changes only when that code does.
+mkdir "$out/tests"
+for test in *_test.cpp; do mv "$out/core/${test%.cpp}.o" "$out/tests/"; done
+# The tests and the tools link only the code they reach, so a binary changes only when that code does.
 strip=
 [ "$(uname)" = Darwin ] && strip=-Wl,-dead_strip
+ls *_test.cpp | sed 's/\.cpp$//' | xargs -P "$jobs" -I {} sh -c 'c++ $1 $4 "$3/tests/$2.o" "$3/fixture.o" "$3"/core/*.o -o "$3/$2"' _ "$flags" {} "$out" "$strip"
 for tool in render_dof render_flare render_sky trace_reference bake_light check_bvh frame_dng; do echo "$tool"; done \
     | xargs -P "$jobs" -I {} sh -c 'c++ $1 $4 "$2.cpp" "$3"/core/*.o -o "$3/$2"' _ "$flags" {} "$out" "$strip"
 # A check that renders saved frames or a whole scene again runs only when its tool's binary, its arguments or its inputs
 # differ from those of its last pass, which ENHANCEMENTS_TEST_CACHE records. FULL=1 runs them all.
-cache=${ENHANCEMENTS_TEST_CACHE:-${TMPDIR:-/tmp}/enhancements-test-cache}
-mkdir -p "$cache"
 key=
 unchanged=0
 fresh() {
@@ -39,8 +47,15 @@ fresh() {
     fi
 }
 passed() { touch "$cache/$key"; }
-# The tests run side by side, each into its own log, which prints in order.
-ls *_test.cpp | sed 's/\.cpp$//' | xargs -P "$jobs" -I {} sh -c '"$2/$1" "$2" > "$2/$1.log" 2>&1; echo $? > "$2/$1.status"' _ {} "$out"
+# The tests run side by side, each into its own log, which prints in order. A test whose binary passed before prints that
+# pass's log again without running (dof_test alone ran 33 s), but those that write the files the checks below read; FULL=1
+# runs them all.
+writers=" dng_test png_test trace_files_test light_test scene_files_test trace_test "
+ls *_test.cpp | sed 's/\.cpp$//' | xargs -P "$jobs" -I {} sh -c '
+    key=$(shasum < "$2/$1" | cut -c1-40)
+    case "$5" in *" $1 "*) ;; *) if [ "${4:-0}" != 1 ] && [ -f "$3/test-$key.log" ]; then cp "$3/test-$key.log" "$2/$1.log"; echo 0 > "$2/$1.status"; exit 0; fi ;; esac
+    "$2/$1" "$2" > "$2/$1.log" 2>&1; status=$?; echo $status > "$2/$1.status"
+    [ $status = 0 ] && cp "$2/$1.log" "$3/test-$key.log"' _ {} "$out" "$cache" "${FULL:-0}" "$writers"
 failed=0
 for test in *_test.cpp; do
     cat "$out/${test%.cpp}.log"
