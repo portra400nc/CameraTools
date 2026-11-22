@@ -203,12 +203,16 @@ static const float kLightTaps[6] = { 0.03, 0.085, 0.19, 0.38, 0.77, 1.54 };
 // What the taps and the sky's samples are spaced by: a cloud's size, or its layer's thickness when that is smaller, so a
 // flat layer is not stepped through in one tap and shaded in bands.
 static float light_scale = 1000;
+// Scales the taps' and the sky samples' distances by 0.6 to 1.4, a fresh value each pixel and frame: at fixed distances a
+// tap stepping across a cloud's edge jumped the shading, and the jumps lined up into contour bands over the shaded sides;
+// varied, the history averages them into gradients.
+static float light_spread = 1;
 float depth_toward_light(float3 p, float3 l)
 {
     float depth = 0, from = 0;
     [unroll] for (int j = 0; j < 6; j++)
     {
-        float at = kLightTaps[j] * light_scale, h;
+        float at = kLightTaps[j] * light_scale * light_spread, h;
         float sigma = j < 2 ? cloud_extinction(p + l * at, h) : cloud_extinction_coarse(p + l * at);
         depth += sigma * (at - from);
         from = at;
@@ -240,7 +244,7 @@ float volume_scattered(float c, float od)
 // as smooth, toy-like clouds.
 float sky_reaching(float3 p, float h)
 {
-    float near = light_scale * 0.1, far = light_scale * 0.33;
+    float near = light_scale * 0.1 * light_spread, far = light_scale * 0.33 * light_spread;
     float above = cloud_extinction_coarse(p + float3(0, near, 0)) * near + cloud_extinction_coarse(p + float3(0, far, 0)) * (far - near);
     return (0.25 + 0.75 * pow(saturate(h), 0.7)) * lerp(0.3, 1, exp(-above * 0.3)) + 0.25 * (1 - h);
 }
@@ -292,7 +296,9 @@ float4 main(float4 position : SV_Position) : SV_Target0
     // A random offset for each pixel and frame: a patterned one left its pattern, diagonal stripes, wherever the march
     // found or missed an edge by it.
     int seed = int(cloud_phase * 65536);
-    float jitter = (cloud_hash(int2(pixel) + int2(seed * 7919, seed * 104729)).x & 0xffffu) / 65535.0;
+    uint2 noise = cloud_hash(int2(pixel) + int2(seed * 7919, seed * 104729));
+    float jitter = (noise.x & 0xffffu) / 65535.0;
+    light_spread = 0.6 + 0.8 * (noise.y & 0xffffu) / 65535.0;
 
     float3 l = cloud_toward_sun;
     float c = dot(dir, l);
@@ -307,6 +313,12 @@ float4 main(float4 position : SV_Position) : SV_Target0
     bool inside = false;
     uint empty = 0;
     float found = 0;
+    // The march's light-weighted distance, at which the air between lies over the clouds (Hillaire 2016, 5.9).
+    float weighted = 0, taken_all = 0;
+    // With the physical sky's air over them, the clouds fade over the far two thirds of the march, which ends at 0.35 of
+    // the map: the air takes the far ones into the haze, where the old fade thinned them from the start, and a fade over
+    // only the last 30% left a bright band of layer ending above the horizon (.work/clouds/kinds round14).
+    float reach = cloud_map_extent * 0.35;
     for (uint i = 0; i < cloud_steps * 2 && t < t1 && transmittance > 0.01; i++)
     {
         float3 p = origin + dir * t;
@@ -343,12 +355,20 @@ float4 main(float4 position : SV_Position) : SV_Target0
         float lit = volume_scattered(c, od);
         float3 light = (physical ? physical_sunlight(origin, p) : sun) * lit + sky * sky_reaching(p, h);
         float through = exp(-sigma * step);
-        float fade = exp(-t / cloud_fade);
+        float fade = physical ? 1 - smoothstep(0.3, 1, t / reach) : exp(-t / cloud_fade);
         float taken = transmittance * (1 - through);
         inscatter += taken * light * fade;
         opacity += taken * fade;
+        weighted += taken * t;
+        taken_all += taken;
         transmittance *= through;
         t += step;
+    }
+    if (physical && taken_all > 0)
+    {
+        float3 through;
+        float3 air = aerial_light(weighted / taken_all * 0.001, dir, 1, through);
+        inscatter = inscatter * through + air * opacity;
     }
     return float4(inscatter, 1 - opacity);
 }

@@ -109,3 +109,33 @@ float3 sky_night_glow(float3 view)
     float ratio = kSkyGround / (kSkyGround + 90), edge_on = rsqrt(max(1 - ratio * ratio * (1 - view.y * view.y), 1e-4));
     return (kAirglowColor * (kZenith * kAirglow * edge_on) + kZenith * (1 - kAirglow)) * sky_view_transmittance(view);
 }
+
+// The optical depth over km kilometers along a ray of cosine mu from the viewer's height, of a layer of scale height H, over
+// its density at the ground.
+float layer_depth(float km, float mu, float H)
+{
+    float rise = mu * km;
+    return exp(-sky_camera_km / H) * (abs(rise) > 1e-4 * H ? H * (1 - exp(-rise / H)) / mu : km);
+}
+
+// The air over km kilometers along view: what of the light behind it comes through, and the light it scatters toward the
+// viewer, taken at its middle height: the sun's and the moon's light that reaches it (the planet's shadow included)
+// scattered once at each phase, lit of it where no terrain shades it, and the light scattered again. The sky pass gives
+// the scene's points it, and the clouds their light-weighted depth (clouds_ps.hlsl).
+float3 aerial_light(float km, float3 view, float lit, out float3 through)
+{
+    float mu = view.y;
+    float3 thickness = kSkyRayleigh * layer_depth(km, mu, kSkyRayleighHeight) + (sky_haze / kSkyMieHeight) * layer_depth(km, mu, kSkyMieHeight);
+    through = exp(-thickness);
+    float height = max(sky_camera_km + mu * km * 0.5, 0), r = kSkyGround + height;
+    SkyMedium m = sky_medium(height);
+    float cs = dot(view, sky_toward_sun), cm = dot(view, sky_toward_moon);
+    float3 sun = sky_light_at(r, sky_toward_sun.y), moon = sky_light_at(r, sky_toward_moon.y) * sky_moon_illuminance;
+    float3 once = sun * (m.rayleigh * sky_rayleigh_phase(cs) + m.mie * sky_mie_phase(cs))
+        + moon * (m.rayleigh * sky_rayleigh_phase(cm) + m.mie * sky_mie_phase(cm));
+    float3 again = (m.rayleigh + m.mie) * (sky_multiple_at(r, sky_toward_sun.y) + sky_multiple_at(r, sky_toward_moon.y) * sky_moon_illuminance);
+    // Under an overcast the clouds take most of the sunlight the air would scatter, and the rest grays.
+    float3 inscatter = (lit * once * (1 - 0.9 * sky_overcast) + again * (1 - 0.5 * sky_overcast)) * (1 - through) / max(m.extinction, 1e-6);
+    inscatter = lerp(inscatter, dot(inscatter, float3(0.2126, 0.7152, 0.0722)), sky_overcast);
+    return inscatter * sky_scale;
+}
