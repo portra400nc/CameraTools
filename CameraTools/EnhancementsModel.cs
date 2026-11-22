@@ -536,6 +536,7 @@ namespace CameraTools
             new("altocumulus", EnhancementsCloudType.Stratocumulus, 3000f, 700f, 500f, 0.04f, 0.75f),
             new("stratus", EnhancementsCloudType.Stratus, 1300f, 400f, 1000f, 0.08f, 0.88f),
             new("cumulonimbus", EnhancementsCloudType.Cumulonimbus, 1800f, 9000f, 1500f, 0.08f, 0.2f),
+            new("layered: cumulus under altocumulus and cirrus", EnhancementsCloudType.Cumulus, 2000f, 1500f, 400f, 0.1f, 0.4f),
         };
 
         // The kind's index plus one; 0 leaves the clouds as Type and Weather chose them.
@@ -559,6 +560,12 @@ namespace CameraTools
             settings.Clouds.Coverage = ProbeCoverage ?? kind.Coverage;
             settings.Clouds.Stretch = 1f;
             settings.CloudPattern.Pattern = EnhancementsCloudPatternKind.Noise;
+            if (kind.Name.StartsWith("layered"))
+                settings.CloudLayers = new EnhancementsCloudLayers
+                {
+                    Middle = 1, Cirrus = 0.5f,
+                    MiddleLayer = new EnhancementsCloudLayer { Coverage = 0.6f, Base = 3500f, Thickness = 700f, Size = 500f, Stretch = 1f, Density = 0.04f, Detail = 0.8f, Type = EnhancementsCloudType.Stratocumulus },
+                };
             settings.Clouds.Sun *= ProbeTowersLooks[ProbeTowersLook].Sun;
             settings.Clouds.Ambient *= ProbeTowersLooks[ProbeTowersLook].SkyLight;
             settings.Clouds.Density = ProbeTowersLooks[ProbeTowersLook].Density;

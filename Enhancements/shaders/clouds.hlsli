@@ -3,6 +3,23 @@
 // texture, clouds_painted_ps.hlsl draws the layer in their place.
 // Include it after common.hlsli.
 
+// The layer a draw works on: the main one (0) or the layered sky's middle one (1), as use_layer loads it.
+static uint layer_index;
+static float layer_coverage, layer_base, layer_thickness, layer_size, layer_stretch, layer_density, layer_detail, layer_type;
+
+void use_layer(uint i)
+{
+    layer_index = i;
+    layer_coverage = i == 0 ? cloud_coverage : cloud_mid_coverage;
+    layer_base = i == 0 ? cloud_base : cloud_mid_base;
+    layer_thickness = i == 0 ? cloud_thickness : cloud_mid_thickness;
+    layer_size = i == 0 ? cloud_size : cloud_mid_size;
+    layer_stretch = i == 0 ? cloud_stretch : cloud_mid_stretch;
+    layer_density = i == 0 ? cloud_density : cloud_mid_density;
+    layer_detail = i == 0 ? cloud_detail : cloud_mid_detail;
+    layer_type = i == 0 ? cloud_type : cloud_mid_type;
+}
+
 Texture3D<float> lattice : register(t6);    // noise_lattice() in core/plan.h, as the light shafts read it
 Texture2D<float4> pattern_texture : register(t11);  // the pattern's Azurite Weathers II texture: painted gray, alpha the cover
 SamplerState linear_wrap : register(s3);
@@ -58,14 +75,14 @@ static const float kPatternTile[7] = { 1, 25, 25, 25, 45, 45, 40 };
 // repeat and its seams do not show. Anisotropic, with the pixel's derivatives: call it before any branch.
 float2 pattern_at(float2 c)
 {
-    float tile = cloud_size * kPatternTile[min((uint)cloud_pattern, 6u)];
+    float tile = layer_size * kPatternTile[min((uint)cloud_pattern, 6u)];
     float2 uv = cloud_wind_space(c) / tile;
     float2 turned = float2(0.990 * uv.x - 0.140 * uv.y, 0.140 * uv.x + 0.990 * uv.y) / 0.62 + float2(0.37, 0.71);
     float4 a = pattern_texture.Sample(anisotropic_wrap, uv);
     float4 b = pattern_texture.Sample(anisotropic_wrap, turned);
     float4 p = lerp(a, b, smoothstep(0.4, 0.6, cloud_fbm(float3(uv / 1.3, 4.2), 2)));
     // Over 0.5 the cover thickens without spreading a veil over the painting's clear sky; under it the thin parts go.
-    float k = 0.5 - cloud_coverage;
+    float k = 0.5 - layer_coverage;
     float cover = k >= 0 ? saturate((p.a - k) / (1 - k)) : saturate(p.a / (1 + k));
     return float2(cover, dot(p.rgb, float3(0.2126, 0.7152, 0.0722)));
 }
@@ -77,7 +94,7 @@ float2 pattern_at(float2 c)
 // one (1 - d^4) as a capsule; the broad patches of cloud_weather rise to a plateau, which left smooth blobs or an overcast.
 float cloud_towers(float2 c)
 {
-    float cell = cloud_size * 6;
+    float cell = layer_size * 6;
     float2 warp = float2(cloud_fbm(float3(c / cell * 1.7, 3.1), 2), cloud_fbm(float3(c / cell * 1.7 + 4.3, 6.7), 2)) - 0.5;
     float2 p = c / cell + warp * 0.35;
     int2 home = int2(floor(p));
@@ -88,7 +105,7 @@ float cloud_towers(float2 c)
             int2 at = home + int2(x, y);
             uint2 a = cloud_hash(at), b = cloud_hash(at + int2(7919, 104729));
             float4 r = float4(a & 0xffffu, b & 0xffffu) / 65535.0;
-            if (r.x >= cloud_coverage)
+            if (r.x >= layer_coverage)
                 continue;
             float2 center = at + 0.3 + 0.4 * r.yz;
             float radius = 0.2 + 0.2 * r.w;
@@ -105,7 +122,7 @@ float cloud_towers(float2 c)
             }
             // A cumulonimbus's anvil: a thin, wide footprint around the tower, which the type's spread fills only near
             // the top of the layer.
-            if (cloud_type == 3)
+            if (layer_type == 3)
             {
                 float d = length(p - center) / (radius * 2.5);
                 w = max(w, 0.08 * saturate(1 - d * d));
@@ -119,14 +136,14 @@ float cloud_towers(float2 c)
 // along the wind; the shape noise gives the clouds inside them their bodies.
 float cloud_weather(float2 c)
 {
-    if (cloud_type >= 3)    // ENHANCEMENTS_CLOUD_TYPE_CUMULONIMBUS and _TOWERING
+    if (layer_type >= 3)    // ENHANCEMENTS_CLOUD_TYPE_CUMULONIMBUS and _TOWERING
         return cloud_towers(c);
     float2 wind = float2(cos(radians(cloud_pad)), sin(radians(cloud_pad)));
-    float2 p = float2(dot(c, wind) / (cloud_size * cloud_stretch), dot(c, float2(-wind.y, wind.x)) / cloud_size) / 6;
+    float2 p = float2(dot(c, wind) / (layer_size * layer_stretch), dot(c, float2(-wind.y, wind.x)) / layer_size) / 6;
     float wx = cloud_fbm(float3(p * 0.5, 0.5), 2) - 0.5;
     float wz = cloud_fbm(float3(p * 0.5 + float2(5.2, 7.1), 1.8), 2) - 0.5;
     p += float2(wx, wz) * 1.5;
     float f = cloud_fbm(float3(p, 2.5), 5);
-    float low = 0.5 + (0.5 - cloud_coverage) * 0.45 - 0.12;
+    float low = 0.5 + (0.5 - layer_coverage) * 0.45 - 0.12;
     return smoothstep(low, low + 0.35, f);
 }

@@ -1,5 +1,5 @@
-// The volume clouds' march, at a quarter of the size: each ray from the game's camera crosses the layer between cloud_base
-// and cloud_base + cloud_thickness in cloud_steps samples. As Frostbite and Horizon Zero Dawn build them, the weather map
+// The volume clouds' march, at a quarter of the size: each ray from the game's camera crosses the layer between layer_base
+// and layer_base + layer_thickness in cloud_steps samples. As Frostbite and Horizon Zero Dawn build them, the weather map
 // says where clouds stand, their type how dense they are up the layer, the shape noise gives them bodies and the erosion
 // noise eats their edges. Each sample inside a cloud looks toward the light through six samples spaced wider and wider,
 // and is lit by the light through them with multiple scattering and by the sky. The result depends on the ray's direction
@@ -11,7 +11,7 @@
 #include "cloud_light.hlsli"
 #include "sky_camera.hlsli"
 
-Texture2D<float> cloud_map : register(t5);      // the weather map
+Texture2D<float2> cloud_map : register(t5);     // the weather map: x the main layer's, y the middle layer's
 Texture3D<float> shape_noise : register(t7);    // cloud_shape_cs.hlsl's
 Texture3D<float> erosion_noise : register(t8);  // cloud_detail_cs.hlsl's
 Texture2D<float4> cloud_types : register(t12);  // core/clouds.h's table: a row a type, r density, g erosion, b spread
@@ -58,6 +58,13 @@ static const CloudKind kKinds[5] =
 };
 static CloudKind kind_look;  // this type's, set by main
 
+// The weather map at a point of cloud space, for the layer the march is in.
+float weather_at(float2 c)
+{
+    float2 w = cloud_map.SampleLevel(linear_clamp, (c - cloud_map_center) / cloud_map_extent + 0.5, 0);
+    return layer_index == 0 ? w.x : w.y;
+}
+
 float remap(float x, float a, float b, float c, float d) { return c + (x - a) / (b - a) * (d - c); }
 
 static float2 skew_direction;
@@ -67,7 +74,7 @@ static float coverage_boost = 0;
 // Where the noises read p: its world place with the drift, the tops leaning downwind.
 float3 cloud_space(float3 p, float h)
 {
-    float2 c = p.xz + cloud_wind + skew_direction * h * cloud_thickness * kind_look.lean;
+    float2 c = p.xz + cloud_wind + skew_direction * h * layer_thickness * kind_look.lean;
     return float3(c.x, p.y, c.y);
 }
 
@@ -86,14 +93,14 @@ float cloud_in_cell(int2 at, float2 c, float y, float cell)
     float4 r = float4(a & 0xffffu, b & 0xffffu) / 65535.0;
     // Masked, as altocumulus's cloudlets fill patches and bands of the sky, the weather at the cell's middle (which
     // Coverage already thins or spreads) says how likely it holds one.
-    float chance = cloud_coverage, grow = 1, stretch = 1, lift = 0;
+    float chance = layer_coverage, grow = 1, stretch = 1, lift = 0;
     if (kind_look.masked > 0)
     {
         // The weather's edges are sharpened, so the sky opens in clear gaps between the patches, and broad noise makes some
         // patches of small cloudlets and some of big ones; each cloudlet is drawn out on its own and floats a little higher
         // or lower, so no two look alike and the layer is no flat sheet.
         float2 middle_of_cell = (at + 0.5) * cell;
-        chance = smoothstep(0.15, 0.5, cloud_map.SampleLevel(linear_clamp, (middle_of_cell - cloud_map_center) / cloud_map_extent + 0.5, 0));
+        chance = smoothstep(0.15, 0.5, weather_at(middle_of_cell));
         grow = lerp(0.6, 1.2, cloud_fbm(float3(middle_of_cell / (cell * 5), 7.7), 2));
         stretch = lerp(0.7, 1.4, frac(r.w * 5.3));
         lift = frac(r.w * 11.9) * 0.4;
@@ -101,7 +108,7 @@ float cloud_in_cell(int2 at, float2 c, float y, float cell)
     if (r.x >= chance)
         return 0;
     float length = cell * lerp(kind_look.size.x, kind_look.size.y, frac(r.w * 2.9)) * grow;
-    float tall = cloud_thickness * lerp(kind_look.height.x, kind_look.height.y, frac(r.w * 7.31)) * lerp(0.6, 1, grow);
+    float tall = layer_thickness * lerp(kind_look.height.x, kind_look.height.y, frac(r.w * 7.31)) * lerp(0.6, 1, grow);
     bool packed = kind_look.packed > 0;
     float2 middle = packed || kind_look.anvil > 0 ? at + 0.5 : kind_look.masked > 0 ? at + 0.4 + 0.2 * r.yz : at + 0.35 + 0.3 * r.yz;
     float turn = packed ? (frac(r.w * 13.7) > 0.5 ? 3.1415927 : 0) : frac(r.w * 13.7) * 6.2831853;
@@ -110,7 +117,7 @@ float cloud_in_cell(int2 at, float2 c, float y, float cell)
     local.x = frac(r.w * 3.1) > 0.5 ? -local.x : local.x;
     // Meters a voxel across and along: packed, the footprint stretched to the cell; else the cloud's own proportions.
     float2 across = packed ? length / kVolumeVoxels.xz : length / kVolumeVoxels.z;
-    float3 uvw = float3(local.x / (across.x * kVolumeVoxels.x * stretch), (y - cloud_base - lift * cloud_thickness) / tall,
+    float3 uvw = float3(local.x / (across.x * kVolumeVoxels.x * stretch), (y - layer_base - lift * layer_thickness) / tall,
         local.y / (across.y * kVolumeVoxels.z));
     uvw.xz = uvw.xz / (1 + kind_look.anvil * smoothstep(0.6, 0.9, uvw.y)) + 0.5;
     return all(uvw >= 0) && all(uvw <= 1) ? cloud_volume.SampleLevel(linear_clamp, uvw, volume_lod) : 0;
@@ -118,7 +125,7 @@ float cloud_in_cell(int2 at, float2 c, float y, float cell)
 
 float cloud_volume_at(float2 c, float y)
 {
-    float cell = cloud_size * kind_look.cell;
+    float cell = layer_size * kind_look.cell;
     if (kind_look.masked == 0)
         return cloud_in_cell(int2(floor(c / cell)), c, y, cell);
     // Masked cloudlets on a plain grid stood in rows like a lattice: their grid is bent by broad noise first. They are up
@@ -136,7 +143,7 @@ float cloud_volume_at(float2 c, float y)
 // Without the erosion: the cloud body at p, 0 to 1, and the height in the layer and how much the type erodes there.
 float cloud_body(float3 p, out float h, out float erosion)
 {
-    h = (p.y - cloud_base) / cloud_thickness;
+    h = (p.y - layer_base) / layer_thickness;
     erosion = 0;
     if (h < 0 || h > 1)
         return 0;
@@ -144,17 +151,17 @@ float cloud_body(float3 p, out float h, out float erosion)
     // Disney's cloud carries its own detail, smooth and soft as a real cloud's: the noise's erosion only roughened it.
     if (kind_look.volume > 0)
         return cloud_volume_at(c.xz, p.y);
-    float weather = cloud_map.SampleLevel(linear_clamp, (c.xz - cloud_map_center) / cloud_map_extent + 0.5, 0);
+    float weather = weather_at(c.xz);
     if (weather <= 0.01)
         return 0;
     // Where the weather is weaker the clouds grow less tall: the type's profile is read higher up.
-    uint kind = min((uint)cloud_type, 4u);
+    uint kind = min((uint)layer_type, 4u);
     float4 type = cloud_types.SampleLevel(linear_clamp, float2(h / lerp(kind_look.shortest, 1, weather), (kind + 0.5) / kCloudTypes), 0);
     erosion = type.g;
     // Even under full weather the cover stays below 1, so the noise carves the body rather than the clouds turning into
     // extruded slabs of the map; the type's spread adds to it.
-    float cover = saturate(weather * lerp(kind_look.cover.x, kind_look.cover.y, cloud_coverage) + type.b + coverage_boost);
-    float n = shape_noise.SampleLevel(linear_wrap, c / (cloud_size * kShapeTile), 0);
+    float cover = saturate(weather * lerp(kind_look.cover.x, kind_look.cover.y, layer_coverage) + type.b + coverage_boost);
+    float n = shape_noise.SampleLevel(linear_wrap, c / (layer_size * kShapeTile), 0);
     return saturate(remap(n * type.r, 1 - cover, 1, 0, 1)) * cover;
 }
 
@@ -164,7 +171,7 @@ float cloud_extinction(float3 p, out float h)
     float body = cloud_body(p, h, erosion);
     if (body <= 0)
         return 0;
-    float3 q = cloud_space(p, h) / (cloud_size * kind_look.detail_tile);
+    float3 q = cloud_space(p, h) / (layer_size * kind_look.detail_tile);
     // Turbulence, as Horizon Zero Dawn's clouds swirl their detail: the erosion read through a slow warp of itself, so
     // small billows tumble and fray at the rims instead of sitting as round balls.
     float3 swirl = float3(erosion_noise.SampleLevel(linear_wrap, q * 0.23 + float3(0.31, 0.57, 0.13), 0),
@@ -172,8 +179,8 @@ float cloud_extinction(float3 p, out float h)
     float fine = erosion_noise.SampleLevel(linear_wrap, q + swirl.xzy * kind_look.swirl, 0);
     // Wispy at the base, billowing toward the top.
     fine = lerp(fine, 1 - fine, saturate(h * 4));
-    body = saturate(remap(body, fine * kind_look.erosion * erosion * cloud_detail * detail_weight, 1, 0, 1));
-    return body * cloud_density;
+    body = saturate(remap(body, fine * kind_look.erosion * erosion * layer_detail * detail_weight, 1, 0, 1));
+    return body * layer_density;
 }
 
 float cloud_extinction_coarse(float3 p)
@@ -182,7 +189,7 @@ float cloud_extinction_coarse(float3 p)
     volume_lod = 1;
     float body = cloud_body(p, h, erosion);
     volume_lod = 0;
-    return body * cloud_density;
+    return body * layer_density;
 }
 
 // Whether a large step's sample may be in a cloud: the body grown a little, so a sample beside a thin part still finds it.
@@ -249,77 +256,67 @@ float sky_reaching(float3 p, float h)
     return (0.25 + 0.75 * pow(saturate(h), 0.7)) * lerp(0.3, 1, exp(-above * 0.3)) + 0.25 * (1 - h);
 }
 
-float4 main(float4 position : SV_Position) : SV_Target0
+// What the march carries from layer to layer along a ray.
+struct MarchState
 {
-    // This frame's pixel of the 2x2 block of the half-size history that this quarter-size pixel covers, or with block 4
-    // this half-size pixel itself, with block 5 this full-size one.
-    uint block = (uint)cloud_block;
-    float2 pixel = block > 3 ? floor(position.xy) + 0.5 : floor(position.xy) * 2 + float2(block & 1, block >> 1) + 0.5;
-    float2 uv = pixel * (block > 4 ? 1 : 2) * render_size.zw;
-    // The camera from our own constants, so the clouds draw also when the game renders no sun shadows, as after sunset.
-    float3x3 to_world = transpose((float3x3)world_to_view);
-    float3 origin = mul(to_world, -float3(world_to_view[0].w, world_to_view[1].w, world_to_view[2].w));
-    float3 dir = normalize(sky_world_from_view(view_position(uv, 1)));
-    float top = cloud_base + cloud_thickness;
-    skew_direction = float2(cos(radians(cloud_pad)), sin(radians(cloud_pad)));
-    kind_look = kKinds[min((uint)cloud_type, 4u)];
-    light_scale = min(cloud_size, cloud_thickness * 0.5);
-    bool physical = sky_cloud_physical > 0.5;
-    float t0, t1;
-    if (origin.y < cloud_base)
+    float3 inscatter;
+    float transmittance, opacity;
+    float weighted, taken_all;     // the light-weighted distance's sum and weight (Hillaire 2016, 5.9)
+};
+
+// Where a ray from origin along dir crosses the current layer's slab, t0 to t1; false when it does not.
+bool layer_span(float3 origin, float3 dir, out float t0, out float t1)
+{
+    float top = layer_base + layer_thickness;
+    t0 = 0;
+    t1 = 0;
+    if (origin.y < layer_base)
     {
         if (dir.y < 0.01)
-            return float4(0, 0, 0, 1);
-        t0 = (cloud_base - origin.y) / dir.y;
+            return false;
+        t0 = (layer_base - origin.y) / dir.y;
         t1 = (top - origin.y) / dir.y;
     }
     else if (origin.y > top)
     {
         if (dir.y > -0.01)
-            return float4(0, 0, 0, 1);
+            return false;
         t0 = (top - origin.y) / dir.y;
-        t1 = (cloud_base - origin.y) / dir.y;
+        t1 = (layer_base - origin.y) / dir.y;
     }
     else
-    {
-        t0 = 0;
-        t1 = dir.y > 0 ? (top - origin.y) / dir.y : dir.y < 0 ? (cloud_base - origin.y) / dir.y : cloud_map_extent * 0.5;
-    }
+        t1 = dir.y > 0 ? (top - origin.y) / dir.y : dir.y < 0 ? (layer_base - origin.y) / dir.y : cloud_map_extent * 0.5;
     t1 = min(t1, t0 + cloud_map_extent * 0.35);
+    return t1 > t0;
+}
+
+// Marches the current layer between t0 and t1 into m.
+void march_layer(float3 origin, float3 dir, float t0, float t1, float jitter, bool physical, inout MarchState m)
+{
+    kind_look = kKinds[min((uint)layer_type, 4u)];
+    light_scale = min(layer_size, layer_thickness * 0.5);
     // Large steps through clear air; at the first body met, a step back and small steps, which resolve the cloud's skin
     // and its detail; back to large steps after a run of empty small ones. At most twice cloud_steps samples. A large
     // step is a twentieth of the distance, at least a fifth of a cloud and at most an even share of the slab: one that
     // spanned whole clouds near the camera found or missed their edges by the pixel's offset, which drew stripes.
     float budget = (t1 - t0) / (cloud_steps * 0.5);
     float fine = clamp(budget * 0.12, 10, 60);
-    detail_weight = saturate(3 * cloud_size * kind_look.detail_tile / 32 / fine);
-    // A random offset for each pixel and frame: a patterned one left its pattern, diagonal stripes, wherever the march
-    // found or missed an edge by it.
-    int seed = int(cloud_phase * 65536);
-    uint2 noise = cloud_hash(int2(pixel) + int2(seed * 7919, seed * 104729));
-    float jitter = (noise.x & 0xffffu) / 65535.0;
-    light_spread = 0.6 + 0.8 * (noise.y & 0xffffu) / 65535.0;
-
+    detail_weight = saturate(3 * layer_size * kind_look.detail_tile / 32 / fine);
     float3 l = cloud_toward_sun;
     float c = dot(dir, l);
     float3 sun = physical ? sunset_glow(layer_sunlight(origin, dir)) : kPi * sun_color * cloud_sun;
     float3 sky = sky_color * cloud_ambient;
-
-    float3 inscatter = 0;
-    float transmittance = 1, opacity = 0;
-    float least = cloud_size * 0.2;
+    float least = layer_size * 0.2;
     float coarse = min(max(t0 * 0.05, least), max(budget, least));
     float t = t0 + jitter * coarse;
     bool inside = false;
     uint empty = 0;
     float found = 0;
-    // The march's light-weighted distance, at which the air between lies over the clouds (Hillaire 2016, 5.9).
-    float weighted = 0, taken_all = 0;
     // With the physical sky's air over them, the clouds fade over the far two thirds of the march, which ends at 0.35 of
     // the map: the air takes the far ones into the haze, where the old fade thinned them from the start, and a fade over
     // only the last 30% left a bright band of layer ending above the horizon (.work/clouds/kinds round14).
     float reach = cloud_map_extent * 0.35;
-    for (uint i = 0; i < cloud_steps * 2 && t < t1 && transmittance > 0.01; i++)
+    for (uint i = 0; i < cloud_steps * 2 && t < t1 && m.transmittance > 0.01; i++)
     {
         float3 p = origin + dir * t;
         coarse = min(max(t * 0.05, least), max(budget, least));
@@ -338,7 +335,7 @@ float4 main(float4 position : SV_Position) : SV_Target0
         }
         // Deeper in, less of what a sample adds reaches the eye: the steps grow to four times as the light through falls,
         // so a whole overcast costs little more than broken clouds.
-        float step = fine * min(rcp(max(transmittance, 0.25)), 4);
+        float step = fine * min(rcp(max(m.transmittance, 0.25)), 4);
         float h;
         float sigma = cloud_extinction(p, h);
         if (sigma <= 0)
@@ -356,19 +353,61 @@ float4 main(float4 position : SV_Position) : SV_Target0
         float3 light = (physical ? physical_sunlight(origin, p) : sun) * lit + sky * sky_reaching(p, h);
         float through = exp(-sigma * step);
         float fade = physical ? 1 - smoothstep(0.3, 1, t / reach) : exp(-t / cloud_fade);
-        float taken = transmittance * (1 - through);
-        inscatter += taken * light * fade;
-        opacity += taken * fade;
-        weighted += taken * t;
-        taken_all += taken;
-        transmittance *= through;
+        float taken = m.transmittance * (1 - through);
+        m.inscatter += taken * light * fade;
+        m.opacity += taken * fade;
+        m.weighted += taken * t;
+        m.taken_all += taken;
+        m.transmittance *= through;
         t += step;
     }
-    if (physical && taken_all > 0)
+}
+
+float4 main(float4 position : SV_Position) : SV_Target0
+{
+    // This frame's pixel of the 2x2 block of the half-size history that this quarter-size pixel covers, or with block 4
+    // this half-size pixel itself, with block 5 this full-size one.
+    uint block = (uint)cloud_block;
+    float2 pixel = block > 3 ? floor(position.xy) + 0.5 : floor(position.xy) * 2 + float2(block & 1, block >> 1) + 0.5;
+    float2 uv = pixel * (block > 4 ? 1 : 2) * render_size.zw;
+    // The camera from our own constants, so the clouds draw also when the game renders no sun shadows, as after sunset.
+    float3x3 to_world = transpose((float3x3)world_to_view);
+    float3 origin = mul(to_world, -float3(world_to_view[0].w, world_to_view[1].w, world_to_view[2].w));
+    float3 dir = normalize(sky_world_from_view(view_position(uv, 1)));
+    skew_direction = float2(cos(radians(cloud_pad)), sin(radians(cloud_pad)));
+    bool physical = sky_cloud_physical > 0.5;
+    // A random offset for each pixel and frame: a patterned one left its pattern, diagonal stripes, wherever the march
+    // found or missed an edge by it.
+    int seed = int(cloud_phase * 65536);
+    uint2 noise = cloud_hash(int2(pixel) + int2(seed * 7919, seed * 104729));
+    float jitter = (noise.x & 0xffffu) / 65535.0;
+    light_spread = 0.6 + 0.8 * (noise.y & 0xffffu) / 65535.0;
+
+    MarchState m = { float3(0, 0, 0), 1, 0, 0, 0 };
+    // The layers the ray crosses, nearest first: the layered sky's middle layer lies over the main one.
+    float s0, s1, u0 = 0, u1 = 0;
+    use_layer(0);
+    bool main_hit = layer_span(origin, dir, s0, s1);
+    bool middle_hit = false;
+    if (cloud_layers > 1.5)
+    {
+        use_layer(1);
+        middle_hit = layer_span(origin, dir, u0, u1);
+    }
+    bool middle_first = middle_hit && (!main_hit || u0 < s0);
+    [loop] for (uint k = 0; k < 2; k++)
+    {
+        uint layer = (k == 0) == middle_first ? 1 : 0;
+        if (layer == 0 ? !main_hit : !middle_hit)
+            continue;
+        use_layer(layer);
+        march_layer(origin, dir, layer == 0 ? s0 : u0, layer == 0 ? s1 : u1, jitter, physical, m);
+    }
+    if (physical && m.taken_all > 0)
     {
         float3 through;
-        float3 air = aerial_light(weighted / taken_all * 0.001, dir, 1, through);
-        inscatter = inscatter * through + air * opacity;
+        float3 air = aerial_light(m.weighted / m.taken_all * 0.001, dir, 1, through);
+        m.inscatter = m.inscatter * through + air * m.opacity;
     }
-    return float4(inscatter, 1 - opacity);
+    return float4(m.inscatter, 1 - m.opacity);
 }

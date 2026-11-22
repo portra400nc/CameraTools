@@ -325,6 +325,29 @@ namespace CameraToolsEnhancements
         public float Shading;               // leaves shaded by their facing, 0 the game's to 1
     }
 
+    // EnhancementsCloudLayer in enhancements.h, field for field.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct EnhancementsCloudLayer
+    {
+        public float Coverage;
+        public float Base;
+        public float Thickness;
+        public float Size;
+        public float Stretch;
+        public float Density;
+        public float Detail;
+        public EnhancementsCloudType Type;
+    }
+
+    // EnhancementsCloudLayers in enhancements.h, field for field: a layered sky's middle layer and cirrus.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct EnhancementsCloudLayers
+    {
+        public uint Middle;                 // 1: MiddleLayer is there
+        public EnhancementsCloudLayer MiddleLayer;
+        public float Cirrus;                // the painted cirrus's coverage, 0 none to 1
+    }
+
     // EnhancementsSceneLight in enhancements.h, field for field.
     [StructLayout(LayoutKind.Sequential)]
     internal struct EnhancementsSceneLight
@@ -390,6 +413,7 @@ namespace CameraToolsEnhancements
         public EnhancementsTransmission Transmission;
         public EnhancementsGrass Grass;
         public EnhancementsLeaves Leaves;
+        public EnhancementsCloudLayers CloudLayers;
 
         // The add-on's defaults: everything off, game targets upside down, and when switched on ambient level 0.6, AO
         // strength 0.5 at a 1 m radius, half that strength on grass, vegetation and foliage, full-strength contact
@@ -685,7 +709,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 52;
+        private const uint Version = 53;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

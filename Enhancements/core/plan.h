@@ -44,6 +44,25 @@ namespace enhancements
     enum class CloudType : uint8_t { cumulus, stratocumulus, stratus, cumulonimbus, towering, count };  // ENHANCEMENTS_CLOUD_TYPE_*
     enum class CloudPattern : uint8_t { noise, heaps, broken, overcast, puffs, patches, streaks, count };  // ENHANCEMENTS_CLOUD_PATTERN_*
 
+    // One volume cloud layer's shape: EnhancementsCloudLayer's.
+    struct CloudLayer
+    {
+        float coverage = 0.5f;
+        float base = 2500.0f;
+        float thickness = 400.0f;
+        float size = 380.0f;
+        float stretch = 1.5f;
+        float density = 0.06f;
+        float detail = 0.8f;
+        CloudType type = CloudType::cumulus;
+
+        bool operator==(const CloudLayer &o) const
+        {
+            return coverage == o.coverage && base == o.base && thickness == o.thickness && size == o.size && stretch == o.stretch
+                && density == o.density && detail == o.detail && type == o.type;
+        }
+    };
+
     struct CloudSettings
     {
         bool enabled = false;
@@ -61,6 +80,8 @@ namespace enhancements
         uint32_t steps = 16;
         CloudType type = CloudType::cumulus;
         CloudPattern pattern = CloudPattern::noise;     // EnhancementsCloudPattern's
+        std::optional<CloudLayer> middle;               // EnhancementsCloudLayers': the layered sky's middle layer
+        float cirrus = 0;                               // and its painted cirrus's coverage
     };
 
     struct PhysicalSkySettings

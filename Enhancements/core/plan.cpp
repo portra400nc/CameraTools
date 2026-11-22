@@ -71,7 +71,7 @@ namespace enhancements
             && offsetof(EnhancementsSettings, ambient_color) == 400 && offsetof(EnhancementsSettings, tones) == 404
             && offsetof(EnhancementsSettings, lens_softness) == 412 && offsetof(EnhancementsSettings, auto_exposure) == 416
             && offsetof(EnhancementsSettings, sky) == 420 && offsetof(EnhancementsSettings, clouds) == 428 && offsetof(EnhancementsSettings, aerial) == 484
-            && offsetof(EnhancementsSettings, water) == 488 && offsetof(EnhancementsSettings, sunset) == 504 && offsetof(EnhancementsSettings, cloud_pattern) == 508 && offsetof(EnhancementsSettings, rain) == 512 && offsetof(EnhancementsSettings, mist) == 520 && offsetof(EnhancementsSettings, scene_light) == 528 && offsetof(EnhancementsSettings, transmission) == 532 && offsetof(EnhancementsSettings, grass) == 536 && sizeof(EnhancementsGrass) == 20 && offsetof(EnhancementsSettings, leaves) == 556 && sizeof(EnhancementsSettings) == 560);
+            && offsetof(EnhancementsSettings, water) == 488 && offsetof(EnhancementsSettings, sunset) == 504 && offsetof(EnhancementsSettings, cloud_pattern) == 508 && offsetof(EnhancementsSettings, rain) == 512 && offsetof(EnhancementsSettings, mist) == 520 && offsetof(EnhancementsSettings, scene_light) == 528 && offsetof(EnhancementsSettings, transmission) == 532 && offsetof(EnhancementsSettings, grass) == 536 && sizeof(EnhancementsGrass) == 20 && offsetof(EnhancementsSettings, leaves) == 556 && offsetof(EnhancementsSettings, cloud_layers) == 560 && sizeof(EnhancementsCloudLayers) == 40 && sizeof(EnhancementsSettings) == 600);
         static_assert(ENHANCEMENTS_CLOUD_TYPE_STRATOCUMULUS == static_cast<int>(CloudType::stratocumulus) && ENHANCEMENTS_CLOUD_TYPE_STRATUS == static_cast<int>(CloudType::stratus)
             && ENHANCEMENTS_CLOUD_TYPE_CUMULONIMBUS == static_cast<int>(CloudType::cumulonimbus)
             && ENHANCEMENTS_CLOUD_TYPE_TOWERING == static_cast<int>(CloudType::towering) && ENHANCEMENTS_CLOUD_TYPE_COUNT == static_cast<int>(CloudType::count));
@@ -551,6 +551,20 @@ namespace enhancements
             s.grass_copies = static_cast<uint32_t>(std::lround(finite_or(raw.grass.copies, 1.0f, 1.0f, 8.0f)));
         if (knows(offsetof(EnhancementsSettings, leaves), sizeof raw.leaves))
             s.leaf_shading = finite_or(raw.leaves.shading, 0.0f, 0.0f, 1.0f);
+        if (knows(offsetof(EnhancementsSettings, cloud_layers), sizeof raw.cloud_layers))
+        {
+            const EnhancementsCloudLayers &l = raw.cloud_layers;
+            if (l.middle != 0)
+            {
+                const CloudLayer d;
+                const EnhancementsCloudLayer &m = l.middle_layer;
+                s.clouds.middle = CloudLayer { finite_or(m.coverage, d.coverage, 0.0f, 1.0f), finite_or(m.base, d.base, -2000.0f, 20000.0f),
+                    finite_or(m.thickness, d.thickness, 10.0f, 10000.0f), finite_or(m.size, d.size, 20.0f, 20000.0f), finite_or(m.stretch, d.stretch, 1.0f, 6.0f),
+                    finite_or(m.density, d.density, 0.0f, 1.0f), finite_or(m.detail, d.detail, 0.0f, 3.0f),
+                    m.type < static_cast<uint32_t>(CloudType::count) ? static_cast<CloudType>(m.type) : CloudType::cumulus };
+            }
+            s.clouds.cirrus = finite_or(l.cirrus, 0.0f, 0.0f, 1.0f);
+        }
         if (knows(offsetof(EnhancementsSettings, grass) + offsetof(EnhancementsGrass, height), sizeof raw.grass.height))
             s.grass_height = raw.grass.height == 0 ? 1.0f : finite_or(raw.grass.height, 1.0f, 0.5f, 3.0f);
         if (knows(offsetof(EnhancementsSettings, mist), sizeof raw.mist))

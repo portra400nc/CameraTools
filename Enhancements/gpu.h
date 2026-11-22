@@ -775,10 +775,11 @@ namespace enhancements
             ID3D11Texture2D *texture = nullptr;
             float center[2] = {};
             float extent = 0, coverage = 0, size = 0, stretch = 0, wind_direction = 0, pattern = 0, type = 0;
+            std::optional<CloudLayer> middle;
             bool operator==(const CloudMapKey &o) const
             {
                 return texture == o.texture && center[0] == o.center[0] && center[1] == o.center[1] && extent == o.extent && coverage == o.coverage
-                    && size == o.size && stretch == o.stretch && wind_direction == o.wind_direction && pattern == o.pattern && type == o.type;
+                    && size == o.size && stretch == o.stretch && wind_direction == o.wind_direction && pattern == o.pattern && type == o.type && middle == o.middle;
             }
         } cloud_map_key_;
         Scratch cloud_rays_;        // half size, R16G16B16A16_FLOAT: rgb the clouds' in-scatter, a their transmittance
@@ -794,11 +795,13 @@ namespace enhancements
             float coverage = 0, base = 0, thickness = 0, size = 0, stretch = 0, density = 0, detail = 0, sun = 0, ambient = 0, wind_direction = 0;
             uint32_t steps = 0, type = 0, pattern = 0;
             ID3D11Texture2D *texture = nullptr;
+            std::optional<CloudLayer> middle;
+            float cirrus = 0;
             bool operator==(const CloudLook &o) const
             {
                 return coverage == o.coverage && base == o.base && thickness == o.thickness && size == o.size && stretch == o.stretch && density == o.density
                     && detail == o.detail && sun == o.sun && ambient == o.ambient && wind_direction == o.wind_direction && steps == o.steps && type == o.type
-                    && pattern == o.pattern && texture == o.texture;
+                    && pattern == o.pattern && texture == o.texture && middle == o.middle && cirrus == o.cirrus;
             }
         } cloud_look_;
         Scratch trace_view_;        // R8G8B8A8_UNORM: the trace's averages, for the trace view

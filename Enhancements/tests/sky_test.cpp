@@ -245,6 +245,13 @@ int main()
             && clouds.ambient == 0.5f && clouds.steps == 64 && clouds.type == CloudType::stratocumulus && kPasses[11].id == PassId::clouds && kPasses[11].wanted(parse_settings(raw)));
     raw.clouds.type = 3;
     check("type 3 reads as cumulonimbus", parse_settings(raw).clouds.type == CloudType::cumulonimbus);
+    check("no middle layer and no cirrus unless the caller asks", !parse_settings(raw).clouds.middle && parse_settings(raw).clouds.cirrus == 0);
+    raw.cloud_layers = { 1, { 2.0f, 3000, 700, 500, 1, 0.04f, 0.8f, 9 }, 3.0f };
+    const CloudSettings layered = parse_settings(raw).clouds;
+    check("a layered sky reads its middle layer, coverage clamped to 1 and an unknown type as cumulus, and its cirrus clamped to 1",
+        layered.middle && layered.middle->coverage == 1 && layered.middle->base == 3000 && layered.middle->thickness == 700 && layered.middle->size == 500
+            && layered.middle->type == CloudType::cumulus && layered.cirrus == 1);
+    raw.cloud_layers = {};
     raw.cloud_pattern.pattern = ENHANCEMENTS_CLOUD_PATTERN_OVERCAST;
     check("pattern 3 reads as the painted overcast", parse_settings(raw).clouds.pattern == CloudPattern::overcast);
     raw.cloud_pattern.pattern = 9;

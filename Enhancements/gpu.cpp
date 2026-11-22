@@ -160,8 +160,18 @@ namespace enhancements
         float transmission_strength;
         float grass_roots;
         float leaf_light;
+        float cloud_mid_coverage;   // the layered sky's middle layer
+        float cloud_mid_base;
+        float cloud_mid_thickness;
+        float cloud_mid_size;
+        float cloud_mid_stretch;
+        float cloud_mid_density;
+        float cloud_mid_detail;
+        float cloud_mid_type;
+        float cloud_layers;         // 1 the main layer alone, 2 with the middle one
+        float cloud_layers_pad[3];
     };
-    static_assert(sizeof(Constants) == 960 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
+    static_assert(sizeof(Constants) == 1008 && offsetof(Constants, cloud_mid_coverage) == 960 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
         && offsetof(Constants, cloud_toward_sun) == 560 && offsetof(Constants, tone_shadows) == 480 && offsetof(Constants, accum_gain) == 488 && offsetof(Constants, flare_sun_uv) == 456 && offsetof(Constants, wetness) == 408 && offsetof(Constants, shafts_anisotropy) == 432 && offsetof(Constants, label) == 272 && offsetof(Constants, sun_color) == 304
         && offsetof(Constants, sky_color) == 320 && offsetof(Constants, bloom_strength) == 352 && offsetof(Constants, sun_cascades) == 368
@@ -2216,7 +2226,7 @@ namespace enhancements
         Constants constants;
         if (!scene_in_.sync(d, native(scene), scene_format, false) || !scene_out_.sync(d, native(scene), scene_format, true)
             || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false)
-            || !cloud_map_.sync(d, { kCloudMapSize, kCloudMapSize }, DXGI_FORMAT_R16_FLOAT) || !cloud_rays_.sync(d, rays, DXGI_FORMAT_R16G16B16A16_FLOAT)
+            || !cloud_map_.sync(d, { kCloudMapSize, kCloudMapSize }, DXGI_FORMAT_R16G16_FLOAT) || !cloud_rays_.sync(d, rays, DXGI_FORMAT_R16G16B16A16_FLOAT)
             || !cloud_history_[0].sync(d, history, DXGI_FORMAT_R16G16B16A16_FLOAT) || !cloud_history_[1].sync(d, history, DXGI_FORMAT_R16G16B16A16_FLOAT)
             || !pass_constants(camera, map.render, flip, constants))
             return std::nullopt;
@@ -2237,14 +2247,31 @@ namespace enhancements
         constants.cloud_steps = settings.steps;
         constants.cloud_pad = settings.wind_direction;
         constants.cloud_type = static_cast<float>(settings.type);
-        constants.cloud_pattern = sync_cloud_pattern(settings.pattern) ? static_cast<float>(settings.pattern) : 0.0f;
+        // The noise needs no texture: leaving the cached one keeps a layered sky's cirrus texture loaded across frames.
+        constants.cloud_pattern = settings.pattern != CloudPattern::noise && sync_cloud_pattern(settings.pattern) ? static_cast<float>(settings.pattern) : 0.0f;
         constants.cloud_wind[0] = wind[0];
         constants.cloud_wind[1] = wind[1];
+        constants.cloud_layers = settings.middle ? 2.0f : 1.0f;
+        if (settings.middle)
+        {
+            const CloudLayer &l = *settings.middle;
+            constants.cloud_mid_coverage = l.coverage;
+            constants.cloud_mid_base = l.base;
+            constants.cloud_mid_thickness = l.thickness;
+            constants.cloud_mid_size = l.size;
+            constants.cloud_mid_stretch = l.stretch;
+            constants.cloud_mid_density = l.density;
+            constants.cloud_mid_detail = l.detail;
+            constants.cloud_mid_type = static_cast<float>(l.type);
+        }
         // The map reaches the rays that leave the layer's base about 3 degrees above the horizon, at 8 to 16 texels a cell,
         // in quarter octaves so the map is baked again only when the layer or the camera's height moves it far. Its center
         // moves in steps of 64 texels, and the fade has fallen to e^-2.8 at its edge.
-        const float above = std::max(settings.base - eye[1], settings.thickness);
-        const float wanted = std::clamp(40.0f * above, settings.size * kCloudMapSize / 16, settings.size * kCloudMapSize / 8);
+        // A layered sky's map reaches as far as the farther-reaching of its layers asks.
+        const auto reach = [&](float base, float thickness, float size)
+        { return std::clamp(40.0f * std::max(base - eye[1], thickness), size * kCloudMapSize / 16, size * kCloudMapSize / 8); };
+        const float wanted = settings.middle ? std::max(reach(settings.base, settings.thickness, settings.size),
+            reach(settings.middle->base, settings.middle->thickness, settings.middle->size)) : reach(settings.base, settings.thickness, settings.size);
         constants.cloud_map_extent = std::exp2(std::round(std::log2(wanted) * 4) / 4);
         constants.cloud_fade = constants.cloud_map_extent * 0.18f;
         const float step = constants.cloud_map_extent / kCloudMapSize * 64;
@@ -2255,7 +2282,8 @@ namespace enhancements
         // 90% of what it had, so the offsets' pattern averages away within a few dozen frames. It starts again whenever the
         // clouds' look changed or a frame was missed.
         const CloudLook look = { settings.coverage, settings.base, settings.thickness, settings.size, settings.stretch, settings.density,
-            settings.detail, settings.sun, settings.ambient, settings.wind_direction, settings.steps, static_cast<uint32_t>(settings.type), static_cast<uint32_t>(constants.cloud_pattern), cloud_history_[0].texture() };
+            settings.detail, settings.sun, settings.ambient, settings.wind_direction, settings.steps, static_cast<uint32_t>(settings.type), static_cast<uint32_t>(constants.cloud_pattern), cloud_history_[0].texture(),
+            settings.middle, settings.cirrus };
         const bool continues = cloud_frame_ + 1 == frame && look == cloud_look_;
         constants.cloud_phase = static_cast<float>(std::fmod(static_cast<double>(frame) * 0.6180339887, 1.0));
         // Each frame marches one pixel of every 2x2 block of the half-size history, in turn, at a quarter of the size. While
@@ -2291,6 +2319,30 @@ namespace enhancements
         upload(constants);
 
         ID3D11DeviceContext1 *c = context_.Get();
+        // A layered sky's cirrus: the painted streaks far above, drawn first, behind the volume layers, as the Cirrus type
+        // draws them (CameraTools' preset), at the cirrus's coverage.
+        if (settings.middle && settings.cirrus > 0 && constants.cloud_pattern == 0 && sync_cloud_pattern(CloudPattern::streaks))
+        {
+            Constants cirrus = constants;
+            cirrus.cloud_pattern = static_cast<float>(CloudPattern::streaks);
+            cirrus.cloud_coverage = settings.cirrus;
+            cirrus.cloud_base = 8000;
+            cirrus.cloud_thickness = 300;
+            cirrus.cloud_size = 800;
+            cirrus.cloud_stretch = 3;
+            cirrus.cloud_density = 0.002f;
+            cirrus.cloud_detail = 1;
+            cirrus.cloud_map_extent = reach(8000, 300, 800);
+            cirrus.cloud_fade = cirrus.cloud_map_extent * 0.18f;
+            upload(cirrus);
+            scene_in_.copy_from(c, native(scene));
+            depth_.copy_from(c, native(depth));
+            ID3D11ShaderResourceView *const painted[] = { scene_in_.srv(), nullptr, depth_.srv(), nullptr, nullptr, nullptr, lattice_srv_.Get(), nullptr,
+                nullptr, sky_transmittance_srv_.Get(), sky_multiple_srv_.Get(), cloud_pattern_srv_.Get() };
+            draw_fullscreen(clouds_painted_ps_.Get(), painted, 12, scene_out_.rtv(), map.render);
+            scene_out_.copy_to(c, native(scene));
+            upload(constants);
+        }
         if (constants.cloud_pattern > 0)
         {
             // The painted layer reads its texture at every pixel and needs no map, march or history.
@@ -2307,7 +2359,7 @@ namespace enhancements
         scene_in_.copy_from(c, native(scene));
         depth_.copy_from(c, native(depth));
         const CloudMapKey key = { cloud_map_.texture(), { constants.cloud_map_center[0], constants.cloud_map_center[1] }, constants.cloud_map_extent,
-            settings.coverage, settings.size, settings.stretch, settings.wind_direction, constants.cloud_pattern, constants.cloud_type };
+            settings.coverage, settings.size, settings.stretch, settings.wind_direction, constants.cloud_pattern, constants.cloud_type, settings.middle };
         if (!(key == cloud_map_key_))
         {
             ID3D11ShaderResourceView *const bake[] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, lattice_srv_.Get() };

@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 52
+#define ENHANCEMENTS_VERSION 53
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -657,6 +657,28 @@ typedef struct EnhancementsSceneLight
     float exposure_ev;          // 0 (the default) as the game lights it; clamped to -3 to 3
 } EnhancementsSceneLight;
 
+// One volume cloud layer, as EnhancementsClouds shapes the main one.
+typedef struct EnhancementsCloudLayer
+{
+    float coverage;
+    float base;
+    float thickness;
+    float size;
+    float stretch;
+    float density;
+    float detail;
+    uint32_t type;              // ENHANCEMENTS_CLOUD_TYPE_*
+} EnhancementsCloudLayer;
+
+// A layered sky: over the main layer (EnhancementsClouds, with its pattern noise) a middle volume layer and the painted
+// cirrus far above, drawn behind both. Version 53 added it.
+typedef struct EnhancementsCloudLayers
+{
+    uint32_t middle;            // 1: the middle layer is there; 0 (the default) none
+    EnhancementsCloudLayer middle_layer;
+    float cirrus;               // the painted cirrus's coverage, 0 (the default, none) to 1; clamped
+} EnhancementsCloudLayers;
+
 // The whole desired state. A later version appends one block per pass; size tells the add-on which fields the caller
 // knows, and fields past it keep their defaults.
 typedef struct EnhancementsSettings
@@ -693,6 +715,7 @@ typedef struct EnhancementsSettings
     EnhancementsTransmission transmission;
     EnhancementsGrass grass;
     EnhancementsLeaves leaves;
+    EnhancementsCloudLayers cloud_layers;
 } EnhancementsSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and

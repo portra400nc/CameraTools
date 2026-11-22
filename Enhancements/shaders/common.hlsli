@@ -129,6 +129,16 @@ cbuffer Constants : register(b0)
     float transmission_strength;    // EnhancementsTransmission.strength, for transmission_ps.hlsl
     float grass_roots;          // EnhancementsGrass.root_shade, for grass_ps.hlsl
     float leaf_light;           // EnhancementsLeaves.shading, for transmission_ps.hlsl
+    float cloud_mid_coverage;   // the layered sky's middle layer, as cloud_coverage to cloud_type shape the main one
+    float cloud_mid_base;
+    float cloud_mid_thickness;
+    float cloud_mid_size;
+    float cloud_mid_stretch;
+    float cloud_mid_density;
+    float cloud_mid_detail;
+    float cloud_mid_type;
+    float cloud_layers;         // 1 the main layer alone, 2 with the middle one
+    float3 cloud_layers_pad;
 };
 
 SamplerState point_clamp : register(s0);
