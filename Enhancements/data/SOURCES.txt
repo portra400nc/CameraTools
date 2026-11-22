@@ -1,4 +1,4 @@
-The night sky's data, made by make_sky_data.py from these public-domain sources.
+The add-on's data: the night sky's, made by make_sky_data.py from public-domain sources, and the clouds'.
 
 stars.bin
     The Yale Bright Star Catalog, 5th revised edition (Hoffleit and Warren 1991), 9,096 stars with positions.
@@ -17,3 +17,10 @@ azurite/*.dds
     unchanged from its textures/sky/ folder. Its author allows reuse and reupload of its assets. The clouds take their
     alpha as the cover and their painted gray as a sheet's thickness (EnhancementsCloudPattern in enhancements.h); build.py
     embeds them as they are.
+
+wdas_cloud/wdas_cloud_eighth.r8
+    The eighth-resolution cloud of the Walt Disney Animation Studios Cloud Data Set, wdas_cloud_eighth.vdb, converted to
+    raw density bytes by make_cloud_volume.py. Downloaded 2026-11-21 from https://assets.disneyanimation.com/wdas_cloud.zip
+    (https://disneyanimation.com/resources/clouds/). Copyright 2017 Disney Enterprises, Inc., licensed under the Creative
+    Commons Attribution-ShareAlike 3.0 Unported License, and so is the converted file; wdas_cloud/LICENSE.txt holds the
+    notice, which ships beside the add-on.
