@@ -533,7 +533,7 @@ namespace CameraTools
         {
             new("towering cumulus", EnhancementsCloudType.Towering, 2000f, 7000f, 1300f, 0.3f, 0.4f),
             new("cumulus", EnhancementsCloudType.Cumulus, 2000f, 1500f, 400f, 0.04f, 0.5f),
-            new("altocumulus", EnhancementsCloudType.Stratocumulus, 3000f, 500f, 250f, 0.04f, 0.55f),
+            new("altocumulus", EnhancementsCloudType.Stratocumulus, 3000f, 700f, 500f, 0.04f, 0.75f),
             new("stratus", EnhancementsCloudType.Stratus, 1300f, 400f, 1000f, 0.08f, 0.88f),
             new("cumulonimbus", EnhancementsCloudType.Cumulonimbus, 1800f, 9000f, 1500f, 0.08f, 0.2f),
         };
@@ -557,8 +557,7 @@ namespace CameraTools
             settings.Clouds.Size = kind.Size;
             settings.Clouds.Density = kind.Density;
             settings.Clouds.Coverage = ProbeCoverage ?? kind.Coverage;
-            // Altocumulus's cloudlets lie in bands drawn out along the wind.
-            settings.Clouds.Stretch = kind.Type == EnhancementsCloudType.Stratocumulus ? 2.5f : 1f;
+            settings.Clouds.Stretch = 1f;
             settings.CloudPattern.Pattern = EnhancementsCloudPatternKind.Noise;
             settings.Clouds.Sun *= ProbeTowersLooks[ProbeTowersLook].Sun;
             settings.Clouds.Ambient *= ProbeTowersLooks[ProbeTowersLook].SkyLight;

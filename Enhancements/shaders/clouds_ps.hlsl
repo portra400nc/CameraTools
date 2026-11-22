@@ -49,7 +49,9 @@ struct CloudKind
 static const CloudKind kKinds[5] =
 {
     { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.15, 1, float2(0.4, 0.55), float2(0.3, 0.55), 0, 0, 6, 0 },     // cumulus
-    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.15, 1, float2(0.6, 0.9), float2(0.2, 0.4), 0, 0, 1, 1 },     // stratocumulus
+    // Altocumulus: the noise's soft overlapping puffs matched the user's photo, where Disney cloudlets read as stamps and
+    // Disney's billows carved into the noise shredded the puffs at twice the cost (.work/clouds/kinds round12, round13).
+    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.15, 0, float2(0.55, 0.75), float2(0.15, 0.45), 0, 0, 1, 1 },  // stratocumulus
     { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.1, 1, float2(0.98, 0.98), float2(0.6, 1), 1, 0, 6, 0 },      // stratus
     { 0.6, float2(1.5, 1.5), 0.4, 0.6, 0.15, 0.25, 1, float2(0.4, 0.45), float2(0.55, 0.8), 0, 0.6, 6, 0 },  // cumulonimbus
     { 0.6, float2(1.5, 1.5), 0.3, 1.0, 0.1, 0.25, 1, float2(0.4, 0.55), float2(0.45, 1), 0, 0, 6, 0 },        // towering cumulus
@@ -84,12 +86,22 @@ float cloud_in_cell(int2 at, float2 c, float y, float cell)
     float4 r = float4(a & 0xffffu, b & 0xffffu) / 65535.0;
     // Masked, as altocumulus's cloudlets fill patches and bands of the sky, the weather at the cell's middle (which
     // Coverage already thins or spreads) says how likely it holds one.
-    float chance = kind_look.masked > 0
-        ? cloud_map.SampleLevel(linear_clamp, ((at + 0.5) * cell - cloud_map_center) / cloud_map_extent + 0.5, 0) : cloud_coverage;
+    float chance = cloud_coverage, grow = 1, stretch = 1, lift = 0;
+    if (kind_look.masked > 0)
+    {
+        // The weather's edges are sharpened, so the sky opens in clear gaps between the patches, and broad noise makes some
+        // patches of small cloudlets and some of big ones; each cloudlet is drawn out on its own and floats a little higher
+        // or lower, so no two look alike and the layer is no flat sheet.
+        float2 middle_of_cell = (at + 0.5) * cell;
+        chance = smoothstep(0.15, 0.5, cloud_map.SampleLevel(linear_clamp, (middle_of_cell - cloud_map_center) / cloud_map_extent + 0.5, 0));
+        grow = lerp(0.6, 1.2, cloud_fbm(float3(middle_of_cell / (cell * 5), 7.7), 2));
+        stretch = lerp(0.7, 1.4, frac(r.w * 5.3));
+        lift = frac(r.w * 11.9) * 0.4;
+    }
     if (r.x >= chance)
         return 0;
-    float length = cell * lerp(kind_look.size.x, kind_look.size.y, r.w);
-    float tall = cloud_thickness * lerp(kind_look.height.x, kind_look.height.y, frac(r.w * 7.31));
+    float length = cell * lerp(kind_look.size.x, kind_look.size.y, frac(r.w * 2.9)) * grow;
+    float tall = cloud_thickness * lerp(kind_look.height.x, kind_look.height.y, frac(r.w * 7.31)) * lerp(0.6, 1, grow);
     bool packed = kind_look.packed > 0;
     float2 middle = packed || kind_look.anvil > 0 ? at + 0.5 : kind_look.masked > 0 ? at + 0.4 + 0.2 * r.yz : at + 0.35 + 0.3 * r.yz;
     float turn = packed ? (frac(r.w * 13.7) > 0.5 ? 3.1415927 : 0) : frac(r.w * 13.7) * 6.2831853;
@@ -98,7 +110,8 @@ float cloud_in_cell(int2 at, float2 c, float y, float cell)
     local.x = frac(r.w * 3.1) > 0.5 ? -local.x : local.x;
     // Meters a voxel across and along: packed, the footprint stretched to the cell; else the cloud's own proportions.
     float2 across = packed ? length / kVolumeVoxels.xz : length / kVolumeVoxels.z;
-    float3 uvw = float3(local.x / (across.x * kVolumeVoxels.x), (y - cloud_base) / tall, local.y / (across.y * kVolumeVoxels.z));
+    float3 uvw = float3(local.x / (across.x * kVolumeVoxels.x * stretch), (y - cloud_base - lift * cloud_thickness) / tall,
+        local.y / (across.y * kVolumeVoxels.z));
     uvw.xz = uvw.xz / (1 + kind_look.anvil * smoothstep(0.6, 0.9, uvw.y)) + 0.5;
     return all(uvw >= 0) && all(uvw <= 1) ? cloud_volume.SampleLevel(linear_clamp, uvw, volume_lod) : 0;
 }
@@ -109,8 +122,9 @@ float cloud_volume_at(float2 c, float y)
     if (kind_look.masked == 0)
         return cloud_in_cell(int2(floor(c / cell)), c, y, cell);
     // Masked cloudlets on a plain grid stood in rows like a lattice: their grid is bent by broad noise first. They are up
-    // to 0.9 of a cell long with middles 0.4 to 0.6 across it, so neighbors touch and merge into patches; a footprint then
-    // reaches 0.58 of a cell from its middle, and the four cells nearest the point hold every cloudlet that can reach it.
+    // to 0.9 of a cell long (0.75 grown by up to 1.2), drawn out up to 1.4 times, with middles 0.4 to 0.6 across it, so neighbors touch and merge
+    // into patches; a footprint then reaches 0.68 of a cell from its middle, under the 0.9 to the nearest cell the four
+    // cells nearest the point leave out, so they hold every cloudlet that can reach it.
     c += (float2(cloud_fbm(float3(c / (cell * 7), 1.3), 2), cloud_fbm(float3(c / (cell * 7) + 5.1, 4.7), 2)) - 0.5) * cell * 3;
     int2 near = int2(floor(c / cell - 0.5));
     float best = 0;
