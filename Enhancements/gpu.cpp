@@ -2321,7 +2321,7 @@ namespace enhancements
         ID3D11DeviceContext1 *c = context_.Get();
         // A layered sky's cirrus: the painted streaks far above, drawn first, behind the volume layers, as the Cirrus type
         // draws them (CameraTools' preset), at the cirrus's coverage.
-        if (settings.middle && settings.cirrus > 0 && constants.cloud_pattern == 0 && sync_cloud_pattern(CloudPattern::streaks))
+        if (settings.cirrus > 0 && constants.cloud_pattern == 0 && sync_cloud_pattern(CloudPattern::streaks))
         {
             Constants cirrus = constants;
             cirrus.cloud_pattern = static_cast<float>(CloudPattern::streaks);

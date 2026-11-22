@@ -19,6 +19,9 @@ namespace CameraTools
         // Whether Current changed this frame, so the add-on is to get the settings again.
         public static bool Changed { get; private set; }
 
+        // The game's weather while Weather runs, else null: the Layered type's mixes follow it.
+        public static WeatherKind? Kind => following ? target : null;
+
         // The share of the sun's and the moon's direct light the cover lets through.
         public static float Sun => Current?.Sun ?? 1f;
 

@@ -91,6 +91,17 @@ namespace CameraTools
                         yield return new InfoRow("Now", () => WeatherFollow.Now, usable) { Shown = () => shown() && Values.On(Enhancement.Weather), Sub = true };
                     continue;
                 }
+                // Type's row shows its options in their own order, Layered first, while presets keep each one's value.
+                if (field.Id == Enhancement.CloudType)
+                {
+                    int[] order = EnhancementsModel.CloudTypeOrder;
+                    yield return new ChoiceRow(field.Label, order.Select(value => field.Options[value]).ToArray(), () => Array.IndexOf(order, (int)Values[field.Id]),
+                        position => Change(field.Id, order[position]), null, usable) { Shown = shown, Sub = true };
+                    Func<bool> layered = () => shown() && (int)Values[Enhancement.CloudType] == EnhancementsModel.LayeredClouds;
+                    yield return new InfoRow("Today's sky", () => LayeredSky.Name, usable) { Shown = layered, Sub = true };
+                    yield return new ActionRow("New sky", LayeredSky.Roll, "Roll", usable) { Shown = layered, Sub = true };
+                    continue;
+                }
                 yield return field.Kind switch
                 {
                     EnhancementKind.Choice => new ChoiceRow(field.Label, field.Options, () => (int)Values[field.Id], position => Change(field.Id, position), null, usable)
@@ -184,6 +195,8 @@ namespace CameraTools
             // The game's clouds keep its painted lighting, which the physical sky's contradicts.
             GameClouds.Update(Enhancements.Connected && (EnhancementsModel.CloudsRun(Running) || EnhancementsModel.SkyDrawn(Running)));
             WeatherFollow.Update(Enhancements.Connected && EnhancementsModel.WeatherRuns(Running), Running);
+            if (EnhancementsModel.CloudsRun(Running) && (int)Running[Enhancement.CloudType] == EnhancementsModel.LayeredClouds)
+                LayeredSky.Update(NightSky.Days, WeatherFollow.Kind, Time.unscaledDeltaTime);
             GameRain.Update(WeatherFollow.Current?.Rain > 0f && Running.On(Enhancement.WeatherRain));
             var now = DepthOfField.Frame;
             if (connections != Enhancements.Connections)
@@ -193,11 +206,11 @@ namespace CameraTools
                 ulong generation = Enhancements.Apply(EnhancementsModel.Settings(Running, lens, WeatherFollow.Current));
                 Log($"the add-on connected and runs {Describe(Running)}, as its settings {generation}.");
             }
-            else if (now != lens || view != EnhancementsModel.ProbeView || volume != EnhancementsModel.ProbeVolumeClouds || probeCloud != EnhancementsModel.ProbeCloud || probeCoverage != EnhancementsModel.ProbeCoverage || towersLook != EnhancementsModel.ProbeTowersLook || WeatherFollow.Changed && Time.unscaledTime >= weatherSentAt + WeatherEvery)
+            else if (now != lens || view != EnhancementsModel.ProbeView || volume != EnhancementsModel.ProbePaintedClouds || LayeredSky.Changed || probeCloud != EnhancementsModel.ProbeCloud || probeCoverage != EnhancementsModel.ProbeCoverage || towersLook != EnhancementsModel.ProbeTowersLook || WeatherFollow.Changed && Time.unscaledTime >= weatherSentAt + WeatherEvery)
             {
                 lens = now;
                 view = EnhancementsModel.ProbeView;
-                volume = EnhancementsModel.ProbeVolumeClouds;
+                volume = EnhancementsModel.ProbePaintedClouds;
                 probeCloud = EnhancementsModel.ProbeCloud;
                 probeCoverage = EnhancementsModel.ProbeCoverage;
                 towersLook = EnhancementsModel.ProbeTowersLook;

@@ -165,10 +165,11 @@ namespace CameraTools
     // wind follows, so they stand still while the game is paused.
     internal readonly record struct LensView(bool FreeCamera, float Aspect, int Miniature, ShotStage Shot, EyeSight? Eye = null, float GameSpeed = 1f);
 
-    // One of Clouds' Types: its row's name and line, the shape rows it sets, and the stretch, volume cloud type and painted
-    // pattern it gives the add-on, which have no rows. Custom keeps those of the last type picked.
-    internal readonly record struct CloudKind(string Name, string Detail, float Coverage, float Height, float Thickness, float Size, float Density,
-        float EdgeDetail, float Stretch, EnhancementsCloudType Type, EnhancementsCloudPatternKind Pattern);
+    // One of Clouds' Types: its row's name, the shape rows it sets, and the stretch, volume cloud type and pattern it gives
+    // the add-on, which have no rows, with Painted the Azurite pattern it falls back to (ProbePaintedClouds). Custom keeps
+    // those of the last type picked.
+    internal readonly record struct CloudKind(string Name, float Coverage, float Height, float Thickness, float Size, float Density,
+        float EdgeDetail, float Stretch, EnhancementsCloudType Type, EnhancementsCloudPatternKind Pattern, EnhancementsCloudPatternKind Painted);
 
     // The Enhancements category's rules, apart from the game, the preferences and the add-on, so tests run them.
     internal static class EnhancementsModel
@@ -187,18 +188,29 @@ namespace CameraTools
         private const uint FewestBlades = 5;
         // Light shafts' Quality: Low, Medium and High as samples along each ray.
         private static readonly uint[] ShaftSteps = { 24, 48, 96 };
-        // Clouds' Types, in the row's order before Custom.
+        // Clouds' Types, by index (Last type's value). The volume types draw the add-on's clouds, Disney's cloud or our
+        // noise; High patches and Cirrus stay Azurite's paintings. Layered rolls its layers (LayeredSky) and sets no rows.
         public static readonly CloudKind[] CloudKinds =
         {
-            new("Altocumulus", "Small puffs in high rows", 55f, 3000f, 600f, 250f, 0.04f, 0.8f, 1.5f, EnhancementsCloudType.Stratocumulus, EnhancementsCloudPatternKind.Puffs),
-            new("Stratocumulus", "A low sheet with blue gaps", 75f, 1800f, 700f, 500f, 0.04f, 0.8f, 1.3f, EnhancementsCloudType.Stratocumulus, EnhancementsCloudPatternKind.Broken),
-            new("Stratus", "A flat grey layer over the whole sky", 88f, 1000f, 400f, 1000f, 0.08f, 0.5f, 1.3f, EnhancementsCloudType.Stratus, EnhancementsCloudPatternKind.Overcast),
-            new("Cumulus", "Tall heaps on a clear day", 50f, 1500f, 1500f, 400f, 0.04f, 0.8f, 1f, EnhancementsCloudType.Cumulus, EnhancementsCloudPatternKind.Heaps),
-            new("High patches", "Thin patches far up", 45f, 4500f, 400f, 200f, 0.03f, 0.9f, 2.5f, EnhancementsCloudType.Stratocumulus, EnhancementsCloudPatternKind.Patches),
-            new("Cirrus", "Thin streaks of ice very high up", 55f, 8000f, 300f, 800f, 0.002f, 1f, 3f, EnhancementsCloudType.Stratus, EnhancementsCloudPatternKind.Streaks),
+            new("Altocumulus", 75f, 3000f, 700f, 500f, 0.1f, 0.8f, 1f, EnhancementsCloudType.Stratocumulus, EnhancementsCloudPatternKind.Noise, EnhancementsCloudPatternKind.Puffs),
+            new("Stratocumulus", 75f, 2200f, 700f, 500f, 0.1f, 0.8f, 1f, EnhancementsCloudType.Stratocumulus, EnhancementsCloudPatternKind.Noise, EnhancementsCloudPatternKind.Broken),
+            new("Stratus", 88f, 1300f, 400f, 1000f, 0.1f, 0.5f, 1.3f, EnhancementsCloudType.Stratus, EnhancementsCloudPatternKind.Noise, EnhancementsCloudPatternKind.Overcast),
+            new("Cumulus", 50f, 2000f, 1500f, 400f, 0.1f, 0.8f, 1f, EnhancementsCloudType.Cumulus, EnhancementsCloudPatternKind.Noise, EnhancementsCloudPatternKind.Heaps),
+            new("High patches", 45f, 4500f, 400f, 200f, 0.03f, 0.9f, 2.5f, EnhancementsCloudType.Stratocumulus, EnhancementsCloudPatternKind.Patches, EnhancementsCloudPatternKind.Patches),
+            new("Cirrus", 55f, 8000f, 300f, 800f, 0.002f, 1f, 3f, EnhancementsCloudType.Stratus, EnhancementsCloudPatternKind.Streaks, EnhancementsCloudPatternKind.Streaks),
+            new("Layered", 50f, 2000f, 1500f, 400f, 0.1f, 0.8f, 1f, EnhancementsCloudType.Cumulus, EnhancementsCloudPatternKind.Noise, EnhancementsCloudPatternKind.Heaps),
+            new("Towering cumulus", 40f, 2000f, 7000f, 1300f, 0.1f, 0.8f, 1f, EnhancementsCloudType.Towering, EnhancementsCloudPatternKind.Noise, EnhancementsCloudPatternKind.Heaps),
+            new("Cumulonimbus", 20f, 1800f, 9000f, 1500f, 0.1f, 0.8f, 1f, EnhancementsCloudType.Cumulonimbus, EnhancementsCloudPatternKind.Noise, EnhancementsCloudPatternKind.Heaps),
         };
-        // Type's last option, the user's own shape.
-        public static readonly int CustomClouds = CloudKinds.Length;
+        // Type's values: a kind's index, but Custom, the user's own shape, keeps value 6 where presets saved it, and the kinds
+        // from Layered on follow it.
+        public const int CustomClouds = 6, LayeredClouds = 7;
+        public static int KindOfType(int type) => type < CustomClouds ? type : type - 1;
+        public static int TypeOfKind(int kind) => kind < CustomClouds ? kind : kind + 1;
+        // Type's options by value, and the row's order of values: Layered first, Custom last.
+        private static readonly string[] CloudTypeOptions = CloudKinds.Take(CustomClouds).Select(kind => kind.Name).Append("Custom")
+            .Concat(CloudKinds.Skip(CustomClouds).Select(kind => kind.Name)).ToArray();
+        public static readonly int[] CloudTypeOrder = { LayeredClouds, 0, 1, 2, 3, 8, 9, 4, 5, CustomClouds };
         // The rows a Type sets, and that make it Custom when moved.
         private static readonly Enhancement[] CloudShapeRows =
         {
@@ -206,7 +218,6 @@ namespace CameraTools
         };
         // Clouds' Quality: Low, Medium and High as march samples along each ray.
         private static readonly uint[] CloudSteps = { 32, 48, 64 };
-        private static readonly string[] CloudTypeOptions = CloudKinds.Select(kind => kind.Name).Append("Custom").ToArray();
         // Wet surfaces' Wetness: 0 follows the weather, and 1 is soaked.
         private static readonly float[] WetnessLevels = { 0f, 0.25f, 0.5f, 0.75f, 1f };
         // The lens flare's Source: the sun disc the sky draws, or a light at Position X and Y.
@@ -297,14 +308,14 @@ namespace CameraTools
             Slider(Enhancement.WaterWaves, Enhancement.PhysicalWater, "Wave height", 0f, 300f, 100f, 10f, 0, "%"),
             Slider(Enhancement.WaterSize, Enhancement.PhysicalWater, "Wave size", 25f, 400f, 100f, 25f, 0, "%"),
             Switch(Enhancement.Clouds, "Clouds"),
-            Choice(Enhancement.CloudType, Enhancement.Clouds, "Type", 0, CloudTypeOptions),
+            Choice(Enhancement.CloudType, Enhancement.Clouds, "Type", LayeredClouds, CloudTypeOptions),
             Slider(Enhancement.CloudCoverage, Enhancement.Clouds, "Coverage", 0f, 100f, CloudKinds[0].Coverage, 5f, 0, "%"),
             Slider(Enhancement.CloudHeight, Enhancement.Clouds, "Height", 500f, 10000f, CloudKinds[0].Height, 100f, 0, " m"),
-            Slider(Enhancement.CloudThickness, Enhancement.Clouds, "Thickness", 100f, 3000f, CloudKinds[0].Thickness, 50f, 0, " m"),
-            Slider(Enhancement.CloudSize, Enhancement.Clouds, "Cloud size", 100f, 1000f, CloudKinds[0].Size, 10f, 0, " m"),
+            Slider(Enhancement.CloudThickness, Enhancement.Clouds, "Thickness", 100f, 10000f, CloudKinds[0].Thickness, 50f, 0, " m"),
+            Slider(Enhancement.CloudSize, Enhancement.Clouds, "Cloud size", 100f, 2000f, CloudKinds[0].Size, 10f, 0, " m"),
             Slider(Enhancement.CloudDensity, Enhancement.Clouds, "Density", 0.002f, 0.15f, CloudKinds[0].Density, 0.002f, 3),
             Slider(Enhancement.CloudEdgeDetail, Enhancement.Clouds, "Edge detail", 0f, 1f, CloudKinds[0].EdgeDetail, 0.05f, 2),
-            Slider(Enhancement.CloudSunlight, Enhancement.Clouds, "Sunlight", 0f, 8f, 4f, 0.05f, 2),
+            Slider(Enhancement.CloudSunlight, Enhancement.Clouds, "Sunlight", 0f, 8f, 1f, 0.05f, 2),
             Slider(Enhancement.CloudSkyLight, Enhancement.Clouds, "Sky light", 0f, 2f, 1f, 0.05f, 2),
             Slider(Enhancement.CloudWind, Enhancement.Clouds, "Wind", 0f, 30f, 8f, 1f, 0, " m/s"),
             Slider(Enhancement.CloudWindDirection, Enhancement.Clouds, "Wind direction", 0f, 355f, 30f, 5f, 0, "°"),
@@ -428,6 +439,13 @@ namespace CameraTools
                     settings.Rain.Lightning = 0f;
                 }
             }
+            // Layered: the rolled mix's layers in place of the rows' shape, keeping the rows' light, wind and quality; the weather
+            // has picked the mix and keeps its mist and rain.
+            if (values.On(Enhancement.Clouds) && (int)values[Enhancement.CloudType] == LayeredClouds)
+            {
+                settings.Clouds = Clouds(values, lens.GameSpeed);
+                LayeredSky.Apply(ref settings, LayeredSky.Current);
+            }
             if (ProbeCloud > 0)
                 ApplyProbeCloud(ref settings, ProbeCloudKinds[ProbeCloud - 1]);
             if (settings.Enabled == 0 && (settings.DepthOfField.Enabled != 0 || settings.LensSoftness.Radius > 0f))
@@ -478,10 +496,10 @@ namespace CameraTools
             var next = values.With(id, value);
             if (ReferenceEquals(next, values))
                 return values;
-            if (id == Enhancement.CloudType && (int)next[id] < CustomClouds)
+            if (id == Enhancement.CloudType && (int)next[id] != CustomClouds)
             {
-                var kind = CloudKinds[(int)next[id]];
-                return next.With(Enhancement.CloudKind, next[id]).With(Enhancement.CloudCoverage, kind.Coverage).With(Enhancement.CloudHeight, kind.Height)
+                var kind = CloudKinds[KindOfType((int)next[id])];
+                return next.With(Enhancement.CloudKind, KindOfType((int)next[id])).With(Enhancement.CloudCoverage, kind.Coverage).With(Enhancement.CloudHeight, kind.Height)
                     .With(Enhancement.CloudThickness, kind.Thickness).With(Enhancement.CloudSize, kind.Size).With(Enhancement.CloudDensity, kind.Density)
                     .With(Enhancement.CloudEdgeDetail, kind.EdgeDetail);
             }
@@ -520,9 +538,8 @@ namespace CameraTools
         // A debug view of the add-on's, for the probe only: the panel has no row for it.
         public static EnhancementsView ProbeView { get; set; }
 
-        // For the probe only while the volume clouds are rebuilt: they stand in for the painted patterns, but cirrus, which
-        // they cannot draw.
-        public static bool ProbeVolumeClouds { get; set; }
+        // For the probe only: Azurite's painted patterns in place of the volume clouds, the fallback the user keeps.
+        public static bool ProbePaintedClouds { get; set; }
 
         // For the probe only while the volume clouds' types are tuned: one type's clouds at its own heights, size, density and
         // coverage, whatever Type and Weather chose. The towering cumulus and the cumulonimbus have no Type preset yet.
@@ -560,6 +577,7 @@ namespace CameraTools
             settings.Clouds.Coverage = ProbeCoverage ?? kind.Coverage;
             settings.Clouds.Stretch = 1f;
             settings.CloudPattern.Pattern = EnhancementsCloudPatternKind.Noise;
+            settings.CloudLayers = default;
             if (kind.Name.StartsWith("layered"))
                 settings.CloudLayers = new EnhancementsCloudLayers
                 {
@@ -571,9 +589,8 @@ namespace CameraTools
             settings.Clouds.Density = ProbeTowersLooks[ProbeTowersLook].Density;
         }
 
-        // The add-on's pattern for a cloud type: its painted one, or the volume clouds' noise while the probe asks for them.
-        public static EnhancementsCloudPatternKind PatternOf(CloudKind kind) =>
-            ProbeVolumeClouds && kind.Pattern != EnhancementsCloudPatternKind.Streaks ? EnhancementsCloudPatternKind.Noise : kind.Pattern;
+        // The add-on's pattern for a cloud type: its own, or its Azurite painting while the probe asks for the fallback.
+        public static EnhancementsCloudPatternKind PatternOf(CloudKind kind) => ProbePaintedClouds ? kind.Painted : kind.Pattern;
 
         // Whether Grass's custom texture files are there, null while that is not known: CustomGrass.Found in the game.
         public static Func<bool?> CustomGrassFound { get; set; } = () => null;
@@ -637,6 +654,7 @@ namespace CameraTools
             => !folded && !(experimentalFolded && Experimental(field)) && (field.Kind == EnhancementKind.Switch || values.On(field.Effect))
             && (field.Id is not (Enhancement.LensFlareX or Enhancement.LensFlareY) || (int)values[Enhancement.LensFlareSource] == FlareManual)
             && field.Id != Enhancement.CloudKind
+            && (Array.IndexOf(CloudShapeRows, field.Id) < 0 || (int)values[Enhancement.CloudType] != LayeredClouds)
             && (field.Id != Enhancement.AmbientColor || !values.On(Enhancement.PhysicalSky))
             && (field.Id is not (Enhancement.GrassCustomTexture or Enhancement.GrassCustomHeight) || values.On(Enhancement.GrassDepth));
 
@@ -663,7 +681,6 @@ namespace CameraTools
                 false => "None in ReShade's Enhancements\\grass-port folder",
                 null => null,
             },
-            Enhancement.CloudType => (int)values[Enhancement.CloudType] < CustomClouds ? CloudKinds[(int)values[Enhancement.CloudType]].Detail : "Your own shape",
             _ => null,
         };
 

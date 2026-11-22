@@ -117,9 +117,22 @@ float cloud_in_cell(int2 at, float2 c, float y, float cell)
     local.x = frac(r.w * 3.1) > 0.5 ? -local.x : local.x;
     // Meters a voxel across and along: packed, the footprint stretched to the cell; else the cloud's own proportions.
     float2 across = packed ? length / kVolumeVoxels.xz : length / kVolumeVoxels.z;
-    float3 uvw = float3(local.x / (across.x * kVolumeVoxels.x * stretch), (y - layer_base - lift * layer_thickness) / tall,
+    // Each standing cloud is its own: squeezed or widened across by up to 40%, and cut from the cloud's top 70 to 100%, so
+    // some are flat-based caps (deeper cuts left spiky crowns, .work/clouds/sim variety2.png).
+    float aspect = packed || kind_look.masked > 0 ? 1 : 1 + 0.4 * (frac(r.w * 17.9) * 2 - 1);
+    float cap = packed || kind_look.masked > 0 ? 0 : frac(r.w * 23.3) * 0.3;
+    float3 uvw = float3(local.x / (across.x * kVolumeVoxels.x * stretch * aspect), (y - layer_base - lift * layer_thickness) / tall,
         local.y / (across.y * kVolumeVoxels.z));
+    uvw.y = cap + uvw.y * (1 - cap);
     uvw.xz = uvw.xz / (1 + kind_look.anvil * smoothstep(0.6, 0.9, uvw.y)) + 0.5;
+    // And bent by a slow noise of its own, so no two outlines match while the billows stay the cloud's; on the fine samples
+    // only, as it costs two reads.
+    if (!packed && kind_look.masked == 0 && volume_lod == 0)
+    {
+        float3 seed = float3(frac(r.w * 41.1), frac(r.w * 7.7), frac(r.w * 3.3)) * 4;
+        float2 bend = float2(shape_noise.SampleLevel(linear_wrap, uvw * 0.5 + seed, 2), shape_noise.SampleLevel(linear_wrap, uvw * 0.5 + seed + 0.37, 2)) - 0.5;
+        uvw.xz += bend * 0.25;
+    }
     return all(uvw >= 0) && all(uvw <= 1) ? cloud_volume.SampleLevel(linear_clamp, uvw, volume_lod) : 0;
 }
 
