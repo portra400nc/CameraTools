@@ -169,7 +169,8 @@ namespace enhancements
         float cloud_mid_detail;
         float cloud_mid_type;
         float cloud_layers;         // 1 the main layer alone, 2 with the middle one
-        float cloud_layers_pad[3];
+        float flare_clouds;         // 1 while this frame's volume clouds are in their history
+        float cloud_layers_pad[2];
     };
     static_assert(sizeof(Constants) == 1008 && offsetof(Constants, cloud_mid_coverage) == 960 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
@@ -857,6 +858,7 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kAtmospherePs, sizeof kAtmospherePs, nullptr, &made.atmosphere_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCloudMapPs, sizeof kCloudMapPs, nullptr, &made.cloud_map_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCloudsPs, sizeof kCloudsPs, nullptr, &made.clouds_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kCloudShadowsPs, sizeof kCloudShadowsPs, nullptr, &made.cloud_shadows_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCloudsApplyPs, sizeof kCloudsApplyPs, nullptr, &made.clouds_apply_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCloudsResolvePs, sizeof kCloudsResolvePs, nullptr, &made.clouds_resolve_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCloudsPaintedPs, sizeof kCloudsPaintedPs, nullptr, &made.clouds_painted_ps_))
@@ -2210,6 +2212,96 @@ namespace enhancements
         return true;
     }
 
+    namespace
+    {
+        constexpr uint32_t kCloudMap = 2048;    // kCloudMapSize in shaders/clouds.hlsli
+
+        // How far a layer's weather map reaches from the camera at height eye_y, in meters.
+        float cloud_reach(float base, float thickness, float size, float eye_y)
+        {
+            return std::clamp(40.0f * std::max(base - eye_y, thickness), size * kCloudMap / 16, size * kCloudMap / 8);
+        }
+
+        // The clouds' constants the march and the cloud shadows share: the layers, the wind and the weather map's place.
+        // Returns the camera's height.
+        float put_clouds(const CloudSettings &settings, const Camera &camera, const float wind[2], Constants &constants)
+        {
+            // The camera's place in the world, from its world-to-view matrix's rotation and translation.
+            const float *m = camera.world_to_view;
+            float eye[3];
+            for (int k = 0; k < 3; k++)
+                eye[k] = -(m[k] * m[3] + m[4 + k] * m[7] + m[8 + k] * m[11]);
+            constants.cloud_coverage = settings.coverage;
+            constants.cloud_base = settings.base;
+            constants.cloud_thickness = settings.thickness;
+            constants.cloud_size = settings.size;
+            constants.cloud_stretch = settings.stretch;
+            constants.cloud_density = settings.density;
+            constants.cloud_detail = settings.detail;
+            constants.cloud_sun = settings.sun;
+            constants.cloud_ambient = settings.ambient;
+            constants.cloud_steps = settings.steps;
+            constants.cloud_pad = settings.wind_direction;
+            constants.cloud_type = static_cast<float>(settings.type);
+            constants.cloud_wind[0] = wind[0];
+            constants.cloud_wind[1] = wind[1];
+            constants.cloud_layers = settings.middle ? 2.0f : 1.0f;
+            if (settings.middle)
+            {
+                const CloudLayer &l = *settings.middle;
+                constants.cloud_mid_coverage = l.coverage;
+                constants.cloud_mid_base = l.base;
+                constants.cloud_mid_thickness = l.thickness;
+                constants.cloud_mid_size = l.size;
+                constants.cloud_mid_stretch = l.stretch;
+                constants.cloud_mid_density = l.density;
+                constants.cloud_mid_detail = l.detail;
+                constants.cloud_mid_type = static_cast<float>(l.type);
+            }
+            // The map reaches the rays that leave the layer's base about 3 degrees above the horizon, at 8 to 16 texels a cell,
+            // in quarter octaves so the map is baked again only when the layer or the camera's height moves it far. Its center
+            // moves in steps of 64 texels, and the fade has fallen to e^-2.8 at its edge.
+            // A layered sky's map reaches as far as the farther-reaching of its layers asks.
+            const float wanted = settings.middle ? std::max(cloud_reach(settings.base, settings.thickness, settings.size, eye[1]),
+                cloud_reach(settings.middle->base, settings.middle->thickness, settings.middle->size, eye[1]))
+                : cloud_reach(settings.base, settings.thickness, settings.size, eye[1]);
+            constants.cloud_map_extent = std::exp2(std::round(std::log2(wanted) * 4) / 4);
+            constants.cloud_fade = constants.cloud_map_extent * 0.18f;
+            const float step = constants.cloud_map_extent / kCloudMap * 64;
+            const float camera_x = eye[0], camera_z = eye[2];
+            constants.cloud_map_center[0] = std::round((camera_x + wind[0]) / step) * step;
+            constants.cloud_map_center[1] = std::round((camera_z + wind[1]) / step) * step;
+            return eye[1];
+        }
+    }
+
+    std::optional<GameCall> Gpu::run_cloud_shadows(const FrameMap &map, const CloudSettings &settings, const Camera &camera, const float wind[2], bool flip)
+    {
+        // Until the clouds have baked their weather map and made their noise, there is nothing to shade with.
+        if (!cloud_noise_ready_ || !cloud_map_key_.texture)
+            return GameCall::keep;
+        const Texture &mask = *map[Entry::shadow_mask], &depth = *map[Entry::depth];
+        const auto mask_format = static_cast<DXGI_FORMAT>(mask.format);
+        ID3D11Device *d = device_.Get();
+        Constants constants;
+        if (!shadow_mask_in_.sync(d, native(mask), mask_format, false) || !shadow_mask_out_.sync(d, native(mask), mask_format, true)
+            || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false) || !pass_constants(camera, map.render, flip, constants))
+            return std::nullopt;
+        put_clouds(settings, camera, wind, constants);
+        // The game's sun, whose light the shadow mask scales.
+        for (int k = 0; k < 3; k++)
+            constants.cloud_toward_sun[k] = camera.toward_sun[k];
+        upload(constants);
+        ID3D11DeviceContext1 *c = context_.Get();
+        shadow_mask_in_.copy_from(c, native(mask));
+        depth_.copy_from(c, native(depth));
+        ID3D11ShaderResourceView *const srvs[] = { shadow_mask_in_.srv(), nullptr, depth_.srv(), depth_.stencil_srv(), nullptr, cloud_map_.srv(), lattice_srv_.Get(),
+            cloud_shape_srv_.Get(), cloud_detail_srv_.Get(), nullptr, nullptr, nullptr, cloud_types_srv_.Get(), cloud_volume_srv_.Get() };
+        draw_fullscreen(cloud_shadows_ps_.Get(), srvs, 14, shadow_mask_out_.rtv(), map.render);
+        shadow_mask_out_.copy_to(c, native(mask));
+        return GameCall::keep;
+    }
+
     std::optional<GameCall> Gpu::run_clouds(const FrameMap &map, const CloudSettings &settings, const Camera &camera, const float wind[2], uint64_t frame,
         bool flip, const SkyDraw *physical, bool full)
     {
@@ -2230,54 +2322,9 @@ namespace enhancements
             || !cloud_history_[0].sync(d, history, DXGI_FORMAT_R16G16B16A16_FLOAT) || !cloud_history_[1].sync(d, history, DXGI_FORMAT_R16G16B16A16_FLOAT)
             || !pass_constants(camera, map.render, flip, constants))
             return std::nullopt;
-        // The camera's place in the world, from its world-to-view matrix's rotation and translation.
-        const float *m = camera.world_to_view;
-        float eye[3];
-        for (int k = 0; k < 3; k++)
-            eye[k] = -(m[k] * m[3] + m[4 + k] * m[7] + m[8 + k] * m[11]);
-        constants.cloud_coverage = settings.coverage;
-        constants.cloud_base = settings.base;
-        constants.cloud_thickness = settings.thickness;
-        constants.cloud_size = settings.size;
-        constants.cloud_stretch = settings.stretch;
-        constants.cloud_density = settings.density;
-        constants.cloud_detail = settings.detail;
-        constants.cloud_sun = settings.sun;
-        constants.cloud_ambient = settings.ambient;
-        constants.cloud_steps = settings.steps;
-        constants.cloud_pad = settings.wind_direction;
-        constants.cloud_type = static_cast<float>(settings.type);
+        const float eye_y = put_clouds(settings, camera, wind, constants);
         // The noise needs no texture: leaving the cached one keeps a layered sky's cirrus texture loaded across frames.
         constants.cloud_pattern = settings.pattern != CloudPattern::noise && sync_cloud_pattern(settings.pattern) ? static_cast<float>(settings.pattern) : 0.0f;
-        constants.cloud_wind[0] = wind[0];
-        constants.cloud_wind[1] = wind[1];
-        constants.cloud_layers = settings.middle ? 2.0f : 1.0f;
-        if (settings.middle)
-        {
-            const CloudLayer &l = *settings.middle;
-            constants.cloud_mid_coverage = l.coverage;
-            constants.cloud_mid_base = l.base;
-            constants.cloud_mid_thickness = l.thickness;
-            constants.cloud_mid_size = l.size;
-            constants.cloud_mid_stretch = l.stretch;
-            constants.cloud_mid_density = l.density;
-            constants.cloud_mid_detail = l.detail;
-            constants.cloud_mid_type = static_cast<float>(l.type);
-        }
-        // The map reaches the rays that leave the layer's base about 3 degrees above the horizon, at 8 to 16 texels a cell,
-        // in quarter octaves so the map is baked again only when the layer or the camera's height moves it far. Its center
-        // moves in steps of 64 texels, and the fade has fallen to e^-2.8 at its edge.
-        // A layered sky's map reaches as far as the farther-reaching of its layers asks.
-        const auto reach = [&](float base, float thickness, float size)
-        { return std::clamp(40.0f * std::max(base - eye[1], thickness), size * kCloudMapSize / 16, size * kCloudMapSize / 8); };
-        const float wanted = settings.middle ? std::max(reach(settings.base, settings.thickness, settings.size),
-            reach(settings.middle->base, settings.middle->thickness, settings.middle->size)) : reach(settings.base, settings.thickness, settings.size);
-        constants.cloud_map_extent = std::exp2(std::round(std::log2(wanted) * 4) / 4);
-        constants.cloud_fade = constants.cloud_map_extent * 0.18f;
-        const float step = constants.cloud_map_extent / kCloudMapSize * 64;
-        const float camera_x = eye[0], camera_z = eye[2];
-        constants.cloud_map_center[0] = std::round((camera_x + wind[0]) / step) * step;
-        constants.cloud_map_center[1] = std::round((camera_z + wind[1]) / step) * step;
         // The march's sample offsets turn by the golden ratio each frame, and the history follows the camera's turn and keeps
         // 90% of what it had, so the offsets' pattern averages away within a few dozen frames. It starts again whenever the
         // clouds' look changed or a frame was missed.
@@ -2295,7 +2342,7 @@ namespace enhancements
         cloud_still_ = still ? cloud_still_ + 1 : 0;
         constants.cloud_wind_step[0] = continues ? wind[0] - cloud_prev_wind_[0] : 0.0f;
         constants.cloud_wind_step[1] = continues ? wind[1] - cloud_prev_wind_[1] : 0.0f;
-        constants.cloud_camera_height = eye[1];
+        constants.cloud_camera_height = eye_y;
         cloud_prev_wind_[0] = wind[0];
         cloud_prev_wind_[1] = wind[1];
         constants.cloud_blend = !continues ? 1.0f : std::max(0.3f / (1.0f + static_cast<float>(cloud_still_) / 16.0f), 0.03f);
@@ -2332,7 +2379,7 @@ namespace enhancements
             cirrus.cloud_stretch = 3;
             cirrus.cloud_density = 0.002f;
             cirrus.cloud_detail = 1;
-            cirrus.cloud_map_extent = reach(8000, 300, 800);
+            cirrus.cloud_map_extent = cloud_reach(8000, 300, 800, eye_y);
             cirrus.cloud_fade = cirrus.cloud_map_extent * 0.18f;
             upload(cirrus);
             scene_in_.copy_from(c, native(scene));
@@ -2378,6 +2425,7 @@ namespace enhancements
         draw_fullscreen(clouds_resolve_ps_.Get(), resolve, 7, now.rtv(), history);
         ID3D11ShaderResourceView *const apply[] = { scene_in_.srv(), nullptr, depth_.srv(), nullptr, nullptr, now.srv() };
         draw_fullscreen(clouds_apply_ps_.Get(), apply, 6, scene_out_.rtv(), map.render);
+        clouds_drawn_ = true;
         scene_out_.copy_to(c, native(scene));
         return GameCall::keep;
     }
@@ -2892,6 +2940,10 @@ namespace enhancements
         }
         constants.flare_ease = flare_ease(settings.visibility_seconds, seconds);
         constants.flare_disc = kFlareDisc;
+        // The volume clouds drawn this frame dim the sun they cover; the history holds what they let through.
+        constants.flare_clouds = clouds_drawn_ ? 1.0f : 0.0f;
+        ID3D11ShaderResourceView *const clouds = clouds_drawn_ ? cloud_history_[cloud_history_at_].srv() : nullptr;
+        clouds_drawn_ = false;
         const bool read_atlas = atlas && sun_ready_;
         constants.flare_atlas = read_atlas ? 1 : 0;
         if (read_atlas)
@@ -2910,8 +2962,8 @@ namespace enhancements
             c->PSSetConstantBuffers(1, 4, game);
         }
         ID3D11ShaderResourceView *const in[] = { nullptr, nullptr, flare_depth_.srv(), nullptr, nullptr, read_atlas ? sun_atlas_.srv() : nullptr,
-            flare_visibility_[flare_at_ ^ 1].srv() };
-        draw_fullscreen(flare_visibility_ps_.Get(), in, 7, flare_visibility_[flare_at_].rtv(), one);
+            flare_visibility_[flare_at_ ^ 1].srv(), clouds };
+        draw_fullscreen(flare_visibility_ps_.Get(), in, 8, flare_visibility_[flare_at_].rtv(), one);
         if (!flare_pending_)
             flare_pending_ = flare_read_.copy_from(d, c, flare_visibility_[flare_at_].texture());
         flare_kept_ = flare_at_;

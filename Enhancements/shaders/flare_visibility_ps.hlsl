@@ -1,11 +1,13 @@
 // The lens flare's source's visibility, one texel at the bloom step, eased from the last frame's. On the picture, the share
-// of a small disc around the sun where the depth buffer holds sky; off it, the share of a small disc around the camera,
-// across the light, that the game's sun shadow atlas lights; near the picture's edge, a mix by the share of the disc on
-// it. The manual source is always visible, and a sun behind the camera never is.
+// of a small disc around the sun where the depth buffer holds sky, less what the volume clouds there hold back; off it,
+// the share of a small disc around the camera, across the light, that the game's sun shadow atlas lights; near the
+// picture's edge, a mix by the share of the disc on it. The manual source is always visible, and a sun behind the camera
+// never is.
 #include "sun.hlsli"
 
 Texture2D<float> atlas : register(t5);              // mirror of the game's sun atlas, copied at its shadow-mask draw
 Texture2D<float> previous : register(t6);           // the last frame's visibility
+Texture2D<float4> clouds : register(t7);            // the volume clouds' history, a what they let through, while flare_clouds
 SamplerComparisonState lit_compare : register(s2);  // bilinear, GREATER_EQUAL: lit where the point is at least as near
 
 static const int kScreenTaps = 32;
@@ -56,7 +58,7 @@ float main(float4 position : SV_Position) : SV_Target0
             if (all(uv >= 0) && all(uv < 1))
             {
                 float d = depth.Load(int3(stored_uv(uv) * render_size.xy, 0));
-                sky += d <= 0 ? 1 : 0;
+                sky += d <= 0 ? (flare_clouds > 0.5 ? saturate(clouds.SampleLevel(linear_clamp, stored_uv(uv), 0).a) : 1) : 0;
                 on += 1;
             }
         }

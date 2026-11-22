@@ -376,6 +376,7 @@ void march_layer(float3 origin, float3 dir, float t0, float t1, float jitter, bo
     }
 }
 
+#ifndef CLOUD_LIBRARY
 float4 main(float4 position : SV_Position) : SV_Target0
 {
     // This frame's pixel of the 2x2 block of the half-size history that this quarter-size pixel covers, or with block 4
@@ -424,3 +425,4 @@ float4 main(float4 position : SV_Position) : SV_Target0
     }
     return float4(m.inscatter, 1 - m.opacity);
 }
+#endif

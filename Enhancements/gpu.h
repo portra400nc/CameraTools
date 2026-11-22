@@ -418,6 +418,9 @@ namespace enhancements
         // cloud_pattern_ made from the pattern's embedded texture when the pattern changed. false for noise, or when the
         // texture could not be made.
         bool sync_cloud_pattern(CloudPattern pattern);
+        // The clouds' shadows over the world's sun visibility, from last frame's weather map; keeps the game's mask until the
+        // clouds have drawn once.
+        std::optional<GameCall> run_cloud_shadows(const FrameMap &map, const CloudSettings &settings, const Camera &camera, const float wind[2], bool flip);
         // With physical, the clouds take its sunlight or moonlight at their height in place of the camera's sun. With
         // full, as while a screenshot accumulates, they march every pixel at the full size.
         std::optional<GameCall> run_clouds(const FrameMap &map, const CloudSettings &settings, const Camera &camera,
@@ -663,7 +666,7 @@ namespace enhancements
         // The physical sky's tables from atmosphere when it is not the one uploaded. false when a texture failed.
         bool sync_sky_tables(const std::shared_ptr<const Atmosphere> &atmosphere);
         ComPtr<ID3D11ComputeShader> dof_scatter_cs_, cloud_shape_cs_, cloud_detail_cs_;
-        ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, ambient_specular_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_, cloud_map_ps_, clouds_ps_, clouds_apply_ps_, clouds_resolve_ps_, clouds_painted_ps_,
+        ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, ambient_specular_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_, cloud_map_ps_, clouds_ps_, cloud_shadows_ps_, clouds_apply_ps_, clouds_resolve_ps_, clouds_painted_ps_,
             tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, character_light_ps_, character_shadow_ps_, character_sun_ps_, grass_capture_ps_, grass_ps_, grass_apply_ps_, character_balance_ps_, character_balance_adapt_ps_, sky_dome_view_ps_, sky_direction_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
             apply_gather_ps_, reflect_apply_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_, dof_soften_ps_, dof_behind_ps_,
             dof_sprite_ps_, dof_lift_ps_, dof_display_in_ps_, dof_display_out_ps_, dof_near_ps_, dof_near_mask_ps_, dof_near_fill_ps_, flare_visibility_ps_, flare_ps_,
@@ -766,6 +769,7 @@ namespace enhancements
         ComPtr<ID3D11Texture3D> cloud_shape_, cloud_detail_;     // 128 and 32 a side, R8_UNORM
         ComPtr<ID3D11ShaderResourceView> cloud_shape_srv_, cloud_detail_srv_, cloud_types_srv_, cloud_volume_srv_;  // cloud_volume_: data/wdas_cloud;     // cloud_types_: core/clouds.h's table
         bool cloud_noise_ready_ = false;
+        bool clouds_drawn_ = false;     // the volume clouds drew into their history since the flare last read it
         ComPtr<ID3D11ShaderResourceView> cloud_pattern_srv_;    // BC7 with its mips, as the pattern's DDS file holds it, for clouds_painted_ps_
         CloudPattern cloud_pattern_ = CloudPattern::noise;      // the one cloud_pattern_srv_ holds
         Scratch cloud_map_;         // kCloudMapSize square, R16_FLOAT: the cloud cells around the camera

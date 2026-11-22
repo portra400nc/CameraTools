@@ -138,7 +138,8 @@ cbuffer Constants : register(b0)
     float cloud_mid_detail;
     float cloud_mid_type;
     float cloud_layers;         // 1 the main layer alone, 2 with the middle one
-    float3 cloud_layers_pad;
+    float flare_clouds;         // 1 while this frame's volume clouds are in their history, which dims the flare's sun
+    float2 cloud_layers_pad;
 };
 
 SamplerState point_clamp : register(s0);

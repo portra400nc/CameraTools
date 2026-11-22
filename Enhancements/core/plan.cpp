@@ -15,6 +15,8 @@ namespace enhancements
         bool contact_shadows_wanted(const Settings &s) { return s.contact_shadows.enabled; }
         bool atmosphere_wanted(const Settings &s) { return s.atmosphere.enabled; }
         bool clouds_wanted(const Settings &s) { return s.clouds.enabled; }
+        // The volume clouds shade the world; the painted patterns, a flat picture of the sky, do not.
+        bool cloud_shadows_wanted(const Settings &s) { return s.clouds.enabled && s.clouds.pattern == CloudPattern::noise; }
         bool rain_wanted(const Settings &s) { return s.rain > 0 || s.lightning > 0; }
         bool sky_wanted(const Settings &s) { return s.sky.enabled; }
         bool traced_lights_wanted(const Settings &s) { return s.traced_lights; }
@@ -43,7 +45,7 @@ namespace enhancements
             && ENHANCEMENTS_PASS_LIGHT_SHAFTS == bit(PassId::light_shafts) && ENHANCEMENTS_PASS_TRACE == bit(PassId::trace)
             && ENHANCEMENTS_PASS_DEPTH_OF_FIELD == bit(PassId::depth_of_field) && ENHANCEMENTS_PASS_LENS_FLARE == bit(PassId::lens_flare)
             && ENHANCEMENTS_PASS_TRACED_LIGHTS == bit(PassId::traced_lights) && ENHANCEMENTS_PASS_CHARACTER_LIGHT == bit(PassId::character_light)
-            && ENHANCEMENTS_PASS_CLOUDS == bit(PassId::clouds) && ENHANCEMENTS_PASS_SKY == bit(PassId::sky) && ENHANCEMENTS_PASS_RAIN == bit(PassId::rain) && ENHANCEMENTS_PASS_TRACED_FOLIAGE == bit(PassId::traced_foliage) && ENHANCEMENTS_PASS_TRANSMISSION == bit(PassId::transmission) && ENHANCEMENTS_PASS_GRASS == bit(PassId::grass) && static_cast<int>(PassId::count) == 18);
+            && ENHANCEMENTS_PASS_CLOUDS == bit(PassId::clouds) && ENHANCEMENTS_PASS_SKY == bit(PassId::sky) && ENHANCEMENTS_PASS_RAIN == bit(PassId::rain) && ENHANCEMENTS_PASS_TRACED_FOLIAGE == bit(PassId::traced_foliage) && ENHANCEMENTS_PASS_TRANSMISSION == bit(PassId::transmission) && ENHANCEMENTS_PASS_GRASS == bit(PassId::grass) && ENHANCEMENTS_PASS_CLOUD_SHADOWS == bit(PassId::cloud_shadows) && static_cast<int>(PassId::count) == 19);
         static_assert(ENHANCEMENTS_TRACE_STATE_FAILED == static_cast<int>(TraceState::failed) && static_cast<int>(TraceState::count) == 6);
         static_assert(ENHANCEMENTS_CURVE_AGX == static_cast<int>(Curve::agx) && ENHANCEMENTS_CURVE_COUNT == static_cast<int>(Curve::count));
         static_assert(ENHANCEMENTS_VIEW_COUNT == static_cast<int>(View::count) && ENHANCEMENTS_VIEW_STENCIL == static_cast<int>(View::stencil)
@@ -163,6 +165,9 @@ namespace enhancements
         { PassId::lens_flare, "lens-flare", Step::bloom, { Entry::depth }, true, SunUse::optional, lens_flare_wanted },
         // bloom-final is optional: a tone map draw without one still gets ours, without bloom.
         { PassId::tonemap, "tonemap", Step::tonemap, { Entry::hdr_scene, Entry::tonemap_out }, false, SunUse::none, tonemap_wanted },
+        // At the combine step after the game's and our shadows, which it lowers further by the clouds overhead, with last
+        // frame's weather map; last in the table so the passes before it keep their places.
+        { PassId::cloud_shadows, "cloud-shadows", Step::combine, { Entry::depth, Entry::shadow_mask }, true, SunUse::none, cloud_shadows_wanted },
     } };
 
     const std::array<const char *, static_cast<size_t>(Curve::count)> kCurveNames = { "game", "agx", "neutral" };

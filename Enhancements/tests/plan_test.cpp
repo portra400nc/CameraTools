@@ -179,11 +179,12 @@ int main()
         FrameTracker tracker;
         fixture::replay(rows, tracker);
         const Plan p = plan(Step::combine, tracker.map(), contact_shadows_on(true), kCamera);
-        check("the combine plan holds the trace and sun shadows, off, then runs contact shadows, then ambient", p.count == 4
+        check("the combine plan holds the trace and sun shadows, off, then runs contact shadows, then ambient, and holds the cloud shadows, off", p.count == 5
             && p.items[0].pass == PassId::trace && p.items[0].kind == Decision::Kind::off
             && p.items[1].pass == PassId::sun_shadows && p.items[1].kind == Decision::Kind::off
             && p.items[2].pass == PassId::contact_shadows && p.items[2].kind == Decision::Kind::run
-            && p.items[3].pass == PassId::ambient && p.items[3].kind == Decision::Kind::run);
+            && p.items[3].pass == PassId::ambient && p.items[3].kind == Decision::Kind::run
+            && p.items[4].pass == PassId::cloud_shadows && p.items[4].kind == Decision::Kind::off);
         const Plan at_tonemap = plan(Step::tonemap, tracker.map(), contact_shadows_on(true), kCamera);
         check("the shadow-mask step has no pass, and the tonemap step only tonemap, off", plan(Step::shadow_mask, tracker.map(), contact_shadows_on(true), kCamera).count == 0
             && at_tonemap.count == 1 && at_tonemap.items[0].pass == PassId::tonemap && at_tonemap.items[0].kind == Decision::Kind::off);
@@ -198,7 +199,7 @@ int main()
         FrameTracker tracker;
         fixture::replay(rows, tracker);
         const Plan p = plan(Step::combine, tracker.map(), sun_shadows_on(true), kCamera);
-        check("the combine plan runs sun shadows first after the trace", p.count == 4 && p.items[0].pass == PassId::trace
+        check("the combine plan runs sun shadows first after the trace", p.count == 5 && p.items[0].pass == PassId::trace
             && p.items[1].pass == PassId::sun_shadows && p.items[1].kind == Decision::Kind::run && p.items[2].pass == PassId::contact_shadows);
     }
     {
@@ -254,8 +255,8 @@ int main()
         const Plan with_lights = plan(Step::bloom, tracker.map(), lit, kCamera);
         check("a traced shot's lights run at the bloom step after the character light", with_lights.items[1].pass == PassId::traced_lights && with_lights.items[1].kind == Decision::Kind::run
             && wanted_steps(lit).has(Step::bloom));
-        check("the combine plan holds the trace, sun shadows, contact shadows and ambient, all off",
-            plan(Step::combine, tracker.map(), atmosphere_on(), kCamera).count == 4
+        check("the combine plan holds the trace, sun shadows, contact shadows, ambient and cloud shadows, all off",
+            plan(Step::combine, tracker.map(), atmosphere_on(), kCamera).count == 5
             && plan(Step::combine, tracker.map(), atmosphere_on(), kCamera).items[0].kind == Decision::Kind::off);
     }
     {

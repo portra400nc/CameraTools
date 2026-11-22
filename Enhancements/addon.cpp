@@ -265,12 +265,14 @@ namespace enhancements
         bool after_dome = false;        // the dome drew the physical sky and no targets were bound since
         bool ambient_physical_said = false;     // the log said the ambient pass took the physical sky's color
 
-        // How overcast the physical sky's clouds make it, 0 to 1: nothing at 60% coverage and below, all of it at 100%.
+        // How overcast the physical sky's clouds make it, 0 to 1: nothing at 60% coverage and below, all of it at 100%, by
+        // the more covering of a layered sky's two volume layers.
         float overcast()
         {
             if (!settings.sky.enabled || !settings.clouds.enabled)
                 return 0;
-            const float t = std::clamp((settings.clouds.coverage - 0.6f) / 0.4f, 0.0f, 1.0f);
+            const float cover = std::max(settings.clouds.coverage, settings.clouds.middle ? settings.clouds.middle->coverage : 0.0f);
+            const float t = std::clamp((cover - 0.6f) / 0.4f, 0.0f, 1.0f);
             return t * t * (3 - 2 * t);
         }
 
@@ -1198,6 +1200,9 @@ namespace enhancements
                         break;
                     case PassId::contact_shadows:
                         call = gpu.run_contact_shadows(map, settings.contact_shadows, camera, settings.flip);
+                        break;
+                    case PassId::cloud_shadows:
+                        call = gpu.run_cloud_shadows(map, settings.clouds, camera, cloud_wind, settings.flip);
                         break;
                     case PassId::wetness:
                         call = gpu.run_wetness(map, settings.wetness, wetness_amount(settings.wetness, camera), camera, settings.flip);
