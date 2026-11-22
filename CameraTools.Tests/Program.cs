@@ -287,10 +287,16 @@ Check("the table holds 115 fields, each at its own id's place, with the master s
         && LayeredSky.SunShare(LayeredSky.Of(LayeredSky.Mixes.First(mix => mix.Name == "Cumulus"), SkyScales.One)) == 1f);
     var from = LayeredSky.Mixes[4];
     var to = LayeredSky.Mixes[9];
-    Check("blending, the first mix's clouds thin away by half way and the next one's grow in after",
+    Check("blending to another type, the first mix's clouds thin away by half way and the next one's grow in after",
         LayeredSky.Between(from, to, 0.2f, SkyScales.One).Low is { Kind: 3 } early && Math.Abs(early.Coverage - from.Low.Value.Coverage * 0.6f) < 1e-6f
         && LayeredSky.Between(from, to, 0.8f, SkyScales.One).Low is { Kind: 1 } late && Math.Abs(late.Coverage - to.Low.Value.Coverage * 0.6f) < 1e-6f
         && LayeredSky.Between(from, to, 0.5f, SkyScales.One).Low?.Coverage == 0f);
+    var few = LayeredSky.Mixes.First(mix => mix.Name == "A few cumulus");
+    var many = LayeredSky.Mixes.First(mix => mix.Name == "Cumulus");
+    Check("blending between two cumulus mixes, the cumulus stay and their coverage goes the share of the way",
+        LayeredSky.Between(few, many, 0.5f, SkyScales.One).Low is { Kind: 3 } middle && Math.Abs(middle.Coverage - (few.Low.Value.Coverage + many.Low.Value.Coverage) / 2f) < 1e-6f);
+    var keptDays = Enumerable.Range(1, 300).Count(day => LayeredSky.Pick(day, 0, null) == LayeredSky.Pick(day - 1, 0, null));
+    Check("about half the days keep the day before's mix", keptDays > 120 && keptDays < 220);
     Check("the depth of field alone draws no clouds",
         EnhancementsModel.Settings(cloudOn.With(Enhancement.Enabled, 0f).With(Enhancement.DepthOfField, 1f), cloudLens with { FreeCamera = true }).Clouds.Enabled == 0);
 }

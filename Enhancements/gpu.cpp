@@ -2328,9 +2328,13 @@ namespace enhancements
         // The march's sample offsets turn by the golden ratio each frame, and the history follows the camera's turn and keeps
         // 90% of what it had, so the offsets' pattern averages away within a few dozen frames. It starts again whenever the
         // clouds' look changed or a frame was missed.
-        const CloudLook look = { settings.coverage, settings.base, settings.thickness, settings.size, settings.stretch, settings.density,
+        // Not the coverage: a layered sky's drifts in steps, and starting the history again at each step left a noisy frame.
+        std::optional<CloudLayer> middle_shape = settings.middle;
+        if (middle_shape)
+            middle_shape->coverage = 0;
+        const CloudLook look = { 0, settings.base, settings.thickness, settings.size, settings.stretch, settings.density,
             settings.detail, settings.sun, settings.ambient, settings.wind_direction, settings.steps, static_cast<uint32_t>(settings.type), static_cast<uint32_t>(constants.cloud_pattern), cloud_history_[0].texture(),
-            settings.middle, settings.cirrus };
+            middle_shape, settings.cirrus };
         const bool continues = cloud_frame_ + 1 == frame && look == cloud_look_;
         constants.cloud_phase = static_cast<float>(std::fmod(static_cast<double>(frame) * 0.6180339887, 1.0));
         // Each frame marches one pixel of every 2x2 block of the half-size history, in turn, at a quarter of the size. While

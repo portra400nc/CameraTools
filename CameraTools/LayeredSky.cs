@@ -27,7 +27,7 @@ namespace CameraTools
     internal static class LayeredSky
     {
         private const int Altocumulus = 0, Stratocumulus = 1, Stratus = 2, Cumulus = 3, Towering = 7, Cumulonimbus = 8;
-        private const float BlendSeconds = 60f;
+        private const float BlendSeconds = 180f;
 
         private static SkyLayer Low(int kind, float coverage) => kind switch
         {
@@ -65,6 +65,17 @@ namespace CameraTools
         // weight from those the weather allows, by a hash of the day and the presses so a day keeps its sky.
         public static int Pick(int day, int rolls, WeatherKind? weather)
         {
+            // Weather keeps: half the days keep the day before's mix, so a run of days can share one, while the weather still
+            // allows it.
+            int from = day;
+            while (from > day - 30 && Hash(from * 977 + rolls * 31 + 3) < 0.5f)
+                from--;
+            int pick = Fresh(from, rolls, weather);
+            return weather is { } w && !Mixes[pick].Weathers.Contains(w) ? Fresh(day, rolls, weather) : pick;
+        }
+
+        private static int Fresh(int day, int rolls, WeatherKind? weather)
+        {
             var allowed = Enumerable.Range(0, Mixes.Length).Where(i => weather is not { } w || Mixes[i].Weathers.Contains(w)).ToArray();
             if (allowed.Length == 0)
                 allowed = Enumerable.Range(0, Mixes.Length).ToArray();
@@ -96,13 +107,23 @@ namespace CameraTools
             return new SkyScales(Scale(1), Scale(2), Scale(3));
         }
 
-        // The look a share t of the way from one mix to the next: the first's clouds thin away over the first half and the
-        // next one's grow in over the second, in fiftieths so the clouds change about every second.
+        // The look a share t of the way from one mix to the next, in hundredths so the clouds change every couple of seconds. A
+        // layer of the same type in both changes its coverage and shape gradually, so its clouds stay and drift on; one of
+        // another type thins away over the first half and the next one grows in over the second.
         public static SkyLook Between(SkyMix from, SkyMix to, float t, SkyScales scales)
         {
-            t = MathF.Round(Math.Clamp(t, 0f, 1f) * 50f) / 50f;
-            var (mix, share) = t < 0.5f ? (from, 1f - 2f * t) : (to, 2f * t - 1f);
-            return new SkyLook(mix.Low?.Scaled(share * scales.Low), mix.Middle?.Scaled(share * scales.Middle), Math.Min(mix.Cirrus * share * scales.Cirrus, 1f));
+            t = MathF.Round(Math.Clamp(t, 0f, 1f) * 100f) / 100f;
+            return new SkyLook(Layer(from.Low, to.Low, t, scales.Low), Layer(from.Middle, to.Middle, t, scales.Middle),
+                Math.Min((from.Cirrus + (to.Cirrus - from.Cirrus) * t) * scales.Cirrus, 1f));
+        }
+
+        private static SkyLayer? Layer(SkyLayer? from, SkyLayer? to, float t, float scale)
+        {
+            float Mix(float a, float b) => a + (b - a) * t;
+            if (from is { } a && to is { } b && a.Kind == b.Kind)
+                return new SkyLayer(a.Kind, Mix(a.Coverage, b.Coverage), Mix(a.Height, b.Height), Mix(a.Thickness, b.Thickness), Mix(a.Size, b.Size),
+                    Mix(a.Density, b.Density)).Scaled(scale);
+            return t < 0.5f ? from?.Scaled((1f - 2f * t) * scale) : to?.Scaled((2f * t - 1f) * scale);
         }
 
         public static SkyLook Of(SkyMix mix, SkyScales scales)

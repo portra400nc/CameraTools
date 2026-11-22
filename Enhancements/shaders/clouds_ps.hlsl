@@ -105,10 +105,13 @@ float cloud_in_cell(int2 at, float2 c, float y, float cell)
         stretch = lerp(0.7, 1.4, frac(r.w * 5.3));
         lift = frac(r.w * 11.9) * 0.4;
     }
-    if (r.x >= chance)
+    // A cloud grows in from small and thin as the coverage passes its cell's draw, and thins away as it falls back, as
+    // clouds form and evaporate: switched whole at the threshold, clouds popped in and out while the coverage drifted.
+    float forming = saturate((chance - r.x) / 0.12);
+    if (forming <= 0)
         return 0;
-    float length = cell * lerp(kind_look.size.x, kind_look.size.y, frac(r.w * 2.9)) * grow;
-    float tall = layer_thickness * lerp(kind_look.height.x, kind_look.height.y, frac(r.w * 7.31)) * lerp(0.6, 1, grow);
+    float length = cell * lerp(kind_look.size.x, kind_look.size.y, frac(r.w * 2.9)) * grow * lerp(0.45, 1, forming);
+    float tall = layer_thickness * lerp(kind_look.height.x, kind_look.height.y, frac(r.w * 7.31)) * lerp(0.6, 1, grow) * lerp(0.5, 1, forming);
     bool packed = kind_look.packed > 0;
     float2 middle = packed || kind_look.anvil > 0 ? at + 0.5 : kind_look.masked > 0 ? at + 0.4 + 0.2 * r.yz : at + 0.35 + 0.3 * r.yz;
     float turn = packed ? (frac(r.w * 13.7) > 0.5 ? 3.1415927 : 0) : frac(r.w * 13.7) * 6.2831853;
@@ -133,7 +136,7 @@ float cloud_in_cell(int2 at, float2 c, float y, float cell)
         float2 bend = float2(shape_noise.SampleLevel(linear_wrap, uvw * 0.5 + seed, 2), shape_noise.SampleLevel(linear_wrap, uvw * 0.5 + seed + 0.37, 2)) - 0.5;
         uvw.xz += bend * 0.25;
     }
-    return all(uvw >= 0) && all(uvw <= 1) ? cloud_volume.SampleLevel(linear_clamp, uvw, volume_lod) : 0;
+    return all(uvw >= 0) && all(uvw <= 1) ? cloud_volume.SampleLevel(linear_clamp, uvw, volume_lod) * forming : 0;
 }
 
 float cloud_volume_at(float2 c, float y)
