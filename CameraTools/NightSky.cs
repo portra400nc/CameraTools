@@ -132,8 +132,10 @@ namespace CameraTools
             }
             Sky = known;
             Watch(sky, towardSun);
-            // Weather's cover lets through only its share of the sun's and the moon's direct light.
-            float cover = WeatherFollow.Sun;
+            // Weather's cover, and a Layered sky's overcast, let through only their share of the sun's and the moon's direct light.
+            var running = EnhancementsControl.RunningValues;
+            bool layered = EnhancementsModel.CloudsRun(running) && (int)running[Enhancement.CloudType] == EnhancementsModel.LayeredClouds;
+            float cover = WeatherFollow.Sun * (layered ? LayeredSky.SunShare(LayeredSky.Current) : 1f);
             Light = CelestialLight.Of(known, new Vec3(world.SunR, world.SunG, world.SunB) * cover, new Vec3(world.MoonR, world.MoonG, world.MoonB) * cover);
             Drive();
             // The game keeps its ambient light up through the night, so the ambient pass takes it at the physical sky's

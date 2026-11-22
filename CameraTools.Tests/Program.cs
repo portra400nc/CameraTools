@@ -282,6 +282,9 @@ Check("the table holds 115 fields, each at its own id's place, with the master s
         scaleDays.All(s => s.Low is >= 0.45f and <= 1.75f && s.Middle is >= 0.45f and <= 1.75f) && scaleDays.Count(s => s.Low != s.Middle) > 45
         && scaleDays.Select(s => s.Low).Distinct().Count() > 30 && LayeredSky.Scales(3.5, 3, 0) == LayeredSky.Scales(3.5, 3, 0)
         && LayeredSky.Scales(3.5, 3, 1) != LayeredSky.Scales(3.5, 3, 0));
+    Check("an overcast lets an eighth of the direct light through, broken cumulus all of it",
+        Math.Abs(LayeredSky.SunShare(LayeredSky.Of(LayeredSky.Mixes.First(mix => mix.Name == "Overcast stratus"), new SkyScales(1.2f, 1f, 1f))) - 0.12f) < 1e-3f
+        && LayeredSky.SunShare(LayeredSky.Of(LayeredSky.Mixes.First(mix => mix.Name == "Cumulus"), SkyScales.One)) == 1f);
     var from = LayeredSky.Mixes[4];
     var to = LayeredSky.Mixes[9];
     Check("blending, the first mix's clouds thin away by half way and the next one's grow in after",

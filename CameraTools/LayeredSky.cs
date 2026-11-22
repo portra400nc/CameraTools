@@ -115,6 +115,16 @@ namespace CameraTools
         public static SkyLook Current { get; private set; }
         public static bool Changed { get; private set; }
 
+        // The share of the sun's and the moon's direct light the look's cover lets through everywhere, as the add-on's overcast
+        // grays the sky: all of it at 60% coverage and below, an eighth under a whole overcast. The clouds' shadows darken
+        // the world where they fall; this dims the characters too, which those shadows do not reach.
+        public static float SunShare(SkyLook look)
+        {
+            float cover = Math.Max(look.Low?.Coverage ?? 0f, look.Middle?.Coverage ?? 0f);
+            float t = Math.Clamp((cover - 0.6f) / 0.4f, 0f, 1f);
+            return 1f - 0.88f * t * t * (3f - 2f * t);
+        }
+
         // Today's sky's name, for its row.
         public static string Name => shown < 0 ? "None yet" : Mixes[shown].Name;
 
