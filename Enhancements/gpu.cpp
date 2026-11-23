@@ -1570,23 +1570,26 @@ namespace enhancements
         const std::optional<Texture> &mask = map[Entry::shadow_mask], &albedo = map[Entry::albedo], &depth = map[Entry::depth];
         ID3D11Device *d = device_.Get();
         const std::optional<Texture> &normals = map[Entry::normals];
-        if (!mask || !albedo || !depth || !normals || !leaves_.sync(d, map.render, DXGI_FORMAT_R8G8B8A8_UNORM)
+        // Without a sun, before sunrise and after sunset, the game draws no shadow mask: the leaves are captured unlit by
+        // the sun (an unbound mask reads 0), and Leaf shading still lights them by the sky.
+        if (!albedo || !depth || !normals || !leaves_.sync(d, map.render, DXGI_FORMAT_R8G8B8A8_UNORM)
             || !leaf_normals_.sync(d, map.render, DXGI_FORMAT_R8G8B8A8_UNORM) || !leaf_light_.sync(d, map.render, DXGI_FORMAT_R16G16B16A16_FLOAT)
             || !map[Entry::ambient_diffuse]
             || !irradiance_in_.sync(d, native(*map[Entry::ambient_diffuse]), static_cast<DXGI_FORMAT>(map[Entry::ambient_diffuse]->format), false)
             || !normals_.sync(d, native(*normals), static_cast<DXGI_FORMAT>(normals->format), false)
-            || !shadow_mask_in_.sync(d, native(*mask), static_cast<DXGI_FORMAT>(mask->format), false)
+            || (mask && !shadow_mask_in_.sync(d, native(*mask), static_cast<DXGI_FORMAT>(mask->format), false))
             || !leaf_albedo_.sync(d, native(*albedo), static_cast<DXGI_FORMAT>(albedo->format), false)
             || !depth_.sync(d, native(*depth), static_cast<DXGI_FORMAT>(depth->format), false))
             return false;
         ID3D11DeviceContext1 *c = context_.Get();
-        shadow_mask_in_.copy_from(c, native(*mask));
+        if (mask)
+            shadow_mask_in_.copy_from(c, native(*mask));
         leaf_albedo_.copy_from(c, native(*albedo));
         depth_.copy_from(c, native(*depth));
         normals_.copy_from(c, native(*normals));
         irradiance_in_.copy_from(c, native(*map[Entry::ambient_diffuse]));
-        ID3D11ShaderResourceView *const srvs[] = { shadow_mask_in_.srv(), normals_.srv(), depth_.srv(), depth_.stencil_srv(), nullptr, leaf_albedo_.srv(),
-            irradiance_in_.srv() };
+        ID3D11ShaderResourceView *const srvs[] = { mask ? shadow_mask_in_.srv() : nullptr, normals_.srv(), depth_.srv(), depth_.stencil_srv(), nullptr,
+            leaf_albedo_.srv(), irradiance_in_.srv() };
         ID3D11RenderTargetView *const targets[] = { leaves_.rtv(), leaf_normals_.rtv(), leaf_light_.rtv() };
         draw_fullscreen(leaf_capture_ps_.Get(), srvs, 7, targets, 3, map.render);
         leaves_fresh_ = true;

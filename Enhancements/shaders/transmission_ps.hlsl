@@ -43,18 +43,20 @@ float4 main(float4 position : SV_Position) : SV_Target0
     float3 color = scene.Load(int3(pixel, 0));
     float4 l = leaf.Load(int3(pixel, 0));
     float d = depth.Load(int3(pixel, 0));
-    if (all(l.rgb <= 0) || d <= 0 || dot(toward_sun, toward_sun) < 0.5)
+    if (all(l.rgb <= 0) || d <= 0)
         return float4(color, 1);
+    // Before sunrise and after sunset the game has no sun: leaves still take the sky's light, and none passes through.
+    bool sun_up = dot(toward_sun, toward_sun) > 0.5;
     float3 albedo = srgb_to_linear(l.rgb);
     float4 nl = leaf_normal.Load(int3(pixel, 0));
     if (leaf_light > 0 && nl.a > 0.5)
     {
         float3 n = normalize(nl.rgb * 2 - 1);
-        float sun = saturate((dot(n, toward_sun) + kWrap) / (1 + kWrap)) * l.a;
+        float sun = sun_up ? saturate((dot(n, toward_sun) + kWrap) / (1 + kWrap)) * l.a : 0;
         float3 lit = leaf_albedo(albedo) * (leaf_light_in.Load(int3(pixel, 0)) + sun_color * sun);
         color = lerp(color, lit, saturate(leaf_light));
     }
-    if (transmission_strength > 0 && l.a > 0)
+    if (transmission_strength > 0 && l.a > 0 && sun_up)
     {
         float2 uv = position.xy * render_size.zw;
         float3 away = normalize(mul(transpose((float3x3)world_to_view), view_position(uv, d)));
