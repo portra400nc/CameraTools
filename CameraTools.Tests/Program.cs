@@ -283,10 +283,11 @@ Check("the table holds 115 fields, each at its own id's place, with the master s
         && LayeredSky.SunShare(LayeredSky.Of(LayeredSky.Mixes.First(mix => mix.Name == "Cumulus"), SkyScales.One)) == 1f);
     var from = LayeredSky.Mixes[4];
     var to = LayeredSky.Mixes[9];
-    Check("blending to another type, the first mix's clouds thin away by half way and the next one's grow in after",
-        LayeredSky.Between(LayeredSky.Of(from, SkyScales.One), LayeredSky.Of(to, SkyScales.One), 0.2f).Low is { Kind: 3 } early && Math.Abs(early.Coverage - from.Low.Value.Coverage * 0.6f) < 1e-6f
-        && LayeredSky.Between(LayeredSky.Of(from, SkyScales.One), LayeredSky.Of(to, SkyScales.One), 0.8f).Low is { Kind: 1 } late && Math.Abs(late.Coverage - to.Low.Value.Coverage * 0.6f) < 1e-6f
-        && LayeredSky.Between(LayeredSky.Of(from, SkyScales.One), LayeredSky.Of(to, SkyScales.One), 0.5f).Low?.Coverage == 0f);
+    var half = LayeredSky.Between(LayeredSky.Of(from, SkyScales.One), LayeredSky.Of(to, SkyScales.One), 0.5f);
+    Check("blending to another type, half way both mixes' clouds show at half their coverage, the coming one in the first layer",
+        half.Low is { Kind: 1 } coming && Math.Abs(coming.Coverage - to.Low.Value.Coverage * 0.5f) < 1e-6f
+        && half.Middle is { Kind: 3 } going && Math.Abs(going.Coverage - from.Low.Value.Coverage * 0.5f) < 1e-6f
+        && LayeredSky.Between(LayeredSky.Of(from, SkyScales.One), LayeredSky.Of(to, SkyScales.One), 1f).Middle == null);
     var few = LayeredSky.Mixes.First(mix => mix.Name == "A few cumulus");
     var many = LayeredSky.Mixes.First(mix => mix.Name == "Cumulus");
     Check("blending between two cumulus mixes, the cumulus stay and their coverage goes the share of the way",

@@ -1,5 +1,6 @@
 // The atmosphere pass: aerial perspective over the HDR scene, before the game's bloom and tone map read it. Writes the
-// whole target, because the result is copied over the game's HDR scene whole; the sky (depth 0) keeps the game's color.
+// whole target, because the result is copied over the game's HDR scene whole. The sky (depth 0) takes the haze along its
+// ray up to kSkyReach: kept clear, it met a thick weather mist on the hills behind at a hard, bright edge.
 // With mist_patchiness the haze near the camera gathers into banks that drift with the wind: the ray is marched through
 // them up to a few banks away, and the rest of it takes the even haze, which the banks match on average.
 #include "gbuffer.hlsli"
@@ -13,6 +14,7 @@ static const float kNoiseSize = 64;         // kNoiseSize in core/plan.h
 static const float3x3 kTurn = { 0.00, 0.80, 0.60, -0.80, 0.36, -0.48, -0.60, -0.48, 0.64 };
 static const uint kSteps = 12;
 static const float kReachBanks = 8;         // banks marched along a ray before the even haze takes over
+static const float kSkyReach = 20000;       // meters of haze in front of the sky
 
 // The integral of exp(-height_falloff * rise * t) dt for t from 0 to distance: the ray's length weighted by the haze's
 // density relative to the camera's height. rise is the ray's upward component per meter.
@@ -44,11 +46,10 @@ float3 main(float4 position : SV_Position) : SV_Target0
 {
     int2 pixel = int2(position.xy);
     float3 color = scene.Load(int3(pixel, 0));
-    if (depth.Load(int3(pixel, 0)) <= 0)
-        return color;
-    float3 p = view_position_at(pixel);
-    float distance = length(p);
-    float3 ray = p / distance;
+    float d = depth.Load(int3(pixel, 0));
+    float3 p = view_position((pixel + 0.5) * render_size.zw, d > 0 ? d : 1e-6);
+    float3 ray = normalize(p);
+    float distance = d > 0 ? length(p) : kSkyReach;
     float3 world_ray = mul(ray, (float3x3)world_to_view);   // world_to_view is orthogonal, so its transpose takes view to world
     float rise = world_ray.y;
     float optical = haze_length(distance, rise);

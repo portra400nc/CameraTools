@@ -108,12 +108,32 @@ namespace CameraTools
         }
 
         // The look a share t of the way from one look to the next, in hundredths so the clouds change every couple of seconds.
-        // A layer of the same type in both changes its coverage and shape gradually, so its clouds stay and drift on; one of
-        // another type thins away over the first half and the next one grows in over the second.
+        // A layer of the same type in both changes its coverage and shape gradually, so its clouds stay and drift on. One of
+        // another type thins away while the next one grows in, both drawn at once while the two volume layers hold them:
+        // thinned one after the other, half way the sky emptied. With more layers than that, the old one thins over the
+        // first half and the next one grows in over the second.
         public static SkyLook Between(SkyLook from, SkyLook to, float t)
         {
             t = MathF.Round(Math.Clamp(t, 0f, 1f) * 100f) / 100f;
-            return new SkyLook(Layer(from.Low, to.Low, t), Layer(from.Middle, to.Middle, t), from.Cirrus + (to.Cirrus - from.Cirrus) * t);
+            float cirrus = from.Cirrus + (to.Cirrus - from.Cirrus) * t;
+            var layers = new List<SkyLayer>();
+            var leaving = new List<SkyLayer>();
+            foreach (var (a, b) in new[] { (from.Low, to.Low), (from.Middle, to.Middle) })
+            {
+                if (a is { } x && b is { } y && x.Kind == y.Kind)
+                    layers.Add(Layer(x, y, t)!.Value);
+                else
+                {
+                    if (b is { } coming && t > 0f)
+                        layers.Add(coming.Scaled(t));
+                    if (a is { } going && t < 1f)
+                        leaving.Add(going.Scaled(1f - t));
+                }
+            }
+            layers.AddRange(leaving);
+            if (layers.Count <= 2)
+                return new SkyLook(layers.Count > 0 ? layers[0] : null, layers.Count > 1 ? layers[1] : null, cirrus);
+            return new SkyLook(Layer(from.Low, to.Low, t), Layer(from.Middle, to.Middle, t), cirrus);
         }
 
         private static SkyLayer? Layer(SkyLayer? from, SkyLayer? to, float t)
