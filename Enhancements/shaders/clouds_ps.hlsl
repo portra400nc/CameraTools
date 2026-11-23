@@ -144,11 +144,17 @@ float cloud_in_cell(int2 at, float2 c, float y, float cell)
 // up: at 2.4, narrow, they stood like cypress trees.
 static const int kWallBases = 6, kWallParts = 12;
 static const float kWallBaseShare = 0.24, kWallBaseStretch = 0.55, kWallSpan = 0.24, kWallTurretShare = 0.18, kWallTallest = 1.7;
-// With bounds, only whether the point lies in the part's cylinder, 1 or 0, without reading the volume.
-float cluster_part(int2 at, int k, float theta, float2 c, float y, float cell, bool bounds)
+// A part's placement: its middle, its length, how far up it starts and how tall it is, and how it is turned and mirrored.
+struct WallPart
 {
-    uint2 a = cloud_hash(at * 13 + k * 7), b = cloud_hash(at + int2(7919, 104729) + k * int2(101, 37));
-    float4 r = float4(a & 0xffffu, b & 0xffffu) / 65535.0;
+    float4 a;   // middle.xy, length, lift
+    float4 b;   // tall, cos(turn), sin(turn), mirror (1 or -1)
+};
+
+WallPart wall_part(int2 at, int k, float theta, float cell)
+{
+    uint2 ha = cloud_hash(at * 13 + k * 7), hb = cloud_hash(at + int2(7919, 104729) + k * int2(101, 37));
+    float4 r = float4(ha & 0xffffu, hb & 0xffffu) / 65535.0;
     bool base = k < kWallBases;
     // Along the wall and across it, as shares of the cell; its share of the cell, its height over its length as the
     // Disney cloud's own 170 to 307 scaled, and how far up it stands, in the base's heights.
@@ -159,18 +165,26 @@ float cluster_part(int2 at, int k, float theta, float2 c, float y, float cell, b
     float share = base ? kWallBaseShare : kWallTurretShare;
     float stretch = base ? kWallBaseStretch : k == kWallBases ? kWallTallest : 1.0 + 0.6 * r.x;
     float base_tall = cell * kWallBaseShare * (170.0 / 307.0) * kWallBaseStretch;
-    float lift = base ? 0 : (0.35 + 0.3 * r.w) * base_tall;
     float length = cell * share * (0.85 + 0.3 * r.w);
-    float tall = length * (170.0 / 307.0) * stretch * (0.9 + 0.2 * frac(r.w * 7.31));
     float2 middle = (at + 0.5) * cell + float2(cos(theta) * along - sin(theta) * across, sin(theta) * along + cos(theta) * across) * cell;
-    float2 d = c - middle;
+    float turn = frac(r.w * 13.7) * 6.2831853;
+    WallPart part;
+    part.a = float4(middle, length, base ? 0 : (0.35 + 0.3 * r.w) * base_tall);
+    part.b = float4(length * (170.0 / 307.0) * stretch * (0.9 + 0.2 * frac(r.w * 7.31)), cos(turn), sin(turn), frac(r.w * 3.1) > 0.5 ? -1 : 1);
+    return part;
+}
+
+// With bounds, only whether the point lies in the part's cylinder, 1 or 0, without reading the volume.
+float cluster_part(WallPart part, float2 c, float y, bool bounds)
+{
+    float2 d = c - part.a.xy;
+    float length = part.a.z, lift = part.a.w, tall = part.b.x;
     // Outside the part's cylinder there is nothing to read; the search's samples ask no more than that.
     bool inside = dot(d, d) < length * length * 0.42 && y - layer_base > lift && y - layer_base < lift + tall;
     if (bounds || !inside)
         return inside ? 1 : 0;
-    float turn = frac(r.w * 13.7) * 6.2831853;
-    float2 local = float2(cos(turn) * d.x + sin(turn) * d.y, cos(turn) * d.y - sin(turn) * d.x);
-    local.x = frac(r.w * 3.1) > 0.5 ? -local.x : local.x;
+    float2 local = float2(part.b.y * d.x + part.b.z * d.y, part.b.y * d.y - part.b.z * d.x);
+    local.x *= part.b.w;
     float3 uvw = float3(local.x / (length * kVolumeVoxels.x / kVolumeVoxels.z) + 0.5, (y - layer_base - lift) / tall, local.y / length + 0.5);
     return all(uvw >= 0) && all(uvw <= 1) ? cloud_volume.SampleLevel(linear_clamp, uvw, volume_lod) : 0;
 }
@@ -208,7 +222,7 @@ float cloud_cluster(float2 c, float y)
     {
         if ((k < kWallBases && above_base) || (k >= kWallBases && below_turrets))
             continue;
-        best = max(best, cluster_part(at, k, theta, c, y, cell, bounds));
+        best = max(best, cluster_part(wall_part(at, k, theta, cell), c, y, bounds));
         if (bounds && best > 0)
             break;
     }
@@ -300,6 +314,8 @@ bool cloud_near(float3 p)
 
 // Optical depth from p toward the light, through six samples from 3% to 150% of a cloud's size along it: the nearest two,
 // with the detail, shade a billow's far side and the hollows between billows; the rest, the cloud's body behind it.
+// Beyond this many meters the light samples thin to three.
+static const float kNearLight = 8000;
 static const float kLightTaps[6] = { 0.03, 0.085, 0.19, 0.38, 0.77, 1.54 };
 // What the taps and the sky's samples are spaced by: a cloud's size, or its layer's thickness when that is smaller, so a
 // flat layer is not stepped through in one tap and shaded in bands.
@@ -308,13 +324,14 @@ static float light_scale = 1000;
 // tap stepping across a cloud's edge jumped the shading, and the jumps lined up into contour bands over the shaded sides;
 // varied, the history averages them into gradients.
 static float light_spread = 1;
-float depth_toward_light(float3 p, float3 l)
+// Far off (far), three of the six samples, all coarse: a cloud kilometers away shows no billow's own shade.
+float depth_toward_light(float3 p, float3 l, bool far)
 {
     float depth = 0, from = 0;
-    [loop] for (int j = 0; j < 6; j++)
+    [loop] for (int j = far ? 1 : 0; j < 6; j += far ? 2 : 1)
     {
         float at = kLightTaps[j] * light_scale * light_spread, h;
-        float sigma = j < 2 ? cloud_extinction(p + l * at, h) : cloud_extinction_coarse(p + l * at);
+        float sigma = j < 2 && !far ? cloud_extinction(p + l * at, h) : cloud_extinction_coarse(p + l * at);
         depth += sigma * (at - from);
         from = at;
     }
@@ -406,7 +423,8 @@ void march_layer(float3 origin, float3 dir, float t0, float t1, float jitter, bo
     float coarse = min(max(t0 * 0.05, least), max(budget, least));
     float t = t0 + jitter * coarse;
     bool inside = false;
-    uint empty = 0;
+    uint empty = 0, lit_samples = 0;
+    float od = 0;
     float found = 0;
     // With the physical sky's air over them, the clouds fade over the far two thirds of the march, which ends at 0.35 of
     // the map: the air takes the far ones into the haze, where the old fade thinned them from the start, and a fade over
@@ -446,7 +464,10 @@ void march_layer(float3 origin, float3 dir, float t0, float t1, float jitter, bo
             continue;
         }
         empty = 0;
-        float od = depth_toward_light(p, l);
+        // The light toward the sun changes slowly along a ray inside a cloud: every other small sample takes the last one's,
+        // which halves the light samples, the march's largest cost.
+        if (lit_samples++ % 2 == 0)
+            od = depth_toward_light(p, l, t > kNearLight);
         float lit = volume_scattered(c, od);
         float3 light = (physical ? physical_sunlight(origin, p) : sun) * lit + sky * sky_reaching(p, h);
         float through = exp(-sigma * step);
