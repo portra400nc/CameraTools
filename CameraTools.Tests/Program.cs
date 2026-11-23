@@ -284,13 +284,38 @@ Check("the table holds 115 fields, each at its own id's place, with the master s
     var from = LayeredSky.Mixes[4];
     var to = LayeredSky.Mixes[9];
     Check("blending to another type, the first mix's clouds thin away by half way and the next one's grow in after",
-        LayeredSky.Between(from, to, 0.2f, SkyScales.One).Low is { Kind: 3 } early && Math.Abs(early.Coverage - from.Low.Value.Coverage * 0.6f) < 1e-6f
-        && LayeredSky.Between(from, to, 0.8f, SkyScales.One).Low is { Kind: 1 } late && Math.Abs(late.Coverage - to.Low.Value.Coverage * 0.6f) < 1e-6f
-        && LayeredSky.Between(from, to, 0.5f, SkyScales.One).Low?.Coverage == 0f);
+        LayeredSky.Between(LayeredSky.Of(from, SkyScales.One), LayeredSky.Of(to, SkyScales.One), 0.2f).Low is { Kind: 3 } early && Math.Abs(early.Coverage - from.Low.Value.Coverage * 0.6f) < 1e-6f
+        && LayeredSky.Between(LayeredSky.Of(from, SkyScales.One), LayeredSky.Of(to, SkyScales.One), 0.8f).Low is { Kind: 1 } late && Math.Abs(late.Coverage - to.Low.Value.Coverage * 0.6f) < 1e-6f
+        && LayeredSky.Between(LayeredSky.Of(from, SkyScales.One), LayeredSky.Of(to, SkyScales.One), 0.5f).Low?.Coverage == 0f);
     var few = LayeredSky.Mixes.First(mix => mix.Name == "A few cumulus");
     var many = LayeredSky.Mixes.First(mix => mix.Name == "Cumulus");
     Check("blending between two cumulus mixes, the cumulus stay and their coverage goes the share of the way",
-        LayeredSky.Between(few, many, 0.5f, SkyScales.One).Low is { Kind: 3 } middle && Math.Abs(middle.Coverage - (few.Low.Value.Coverage + many.Low.Value.Coverage) / 2f) < 1e-6f);
+        LayeredSky.Between(LayeredSky.Of(few, SkyScales.One), LayeredSky.Of(many, SkyScales.One), 0.5f).Low is { Kind: 3 } middle && Math.Abs(middle.Coverage - (few.Low.Value.Coverage + many.Low.Value.Coverage) / 2f) < 1e-6f);
+    LayeredSky.Update(5.5, null, 0.016f);
+    var rolledFrom = LayeredSky.Name;
+    int newSkies = 0, matched = 0;
+    for (int press = 0; press < 20; press++)
+    {
+        LayeredSky.Roll();
+        LayeredSky.Update(5.5, null, 0.016f);
+        var shownMix = LayeredSky.Mixes.First(mix => mix.Name == LayeredSky.Name);
+        newSkies += LayeredSky.Name != rolledFrom ? 1 : 0;
+        matched += LayeredSky.Current.Low?.Kind == shownMix.Low?.Kind && LayeredSky.Current.Middle?.Kind == shownMix.Middle?.Kind
+            && (LayeredSky.Current.Cirrus > 0) == (shownMix.Cirrus > 0) ? 1 : 0;
+        rolledFrom = LayeredSky.Name;
+    }
+    Check("New sky shows the mix its row names in the same frame, every press, and a different one on most presses", matched == 20 && newSkies >= 14);
+    int change = Enumerable.Range(10, 200).First(d => LayeredSky.Pick(d, 20, null) != LayeredSky.Pick(d + 1, 20, null)
+        && LayeredSky.Mixes[LayeredSky.Pick(d + 1, 20, null)].Low != null);
+    LayeredSky.Update(change + 0.999, null, 0.016f);
+    var lastNight = LayeredSky.Current;
+    LayeredSky.Update(change + 1.001, null, 1f);
+    var dawnTarget = LayeredSky.Of(LayeredSky.Mixes[LayeredSky.Pick(change + 1, 20, null)], LayeredSky.Scales(change + 1.001, change + 1, 20));
+    var firstSecond = LayeredSky.Current;
+    for (int second = 0; second < 200; second++)
+        LayeredSky.Update(change + 1.001, null, 1f);
+    Check("a new day's mix blends in over minutes from the sky shown, and is shown whole after",
+        firstSecond != dawnTarget && firstSecond != lastNight && LayeredSky.Current == dawnTarget);
     var keptDays = Enumerable.Range(1, 300).Count(day => LayeredSky.Pick(day, 0, null) == LayeredSky.Pick(day - 1, 0, null));
     Check("about half the days keep the day before's mix", keptDays > 120 && keptDays < 220);
     Check("the depth of field alone draws no clouds",

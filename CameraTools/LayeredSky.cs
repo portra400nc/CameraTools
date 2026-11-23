@@ -22,8 +22,9 @@ namespace CameraTools
     // What the sky shows now: a mix's layers, scaled while one blends into another.
     internal readonly record struct SkyLook(SkyLayer? Low, SkyLayer? Middle, float Cirrus);
 
-    // Clouds' Layered type: a mix of low and middle clouds and cirrus rolled each game day, blending in over a minute, its
-    // coverage drifting through the day, and with Weather on only mixes the game's weather allows.
+    // Clouds' Layered type: a mix of low and middle clouds and cirrus rolled each game day, blending in over three minutes,
+    // or at once for New sky, its coverage drifting through the day, and with Weather on only mixes the game's weather
+    // allows.
     internal static class LayeredSky
     {
         private const int Altocumulus = 0, Stratocumulus = 1, Stratus = 2, Cumulus = 3, Towering = 7;
@@ -106,29 +107,30 @@ namespace CameraTools
             return new SkyScales(Scale(1), Scale(2), Scale(3));
         }
 
-        // The look a share t of the way from one mix to the next, in hundredths so the clouds change every couple of seconds. A
-        // layer of the same type in both changes its coverage and shape gradually, so its clouds stay and drift on; one of
+        // The look a share t of the way from one look to the next, in hundredths so the clouds change every couple of seconds.
+        // A layer of the same type in both changes its coverage and shape gradually, so its clouds stay and drift on; one of
         // another type thins away over the first half and the next one grows in over the second.
-        public static SkyLook Between(SkyMix from, SkyMix to, float t, SkyScales scales)
+        public static SkyLook Between(SkyLook from, SkyLook to, float t)
         {
             t = MathF.Round(Math.Clamp(t, 0f, 1f) * 100f) / 100f;
-            return new SkyLook(Layer(from.Low, to.Low, t, scales.Low), Layer(from.Middle, to.Middle, t, scales.Middle),
-                Math.Min((from.Cirrus + (to.Cirrus - from.Cirrus) * t) * scales.Cirrus, 1f));
+            return new SkyLook(Layer(from.Low, to.Low, t), Layer(from.Middle, to.Middle, t), from.Cirrus + (to.Cirrus - from.Cirrus) * t);
         }
 
-        private static SkyLayer? Layer(SkyLayer? from, SkyLayer? to, float t, float scale)
+        private static SkyLayer? Layer(SkyLayer? from, SkyLayer? to, float t)
         {
             float Mix(float a, float b) => a + (b - a) * t;
             if (from is { } a && to is { } b && a.Kind == b.Kind)
                 return new SkyLayer(a.Kind, Mix(a.Coverage, b.Coverage), Mix(a.Height, b.Height), Mix(a.Thickness, b.Thickness), Mix(a.Size, b.Size),
-                    Mix(a.Density, b.Density)).Scaled(scale);
-            return t < 0.5f ? from?.Scaled((1f - 2f * t) * scale) : to?.Scaled((2f * t - 1f) * scale);
+                    Mix(a.Density, b.Density));
+            return t < 0.5f ? from?.Scaled(1f - 2f * t) : to?.Scaled(2f * t - 1f);
         }
 
         public static SkyLook Of(SkyMix mix, SkyScales scales)
             => new(mix.Low?.Scaled(scales.Low), mix.Middle?.Scaled(scales.Middle), Math.Min(mix.Cirrus * scales.Cirrus, 1f));
 
-        private static int rolls, day = -1, shown = -1, from = -1;
+        // The mix shown or blending in, the look the blend started from, and how far it has come.
+        private static int rolls, shown = -1;
+        private static SkyLook from;
         private static float share = 1f;
 
         // The look the Layered type shows now, and whether it changed this frame.
@@ -148,32 +150,34 @@ namespace CameraTools
         // Today's sky's name, for its row.
         public static string Name => shown < 0 ? "None yet" : Mixes[shown].Name;
 
-        // New sky: another mix now.
+        // New sky: another mix, shown at once.
         public static void Roll() => rolls++;
+        private static int rollsShown;
 
         // Once a frame while the Layered type runs: days is the sky's day count (NightSky.Days), weather the game's while
-        // Weather runs, seconds the frame's.
+        // Weather runs, seconds the frame's. A new day's mix, or the weather's, blends in from what the sky shows now; New
+        // sky's replaces it at once, as the button promises, where a three-minute blend showed the old clouds and, half way,
+        // an empty sky under the new name.
         public static void Update(double days, WeatherKind? weather, float seconds)
         {
             var before = Current;
             int today = (int)Math.Floor(days);
             int pick = Pick(today, rolls, weather);
-            if (shown < 0)
-            {
-                shown = pick;
+            var scales = Scales(days, today, rolls);
+            bool rolled = rolls != rollsShown;
+            rollsShown = rolls;
+            if (shown < 0 || rolled)
                 share = 1f;
-            }
             else if (pick != shown)
             {
-                from = shown;
-                shown = pick;
+                from = Current;
                 share = 0f;
             }
-            day = today;
+            shown = pick;
             if (share < 1f)
                 share = Math.Min(share + seconds / BlendSeconds, 1f);
-            var scales = Scales(days, day, rolls);
-            Current = share < 1f && from >= 0 ? Between(Mixes[from], Mixes[shown], share, scales) : Of(Mixes[shown], scales);
+            var target = Of(Mixes[shown], scales);
+            Current = share < 1f ? Between(from, target, share) : target;
             Changed = Current != before;
         }
 
