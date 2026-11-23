@@ -269,9 +269,9 @@ Check("the table holds 115 fields, each at its own id's place, with the master s
         && clearSky.Clouds.Enabled == 0 && cirrusOnly.CloudPattern.Pattern == EnhancementsCloudPatternKind.Streaks && cirrusOnly.Clouds.Coverage == 0.6f && cirrusOnly.CloudLayers.Middle == 0);
     var rainy = Enumerable.Range(0, 200).Select(day => LayeredSky.Mixes[LayeredSky.Pick(day, 0, WeatherKind.Rain)].Name).Distinct().OrderBy(name => name).ToArray();
     var anyDay = Enumerable.Range(0, 400).Select(day => LayeredSky.Pick(day, 0, null)).ToArray();
-    Check("a day keeps its mix, New sky rolls another, rain rolls only stratus or building towers, and clear or nearly clear skies come up often without weather",
+    Check("a day keeps its mix, New sky rolls another, rain rolls only the overcast, and clear or nearly clear skies come up often without weather",
         LayeredSky.Pick(12, 0, null) == LayeredSky.Pick(12, 0, null) && Enumerable.Range(0, 20).Any(roll => LayeredSky.Pick(12, roll, null) != LayeredSky.Pick(12, 0, null))
-        && string.Join(",", rainy) == "Overcast stratus,Towering cumulus building"
+        && string.Join(",", rainy) == "Overcast stratus"
         && anyDay.Count(i => i < 4) > 400 / 5 && anyDay.Distinct().Count() == LayeredSky.Mixes.Length);
     var scaleDays = Enumerable.Range(0, 50).Select(day => LayeredSky.Scales(day + 0.5, day, 0)).ToArray();
     Check("each layer's coverage is its own random 0.45 to 1.75 times the mix's each day, a day keeps it, and New sky rolls it again",
@@ -317,6 +317,8 @@ Check("the table holds 115 fields, each at its own id's place, with the master s
         LayeredSky.Update(change + 1.001, null, 1f);
     Check("a new day's mix blends in over minutes from the sky shown, and is shown whole after",
         firstSecond != dawnTarget && firstSecond != lastNight && LayeredSky.Current == dawnTarget);
+    var overcast = LayeredSky.Mixes.First(mix => mix.Name == "Overcast stratus");
+    Check("the overcast keeps its whole coverage whatever the day's scale", LayeredSky.Of(overcast, new SkyScales(0.5f, 0.5f, 0.5f)).Low?.Coverage == 0.95f);
     var keptDays = Enumerable.Range(1, 300).Count(day => LayeredSky.Pick(day, 0, null) == LayeredSky.Pick(day - 1, 0, null));
     Check("about half the days keep the day before's mix", keptDays > 120 && keptDays < 220);
     Check("the depth of field alone draws no clouds",

@@ -17,7 +17,11 @@ namespace CameraTools
 
     // A mix the Layered type rolls: its low and middle layers, either missing, the painted cirrus's coverage, how often it
     // comes up, and the game's weathers it can come up in while Weather runs.
-    internal sealed record SkyMix(string Name, SkyLayer? Low, SkyLayer? Middle, float Cirrus, float Weight, params WeatherKind[] Weathers);
+    internal sealed record SkyMix(string Name, SkyLayer? Low, SkyLayer? Middle, float Cirrus, float Weight, params WeatherKind[] Weathers)
+    {
+        // An overcast's low layer covers the whole sky every day: the day's random coverage and its drift do not thin it.
+        public bool Whole { get; init; }
+    }
 
     // What the sky shows now: a mix's layers, scaled while one blends into another.
     internal readonly record struct SkyLook(SkyLayer? Low, SkyLayer? Middle, float Cirrus);
@@ -57,8 +61,9 @@ namespace CameraTools
             new("Towering cumulus", Low(Towering, 0.35f), null, 0.3f, 1f, Sunny),
             new("Towering cumulus under altocumulus", Low(Towering, 0.3f), Middle(0.5f), 0f, 0.8f, Sunny, Cloudy),
             new("Stratocumulus", Low(Stratocumulus, 0.75f), null, 0f, 1f, Cloudy, Snow),
-            new("Overcast stratus", Low(Stratus, 0.9f), null, 0f, 0.6f, Cloudy, Rain, Snow, Mist),
-            new("Towering cumulus building", Low(Towering, 0.45f), Middle(0.5f), 0f, 0.5f, Rain, Storm),
+            // Rain and thunderstorms fall from a whole gray overcast: under white towers, rain read as a sunny day's.
+            new("Overcast stratus", Low(Stratus, 0.95f), null, 0f, 0.6f, Cloudy, Rain, Storm, Snow, Mist) { Whole = true },
+            new("Towering cumulus building", Low(Towering, 0.45f), Middle(0.5f), 0f, 0.5f, Cloudy),
         };
 
         // The mix for a game day, the times New sky was pressed, and the game's weather (null with Weather off): drawn by
@@ -146,7 +151,7 @@ namespace CameraTools
         }
 
         public static SkyLook Of(SkyMix mix, SkyScales scales)
-            => new(mix.Low?.Scaled(scales.Low), mix.Middle?.Scaled(scales.Middle), Math.Min(mix.Cirrus * scales.Cirrus, 1f));
+            => new(mix.Low?.Scaled(mix.Whole ? 1f : scales.Low), mix.Middle?.Scaled(scales.Middle), Math.Min(mix.Cirrus * scales.Cirrus, 1f));
 
         // The mix shown or blending in, the look the blend started from, and how far it has come.
         private static int rolls, shown = -1;
