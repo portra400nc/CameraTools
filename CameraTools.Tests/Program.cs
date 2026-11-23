@@ -977,9 +977,13 @@ Check("a choice's entry holds its option's label", Field(Enhancement.LightShaftQ
 }
 
 // The long exposure.
-Check("the shutters run 1/8 s to 120 s", Exposure.ShutterLabels.First() == "1/8 s" && Exposure.ShutterLabels.Last() == "120 s");
-Check("a saved shutter time rounds to the nearest full stop: 7 s to 8 s, 0.1 s to 1/8 s, 500 s to 120 s",
-    Exposure.Shutters[Exposure.NearestShutter(7f)] == 8f && Exposure.NearestShutter(0.1f) == 0 && Exposure.Shutters[Exposure.NearestShutter(500f)] == 120f);
+Check("the shutters run 1/250 s to 1/8 s in half stops, then to 120 s in full stops",
+    Exposure.ShutterLabels.SequenceEqual(new[] { "1/250 s", "1/180 s", "1/125 s", "1/90 s", "1/60 s", "1/45 s", "1/30 s", "1/20 s", "1/15 s", "1/10 s",
+        "1/8 s", "1/4 s", "1/2 s", "1 s", "2 s", "4 s", "8 s", "15 s", "30 s", "60 s", "120 s" }));
+Check("a saved shutter time rounds to the nearest stop: 7 s to 8 s, 0.1 s to 1/10 s, 0.004 s to 1/250 s, 0.0001 s to 1/250 s, 500 s to 120 s",
+    Exposure.ShutterLabels[Exposure.NearestShutter(7f)] == "8 s" && Exposure.ShutterLabels[Exposure.NearestShutter(0.1f)] == "1/10 s"
+    && Exposure.ShutterLabels[Exposure.NearestShutter(0.004f)] == "1/250 s" && Exposure.NearestShutter(0.0001f) == 0
+    && Exposure.ShutterLabels[Exposure.NearestShutter(500f)] == "120 s");
 // A replay's timeline, which character is on the field, and the Replays tab's words.
 {
     var timeline = new Timeline<string>();

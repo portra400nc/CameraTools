@@ -68,7 +68,7 @@ namespace CameraTools
             enabled = category.CreateEntry("LongExposure", false,
                 description: "Take screenshot records for the shutter time, through CameraTools and CameraToolsEnhancements.addon64. The ReShade tab's switch changes it.");
             shutter = category.CreateEntry("LongExposureShutter", 8f,
-                description: "The long exposure's shutter time in seconds, rounded to the nearest of 1/8 s to 120 s in full stops.");
+                description: "The long exposure's shutter time in seconds, rounded to the nearest stop from 1/250 s to 120 s: half stops up to 1/8 s, full stops from then.");
             iso = category.CreateEntry("LongExposureIso", 100,
                 description: "The long exposure's ISO: 100, 200, 400, 800 or 1600. 100 keeps the game's brightness.");
             smoothness = category.CreateEntry("LongExposureSmoothness", 240,

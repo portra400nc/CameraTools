@@ -103,7 +103,7 @@ Long exposure makes Take screenshot record for a while, as a camera on a tripod 
 | Row | What it does |
 |--|--|
 | Long exposure | Makes Take screenshot record for the shutter time. Off, Take screenshot takes a normal shot. |
-| Shutter speed | How long the picture records, from 1/8 s to 120 s in full stops |
+| Shutter speed | How long the picture records, from 1/250 s to 120 s: half stops up to 1/8 s, full stops from then |
 | ISO | 100 keeps the game's brightness. Each step doubles it. |
 | Smoothness | How many game frames each second of shutter time is made of: 60, 120, 240 or 480. More frames make smoother trails and take longer. |
 
@@ -161,7 +161,7 @@ The `[CameraToolsReShade]` section of `MelonPreferences.cfg` holds:
 | `DepthOfFieldShader` | `CameraTools` | The depth of field the rows drive: `CameraTools`, `MartysMods_DEPTHOFFIELD.fx` or `CinematicDOF.fx`. The Shader row changes it. |
 | `MiniatureScale` | `1` | The Miniature scale row's N: 1 (off), 10, 25, 50, 100, 200 or 500. CameraTools' depth of field and Cinematic DOF share it. |
 | `LongExposure` | `false` | Take screenshot records for the shutter time. The ReShade tab's switch changes it. |
-| `LongExposureShutter` | `8` | The shutter time in seconds, rounded to the nearest full stop from 1/8 s to 120 s |
+| `LongExposureShutter` | `8` | The shutter time in seconds, rounded to the nearest stop from 1/250 s to 120 s: half stops up to 1/8 s, full stops from then |
 | `LongExposureIso` | `100` | 100, 200, 400, 800 or 1600 |
 | `LongExposureSmoothness` | `240` | Game frames for each second of shutter time: 60, 120, 240 or 480 |
 | `LongExposureFramesPerSecond` | `0` | Frames the last long exposure added each real second, for the time estimate. CameraTools sets it. |
