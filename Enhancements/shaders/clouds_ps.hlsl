@@ -54,7 +54,7 @@ static const CloudKind kKinds[5] =
     { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.15, 0, float2(0.55, 0.75), float2(0.15, 0.45), 0, 0, 1, 1 },  // stratocumulus
     { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.1, 1, float2(0.98, 0.98), float2(0.6, 1), 1, 0, 6, 0 },      // stratus
     { 0.6, float2(1.5, 1.5), 0.4, 0.6, 0.15, 0.25, 1, float2(0.4, 0.45), float2(0.55, 0.8), 0, 0.6, 6, 0 },  // cumulonimbus
-    { 0.6, float2(1.5, 1.5), 0.3, 1.0, 0.1, 0.25, 1, float2(0.4, 0.55), float2(0.45, 1), 0, 0, 6, 0 },        // towering cumulus
+    { 0.6, float2(1.5, 1.5), 0.3, 1.0, 0.1, 0.25, 3, float2(0.4, 0.55), float2(0.45, 1), 0, 0, 6, 0 },        // towering cumulus: a cluster (3)
 };
 static CloudKind kind_look;  // this type's, set by main
 
@@ -139,9 +139,87 @@ float cloud_in_cell(int2 at, float2 c, float y, float cell)
     return all(uvw >= 0) && all(uvw <= 1) ? cloud_volume.SampleLevel(linear_clamp, uvw, volume_lod) * forming : 0;
 }
 
+// One cloud of a towering cumulus's wall (cloud_cluster): k 0 to 5 a broad, flat row of base clouds along the cell's
+// direction, 6 to 11 turrets rising from it along its length, 6 the tallest. The turrets stretch at most 1.7 times
+// up: at 2.4, narrow, they stood like cypress trees.
+static const int kWallBases = 6, kWallParts = 12;
+static const float kWallBaseShare = 0.24, kWallBaseStretch = 0.55, kWallSpan = 0.24, kWallTurretShare = 0.18, kWallTallest = 1.7;
+// With bounds, only whether the point lies in the part's cylinder, 1 or 0, without reading the volume.
+float cluster_part(int2 at, int k, float theta, float2 c, float y, float cell, bool bounds)
+{
+    uint2 a = cloud_hash(at * 13 + k * 7), b = cloud_hash(at + int2(7919, 104729) + k * int2(101, 37));
+    float4 r = float4(a & 0xffffu, b & 0xffffu) / 65535.0;
+    bool base = k < kWallBases;
+    // Along the wall and across it, as shares of the cell; its share of the cell, its height over its length as the
+    // Disney cloud's own 170 to 307 scaled, and how far up it stands, in the base's heights.
+    float slot = base ? float(k) / float(kWallBases - 1) : float(k - kWallBases) / float(kWallParts - kWallBases - 1);
+    float span = base ? kWallSpan : kWallSpan * 0.85;
+    float along = -span + 2 * span * slot + (r.y - 0.5) * (base ? 0.04 : 0.08);
+    float across = (r.z - 0.5) * (base ? 0.12 : 0.07);
+    float share = base ? kWallBaseShare : kWallTurretShare;
+    float stretch = base ? kWallBaseStretch : k == kWallBases ? kWallTallest : 1.0 + 0.6 * r.x;
+    float base_tall = cell * kWallBaseShare * (170.0 / 307.0) * kWallBaseStretch;
+    float lift = base ? 0 : (0.35 + 0.3 * r.w) * base_tall;
+    float length = cell * share * (0.85 + 0.3 * r.w);
+    float tall = length * (170.0 / 307.0) * stretch * (0.9 + 0.2 * frac(r.w * 7.31));
+    float2 middle = (at + 0.5) * cell + float2(cos(theta) * along - sin(theta) * across, sin(theta) * along + cos(theta) * across) * cell;
+    float2 d = c - middle;
+    // Outside the part's cylinder there is nothing to read; the search's samples ask no more than that.
+    bool inside = dot(d, d) < length * length * 0.42 && y - layer_base > lift && y - layer_base < lift + tall;
+    if (bounds || !inside)
+        return inside ? 1 : 0;
+    float turn = frac(r.w * 13.7) * 6.2831853;
+    float2 local = float2(cos(turn) * d.x + sin(turn) * d.y, cos(turn) * d.y - sin(turn) * d.x);
+    local.x = frac(r.w * 3.1) > 0.5 ? -local.x : local.x;
+    float3 uvw = float3(local.x / (length * kVolumeVoxels.x / kVolumeVoxels.z) + 0.5, (y - layer_base - lift) / tall, local.y / length + 0.5);
+    return all(uvw >= 0) && all(uvw <= 1) ? cloud_volume.SampleLevel(linear_clamp, uvw, volume_lod) : 0;
+}
+
+// The towering cumulus: a long wall of Disney's cumulus a tower, merged into one mass as real ones build, in as many cells
+// of a grid as Coverage asks: a broad, flat base of six along a random direction and six turrets rising along it. One
+// stretched cloud a tower read as a slab, a round cluster as a lone heap, and a narrow base as turrets on stilts
+// (.work/clouds/sim cluster2.png, wall1-3.png); the wall reaches 0.5 of a cell from its middle, so the cell's lookup
+// holds it.
+float cloud_cluster(float2 c, float y)
+{
+    float cell = layer_size * kind_look.cell;
+    int2 at = int2(floor(c / cell));
+    uint h = cloud_hash(at).x;
+    float r = (h & 0xffffu) / 65535.0;
+    float forming = saturate((layer_coverage - r) / 0.12);
+    if (forming <= 0)
+        return 0;
+    // Outside the wall's reach, or above its tallest turret, there is nothing to read: each read a sample costs. The
+    // search's samples, which only ask whether a cloud may be near, take the bounds alone.
+    float reach = length(c - (at + 0.5) * cell) / cell;
+    float base_tall = cell * kWallBaseShare * (170.0 / 307.0) * kWallBaseStretch;
+    float top = base_tall * 0.65 + cell * kWallTurretShare * 1.15 * (170.0 / 307.0) * kWallTallest * 1.1;
+    float up = y - layer_base;
+    if (reach > 0.5 || up > top)
+        return 0;
+    float theta = ((h >> 16) & 0xffffu) / 65535.0 * 6.2831853;
+    // The search's samples ask only whether a cloud may be near: inside one part's cylinder, which costs no reads. The
+    // wall's whole outline, mostly air around the turrets, made rays spend their samples stepping back and forth in it
+    // and never reach the turrets.
+    bool bounds = volume_lod >= 3;
+    float best = 0;
+    bool above_base = up > base_tall * 1.1, below_turrets = up < base_tall * 0.35;
+    [loop] for (int k = 0; k < kWallParts; k++)
+    {
+        if ((k < kWallBases && above_base) || (k >= kWallBases && below_turrets))
+            continue;
+        best = max(best, cluster_part(at, k, theta, c, y, cell, bounds));
+        if (bounds && best > 0)
+            break;
+    }
+    return best * forming;
+}
+
 float cloud_volume_at(float2 c, float y)
 {
     float cell = layer_size * kind_look.cell;
+    if (kind_look.volume == 3)
+        return cloud_cluster(c, y);
     if (kind_look.masked == 0)
         return cloud_in_cell(int2(floor(c / cell)), c, y, cell);
     // Masked cloudlets on a plain grid stood in rows like a lattice: their grid is bent by broad noise first. They are up
@@ -316,7 +394,9 @@ void march_layer(float3 origin, float3 dir, float t0, float t1, float jitter, bo
     // step is a twentieth of the distance, at least a fifth of a cloud and at most an even share of the slab: one that
     // spanned whole clouds near the camera found or missed their edges by the pixel's offset, which drew stripes.
     float budget = (t1 - t0) / (cloud_steps * 0.5);
-    float fine = clamp(budget * 0.12, 10, 60);
+    // Small steps of at most 60 m, or a twentieth of a cloud for big ones: a towering cumulus's long flat base, 3 km clouds,
+    // took every sample of rays that grazed it at 60 m, and the turrets behind it never drew.
+    float fine = clamp(budget * 0.12, 10, max(60, layer_size * 0.05));
     detail_weight = saturate(3 * layer_size * kind_look.detail_tile / 32 / fine);
     float3 l = cloud_toward_sun;
     float c = dot(dir, l);
@@ -360,7 +440,9 @@ void march_layer(float3 origin, float3 dir, float t0, float t1, float jitter, bo
             // for some pixels' offsets, which left dark specks.
             if (++empty > 8 && t > found)
                 inside = false;
-            t += step;
+            // Through empty air the small steps grow, up to a large step: a ray through the towering cumulus's bounding
+            // cylinders, mostly air, crawled through each at small steps and ran out of samples before the turrets.
+            t += min(step * (1 + 0.5 * empty), max(coarse, step));
             continue;
         }
         empty = 0;

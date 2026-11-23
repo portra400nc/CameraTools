@@ -199,8 +199,7 @@ namespace CameraTools
             new("High patches", 45f, 4500f, 400f, 200f, 0.03f, 0.9f, 2.5f, EnhancementsCloudType.Stratocumulus, EnhancementsCloudPatternKind.Patches, EnhancementsCloudPatternKind.Patches),
             new("Cirrus", 55f, 8000f, 300f, 800f, 0.002f, 1f, 3f, EnhancementsCloudType.Stratus, EnhancementsCloudPatternKind.Streaks, EnhancementsCloudPatternKind.Streaks),
             new("Layered", 50f, 2000f, 1500f, 400f, 0.1f, 0.8f, 1f, EnhancementsCloudType.Cumulus, EnhancementsCloudPatternKind.Noise, EnhancementsCloudPatternKind.Heaps),
-            new("Towering cumulus", 40f, 2000f, 7000f, 1300f, 0.1f, 0.8f, 1f, EnhancementsCloudType.Towering, EnhancementsCloudPatternKind.Noise, EnhancementsCloudPatternKind.Heaps),
-            new("Cumulonimbus", 20f, 1800f, 9000f, 1500f, 0.1f, 0.8f, 1f, EnhancementsCloudType.Cumulonimbus, EnhancementsCloudPatternKind.Noise, EnhancementsCloudPatternKind.Heaps),
+            new("Towering cumulus", 40f, 2000f, 9000f, 3000f, 0.1f, 0.8f, 1f, EnhancementsCloudType.Towering, EnhancementsCloudPatternKind.Noise, EnhancementsCloudPatternKind.Heaps),
         };
         // Type's values: a kind's index, but Custom, the user's own shape, keeps value 6 where presets saved it, and the kinds
         // from Layered on follow it.
@@ -210,7 +209,7 @@ namespace CameraTools
         // Type's options by value, and the row's order of values: Layered first, Custom last.
         private static readonly string[] CloudTypeOptions = CloudKinds.Take(CustomClouds).Select(kind => kind.Name).Append("Custom")
             .Concat(CloudKinds.Skip(CustomClouds).Select(kind => kind.Name)).ToArray();
-        public static readonly int[] CloudTypeOrder = { LayeredClouds, 0, 1, 2, 3, 8, 9, 4, 5, CustomClouds };
+        public static readonly int[] CloudTypeOrder = { LayeredClouds, 0, 1, 2, 3, 8, 4, 5, CustomClouds };
         // The rows a Type sets, and that make it Custom when moved.
         private static readonly Enhancement[] CloudShapeRows =
         {
@@ -312,7 +311,7 @@ namespace CameraTools
             Slider(Enhancement.CloudCoverage, Enhancement.Clouds, "Coverage", 0f, 100f, CloudKinds[0].Coverage, 5f, 0, "%"),
             Slider(Enhancement.CloudHeight, Enhancement.Clouds, "Height", 500f, 10000f, CloudKinds[0].Height, 100f, 0, " m"),
             Slider(Enhancement.CloudThickness, Enhancement.Clouds, "Thickness", 100f, 10000f, CloudKinds[0].Thickness, 50f, 0, " m"),
-            Slider(Enhancement.CloudSize, Enhancement.Clouds, "Cloud size", 100f, 2000f, CloudKinds[0].Size, 10f, 0, " m"),
+            Slider(Enhancement.CloudSize, Enhancement.Clouds, "Cloud size", 100f, 3000f, CloudKinds[0].Size, 10f, 0, " m"),
             Slider(Enhancement.CloudDensity, Enhancement.Clouds, "Density", 0.002f, 0.15f, CloudKinds[0].Density, 0.002f, 3),
             Slider(Enhancement.CloudEdgeDetail, Enhancement.Clouds, "Edge detail", 0f, 1f, CloudKinds[0].EdgeDetail, 0.05f, 2),
             Slider(Enhancement.CloudSunlight, Enhancement.Clouds, "Sunlight", 0f, 8f, 1f, 0.05f, 2),
@@ -542,17 +541,16 @@ namespace CameraTools
         public static bool ProbePaintedClouds { get; set; }
 
         // For the probe only while the volume clouds' types are tuned: one type's clouds at its own heights, size, density and
-        // coverage, whatever Type and Weather chose. The towering cumulus and the cumulonimbus have no Type preset yet.
+        // coverage, whatever Type and Weather chose.
         public readonly record struct ProbeCloudKind(string Name, EnhancementsCloudType Type, float Base, float Thickness, float Size, float Density,
             float Coverage);
 
         public static readonly ProbeCloudKind[] ProbeCloudKinds =
         {
-            new("towering cumulus", EnhancementsCloudType.Towering, 2000f, 7000f, 1300f, 0.3f, 0.4f),
+            new("towering cumulus", EnhancementsCloudType.Towering, 2000f, 9000f, 3000f, 0.3f, 0.4f),
             new("cumulus", EnhancementsCloudType.Cumulus, 2000f, 1500f, 400f, 0.04f, 0.5f),
             new("altocumulus", EnhancementsCloudType.Stratocumulus, 3000f, 700f, 500f, 0.04f, 0.75f),
             new("stratus", EnhancementsCloudType.Stratus, 1300f, 400f, 1000f, 0.08f, 0.88f),
-            new("cumulonimbus", EnhancementsCloudType.Cumulonimbus, 1800f, 9000f, 1500f, 0.08f, 0.2f),
             new("layered: cumulus under altocumulus and cirrus", EnhancementsCloudType.Cumulus, 2000f, 1500f, 400f, 0.1f, 0.4f),
         };
 

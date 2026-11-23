@@ -26,14 +26,13 @@ namespace CameraTools
     // coverage drifting through the day, and with Weather on only mixes the game's weather allows.
     internal static class LayeredSky
     {
-        private const int Altocumulus = 0, Stratocumulus = 1, Stratus = 2, Cumulus = 3, Towering = 7, Cumulonimbus = 8;
+        private const int Altocumulus = 0, Stratocumulus = 1, Stratus = 2, Cumulus = 3, Towering = 7;
         private const float BlendSeconds = 180f;
 
         private static SkyLayer Low(int kind, float coverage) => kind switch
         {
             Cumulus => new(kind, coverage, 2000f, 1500f, 400f, 0.1f),
-            Towering => new(kind, coverage, 2000f, 7000f, 1300f, 0.1f),
-            Cumulonimbus => new(kind, coverage, 1800f, 9000f, 1500f, 0.1f),
+            Towering => new(kind, coverage, 2000f, 9000f, 3000f, 0.1f),
             Stratocumulus => new(kind, coverage, 2200f, 700f, 500f, 0.1f),
             Stratus => new(kind, coverage, 1300f, 400f, 1000f, 0.1f),
             _ => new(kind, coverage, 3000f, 700f, 500f, 0.1f),
@@ -58,7 +57,7 @@ namespace CameraTools
             new("Towering cumulus under altocumulus", Low(Towering, 0.3f), Middle(0.5f), 0f, 0.8f, Sunny, Cloudy),
             new("Stratocumulus", Low(Stratocumulus, 0.75f), null, 0f, 1f, Cloudy, Snow),
             new("Overcast stratus", Low(Stratus, 0.9f), null, 0f, 0.6f, Cloudy, Rain, Snow, Mist),
-            new("Cumulonimbus building", Low(Cumulonimbus, 0.25f), Middle(0.4f), 0f, 0.5f, Rain, Storm),
+            new("Towering cumulus building", Low(Towering, 0.45f), Middle(0.5f), 0f, 0.5f, Rain, Storm),
         };
 
         // The mix for a game day, the times New sky was pressed, and the game's weather (null with Weather off): drawn by

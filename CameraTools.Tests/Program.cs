@@ -235,13 +235,9 @@ Check("the table holds 115 fields, each at its own id's place, with the master s
         && EnhancementsModel.Settings(cloudCirrus, cloudLens).CloudPattern.Pattern == EnhancementsCloudPatternKind.Streaks);
     EnhancementsModel.ProbePaintedClouds = false;
     EnhancementsModel.ProbeCloud = 1;
-    Check("the probe's towering cumulus stands 2000 to 9000 m high as round volume clouds at its own coverage",
+    Check("the probe's towering cumulus stands 2000 to 11000 m high as round volume clouds at its own coverage",
         EnhancementsModel.Settings(cloudStratus, cloudLens) is { CloudPattern.Pattern: EnhancementsCloudPatternKind.Noise,
-            Clouds: { Type: EnhancementsCloudType.Towering, Base: 2000f, Thickness: 7000f, Coverage: 0.4f, Stretch: 1f } });
-    EnhancementsModel.ProbeCloud = 5;
-    EnhancementsModel.ProbeCoverage = 0.7f;
-    Check("the probe's cumulonimbus stands 9 km thick at the coverage the probe asks, and keeps the user's edge detail and sunlight",
-        EnhancementsModel.Settings(cloudStratus, cloudLens).Clouds is { Type: EnhancementsCloudType.Cumulonimbus, Thickness: 9000f, Coverage: 0.7f, Detail: 0.5f });
+            Clouds: { Type: EnhancementsCloudType.Towering, Base: 2000f, Thickness: 9000f, Coverage: 0.4f, Stretch: 1f } });
     EnhancementsModel.ProbeCloud = 0;
     EnhancementsModel.ProbeCoverage = null;
     Check("moving Sunlight or Wind leaves Type as it is",
@@ -254,11 +250,11 @@ Check("the table holds 115 fields, each at its own id's place, with the master s
         EnhancementsModel.Shown(EnhancementsModel.Field(Enhancement.CloudCoverage), cloudCirrus, false, false) && !EnhancementsModel.Shown(EnhancementsModel.Field(Enhancement.CloudCoverage), cloudFresh, false, false)
         && !EnhancementsModel.Shown(EnhancementsModel.Field(Enhancement.CloudCoverage), cloudOn, false, false) && EnhancementsModel.Shown(EnhancementsModel.Field(Enhancement.CloudSunlight), cloudOn, false, false)
         && !EnhancementsModel.Shown(EnhancementsModel.Field(Enhancement.CloudKind), cloudOn, false, false));
-    Check("Type keeps Custom at 6, as presets saved it, puts Layered, Towering cumulus and Cumulonimbus after it, and shows Layered first and Custom last",
+    Check("Type keeps Custom at 6, as presets saved it, puts Layered and Towering cumulus after it, and shows Layered first and Custom last",
         EnhancementsModel.Field(Enhancement.CloudType).Options[6] == "Custom" && EnhancementsModel.Field(Enhancement.CloudType).Options[7] == "Layered"
-        && EnhancementsModel.Field(Enhancement.CloudType).Options[9] == "Cumulonimbus" && EnhancementsModel.CloudTypeOrder[0] == 7 && EnhancementsModel.CloudTypeOrder[^1] == 6
-        && EnhancementsModel.CloudTypeOrder.OrderBy(value => value).SequenceEqual(Enumerable.Range(0, 10))
-        && EnhancementsModel.Settings(EnhancementsModel.Edit(cloudOn, Enhancement.CloudType, 8f), cloudLens).Clouds is { Type: EnhancementsCloudType.Towering, Thickness: 7000f });
+        && EnhancementsModel.Field(Enhancement.CloudType).Options.Length == 9 && EnhancementsModel.CloudTypeOrder[0] == 7 && EnhancementsModel.CloudTypeOrder[^1] == 6
+        && EnhancementsModel.CloudTypeOrder.OrderBy(value => value).SequenceEqual(Enumerable.Range(0, 9))
+        && EnhancementsModel.Settings(EnhancementsModel.Edit(cloudOn, Enhancement.CloudType, 8f), cloudLens).Clouds is { Type: EnhancementsCloudType.Towering, Thickness: 9000f });
     var mixed = EnhancementsSettings.Defaults;
     mixed.Clouds.Enabled = 1;
     LayeredSky.Apply(ref mixed, LayeredSky.Of(LayeredSky.Mixes.First(mix => mix.Name == "Altocumulus over cumulus"), SkyScales.One));
@@ -273,9 +269,9 @@ Check("the table holds 115 fields, each at its own id's place, with the master s
         && clearSky.Clouds.Enabled == 0 && cirrusOnly.CloudPattern.Pattern == EnhancementsCloudPatternKind.Streaks && cirrusOnly.Clouds.Coverage == 0.6f && cirrusOnly.CloudLayers.Middle == 0);
     var rainy = Enumerable.Range(0, 200).Select(day => LayeredSky.Mixes[LayeredSky.Pick(day, 0, WeatherKind.Rain)].Name).Distinct().OrderBy(name => name).ToArray();
     var anyDay = Enumerable.Range(0, 400).Select(day => LayeredSky.Pick(day, 0, null)).ToArray();
-    Check("a day keeps its mix, New sky rolls another, rain rolls only stratus or cumulonimbus, and clear or nearly clear skies come up often without weather",
+    Check("a day keeps its mix, New sky rolls another, rain rolls only stratus or building towers, and clear or nearly clear skies come up often without weather",
         LayeredSky.Pick(12, 0, null) == LayeredSky.Pick(12, 0, null) && Enumerable.Range(0, 20).Any(roll => LayeredSky.Pick(12, roll, null) != LayeredSky.Pick(12, 0, null))
-        && string.Join(",", rainy) == "Cumulonimbus building,Overcast stratus"
+        && string.Join(",", rainy) == "Overcast stratus,Towering cumulus building"
         && anyDay.Count(i => i < 4) > 400 / 5 && anyDay.Distinct().Count() == LayeredSky.Mixes.Length);
     var scaleDays = Enumerable.Range(0, 50).Select(day => LayeredSky.Scales(day + 0.5, day, 0)).ToArray();
     Check("each layer's coverage is its own random 0.45 to 1.75 times the mix's each day, a day keeps it, and New sky rolls it again",
