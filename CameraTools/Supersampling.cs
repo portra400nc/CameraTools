@@ -5,21 +5,39 @@ using UnityEngine;
 namespace CameraTools
 {
     // Anti-aliasing for the screenshot: with the game paused, the camera looks through a different point of each pixel
-    // on each sample and the Enhancements add-on averages the samples in HDR, before bloom and the tone map. This class
-    // holds the switch, the sample on screen and the paused world; Screenshot runs the sequence.
+    // on each sample and the Enhancements add-on averages the samples in HDR, before bloom and the tone map. A
+    // lens-sampled screenshot also moves the camera to another point of the aperture each sample, with the projection
+    // sheared so the focus plane stays still: the average is the lens's depth of field. This class holds the switches,
+    // the sample on screen and the paused world; Screenshot runs the sequence.
     internal static class Supersampling
     {
         private const int MaxSamples = 256;
 
-        private static MelonPreferences_Entry<bool> enabled;
-        private static MelonPreferences_Entry<int> samples;
+        private const int MaxLensSamples = 4096;
+
+        private static MelonPreferences_Entry<bool> enabled, lensSampled;
+        private static MelonPreferences_Entry<int> samples, lensSamples;
+        private static MelonPreferences_Entry<float> edgeSoftness;
         private static LensSample sample;
         // Set while the shot holds the world, with whether it paused the game and how the time of day was.
         private static (bool PausedHere, TimeOfDay.Held Time)? held;
 
         public static bool Enabled => enabled.Value;
 
-        public static int Samples => Math.Clamp(samples.Value, 1, MaxSamples);
+        public static int Samples => Lens?.Points.Length ?? Math.Clamp(samples.Value, 1, MaxSamples);
+
+        // Whether a screenshot with the depth of field on takes its blur from lens samples, and how many.
+        public static bool LensSampled => lensSampled.Value;
+
+        public static int LensSamples => Math.Clamp(lensSamples.Value, 1, MaxLensSamples);
+
+        public static float EdgeSoftness => Math.Clamp(edgeSoftness.Value, 0f, 1f);
+
+        // The lens-sampled screenshot that runs, from its start to its end, or null.
+        public static LensShot Lens { get; private set; }
+
+        // Where in the aperture the camera looks from this sample, in meters right and up of its pose.
+        public static (float X, float Y) CameraOffset { get; private set; }
 
         // The offset within the pixel the camera looks through, in pixels, or null for the pixel's centre.
         public static (float X, float Y)? Offset { get; private set; }
@@ -34,6 +52,12 @@ namespace CameraTools
                 description: "Smooth the screenshot's edges by averaging many frames, each looking through another point of every pixel. Pauses the game for the shot and needs CameraToolsEnhancements.addon64.");
             samples = category.CreateEntry("SupersamplingSamples", 32,
                 description: $"How many frames a supersampled screenshot averages, from 1 to {MaxSamples}. Each takes two frames.");
+            lensSampled = category.CreateEntry("LensSampledScreenshots", false,
+                description: "Probe: a supersampled screenshot with CameraTools' depth of field on renders the scene from points across the lens's aperture and averages them, in place of blurring one frame. Traced shots keep the blur.");
+            lensSamples = category.CreateEntry("LensSamples", 256,
+                description: $"How many aperture points a lens-sampled screenshot averages, from 1 to {MaxLensSamples}. Each takes two frames.");
+            edgeSoftness = category.CreateEntry("LensEdgeSoftness", 0f,
+                description: "Bokeh edge softness of a lens-sampled screenshot, from 0 to 1: fewer aperture points toward the rim, for softer disc edges.");
             MelonPreferences.Save();
         }
 
@@ -54,18 +78,31 @@ namespace CameraTools
             return ran ? "paused the game" : "the game was paused already";
         }
 
+        // Starts a lens-sampled screenshot's samples; End stops them.
+        public static void BeginLens(LensShot shot) => Lens = shot;
+
         public static void Show(int index, bool mark)
         {
             Offset = SupersamplingPattern.Offset(index);
+            if (Lens is { } lens && index < lens.Points.Length)
+            {
+                var (x, y) = lens.Points[index];
+                CameraOffset = (x * lens.Radius, y * lens.Radius);
+                sample = new LensSample(x, y, (uint)index, mark);
+                return;
+            }
             sample = new LensSample(0f, 0f, (uint)index, mark);
         }
 
+        // A lens-sampled screenshot's accumulator also cuts each pixel's aperture points by the cat's eye.
         public static void Accumulate(EnhancementsAccumulateMode mode, uint generation, float gain = 1f)
-            => Enhancements.SetAccumulate(new EnhancementsAccumulate { Mode = mode, Generation = generation, Gain = gain });
+            => Enhancements.SetAccumulate(new EnhancementsAccumulate { Mode = mode, Generation = generation, Gain = gain, CatEye = Lens?.CatEye ?? 0f,
+                CatEyeFalloff = 0.1f });
 
         public static void Centre()
         {
             Offset = null;
+            CameraOffset = (0f, 0f);
             sample = default;
         }
 
@@ -74,6 +111,7 @@ namespace CameraTools
         {
             Centre();
             Accumulate(EnhancementsAccumulateMode.Off, 0);
+            Lens = null;
             if (held is var (pausedHere, time))
             {
                 TimeOfDay.Release(time);
@@ -91,6 +129,12 @@ namespace CameraTools
             {
                 projection.m02 += 2f * x / width;
                 projection.m12 += 2f * y / height;
+            }
+            if (Lens is { } lens && CameraOffset != (0f, 0f))
+            {
+                var (m02, m12) = LensSampler.Shear(projection.m00, projection.m11, CameraOffset.X, CameraOffset.Y, lens.Focus);
+                projection.m02 += m02;
+                projection.m12 += m12;
             }
             return projection;
         }

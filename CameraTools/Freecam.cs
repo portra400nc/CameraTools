@@ -142,6 +142,9 @@ namespace CameraTools
         {
             transform.position = smoothPosition;
             currentRotation.UpdateTransform(transform);
+            // A lens-sampled screenshot's sample looks from its point of the aperture.
+            if (Supersampling.CameraOffset is var (x, y) && (x, y) != (0f, 0f))
+                transform.position = smoothPosition + transform.right * x + transform.up * y;
             cam.nearClipPlane = settings.NearClip;
             if (EnhancementsScene.Pose is { } face)
             {

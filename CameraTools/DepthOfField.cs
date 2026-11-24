@@ -478,7 +478,25 @@ namespace CameraTools
             ShotState.Idle => ShotStage.None,
             ShotState.Countdown => ShotStage.Countdown,
             _ => ShotStage.Capture,
-        }, FocusEyes.Target, Time.timeScale);
+        }, FocusEyes.Target, Time.timeScale, Supersampling.Lens != null);
+
+        // A lens-sampled screenshot of the free camera's view through CameraTools' depth of field, focused where the
+        // add-on's autofocus has settled; or null with why not.
+        public static (LensShot Shot, string Why) LensShot()
+        {
+            if (!Ours || !OwnOn)
+                return (null, "CameraTools' depth of field is off");
+            if (!freecamActive || !Enhancements.Connected)
+                return (null, "no free camera or no Enhancements add-on");
+            float focus = Enhancements.Status.DofFocusMeters;
+            if (!(focus > 0f))
+                return (null, "the add-on has no focus distance yet");
+            float fNumber = EnhancementsModel.Stops[(int)Values[Enhancement.DepthOfFieldAperture]];
+            float radius = LensSampler.Radius(freecam.Pose.Fov, Aspect, fNumber, Miniature);
+            var points = LensSampler.Points(Supersampling.LensSamples, EnhancementsModel.LensAperture(Values, Supersampling.EdgeSoftness));
+            return (new LensShot(points, radius, focus, Values[Enhancement.CatsEye]),
+                $"{points.Length} aperture points, radius {radius * 100f:0.0} cm at f/{fNumber:0.##} 1:{Miniature}, focus {focus:0.00} m");
+        }
 
         private static string Problem => Ours ? Enhancements.Missing
             : !ReShade.Connected ? ReShade.Missing

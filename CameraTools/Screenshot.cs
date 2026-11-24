@@ -390,13 +390,21 @@ namespace CameraTools
             {
                 // A generation the add-on's sum does not have yet, so it empties before the first sample.
                 uint generation = CameraToolsEnhancements.Enhancements.Status.AccumGeneration + 1;
+                string lens = "";
+                if (Supersampling.LensSampled && !traced)
+                {
+                    var (lensShot, why) = DepthOfField.LensShot();
+                    if (lensShot != null)
+                        Supersampling.BeginLens(lensShot);
+                    lens = lensShot != null ? $"lens-sampled: {why}; " : $"not lens-sampled: {why}; ";
+                }
                 string hold = Supersampling.Hold();
                 Supersampling.Accumulate(CameraToolsEnhancements.EnhancementsAccumulateMode.Add, generation);
                 // ReShade's effects draw on the finished frame, after the add-on's sum, so the samples need none of them;
                 // with RTGI on, they cost most of each 4K frame on the Deck (build 263: 64 frames in 40 s). The depth of
                 // field skips the samples too while the add-on adds them, and blurs the average once after the effects.
                 ReShade.SetEffects(false);
-                Melon<CameraTools>.Logger.Msg($"Screenshot: settled {now - settling.Started:0.0} s after the button; {hold}; "
+                Melon<CameraTools>.Logger.Msg($"Screenshot: settled {now - settling.Started:0.0} s after the button; {lens}{hold}; "
                     + $"{Supersampling.Samples} samples for generation {generation}; window {Window}; {bridge}.");
                 State = new ShotState.Sampling(settling.Before, settling.Resized, settling.Started, now, generation, Supersampling.Samples, -1, 0);
                 return;

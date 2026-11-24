@@ -163,7 +163,9 @@ namespace CameraTools
     // the ReShade effects that read the depth buffer, so RTGI and the like light the sharp frame and the shot has the blur;
     // the iris that Eyes focuses on, null while the focus point stands in for it; and the game's speed, which the clouds'
     // wind follows, so they stand still while the game is paused.
-    internal readonly record struct LensView(bool FreeCamera, float Aspect, int Miniature, ShotStage Shot, EyeSight? Eye = null, float GameSpeed = 1f);
+    // While a lens-sampled screenshot runs, its camera moves make the blur, so the add-on's depth of field stays off.
+    internal readonly record struct LensView(bool FreeCamera, float Aspect, int Miniature, ShotStage Shot, EyeSight? Eye = null, float GameSpeed = 1f,
+        bool LensSampled = false);
 
     // One of Clouds' Types: its row's name, the shape rows it sets, and the stretch, volume cloud type and pattern it gives
     // the add-on, which have no rows, with Painted the Azurite pattern it falls back to (ProbePaintedClouds). Custom keeps
@@ -611,10 +613,18 @@ namespace CameraTools
         // 1, the add-on's from 0 at the top left. Eyes autofocuses at the iris's point, from the distance reckoned to it.
         // Focus speed is the seconds the autofocus, and the focus on an eye, take to cover 99% of the way; a manual distance
         // jumps. Max blur is the largest disc's radius in hundredths of the picture's height.
+        // The depth of field's aperture rows as a lens-sampled screenshot's aperture.
+        public static Aperture LensAperture(EnhancementValues values, float edgeSoftness)
+        {
+            int shape = (int)values[Enhancement.BokehShape];
+            return new Aperture(shape == 0 ? 0 : (int)FewestBlades + shape - 1, values[Enhancement.BladeRoundness], values[Enhancement.BladeRotation],
+                values[Enhancement.AnamorphicRatio], edgeSoftness);
+        }
+
         public static EnhancementsDepthOfField DepthOfField(EnhancementValues values, LensView lens)
         {
             var dof = EnhancementsSettings.Defaults.DepthOfField;
-            dof.Enabled = values.On(Enhancement.DepthOfField) && lens.FreeCamera ? 1u : 0u;
+            dof.Enabled = values.On(Enhancement.DepthOfField) && lens.FreeCamera && !lens.LensSampled ? 1u : 0u;
             dof.FNumber = Stops[(int)values[Enhancement.DepthOfFieldAperture]];
             dof.SensorHeightMm = Lens.SensorHeight(lens.Aspect) * Math.Max(lens.Miniature, 1);
             int mode = (int)values[Enhancement.DepthOfFieldFocusMode];

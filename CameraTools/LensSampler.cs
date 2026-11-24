@@ -7,6 +7,10 @@ namespace CameraTools
         public static readonly Aperture Round = new(0, 1f, 0f, 1f, 0f);
     }
 
+    // One lens-sampled screenshot: its aperture points, the aperture's radius in meters, the focus distance in meters along
+    // the view, locked before the first sample, and the cat's eye the add-on's accumulator cuts each pixel's points by.
+    internal sealed record LensShot((float X, float Y)[] Points, float Radius, float Focus, float CatEye);
+
     // The camera arithmetic of lens-sampled depth of field: where in the aperture each sample looks from, how wide the
     // aperture is, how the projection keeps the focus plane still while the camera moves inside it, and how much each
     // sample's own depth of field fills the gaps between them. It uses nothing of Unity's, so it can be checked outside
