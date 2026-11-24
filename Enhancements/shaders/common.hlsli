@@ -143,7 +143,10 @@ cbuffer Constants : register(b0)
     float cloud_layers_pad;
     float2 accum_chromatic;     // EnhancementsAccumulate.chromatic
     float accum_swirl;          // EnhancementsAccumulate.swirl
-    float accum_pad;
+    float accum_lift;           // the highlight lift's strength (lift.hlsli); 0 off
+    float accum_lift_threshold; // its threshold in the scene's units
+    uint accum_lift_mode;       // lift_ps.hlsl's: 1 expand, 2 compress
+    float2 accum_lift_pad;
 };
 
 SamplerState point_clamp : register(s0);

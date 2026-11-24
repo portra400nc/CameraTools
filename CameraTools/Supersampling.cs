@@ -49,8 +49,10 @@ namespace CameraTools
             MelonPreferences.Save();
         }
 
-        // The share of the lens's CoC each sample is blurred by: the gap fill for the samples, times the preference.
-        public static float Fill => Lens is { } lens ? LensSampler.GapFill(lens.Points.Length) * GapFillScale : 0f;
+        // The share of the lens's CoC each sample is blurred by: the gap fill for the samples, times the preference, and twice
+        // that under the highlight lift, whose brighter copies of a light show the gaps between them
+        // (.work/dof/lift/prototype.py: at 1x a lifted lamp's disc was a pattern of dots, at 2x smooth).
+        public static float Fill => Lens is { } lens ? LensSampler.GapFill(lens.Points.Length) * GapFillScale * (lens.Lift > 0f ? 2f : 1f) : 0f;
 
         // The lens-sampled screenshot that runs, from its start to its end, or null.
         public static LensShot Lens { get; private set; }
@@ -125,7 +127,8 @@ namespace CameraTools
         public static void Accumulate(EnhancementsAccumulateMode mode, uint generation, float gain = 1f)
             => Enhancements.SetAccumulate(new EnhancementsAccumulate { Mode = mode, Generation = generation, Gain = gain, CatEye = Lens?.CatEye ?? 0f,
                 CatEyeFalloff = 0.1f, Swirl = Lens?.Swirl ?? 0f, ChromaticRed = (Lens?.Chromatic.Red ?? 0f) * (Lens?.Reach ?? 1f),
-                ChromaticBlue = (Lens?.Chromatic.Blue ?? 0f) * (Lens?.Reach ?? 1f) });
+                ChromaticBlue = (Lens?.Chromatic.Blue ?? 0f) * (Lens?.Reach ?? 1f),
+                Lift = Lens?.Lift ?? 0f, LiftThreshold = Lens?.LiftThreshold ?? 2f });
 
         public static void Centre()
         {

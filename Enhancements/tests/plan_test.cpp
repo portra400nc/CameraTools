@@ -1442,7 +1442,7 @@ int main()
             && offsetof(EnhancementsStatus, frames_saved) == 144 && offsetof(EnhancementsStatus, dof_focus_meters) == 148 && sizeof(EnhancementsShot) == 48
             && offsetof(EnhancementsShot, strength) == 16 && offsetof(EnhancementsShot, outputs) == 20
             && sizeof(EnhancementsDngInfo) == 44 && offsetof(EnhancementsDngInfo, date_time) == 16 && offsetof(EnhancementsDngInfo, exposure_time_s) == 36
-            && offsetof(EnhancementsDngInfo, iso) == 40 && ENHANCEMENTS_VERSION == 57);
+            && offsetof(EnhancementsDngInfo, iso) == 40 && ENHANCEMENTS_VERSION == 59);
     }
     {
         // Unity's GL.GetGPUProjectionMatrix for a 60 degree, 16:10 camera with near 0.1 and far 1000, reversed Z.

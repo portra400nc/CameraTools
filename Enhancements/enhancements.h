@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 57
+#define ENHANCEMENTS_VERSION 59
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -744,6 +744,13 @@ typedef struct EnhancementsAccumulate
     float swirl;                // swirl of lens samples: at each pixel, the lens points are stretched along the line from the
                                 // picture's center, more toward its corners, and only those still within 1 count, as the
                                 // depth of field's swirl squeezes a disc; 0 (the default) to 1. Version 55 added these.
+    float lift;                 // the highlight lift of lens samples: each sample's HDR scene is expanded above the threshold
+                                // before its gap fill and the sum, and the average compressed back by the inverse, so what is
+                                // in focus comes back as it was and a small bright light keeps its disc as a brighter scene's
+                                // would; the strength, 0 (the default) off to 8
+    float lift_threshold;       // where the lift starts, in times the frame's mean luminance as the depth of field's
+                                // autofocus measured it when the sum emptied; default 2, clamped to 1..16. Version 59 added
+                                // these.
 } EnhancementsAccumulate;
 
 // A traced shot: while active, every frame runs the trace pass with the gather on over whatever settings are applied,

@@ -90,7 +90,7 @@ namespace enhancements
         static_assert(ENHANCEMENTS_ACCUMULATE_PRESENT == static_cast<int>(AccumulateMode::present)
             && ENHANCEMENTS_ACCUMULATE_COUNT == static_cast<int>(AccumulateMode::count));
         static_assert(offsetof(EnhancementsAccumulate, mode) == 4 && offsetof(EnhancementsAccumulate, gain) == 20 && offsetof(EnhancementsAccumulate, chromatic) == 24
-            && offsetof(EnhancementsAccumulate, swirl) == 32 && sizeof(EnhancementsAccumulate) == 36);
+            && offsetof(EnhancementsAccumulate, swirl) == 32 && offsetof(EnhancementsAccumulate, lift) == 36 && sizeof(EnhancementsAccumulate) == 44);
         static_assert(offsetof(EnhancementsCharacterLights, head) == 20 && offsetof(EnhancementsCharacterLights, count) == 36
             && offsetof(EnhancementsCharacterLights, lights) == 40 && offsetof(EnhancementsCharacterLights, world) == 296
             && sizeof(EnhancementsCharacterLights) == 336);
@@ -734,6 +734,11 @@ namespace enhancements
                 a.chromatic[c] = finite_or(raw.chromatic[c], 0.0f, -256.0f, 256.0f);
         if (knows(offsetof(EnhancementsAccumulate, swirl), sizeof raw.swirl))
             a.swirl = finite_or(raw.swirl, defaults.swirl, 0.0f, 1.0f);
+        if (knows(offsetof(EnhancementsAccumulate, lift_threshold), sizeof raw.lift + sizeof raw.lift_threshold))
+        {
+            a.lift = finite_or(raw.lift, defaults.lift, 0.0f, 8.0f);
+            a.lift_threshold = finite_or(raw.lift_threshold, defaults.lift_threshold, 1.0f, 16.0f);
+        }
         return a;
     }
 

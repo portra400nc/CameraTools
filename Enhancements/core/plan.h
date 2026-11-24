@@ -409,6 +409,8 @@ namespace enhancements
         float gain = 1.0f;
         float chromatic[2] = { 0.0f, 0.0f };
         float swirl = 0.0f;
+        float lift = 0.0f;              // the highlight lift's strength (shaders/lift.hlsli); 0 off
+        float lift_threshold = 2.0f;    // its threshold in times the frame's mean luminance
     };
 
     // Honors size like parse_settings, maps an unknown mode to off, replaces non-finite floats with the default and

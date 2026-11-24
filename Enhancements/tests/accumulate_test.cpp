@@ -166,6 +166,18 @@ int main()
         check("a struct too short for mode reads as off", parse_accumulate(raw).mode == AccumulateMode::off);
     }
     {
+        EnhancementsAccumulate raw { sizeof raw, ENHANCEMENTS_ACCUMULATE_ADD, 1, 0, 0.1f, 1, { 0, 0 }, 0, 1.5f, 3 };
+        const AccumulateSettings lifted = parse_accumulate(raw);
+        raw.lift = 20;
+        raw.lift_threshold = 0.5f;
+        const AccumulateSettings over = parse_accumulate(raw);
+        raw.size = offsetof(EnhancementsAccumulate, lift);
+        const AccumulateSettings older = parse_accumulate(raw);
+        check("a highlight lift of 1.5 from 3 times the mean reads as it is, 20 clamps to 8 and a threshold of 0.5 to 1, and a "
+              "struct from before version 59 has none", lifted.lift == 1.5f && lifted.lift_threshold == 3.0f && over.lift == 8.0f
+              && over.lift_threshold == 1.0f && older.lift == 0.0f && older.lift_threshold == 2.0f);
+    }
+    {
         EnhancementsAccumulate raw { sizeof raw, ENHANCEMENTS_ACCUMULATE_PRESENT, 3, 0, 0.1f, 4, { 0, 0 }, 0 };
         check("a gain of 4 reads as 4", parse_accumulate(raw).gain == 4.0f);
         raw.gain = 0;

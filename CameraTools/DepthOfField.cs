@@ -517,9 +517,12 @@ namespace CameraTools
             var shift = (LensSampler.ChromaticShift(focal, fNumber, focus, sensor, Screen.height, chromatic * EnhancementsModel.ChromaticRed),
                 LensSampler.ChromaticShift(focal, fNumber, focus, sensor, Screen.height, chromatic * EnhancementsModel.ChromaticBlue));
             float sa = Math.Clamp(0.5f * Values[Enhancement.SoapBubble], -0.38f, 0.38f);
-            return (new LensShot(points, radius, focus, Values[Enhancement.CatsEye], Values[Enhancement.Swirl], shift, sa),
+            // Highlight discs lift the samples' highlights by Highlight boost from Highlight threshold.
+            float lift = Values.On(Enhancement.HighlightDiscs) ? Values[Enhancement.HighlightBoost] : 0f;
+            return (new LensShot(points, radius, focus, Values[Enhancement.CatsEye], Values[Enhancement.Swirl], shift, sa, lift,
+                Values[Enhancement.HighlightThreshold]),
                 $"{points.Length} aperture points, radius {radius * 100f:0.0} cm at f/{fNumber:0.##} 1:{Miniature}, focus {focus:0.00} m, "
-                + $"red {shift.Item1:0.00} and blue {shift.Item2:0.00} px, spherical aberration {sa:0.00}");
+                + $"red {shift.Item1:0.00} and blue {shift.Item2:0.00} px, spherical aberration {sa:0.00}, highlight lift {lift:0.0}");
         }
 
         private static string Problem => Ours ? Enhancements.Missing

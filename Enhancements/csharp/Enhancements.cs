@@ -493,6 +493,8 @@ namespace CameraToolsEnhancements
         public float ChromaticRed;      // render pixels per unit of the lens sample that red's picture lies further along it
         public float ChromaticBlue;
         public float Swirl;
+        public float Lift;              // the highlight lift's strength, 0 off
+        public float LiftThreshold;     // where it starts, in times the frame's mean luminance
     }
 
     // EnhancementsCamera.lens_sample in enhancements.h: the aperture point the camera was moved to, x right and y up in the unit
@@ -715,7 +717,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 57;
+        private const uint Version = 59;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
