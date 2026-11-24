@@ -266,6 +266,10 @@ namespace enhancements
         ComPtr<ID3D11Buffer> old_reflect_;
         ComPtr<ID3D11UnorderedAccessView> old_reflect_uav_;
         ComPtr<ID3D11ShaderResourceView> old_reflect_srv_;
+        // An anchored move's copies of the view before it, whose samples fill what the anchor did not see.
+        ComPtr<ID3D11Buffer> last_history_, last_hit_, last_sky_, last_lights_, last_reflect_;
+        ComPtr<ID3D11UnorderedAccessView> last_history_uav_, last_hit_uav_, last_sky_uav_, last_lights_uav_, last_reflect_uav_;
+        ComPtr<ID3D11ShaderResourceView> last_history_srv_, last_hit_srv_, last_sky_srv_, last_lights_srv_, last_reflect_srv_;
         bool anchor(ID3D11ShaderResourceView *depth);
         std::optional<TraceKey> key_;           // what the samples started with
         std::optional<TraceConstants> started_constants_;   // the constants of the frame that started them, and its gather's,

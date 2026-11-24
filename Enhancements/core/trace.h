@@ -49,10 +49,12 @@ namespace enhancements
         float to_rows[4][4];        // the new camera's clip_rows: a pixel and its depth to the scene
         float from_rows[4][4];      // the old camera's
         float from_clip[4][4];      // the old camera's scene to clip, the inverse of from_rows
+        float last_rows[4][4];      // an anchored move's view before it, which the anchor is old to: its clip rows
+        float last_clip[4][4];      // and its scene to clip
         float eye[4];               // xyz: the new camera in the scene; w: the share of a point's distance it may move and match
-        uint32_t render[4];         // width, height, 1 when targets are stored upside down, 1 for an anchored move, which lists its unseen tiles
+        uint32_t render[4];         // width, height, 1 when targets are stored upside down, 1 for an anchored move, which lists its unseen pixels
     };
-    static_assert(sizeof(ReprojectConstants) == 224);
+    static_assert(sizeof(ReprojectConstants) == 352);
 
     // From the constants the samples were traced with to the new camera's. Empty when from's rows do not invert.
     std::optional<ReprojectConstants> reproject_constants(const TraceConstants &from, const TraceConstants &to);
