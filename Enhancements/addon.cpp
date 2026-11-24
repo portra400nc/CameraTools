@@ -344,6 +344,7 @@ namespace enhancements
         uint64_t restart_burst_frame = 0;           // the frame of the burst's first
         bool trace_traced = false;                  // the trace pass writes this frame
         bool trace_wrote = false;                   // the trace pass wrote the last frame from its samples
+        uint32_t trace_lens_index = 0xffffffffu;    // the lens sample of the camera it wrote that frame with
         bool gather_without_light = false;          // the gather is on over a scene captured without light
         std::string gather_sun_source;              // where the gather's sun came from at the last frame, for the log
         std::string trace_sun_source = "none";      // where the trace's sun came from at the last frame, for the log
@@ -1326,6 +1327,7 @@ namespace enhancements
                         if (saved)
                             trace_save_wanted = false;
                         trace_wrote = call && trace_frame && trace_frame->traced;
+                        trace_lens_index = trace_wrote ? camera.lens.index : 0xffffffffu;
                         const bool gathering = trace_frame && trace_frame->gathering;
                         report.trace_ao = gathering ? 0 : std::min(trace_gpu.passes(), settings.trace.ao_samples);
                         report.trace_gather = gathering ? std::min(trace_gpu.passes(), settings.gather.samples) : 0;
@@ -2673,6 +2675,7 @@ namespace enhancements
             s.frames_saved = frames_saved;
             s.dof_focus_meters = dof_focus;
             s.flare_visibility = flare_visibility;
+            s.trace_lens_index = trace_lens_index;
             {
                 std::lock_guard lock(dng_mutex);
                 s.dng_id = dng.id;
@@ -3015,7 +3018,10 @@ namespace enhancements
             trace_traced = false;
             accum_presented = false;
             if (!report.armed || !settings.trace.enabled)
+            {
                 trace_wrote = false;
+                trace_lens_index = 0xffffffffu;
+            }
             combine_copied = false;
             armed.store(arm, std::memory_order_relaxed);
         }

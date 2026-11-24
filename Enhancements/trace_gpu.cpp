@@ -540,7 +540,10 @@ namespace enhancements
         if (f.reproject)
         {
             f.schedule.tiles = tiles;
-            f.schedule.visits = std::min<uint64_t>(f.schedule.visits, tiles);
+            // An anchored shot's move carries the anchor's samples, but the view sees some of the scene the anchor did not:
+            // those pixels are traced over a whole pass before the frame counts as traced, so a lens sample shows their own
+            // light, and the views' average takes their noise out.
+            f.schedule.visits = f.anchor && anchored_ ? 0 : std::min<uint64_t>(f.schedule.visits, tiles);
         }
         // Else the samples go on with the camera, sun and light they started with.
         else if (started_constants_)
@@ -695,6 +698,9 @@ namespace enhancements
         const auto upload = [&](uint32_t first) {
             TraceConstants constants = frame.constants;
             constants.trace_tiles[0] = first;
+            // An anchored shot's views show each pixel's own samples, however few: the views' average takes out the
+            // noise that the blur of its neighbors would otherwise hide with their light.
+            constants.trace_tiles[2] = frame.anchor && anchored_ ? 1u : 0u;
             constants.trace_tiles[1] = tile_count_;
             D3D11_MAPPED_SUBRESOURCE mapped;
             const HRESULT result = c->Map(constants_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);

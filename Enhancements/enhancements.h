@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 56
+#define ENHANCEMENTS_VERSION 57
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -981,6 +981,10 @@ typedef struct EnhancementsStatus
                                 // the three dng fields, the first in the status's 4 bytes of padding, which makes it 168 bytes
     uint32_t dng_state;         // ENHANCEMENTS_DNG_* of that DNG
     uint32_t dng_failure;       // ENHANCEMENTS_DNG_FAILED_* while dng_state is FAILED, else 0
+    uint32_t trace_lens_index;  // the camera's lens sample index on the last frame the trace pass wrote from its samples, every
+                                // pixel with one, else 0xffffffff: after an anchored shot's move, the frame of that move once
+                                // the pixels the anchor did not see are traced. Version 57 added it.
+    uint32_t reserved_172;
 } EnhancementsStatus;
 
 ENHANCEMENTS_EXPORT uint32_t EnhancementsVersion(void);

@@ -1434,15 +1434,15 @@ int main()
         shot.size = offsetof(EnhancementsShot, bounces);
         check("a caller from before them bounces once", with_shot(on, parse_shot(&shot)).gather.bounces == 1);
         // The status as a caller of each version reads it: it gets the bytes of its own size.
-        check("the status is 168 bytes: the restarts at 132, in a version 9 caller's padding, their reason at 136, the shot at 140, the saved frames "
-              "at 144, the focus at 148, the flare's visibility at 152 and the DNG's id, in a version 17 caller's padding, its state and failure at 156, 160 and 164, and the shot is 24 with its strength at 16 and its outputs at 20, and the DNG's camera is 44 with its date at 16, its shutter time at 36 and its ISO at 40, in version 21, the shot's strength in version 22 and its outputs in 23, and the version is 56",
-            sizeof(EnhancementsStatus) == 168 && offsetof(EnhancementsStatus, dng_id) == 156 && offsetof(EnhancementsStatus, dng_state) == 160
+        check("the status is 176 bytes with the trace's lens index at 168: the restarts at 132, in a version 9 caller's padding, their reason at 136, the shot at 140, the saved frames "
+              "at 144, the focus at 148, the flare's visibility at 152 and the DNG's id, in a version 17 caller's padding, its state and failure at 156, 160 and 164, and the shot is 24 with its strength at 16 and its outputs at 20, and the DNG's camera is 44 with its date at 16, its shutter time at 36 and its ISO at 40, in version 21, the shot's strength in version 22 and its outputs in 23, and the version is 57",
+            sizeof(EnhancementsStatus) == 176 && offsetof(EnhancementsStatus, trace_lens_index) == 168 && offsetof(EnhancementsStatus, dng_id) == 156 && offsetof(EnhancementsStatus, dng_state) == 160
             && offsetof(EnhancementsStatus, dng_failure) == 164 && offsetof(EnhancementsStatus, flare_visibility) == 152 && offsetof(EnhancementsStatus, trace_light) == 128 && offsetof(EnhancementsStatus, trace_restarts) == 132
             && offsetof(EnhancementsStatus, trace_restart_reason) == 136 && offsetof(EnhancementsStatus, shot_active) == 140
             && offsetof(EnhancementsStatus, frames_saved) == 144 && offsetof(EnhancementsStatus, dof_focus_meters) == 148 && sizeof(EnhancementsShot) == 48
             && offsetof(EnhancementsShot, strength) == 16 && offsetof(EnhancementsShot, outputs) == 20
             && sizeof(EnhancementsDngInfo) == 44 && offsetof(EnhancementsDngInfo, date_time) == 16 && offsetof(EnhancementsDngInfo, exposure_time_s) == 36
-            && offsetof(EnhancementsDngInfo, iso) == 40 && ENHANCEMENTS_VERSION == 56);
+            && offsetof(EnhancementsDngInfo, iso) == 40 && ENHANCEMENTS_VERSION == 57);
     }
     {
         // Unity's GL.GetGPUProjectionMatrix for a 60 degree, 16:10 camera with near 0.1 and far 1000, reversed Z.

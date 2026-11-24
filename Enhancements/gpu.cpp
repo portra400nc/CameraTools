@@ -1132,7 +1132,9 @@ namespace enhancements
         if (write_gather || shown != GatherView::none)
         {
             // The averages, the filter's passes from one pair of targets to the other, then the irradiance.
-            const uint32_t samples = trace.passes();
+            // An anchored shot's views hold the anchor's converged samples: filtered as a converged shot is, not as a pass
+            // that just started, which would filter every pixel's own occlusion away.
+            const uint32_t samples = trace.anchored() ? std::max(trace.passes(), trace.target()) : trace.passes();
             const uint32_t passes = write_gather ? gather_filter_passes(gather, samples) : 0;
             const std::array<Vec3f, 9> harmonics = trace.light() ? trace.light()->sky.harmonics : std::array<Vec3f, 9> {};
             const auto apply = [&](uint32_t step) {

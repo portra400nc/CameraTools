@@ -707,13 +707,15 @@ namespace CameraToolsEnhancements
         public uint DngId;          // the DNG DevelopDng last accepted, 0 before the first
         public EnhancementsDngState DngState;
         public EnhancementsDngFailure DngFailure;   // while DngState is Failed
+        public uint TraceLensIndex;     // the lens sample of the last frame the trace wrote from its samples, every pixel with one
+        public uint Reserved172;
     }
 
     // The only class that knows CameraToolsEnhancements.addon64.
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 56;
+        private const uint Version = 57;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

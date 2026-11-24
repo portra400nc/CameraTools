@@ -29,7 +29,7 @@ namespace enhancements
             && offsetof(EnhancementsStatus, scene_face) == 84 && offsetof(EnhancementsStatus, trace_state) == 96 && offsetof(EnhancementsStatus, trace_target) == 116
             && offsetof(EnhancementsStatus, trace_restarts) == 132 && offsetof(EnhancementsStatus, shot_active) == 140
             && offsetof(EnhancementsStatus, frames_saved) == 144 && offsetof(EnhancementsStatus, dof_focus_meters) == 148
-            && offsetof(EnhancementsStatus, flare_visibility) == 152 && offsetof(EnhancementsStatus, dng_id) == 156 && sizeof(EnhancementsStatus) == 168);
+            && offsetof(EnhancementsStatus, flare_visibility) == 152 && offsetof(EnhancementsStatus, dng_id) == 156 && offsetof(EnhancementsStatus, trace_lens_index) == 168 && sizeof(EnhancementsStatus) == 176);
 
         constexpr uint32_t kPeriod = kSettlePresents + 2;
 

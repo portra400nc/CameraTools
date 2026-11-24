@@ -88,6 +88,8 @@ namespace enhancements
         uint32_t nodes() const { return node_count_; }
         uint64_t hash() const { return hash_; }
         uint32_t passes() const { return trace_passes(schedule_); }
+        // An anchored shot's views carry the anchor's converged samples, whatever passes their own moves have traced.
+        bool anchored() const { return anchored_; }
         // The scene's light, empty for a scene captured without it.
         const SceneLight *light() const { return light_.get(); }
         // Puts sky's texels in place of the sky map the scene's faces gave, for the gather's rays that meet the sky, and
