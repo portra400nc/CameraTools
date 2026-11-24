@@ -14,7 +14,9 @@ namespace enhancements
         constexpr UINT kGroupsPerTile = (kTileSize / 8) * (kTileSize / 8);
         // The counters buffer's uints: the trace kernel's, then the gather kernel's, padded.
         constexpr UINT kCounterSlots = 32;
-        static_assert(kAllCounters <= kCounterSlots);
+        // The last slot of the counters' copy holds an anchored move's count of unseen pixels.
+        constexpr UINT kHoleCountSlot = kCounterSlots - 1;
+        static_assert(kAllCounters <= kHoleCountSlot);
 
         HRESULT raw_buffer(ID3D11Device *device, UINT bytes, const void *data, ComPtr<ID3D11Buffer> &buffer, ComPtr<ID3D11ShaderResourceView> &srv)
         {
@@ -911,6 +913,11 @@ namespace enhancements
         if (!uploaded)
             return false;
         c->CopyResource(flight.counters.Get(), counters_.Get());
+        if (holes)
+        {
+            const D3D11_BOX count = { 0, 0, 0, 4, 1, 1 };
+            c->CopySubresourceRegion(flight.counters.Get(), 0, kHoleCountSlot * 4, 0, 0, hole_list_.Get(), 0, &count);
+        }
         dispatched_ = true;
         pace_.tiles += frame.dispatch->count;
         flight.pending = true;
@@ -946,6 +953,11 @@ namespace enhancements
             const double frame_ms = std::chrono::duration<double, std::milli>(now - polled_at_).count();
             (dispatched_ ? pace_.traced_ms : pace_.idle_ms) += frame_ms;
             (dispatched_ ? pace_.traced : pace_.idle)++;
+            if (anchored_)
+            {
+                holes_.frames++;
+                holes_.frame_ms += frame_ms;
+            }
             // Once every pixel has its samples the frame costs the game's work and the trace's draws alone.
             if (state_ == TraceState::ready && !dispatched_ && target_ != 0 && passes() >= target_ && !settled_logged_)
             {
@@ -1000,6 +1012,24 @@ namespace enhancements
             }
             if (f.epoch != epoch_ || state_ != TraceState::ready)
                 continue;
+            if (f.holes && !disjoint.Disjoint && disjoint.Frequency != 0 && middle >= begin && end >= middle)
+            {
+                holes_.moves++;
+                holes_.pixels += counts[kHoleCountSlot];
+                holes_.trace_ms += double(middle - begin) * 1000.0 / double(disjoint.Frequency);
+                holes_.rest_ms += double(end - middle) * 1000.0 / double(disjoint.Frequency);
+                if (holes_.moves == kHoleMoves)
+                {
+                    const double n = holes_.moves, pixels = double(holes_.pixels) / n;
+                    char line[400];
+                    std::snprintf(line, sizeof line, "anchored moves: the last %u traced %.0f unseen pixels each, %.2f%% of the view, in %.1f ms of the "
+                        "GPU on the trace and %.1f ms on the gather and reflections; the %u frames while anchored took %.0f ms each.", holes_.moves, pixels,
+                        100.0 * pixels / (double(size_.width) * size_.height), holes_.trace_ms / n, holes_.rest_ms / n, holes_.frames,
+                        holes_.frames != 0 ? holes_.frame_ms / holes_.frames : 0.0);
+                    out.log.push_back(line);
+                    holes_ = {};
+                }
+            }
             if (ms > 0 && middle >= begin && end >= middle)
             {
                 pace_.measured_tiles += f.measured;

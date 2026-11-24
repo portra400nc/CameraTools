@@ -306,6 +306,16 @@ namespace enhancements
         static constexpr uint32_t kSettledFrames = 30;
         std::string pace_text(uint32_t from_pass, uint32_t to_pass) const;
         Pace pace_;
+        // An anchored shot's moves, logged each kHoleMoves: the unseen pixels they traced, the kernels' GPU time on them,
+        // and the wall time of every frame while anchored.
+        struct HolePace
+        {
+            uint32_t moves = 0, frames = 0;
+            uint64_t pixels = 0;
+            double trace_ms = 0, rest_ms = 0, frame_ms = 0;
+        };
+        static constexpr uint32_t kHoleMoves = 64;
+        HolePace holes_;
         std::chrono::steady_clock::time_point polled_at_ {};
         bool polled_ = false;
         bool dispatched_ = false;               // tiles went out since the last present
