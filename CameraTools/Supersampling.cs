@@ -33,8 +33,24 @@ namespace CameraTools
 
         public static float EdgeSoftness => Math.Clamp(edgeSoftness.Value, 0f, 1f);
 
+        public static float GapFillScale => Math.Clamp(gapFill.Value, 0f, 4f);
+
+        public static void SetLensSampled(bool on) => Save(lensSampled, on);
+
+        public static void SetLensSamples(int count) => Save(lensSamples, Math.Clamp(count, 1, MaxLensSamples));
+
+        public static void SetGapFill(float scale) => Save(gapFill, Math.Clamp(scale, 0f, 4f));
+
+        public static void SetEdgeSoftness(float softness) => Save(edgeSoftness, Math.Clamp(softness, 0f, 1f));
+
+        private static void Save<T>(MelonPreferences_Entry<T> entry, T value)
+        {
+            entry.Value = value;
+            MelonPreferences.Save();
+        }
+
         // The share of the lens's CoC each sample is blurred by: the gap fill for the samples, times the preference.
-        public static float Fill => Lens is { } lens ? LensSampler.GapFill(lens.Points.Length) * Math.Clamp(gapFill.Value, 0f, 4f) : 0f;
+        public static float Fill => Lens is { } lens ? LensSampler.GapFill(lens.Points.Length) * GapFillScale : 0f;
 
         // The lens-sampled screenshot that runs, from its start to its end, or null.
         public static LensShot Lens { get; private set; }
@@ -59,11 +75,11 @@ namespace CameraTools
             samples = category.CreateEntry("SupersamplingSamples", 32,
                 description: $"How many frames a supersampled screenshot averages, from 1 to {MaxSamples}. Each takes two frames.");
             lensSampled = category.CreateEntry("LensSampledScreenshots", false,
-                description: "Probe: a supersampled screenshot with CameraTools' depth of field on renders the scene from points across the lens's aperture and averages them, in place of blurring one frame. Traced shots keep the blur.");
+                description: "Depth of field's screenshot method: true renders the scene from points across the lens's aperture and averages them (Lens samples), false blurs the one frame (Single frame). CameraTools' depth of field only; traced shots keep the single frame.");
             lensSamples = category.CreateEntry("LensSamples", 256,
                 description: $"How many aperture points a lens-sampled screenshot averages, from 1 to {MaxLensSamples}. Each takes two frames.");
             gapFill = category.CreateEntry("LensGapFill", 1f,
-                description: "Probe: how much each lens sample is blurred to merge the copies of a point the samples leave, as a multiple of the automatic fill for the sample count, from 0 (none) to 4.");
+                description: "How much each lens sample is blurred so a point's copies merge into one disc, as a multiple of the automatic fill for the sample count, from 0 (off) to 4.");
             edgeSoftness = category.CreateEntry("LensEdgeSoftness", 0f,
                 description: "Bokeh edge softness of a lens-sampled screenshot, from 0 to 1: fewer aperture points toward the rim, for softer disc edges.");
             MelonPreferences.Save();

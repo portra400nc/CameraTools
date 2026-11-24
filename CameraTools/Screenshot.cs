@@ -218,7 +218,8 @@ namespace CameraTools
                 return;
             float now = Time.unscaledTime;
             var shot = LongExposure.Active ? new LongShot(LongExposure.Current, LongExposure.FramesPerSecond) : null;
-            var kinds = ShotKinds.Of(shot != null, EnhancementsShot.Wanted, Supersampling.Enabled, Dng, CameraToolsEnhancements.Enhancements.Connected);
+            var kinds = ShotKinds.Of(shot != null, EnhancementsShot.Wanted, Supersampling.Enabled || DepthOfField.LensSampledWanted, Dng,
+                CameraToolsEnhancements.Enhancements.Connected);
             var before = new ShotBefore(CameraUi.PanelOpen, uiHidden, Graphics.Capture(), Window, kinds.Traced, shot, kinds.Supersampled, kinds.Dng);
             bool supersampled = kinds.Supersampled;
             var slot = Graphics.Slot(1);

@@ -292,6 +292,14 @@ namespace CameraTools
             }),
             Mine(OwnSlider(Enhancement.DepthOfFieldMaxBlur)),
             Mine(OwnSlider(Enhancement.LensSoftness, OffAt(Enhancement.LensSoftness, 0f))),
+            Mine(new Section("Screenshots")),
+            Mine(new ChoiceRow("Method", Methods, () => Supersampling.LensSampled ? 1 : 0, position => Supersampling.SetLensSampled(position == 1), null)),
+            Mine(new ChoiceRow("Samples", SampleCounts.Select(count => count.ToString()).ToArray(), () => Array.IndexOf(SampleCounts, Supersampling.LensSamples),
+                position => Supersampling.SetLensSamples(SampleCounts[position]), null) { Shown = () => Supersampling.LensSampled }),
+            Mine(new SliderRow("Gap fill", 0f, 4f, 0.1f, "0.0'x'", () => Supersampling.GapFillScale, Supersampling.SetGapFill,
+                Display: scale => scale == 0f ? "Off" : MathF.Abs(scale - 1f) < 0.001f ? "Auto" : scale.ToString("0.0'x'")) { Shown = () => Supersampling.LensSampled }),
+            Mine(new SliderRow("Bokeh edge softness", 0f, 1f, 0.05f, "0.00", () => Supersampling.EdgeSoftness, Supersampling.SetEdgeSoftness,
+                Display: softness => softness == 0f ? "Off" : softness.ToString("0.00")) { Shown = () => Supersampling.LensSampled }),
             Theirs(new SliderRow("Tilt", -15f, 15f, 0.5f, "0.0'°'", () => Value(Id.TiltAngle), tilt => Repaint(Id.TiltAngle, tilt),
                 Display: tilt => tilt == 0f ? "Off" : tilt.ToString("0.0'°'"), Enabled: Has(Id.TiltAngle))
             {
@@ -480,6 +488,14 @@ namespace CameraTools
             _ => ShotStage.Capture,
         }, FocusEyes.Target, Time.timeScale, Supersampling.Lens != null,
             Screenshot.State is ShotState.Sampling ? Supersampling.Fill : 0f, Supersampling.Lens?.Focus ?? 0f);
+
+        // The screenshot's methods, and the lens samples' counts.
+        private static readonly string[] Methods = { "Single frame", "Lens samples" };
+        private static readonly int[] SampleCounts = { 64, 128, 256, 512, 1024 };
+
+        // Whether the next screenshot is lens-sampled, if the add-on can take it: it then averages samples whatever the
+        // Supersampling switch says, since the lens samples anti-alias too.
+        public static bool LensSampledWanted => Supersampling.LensSampled && Ours && OwnOn && freecamActive;
 
         // A lens-sampled screenshot of the free camera's view through CameraTools' depth of field, focused where the
         // add-on's autofocus has settled; or null with why not.
