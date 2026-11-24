@@ -478,7 +478,8 @@ namespace CameraTools
             ShotState.Idle => ShotStage.None,
             ShotState.Countdown => ShotStage.Countdown,
             _ => ShotStage.Capture,
-        }, FocusEyes.Target, Time.timeScale, Supersampling.Lens != null);
+        }, FocusEyes.Target, Time.timeScale, Supersampling.Lens != null,
+            Screenshot.State is ShotState.Sampling ? Supersampling.Fill : 0f, Supersampling.Lens?.Focus ?? 0f);
 
         // A lens-sampled screenshot of the free camera's view through CameraTools' depth of field, focused where the
         // add-on's autofocus has settled; or null with why not.

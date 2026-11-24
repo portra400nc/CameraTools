@@ -17,7 +17,7 @@ namespace CameraTools
 
         private static MelonPreferences_Entry<bool> enabled, lensSampled;
         private static MelonPreferences_Entry<int> samples, lensSamples;
-        private static MelonPreferences_Entry<float> edgeSoftness;
+        private static MelonPreferences_Entry<float> edgeSoftness, gapFill;
         private static LensSample sample;
         // Set while the shot holds the world, with whether it paused the game and how the time of day was.
         private static (bool PausedHere, TimeOfDay.Held Time)? held;
@@ -32,6 +32,9 @@ namespace CameraTools
         public static int LensSamples => Math.Clamp(lensSamples.Value, 1, MaxLensSamples);
 
         public static float EdgeSoftness => Math.Clamp(edgeSoftness.Value, 0f, 1f);
+
+        // The share of the lens's CoC each sample is blurred by: the gap fill for the samples, times the preference.
+        public static float Fill => Lens is { } lens ? LensSampler.GapFill(lens.Points.Length) * Math.Clamp(gapFill.Value, 0f, 4f) : 0f;
 
         // The lens-sampled screenshot that runs, from its start to its end, or null.
         public static LensShot Lens { get; private set; }
@@ -56,6 +59,8 @@ namespace CameraTools
                 description: "Probe: a supersampled screenshot with CameraTools' depth of field on renders the scene from points across the lens's aperture and averages them, in place of blurring one frame. Traced shots keep the blur.");
             lensSamples = category.CreateEntry("LensSamples", 256,
                 description: $"How many aperture points a lens-sampled screenshot averages, from 1 to {MaxLensSamples}. Each takes two frames.");
+            gapFill = category.CreateEntry("LensGapFill", 1f,
+                description: "Probe: how much each lens sample is blurred to merge the copies of a point the samples leave, as a multiple of the automatic fill for the sample count, from 0 (none) to 4.");
             edgeSoftness = category.CreateEntry("LensEdgeSoftness", 0f,
                 description: "Bokeh edge softness of a lens-sampled screenshot, from 0 to 1: fewer aperture points toward the rim, for softer disc edges.");
             MelonPreferences.Save();

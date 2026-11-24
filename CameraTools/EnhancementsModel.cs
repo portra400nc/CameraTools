@@ -163,9 +163,11 @@ namespace CameraTools
     // the ReShade effects that read the depth buffer, so RTGI and the like light the sharp frame and the shot has the blur;
     // the iris that Eyes focuses on, null while the focus point stands in for it; and the game's speed, which the clouds'
     // wind follows, so they stand still while the game is paused.
-    // While a lens-sampled screenshot runs, its camera moves make the blur, so the add-on's depth of field stays off.
+    // While a lens-sampled screenshot runs, its camera moves make the blur: while its samples are added, each is blurred
+    // only by the gap fill's share of the lens's CoC (LensFill) at the locked focus (LensFocus), so the copies of a point
+    // the samples leave merge; then the add-on's depth of field stays off over the average.
     internal readonly record struct LensView(bool FreeCamera, float Aspect, int Miniature, ShotStage Shot, EyeSight? Eye = null, float GameSpeed = 1f,
-        bool LensSampled = false);
+        bool LensSampled = false, float LensFill = 0f, float LensFocus = 0f);
 
     // One of Clouds' Types: its row's name, the shape rows it sets, and the stretch, volume cloud type and pattern it gives
     // the add-on, which have no rows, with Painted the Azurite pattern it falls back to (ProbePaintedClouds). Custom keeps
@@ -624,7 +626,7 @@ namespace CameraTools
         public static EnhancementsDepthOfField DepthOfField(EnhancementValues values, LensView lens)
         {
             var dof = EnhancementsSettings.Defaults.DepthOfField;
-            dof.Enabled = values.On(Enhancement.DepthOfField) && lens.FreeCamera && !lens.LensSampled ? 1u : 0u;
+            dof.Enabled = values.On(Enhancement.DepthOfField) && lens.FreeCamera && (!lens.LensSampled || lens.LensFill > 0f) ? 1u : 0u;
             dof.FNumber = Stops[(int)values[Enhancement.DepthOfFieldAperture]];
             dof.SensorHeightMm = Lens.SensorHeight(lens.Aspect) * Math.Max(lens.Miniature, 1);
             int mode = (int)values[Enhancement.DepthOfFieldFocusMode];
@@ -651,6 +653,25 @@ namespace CameraTools
             dof.Samples = lens.Shot != ShotStage.None ? ShotSamples : LiveSamples;
             // Live play and the countdown blur in the scene, so the HUD, the panel and the countdown's toast stay sharp.
             dof.Place = lens.Shot == ShotStage.Capture ? EnhancementsDofPlace.Display : EnhancementsDofPlace.Scene;
+            if (lens.LensSampled && lens.LensFill > 0f)
+            {
+                // The gap fill: the lens's CoC times the fill is the CoC at the f-number over the fill. In the scene, so each
+                // sample is blurred before the add-on adds it, as a plain disc of the aperture's shape: the lens character
+                // comes from the samples.
+                dof.FNumber /= lens.LensFill;
+                dof.FocusDistance = lens.LensFocus;
+                dof.FocusSeconds = 0f;
+                dof.EyeDistance = 0f;
+                dof.Place = EnhancementsDofPlace.Scene;
+                dof.SphericalAberration = 0f;
+                dof.Chromatic = 0f;
+                dof.CatEye = 0f;
+                dof.Swirl = 0f;
+                dof.Scatter = 0u;
+                dof.HighlightGain = 0f;
+                dof.BokehContrast = 0f;
+                dof.Samples = LiveSamples;
+            }
             return dof;
         }
 

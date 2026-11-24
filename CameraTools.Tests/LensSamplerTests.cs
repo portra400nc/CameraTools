@@ -2,6 +2,7 @@
 // Enhancements add-on's gather draws a disc in (shaders/dof.hlsli, dof_shape_distance) evenly, the edge softness thins the
 // rim, and the camera's move and the projection's shear keep the focus plane still.
 using CameraTools;
+using CameraToolsEnhancements;
 
 internal static class LensSamplerTests
 {
@@ -65,6 +66,16 @@ internal static class LensSamplerTests
             MathF.Abs(soft.Average(p => p.X * p.X + p.Y * p.Y) - 0.312f) < 0.006f);
         check("the gaps fill with 0.0554 of the CoC at 256 points and 0.0277 at 1024", MathF.Abs(LensSampler.GapFill(256) - 0.0554f) < 1e-4f
             && MathF.Abs(LensSampler.GapFill(1024) - 0.0277f) < 1e-4f);
+        // The depth of field block a lens-sampled screenshot sends: while its samples are added, the gap fill's share of the
+        // lens's CoC, as a plain disc at the locked focus in the scene; after them, nothing.
+        var on = EnhancementValues.Defaults.With(Enhancement.DepthOfField, 1f).With(Enhancement.BokehChromaticAberration, 1f).With(Enhancement.CatsEye, 0.7f);
+        var sampling = EnhancementsModel.DepthOfField(on, new LensView(true, 16f / 9f, 25, ShotStage.Capture, LensSampled: true, LensFill: 0.0554f, LensFocus: 15.6f));
+        var after = EnhancementsModel.DepthOfField(on, new LensView(true, 16f / 9f, 25, ShotStage.Capture, LensSampled: true));
+        var plain = EnhancementsModel.DepthOfField(on, new LensView(true, 16f / 9f, 25, ShotStage.Capture));
+        check("a lens-sampled shot's samples blur at f/2.8 over 0.0554 = f/50.5, focused at 15.6 m at once, in the scene, without chromatic aberration or cat's eye; after them the blur is off",
+            sampling.Enabled == 1 && MathF.Abs(sampling.FNumber - 2.8f / 0.0554f) < 1e-3f && sampling.FocusDistance == 15.6f && sampling.FocusSeconds == 0f
+            && sampling.Place == EnhancementsDofPlace.Scene && sampling.Chromatic == 0f && sampling.CatEye == 0f && sampling.Scatter == 0
+            && after.Enabled == 0 && plain.Enabled == 1 && plain.Place == EnhancementsDofPlace.Display && plain.Chromatic == 1f);
         // The vertical field of view a full-frame 24 mm lens has on a 16:9 picture.
         float aspect = 16f / 9f, fov = 2f * MathF.Atan(21.65f / (24f * MathF.Sqrt(1f + aspect * aspect))) * 180f / MathF.PI;
         check("a 24 mm lens at f/1.2 has an aperture 1 cm in radius, and 25 cm as a 1:25 miniature",
