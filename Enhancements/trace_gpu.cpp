@@ -512,8 +512,11 @@ namespace enhancements
         f.anchor = settings.reproject && settings.anchor;
         // A live shot carries its samples over a camera move, where the history and the depth they were traced over are
         // this size's; reflections, which depend on the view, are off in a live shot.
-        f.reproject = f.restart == TraceRestart::camera && settings.reproject && started_constants_ && history_ && kept_depth_srv_ && size_ == key.render
-            && (!f.reflecting || (f.anchor && anchored_));
+        // An anchored shot's moves take the anchor's depth; an unanchored live shot's, the depth it kept at its last start or
+        // move, which a shot that converged before it went live never kept.
+        const bool anchored = f.anchor && anchored_;
+        f.reproject = f.restart == TraceRestart::camera && settings.reproject && started_constants_ && history_ && size_ == key.render
+            && (anchored ? anchor_depth_srv_ != nullptr : kept_depth_srv_ != nullptr) && (!f.reflecting || anchored);
         f.reset = f.restart != TraceRestart::none && !f.reproject;
         if (f.reset)
         {
