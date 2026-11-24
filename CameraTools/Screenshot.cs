@@ -457,27 +457,14 @@ namespace CameraTools
                 Supersampling.Centre();
                 Supersampling.Accumulate(CameraToolsEnhancements.EnhancementsAccumulateMode.Present, sampling.Generation);
                 ReShade.SetEffects(true);
-                Melon<CameraTools>.Logger.Msg($"Screenshot: {sampling.Count} samples shown in {now - sampling.Since:0.0} s.");
+                Melon<CameraTools>.Logger.Msg($"Screenshot: {sampling.Count} samples shown in {now - sampling.Since:0.0} s, "
+                    + $"{CameraToolsEnhancements.Enhancements.Status.AccumSamples} added.");
                 State = new ShotState.Presenting(sampling.Before, sampling.Resized, sampling.Started, now, sampling.Generation, ReShade.Status.Presents);
                 return;
             }
-            if (sampling.Before.Traced && Supersampling.Lens != null)
-            {
-                switch (TracedLensView.Next(CameraToolsEnhancements.Enhancements.Status.TraceLensIndex, sampling.Index, sampling.Frame))
-                {
-                    case LensViewStep.Hold:
-                        Supersampling.Show(sampling.Index, mark: false);
-                        State = sampling with { Frame = sampling.Frame + 1 };
-                        return;
-                    case LensViewStep.AddUnfinished:
-                        Melon<CameraTools>.Logger.Warning($"Screenshot: lens sample {sampling.Index} added after {TracedLensView.HoldLimit} frames without its trace finished.");
-                        break;
-                }
-                Supersampling.Show(sampling.Index, mark: true);
-                State = sampling with { Index = sampling.Index + 1, Frame = 0 };
-                return;
-            }
-            Supersampling.Show(sampling.Index, mark: sampling.Frame == 0);
+            // A traced lens-sampled shot marks both frames of a view: the add-on adds it once, from the first frame it traced
+            // whole under that lens sample.
+            Supersampling.Show(sampling.Index, mark: sampling.Frame == 0 || (sampling.Before.Traced && Supersampling.Lens != null));
             State = sampling.Frame + 1 < HoldFrames ? sampling with { Frame = sampling.Frame + 1 } : sampling with { Index = sampling.Index + 1, Frame = 0 };
         }
 

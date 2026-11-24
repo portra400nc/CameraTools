@@ -77,17 +77,4 @@ namespace CameraTools
         // The toast of a shot whose PNG was saved without its DNG.
         public static string SavedWithout(string png, string why, string kind) => $"{Saved(png, false, kind)}, but no DNG: {why}";
     }
-
-    // A traced lens-sampled screenshot's view: held until the add-on has traced it, then one frame added. The add-on traces
-    // what the view sees that the converged center did not, over a pass, and says which lens sample's view it last wrote
-    // whole. A view it has not finished after HoldLimit frames is added anyway, which the log names.
-    internal enum LensViewStep { Hold, Add, AddUnfinished }
-
-    internal static class TracedLensView
-    {
-        public const int HoldLimit = 150;
-
-        public static LensViewStep Next(uint tracedIndex, int index, int frame)
-            => tracedIndex == (uint)index ? LensViewStep.Add : frame >= HoldLimit ? LensViewStep.AddUnfinished : LensViewStep.Hold;
-    }
 }

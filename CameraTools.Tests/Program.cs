@@ -1248,9 +1248,6 @@ Check("the binding's world light is enhancements.h's 32 bytes, its moon at 16 an
     Marshal.SizeOf<EnhancementsWorldLight>() == 32 && Offset<EnhancementsWorldLight>(nameof(EnhancementsWorldLight.MoonR)) == 16
     && Offset<EnhancementsWorldLight>(nameof(EnhancementsWorldLight.SkyShare)) == 28);
 CelestialTests.Run(Check);
-Check("a traced lens view holds until the add-on has traced it, is added once it has, and is added anyway after 150 frames",
-    TracedLensView.Next(4, 5, 10) == LensViewStep.Hold && TracedLensView.Next(5, 5, 0) == LensViewStep.Add
-    && TracedLensView.Next(0xffffffff, 5, 150) == LensViewStep.AddUnfinished && TracedLensView.Next(0, 0, 0) == LensViewStep.Add);
 LensSamplerTests.Run(Check);
 
 Console.WriteLine($"CameraTools tests: {failures} failed");
