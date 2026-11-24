@@ -750,11 +750,11 @@ DofFields dof_gather(int2 p)
         // What shows through a blurred foreground at a pixel in front of focus is taken texel by texel: a filtered
         // sample beside the foreground's silhouette would average its light in, and the background seen through the
         // foreground would brighten inside its outline, a step at the silhouette.
-        // A source out of focus behind a pixel in front of focus, or well behind the pixel's own surface out of focus, shows as
-        // blurred as it is: the deepest light averaged over its own disc. Taken texel by texel, a background far behind showed
-        // its sharp detail through a foreground's translucent edge, and darkened a nearer blurred surface's rim with it, which
-        // drew that surface's outline crisp against the background's blur just outside it.
-        bool deeper = c > kDofInFocus && (own_near > 0.0f || (own > kDofInFocus && c > own + max(kDofLayer, kDofLayerShare * own)));
+        // A source out of focus behind a pixel in front of focus shows as blurred as it is: the deepest light averaged over
+        // its own disc. Taken texel by texel, a background far behind showed its sharp detail through a foreground's
+        // translucent edge. Behind focus a farther source shows as it is: the deepest light there was the sky behind a
+        // second layer of leaves, which turned nearer blurred leaves into pale ghosts of their own shape.
+        bool deeper = c > kDofInFocus && own_near > 0.0f;
         float4 deep = deeper ? dof_sample_behind(q, log2(clamp(source_radius, 1.0f, 256.0f))) : float4(0.0f, 0.0f, 0.0f, 0.0f);
         float3 color = lift ? float3(lit.x, lit.y, lit.z)
                      : deep.w > 0.0f ? float3(deep.x, deep.y, deep.z) / deep.w

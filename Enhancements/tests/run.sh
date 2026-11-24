@@ -232,6 +232,25 @@ if [ -n "$frames" ] && [ -f "$maples/frame.tsv" ]; then
 else
     echo "SKIP the maples: no .work/dof/frames/frame-20261124-140254"
 fi
+# The lens reference, .work/dof/lens-reference, which lens_reference.py writes with 144 samples: sky, hills, a banner,
+# a maple with gaps, nearer leaves over it, a subject in focus and a blurred foreground, as a thin lens at f/1.2 on a 1:25
+# miniature images them, hidden surfaces included. The live gather's mean error by region, in 8-bit levels, may not grow
+# past what it reached: a farther surface behind focus read from the deepest light turned the nearer leaves into pale
+# ghosts of themselves, 13.6 levels over them and 7.6 over the banner's rim.
+lens_ref=${frames%/frames}/lens-reference
+if [ -n "$frames" ] && [ -f "$lens_ref/ref.npy" ] && python3 -c 'import numpy, PIL' 2> /dev/null; then
+    if fresh "$out/render_dof" "$lens_ref" render_dof.sh lens_compare.py lens; then
+        RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$lens_ref/frame" "$out/lens.png" f=1.2 sensor=573.6 focus=15 max_blur=0.08 sa=0 \
+            cat_eye=0 chromatic=0 scatter=1 gain=0 contrast=0 samples=49 > /dev/null
+        python3 lens_compare.py "$lens_ref" "live=$out/lens.png" "most:whole frame=2.2" "most:in focus, inside=0.4" \
+            "most:far, layer edges=5.5" "most:sky in leaf gaps=8.8" "most:foreground blur=1.7" "most:near leaves on leaves=12.2" \
+            "most:banner and rim=5.9" > "$out/lens.txt" || { cat "$out/lens.txt"; echo "FAIL the depth of field strays from the thin lens's picture"; exit 1; }
+        passed
+    fi
+    echo "PASS the depth of field stays within its errors of the thin lens's picture, region by region"
+else
+    echo "SKIP the lens reference: no .work/dof/lens-reference, or no numpy or PIL"
+fi
 # The harbor, frame-20261024-134128, written as a DNG with frame_dng's test EXIF: byte for byte the reference file
 # (.work/dng/lightroom-test/harbor-look.dng, the layout the user opened in Lightroom on 2026-10-29 with the white at the
 # game's and the look table of 2026-11-16), which sips must decode at the frame's size.
