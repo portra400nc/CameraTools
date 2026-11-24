@@ -553,7 +553,16 @@ namespace enhancements
                 f.gather = held_gather(started_gather_, f.gather);
         }
         const uint32_t before = trace_passes(f.schedule);
-        f.dispatch = trace_next(f.schedule, f.target);
+        // An anchored shot's move traces its whole pass at once, whatever the budget: the pixels its anchor lacked, while
+        // the rest skip their rays, so the move's own frame is traced whole and the lens sample's view is added from it.
+        // Spread over the budget's frames, with the shot waiting on the status between, each view took seconds.
+        if (f.reproject && f.anchor && anchored_)
+        {
+            f.dispatch = TraceDispatch { 0, tiles };
+            f.schedule.visits = tiles;
+        }
+        else
+            f.dispatch = trace_next(f.schedule, f.target);
         f.traced = trace_passes(f.schedule) >= 1;
         f.trace_kernel = !f.gathering || trace_kernel_runs(before, settings.sun_samples);
         return f;
