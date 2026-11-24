@@ -64,8 +64,8 @@ internal static class LensSamplerTests
         var soft = LensSampler.Points(256, new Aperture(0, 1f, 0f, 1f, 1f));
         check("edge softness 1 draws the points in from the rim: their mean squared radius is 0.312, against 0.5 evenly spread",
             MathF.Abs(soft.Average(p => p.X * p.X + p.Y * p.Y) - 0.312f) < 0.006f);
-        check("the gaps fill with 0.0554 of the CoC at 256 points and 0.0277 at 1024", MathF.Abs(LensSampler.GapFill(256) - 0.0554f) < 1e-4f
-            && MathF.Abs(LensSampler.GapFill(1024) - 0.0277f) < 1e-4f);
+        check("the gaps fill with 0.1108 of the CoC at 256 points and 0.0554 at 1024", MathF.Abs(LensSampler.GapFill(256) - 0.1108f) < 1e-4f
+            && MathF.Abs(LensSampler.GapFill(1024) - 0.0554f) < 1e-4f);
         // The depth of field block a lens-sampled screenshot sends: while its samples are added, the gap fill's share of the
         // lens's CoC, as a plain disc at the locked focus in the scene; after them, nothing.
         var on = EnhancementValues.Defaults.With(Enhancement.DepthOfField, 1f).With(Enhancement.BokehChromaticAberration, 1f).With(Enhancement.CatsEye, 0.7f);

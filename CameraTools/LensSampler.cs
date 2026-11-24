@@ -96,10 +96,11 @@ namespace CameraTools
         }
 
         // The share of the full CoC each sample's own depth of field blurs by, so the copies of a point the samples make
-        // merge into its disc: neighboring points lie sqrt(pi / count) of the aperture's radius apart, and a disc of half
-        // that reaches the next copy's. Against 4096 samples (Enhancements/tests/lens_hybrid.py), 256 samples rippled as
-        // the exact disc does from 0.05 up, and blurred more than it from 0.075.
-        public static float GapFill(int count) => 0.5f * MathF.Sqrt(MathF.PI / Math.Max(count, 1));
+        // merge into its disc: neighboring points lie sqrt(pi / count) of the aperture's radius apart, and a disc that wide
+        // overlaps the next copies'. Against 4096 samples (Enhancements/tests/lens_hybrid.py) half of that already rippled
+        // as the exact disc does on lamps, but on the Deck stars at night still showed each copy as a dot; the whole
+        // spacing smoothed the simulation's lamps below the exact disc's ripple.
+        public static float GapFill(int count) => MathF.Sqrt(MathF.PI / Math.Max(count, 1));
 
         // The aperture's outline: how far it reaches in each direction, and the angles that split its area evenly.
         private sealed class Shape
