@@ -2560,8 +2560,19 @@ namespace enhancements
                 trace_gpu.upload_step();
             if (wants_combine())
                 combine_read = gpu.combine_constants(frames);
-            for (const std::string &line : trace_gpu.poll(settings.trace).log)
-                log(reshade::log::level::info, line);
+            {
+                // A debug dump of anchored moves while C:\ReShade\Enhancements\dump-holes exists.
+                std::error_code missing;
+                trace_gpu.set_dump_holes(fs::exists(output_root() / "Enhancements" / "dump-holes", missing));
+                TraceGpu::Poll polled = trace_gpu.poll(settings.trace);
+                for (const std::string &line : polled.log)
+                    log(reshade::log::level::info, line);
+                for (const auto &[name, bytes] : polled.files)
+                {
+                    write_file(output_root() / "Enhancements" / "holes" / name, bytes);
+                    log(reshade::log::level::info, "wrote the debug dump Enhancements\\holes\\" + name + ".");
+                }
+            }
             if (restart_burst.count != 0 && trace_gpu.passes() >= 1)
             {
                 if (restart_burst.count > 1)

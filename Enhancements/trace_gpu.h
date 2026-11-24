@@ -142,8 +142,12 @@ namespace enhancements
         {
             std::vector<std::string> log;
             bool went_stale = false;
+            std::vector<std::pair<std::string, std::string>> files;    // debug dumps to write: name, bytes
         };
         Poll poll(const TraceSettings &settings);
+        // While on, an anchored shot's moves kHoleDumpMoves write each pixel's class in the reprojection, whether the anchor
+        // saw it and why not, and its distance (trace_reproject_cs.hlsl), as Poll's files.
+        void set_dump_holes(bool on) { dump_holes_ = on; }
 
         // A save of this frame: copies the history, the normals, the depth with its stencil, and the game's shadow mask and
         // irradiance mirrors (as the trace pass found them) into CPU-readable copies, keeping save's other fields but the
@@ -276,6 +280,11 @@ namespace enhancements
         TraceSchedule schedule_;
         uint64_t epoch_ = 0;
         uint64_t moves_ = 0;                    // a live shot's moves that carried the samples over
+        uint32_t anchor_moves_ = 0;             // the anchored moves since the anchor
+        bool dump_holes_ = false;
+        ComPtr<ID3D11Buffer> hole_debug_, hole_debug_read_;
+        ComPtr<ID3D11UnorderedAccessView> hole_debug_uav_;
+        std::vector<std::pair<std::string, std::string>> dumps_;
         TraceRestart restart_ = TraceRestart::none;
         TraceCounts totals_ {};
         TraceCounts window_ {};                 // since the last pass the consistency grid judged

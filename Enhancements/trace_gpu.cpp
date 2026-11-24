@@ -216,6 +216,9 @@ namespace enhancements
         old_lights_srv_.Reset();
         kept_depth_srv_.Reset();
         kept_depth_.Reset();
+        hole_debug_uav_.Reset();
+        hole_debug_.Reset();
+        hole_debug_read_.Reset();
     }
 
     bool TraceGpu::keep_depth(ID3D11ShaderResourceView *depth) { return copy_depth(depth, kept_depth_, kept_depth_srv_); }
@@ -273,6 +276,7 @@ namespace enhancements
             || FAILED(raw_rw_buffer(device_.Get(), 12, D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS, hole_args_, hole_args_uav_, nullptr)))
             return false;
         anchor_constants_ = started_constants_;
+        anchor_moves_ = 0;
         return true;
     }
 
@@ -309,8 +313,13 @@ namespace enhancements
             const UINT args[3] = { kGroupsPerTile, 0, 1 };
             c->UpdateSubresource(hole_args_.Get(), 0, nullptr, args, 0, 0);
         }
+        if (anchored_)
+            anchor_moves_++;
+        const bool dump = anchored_ && dump_holes_ && (anchor_moves_ == 1 || anchor_moves_ == 128 || anchor_moves_ == 255)
+            && (hole_debug_ || SUCCEEDED(raw_rw_buffer(device_.Get(), size_.width * size_.height * 4, 0, hole_debug_, hole_debug_uav_, nullptr)))
+            && (hole_debug_read_ || SUCCEEDED(staging_buffer(device_.Get(), 4, size_.width * size_.height, hole_debug_read_)));
         ReprojectConstants sent = *constants;
-        sent.render[3] = anchored_ ? 1u : 0u;
+        sent.render[3] = (anchored_ ? 1u : 0u) | (dump ? 2u : 0u);
         D3D11_MAPPED_SUBRESOURCE mapped;
         if (FAILED(c->Map(reproject_constants_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
             return false;
@@ -323,7 +332,8 @@ namespace enhancements
             light_history_ ? old_lights_srv_.Get() : nullptr, anchored_ ? anchor_depth_srv_.Get() : kept_depth_srv_.Get(), depth,
             anchored_ && reflect_sum_ ? old_reflect_srv_.Get() : nullptr };
         ID3D11UnorderedAccessView *const uavs[] = { history_uav_.Get(), gather_hit_uav_.Get(), gather_sky_uav_.Get(), light_history_uav_.Get(),
-            reflect_sum_ ? reflect_sum_uav_.Get() : nullptr, anchored_ ? hole_list_uav_.Get() : nullptr, anchored_ ? hole_args_uav_.Get() : nullptr };
+            reflect_sum_ ? reflect_sum_uav_.Get() : nullptr, anchored_ ? hole_list_uav_.Get() : nullptr, anchored_ ? hole_args_uav_.Get() : nullptr,
+            dump ? hole_debug_uav_.Get() : nullptr };
         c->CSSetShader(reproject_cs_.Get(), nullptr, 0);
         c->CSSetConstantBuffers(0, 1, buffers);
         c->CSSetShaderResources(0, static_cast<UINT>(std::size(srvs)), srvs);
@@ -333,6 +343,21 @@ namespace enhancements
         ID3D11UnorderedAccessView *const no_uavs[std::size(uavs)] = {};
         c->CSSetShaderResources(0, 7, no_srvs);
         c->CSSetUnorderedAccessViews(0, static_cast<UINT>(std::size(no_uavs)), no_uavs, nullptr);
+        if (dump)
+        {
+            // A debug dump stalls for its copy: "HOLES1", then width, height, flip and the move as uint32, then the pixels.
+            c->CopyResource(hole_debug_read_.Get(), hole_debug_.Get());
+            D3D11_MAPPED_SUBRESOURCE read;
+            if (SUCCEEDED(c->Map(hole_debug_read_.Get(), 0, D3D11_MAP_READ, 0, &read)))
+            {
+                const uint32_t header[4] = { size_.width, size_.height, sent.render[2], anchor_moves_ };
+                std::string bytes("HOLES1\0\0", 8);
+                bytes.append(reinterpret_cast<const char *>(header), sizeof header);
+                bytes.append(static_cast<const char *>(read.pData), size_t(size_.width) * size_.height * 4);
+                c->Unmap(hole_debug_read_.Get(), 0);
+                dumps_.emplace_back("holes-move-" + std::to_string(anchor_moves_) + ".bin", std::move(bytes));
+            }
+        }
         return true;
     }
 
@@ -946,6 +971,8 @@ namespace enhancements
     TraceGpu::Poll TraceGpu::poll(const TraceSettings &settings)
     {
         Poll out;
+        out.files = std::move(dumps_);
+        dumps_.clear();
         // This present's frame: its wall time goes to the frames that traced or to the others.
         const auto now = std::chrono::steady_clock::now();
         if (polled_)
