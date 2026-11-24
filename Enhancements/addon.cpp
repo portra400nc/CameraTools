@@ -791,8 +791,10 @@ namespace enhancements
             if (accumulate.mode == AccumulateMode::off || !map[Entry::hdr_scene])
                 return;
             // An anchored traced shot's view is added only from a frame the trace wrote whole under its lens sample: before
-            // that, the pixels its anchor lacked would show the game's light.
-            const bool traced_view = !trace_gpu.anchored() || (trace_wrote && trace_lens_index == camera.lens.index);
+            // that, the pixels its anchor lacked would show the game's light. Only while the shot asks for its anchor: the
+            // trace keeps the last traced shot's anchor while it does not run, as in an untraced shot after it.
+            const bool anchored = settings.trace.anchor && trace_gpu.anchored();
+            const bool traced_view = !anchored || (trace_wrote && trace_lens_index == camera.lens.index);
             const AccumulateTick tick = accumulate_tick(accumulator, accumulate, camera.lens, camera_age == 0 && traced_view, map.render);
             if (!tick.clear && !tick.add && !tick.present)
                 return;
