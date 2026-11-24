@@ -111,6 +111,15 @@ int main()
         check("the opposite corner sees the same lens point fully", cat_eye_weight(-0.5f, -0.3f, -1, -1, 1.6f, 0.4f, 0.1f) == 1.0f);
         check("cat's eye 0 sees it fully at the corner", cat_eye_weight(-0.5f, -0.3f, 1, 1, 1.6f, 0.0f, 0.1f) == 1.0f);
         check("a lens point 0.95 out is halfway through the 0.1 edge", near(cat_eye_weight(0.95f, 0, 0, 0, 1.6f, 0.4f, 0.1f), 0.5f));
+        // A 16:10 corner lies at distance 1 along (0.848, 0.53); swirl 1 stretches a lens point along that line by 2.5.
+        check("swirl leaves the center pixel's aperture whole", swirl_weight(0.9f, 0, 0, 0, 1.6f, 1.0f, 0.1f) == 1.0f);
+        check("at a 16:10 corner, swirl 1 cuts a lens point 0.4 out toward the center line to 1.0, and keeps one 0.9 out across it",
+            swirl_weight(0.4f * 0.848f, 0.4f * 0.53f, 1, 1, 1.6f, 1.0f, 0.1f) < 0.01f && swirl_weight(-0.9f * 0.53f, 0.9f * 0.848f, 1, 1, 1.6f, 1.0f, 0.1f) > 0.99f);
+        check("a lens point 0.38 out toward the corner stretches to 0.95, halfway through the edge",
+            near(swirl_weight(0.38f * 0.848f, 0.38f * 0.53f, 1, 1, 1.6f, 1.0f, 0.1f), 0.5f, 1e-3f));
+        const std::array<float, 2> red = chromatic_uv(0.5f, 0.5f, 0.5f, -0.5f, 4.0f, 1.0f / 1000, 1.0f / 500);
+        check("red 4 pixels along the lens point (0.5, -0.5) is read at uv (0.502, 0.504): right and, with y down, below",
+            near(red[0], 0.502f) && near(red[1], 0.504f));
     }
     {
         check("the screen point (0.5, 0.25) is stored at (960, 900) in a flipped 1920x1200 target",
@@ -132,7 +141,7 @@ int main()
         check("a projection that does not invert gives no depth", !view_depth(singular, 0.5f, 0.5f, 0.5f));
     }
     {
-        EnhancementsAccumulate raw { sizeof raw, ENHANCEMENTS_ACCUMULATE_ADD, 7, 0.4f, 0.2f, 0 };
+        EnhancementsAccumulate raw { sizeof raw, ENHANCEMENTS_ACCUMULATE_ADD, 7, 0.4f, 0.2f, 0, { 0, 0 }, 0 };
         const AccumulateSettings whole = parse_accumulate(raw);
         check("a whole struct reads add, generation 7, cat's eye 0.4, falloff 0.2", whole.mode == AccumulateMode::add
             && whole.generation == 7 && whole.cat_eye == 0.4f && whole.cat_eye_falloff == 0.2f);
@@ -157,7 +166,7 @@ int main()
         check("a struct too short for mode reads as off", parse_accumulate(raw).mode == AccumulateMode::off);
     }
     {
-        EnhancementsAccumulate raw { sizeof raw, ENHANCEMENTS_ACCUMULATE_PRESENT, 3, 0, 0.1f, 4 };
+        EnhancementsAccumulate raw { sizeof raw, ENHANCEMENTS_ACCUMULATE_PRESENT, 3, 0, 0.1f, 4, { 0, 0 }, 0 };
         check("a gain of 4 reads as 4", parse_accumulate(raw).gain == 4.0f);
         raw.gain = 0;
         check("a zeroed gain reads as plain averaging, 1", parse_accumulate(raw).gain == 1.0f);
@@ -171,9 +180,21 @@ int main()
         const float high = parse_accumulate(raw).gain;
         raw.gain = 0.001f;
         check("gain 1000 clamps to 64 and 0.001 to 1/64", high == 64.0f && parse_accumulate(raw).gain == 1.0f / 64);
+        raw.chromatic[0] = 3.5f;
+        raw.chromatic[1] = 1000;
+        raw.swirl = 0.6f;
+        const AccumulateSettings lens = parse_accumulate(raw);
+        raw.chromatic[0] = NAN;
+        raw.swirl = 4;
+        const AccumulateSettings wild = parse_accumulate(raw);
+        raw.size = offsetof(EnhancementsAccumulate, chromatic);
+        const AccumulateSettings version54 = parse_accumulate(raw);
+        check("chromatic 3.5 and 1000 read as 3.5 and 256, swirl 0.6 as 0.6; NaN reads as 0 and swirl 4 as 1; a version-54 struct reads none",
+            lens.chromatic[0] == 3.5f && lens.chromatic[1] == 256.0f && lens.swirl == 0.6f && wild.chromatic[0] == 0.0f && wild.swirl == 1.0f
+            && version54.chromatic[0] == 0.0f && version54.chromatic[1] == 0.0f && version54.swirl == 0.0f);
         raw.gain = 16;
         raw.size = offsetof(EnhancementsAccumulate, gain);
-        check("version 20's 20-byte struct, which ends before gain, reads gain 1", sizeof raw == 24 && parse_accumulate(raw).gain == 1.0f
+        check("version 20's 20-byte struct, which ends before gain, reads gain 1", sizeof raw == 36 && parse_accumulate(raw).gain == 1.0f
             && parse_accumulate(raw).mode == AccumulateMode::present);
     }
     {

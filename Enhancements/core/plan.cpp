@@ -89,7 +89,8 @@ namespace enhancements
             && offsetof(EnhancementsCelestial, day_light) == 104 && sizeof(EnhancementsCelestial) == 132);
         static_assert(ENHANCEMENTS_ACCUMULATE_PRESENT == static_cast<int>(AccumulateMode::present)
             && ENHANCEMENTS_ACCUMULATE_COUNT == static_cast<int>(AccumulateMode::count));
-        static_assert(offsetof(EnhancementsAccumulate, mode) == 4 && offsetof(EnhancementsAccumulate, gain) == 20 && sizeof(EnhancementsAccumulate) == 24);
+        static_assert(offsetof(EnhancementsAccumulate, mode) == 4 && offsetof(EnhancementsAccumulate, gain) == 20 && offsetof(EnhancementsAccumulate, chromatic) == 24
+            && offsetof(EnhancementsAccumulate, swirl) == 32 && sizeof(EnhancementsAccumulate) == 36);
         static_assert(offsetof(EnhancementsCharacterLights, head) == 20 && offsetof(EnhancementsCharacterLights, count) == 36
             && offsetof(EnhancementsCharacterLights, lights) == 40 && offsetof(EnhancementsCharacterLights, world) == 296
             && sizeof(EnhancementsCharacterLights) == 336);
@@ -727,6 +728,11 @@ namespace enhancements
             a.cat_eye_falloff = finite_or(raw.cat_eye_falloff, defaults.cat_eye_falloff, 0.01f, 1.0f);
         if (knows(offsetof(EnhancementsAccumulate, gain), sizeof raw.gain) && raw.gain > 0)
             a.gain = finite_or(raw.gain, defaults.gain, 1.0f / 64, 64.0f);
+        if (knows(offsetof(EnhancementsAccumulate, chromatic), sizeof raw.chromatic))
+            for (int c = 0; c < 2; c++)
+                a.chromatic[c] = finite_or(raw.chromatic[c], 0.0f, -256.0f, 256.0f);
+        if (knows(offsetof(EnhancementsAccumulate, swirl), sizeof raw.swirl))
+            a.swirl = finite_or(raw.swirl, defaults.swirl, 0.0f, 1.0f);
         return a;
     }
 

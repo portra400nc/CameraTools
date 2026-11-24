@@ -490,6 +490,9 @@ namespace CameraToolsEnhancements
         public float CatEye;
         public float CatEyeFalloff;
         public float Gain;              // 0 reads as 1
+        public float ChromaticRed;      // render pixels per unit of the lens sample that red's picture lies further along it
+        public float ChromaticBlue;
+        public float Swirl;
     }
 
     // EnhancementsCamera.lens_sample in enhancements.h: the aperture point the camera was moved to, x right and y up in the unit
@@ -709,7 +712,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 54;
+        private const uint Version = 55;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

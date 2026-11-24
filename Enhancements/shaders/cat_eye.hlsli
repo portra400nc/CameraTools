@@ -10,3 +10,25 @@ float cat_eye_weight(float2 lens, float2 ndc, float aspect, float cat_eye, float
     float2 center = float2(ndc.x * aspect, ndc.y) * (cat_eye / sqrt(aspect * aspect + 1));
     return 1 - smoothstep(1 - falloff, 1, length(lens - center));
 }
+
+// How much a lens sample counts at a pixel under swirl, as the depth of field's gather squeezes a disc (dof.hlsli,
+// dof_shape_distance): the lens point is stretched along the line from the picture's center by 1.5 swirl times the
+// square of the pixel's distance from it, with the corners at 1, and counts while it stays within 1, its edge soft over
+// falloff. So toward the corners the aperture narrows along that line and bokeh turns to ovals around the center.
+float swirl_weight(float2 lens, float2 ndc, float aspect, float swirl, float falloff)
+{
+    float2 at = float2(ndc.x * aspect, ndc.y) / sqrt(aspect * aspect + 1);
+    float m = length(at);
+    if (swirl <= 0 || m < 0.0001)
+        return 1;
+    float2 e = at / m;
+    float2 u = lens + e * (dot(lens, e) * 1.5 * swirl * m * m);
+    return 1 - smoothstep(1 - falloff, 1, length(u));
+}
+
+// Where a lens sample's red or blue is read, in the picture's uv from the top left: chromatic render pixels per unit of
+// the lens point further along it than the pixel, y up on the lens and down in uv. The pixel's own place for 0.
+float2 chromatic_uv(float2 uv, float2 lens, float chromatic, float2 texel)
+{
+    return uv + float2(lens.x * texel.x, -lens.y * texel.y) * chromatic;
+}

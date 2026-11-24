@@ -406,6 +406,8 @@ namespace enhancements
         float cat_eye = 0.0f;
         float cat_eye_falloff = 0.1f;
         float gain = 1.0f;
+        float chromatic[2] = { 0.0f, 0.0f };
+        float swirl = 0.0f;
     };
 
     // Honors size like parse_settings, maps an unknown mode to off, replaces non-finite floats with the default and

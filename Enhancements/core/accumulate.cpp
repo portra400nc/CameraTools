@@ -16,6 +16,9 @@ namespace enhancements
         };
         float2 operator-(float2 a, float2 b) { return { a.x - b.x, a.y - b.y }; }
         float2 operator*(float2 a, float s) { return { a.x * s, a.y * s }; }
+        float2 operator+(float2 a, float2 b) { return { a.x + b.x, a.y + b.y }; }
+        float2 operator/(float2 a, float s) { return { a.x / s, a.y / s }; }
+        float dot(float2 a, float2 b) { return a.x * b.x + a.y * b.y; }
         float length(float2 v) { return std::sqrt(v.x * v.x + v.y * v.y); }
         float sqrt(float x) { return std::sqrt(x); }
         float smoothstep(float edge0, float edge1, float x)
@@ -62,6 +65,17 @@ namespace enhancements
     float cat_eye_weight(float lens_x, float lens_y, float ndc_x, float ndc_y, float aspect, float cat_eye, float falloff)
     {
         return hlsl::cat_eye_weight({ lens_x, lens_y }, { ndc_x, ndc_y }, aspect, cat_eye, falloff);
+    }
+
+    float swirl_weight(float lens_x, float lens_y, float ndc_x, float ndc_y, float aspect, float swirl, float falloff)
+    {
+        return hlsl::swirl_weight({ lens_x, lens_y }, { ndc_x, ndc_y }, aspect, swirl, falloff);
+    }
+
+    std::array<float, 2> chromatic_uv(float u, float v, float lens_x, float lens_y, float chromatic, float texel_x, float texel_y)
+    {
+        const auto at = hlsl::chromatic_uv({ u, v }, { lens_x, lens_y }, chromatic, { texel_x, texel_y });
+        return { at.x, at.y };
     }
 
     std::optional<Pixel> depth_pixel(Size render, float u, float v, bool flip)

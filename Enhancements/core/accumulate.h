@@ -1,6 +1,7 @@
 // The accumulator's decisions: which frames go into the sum, when it empties, the cat's-eye weight, and where the depth
 // read looks and what it means. Pure C++17 like plan.h. The shell draws and reads back; this says when and what.
 #pragma once
+#include <array>
 
 #include "plan.h"
 
@@ -33,8 +34,10 @@ namespace enhancements
     AccumulateTick accumulate_tick(const Accumulator &state, const AccumulateSettings &settings, const LensSample &lens, bool camera_fresh,
         Size render);
 
-    // shaders/cat_eye.hlsli's weight, compiled from the same source.
+    // shaders/cat_eye.hlsli's weights and the chromatic aberration's read, compiled from the same source.
     float cat_eye_weight(float lens_x, float lens_y, float ndc_x, float ndc_y, float aspect, float cat_eye, float falloff);
+    float swirl_weight(float lens_x, float lens_y, float ndc_x, float ndc_y, float aspect, float swirl, float falloff);
+    std::array<float, 2> chromatic_uv(float u, float v, float lens_x, float lens_y, float chromatic, float texel_x, float texel_y);
 
     struct Pixel
     {

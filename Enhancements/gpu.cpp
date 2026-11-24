@@ -172,8 +172,11 @@ namespace enhancements
         float flare_clouds;         // 1 while this frame's volume clouds are in their history
         uint32_t water_stamp;       // this frame's number for water_ps.hlsl's marks, never 0
         float cloud_layers_pad;
+        float accum_chromatic[2];
+        float accum_swirl;
+        float accum_pad;
     };
-    static_assert(sizeof(Constants) == 1008 && offsetof(Constants, cloud_mid_coverage) == 960 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
+    static_assert(sizeof(Constants) == 1024 && offsetof(Constants, accum_chromatic) == 1008 && offsetof(Constants, cloud_mid_coverage) == 960 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
         && offsetof(Constants, cloud_toward_sun) == 560 && offsetof(Constants, tone_shadows) == 480 && offsetof(Constants, accum_gain) == 488 && offsetof(Constants, flare_sun_uv) == 456 && offsetof(Constants, wetness) == 408 && offsetof(Constants, shafts_anisotropy) == 432 && offsetof(Constants, label) == 272 && offsetof(Constants, sun_color) == 304
         && offsetof(Constants, sky_color) == 320 && offsetof(Constants, bloom_strength) == 352 && offsetof(Constants, sun_cascades) == 368
@@ -3640,6 +3643,9 @@ namespace enhancements
         constants.cat_eye = settings.cat_eye;
         constants.cat_eye_falloff = settings.cat_eye_falloff;
         constants.accum_gain = settings.gain;
+        constants.accum_chromatic[0] = settings.chromatic[0];
+        constants.accum_chromatic[1] = settings.chromatic[1];
+        constants.accum_swirl = settings.swirl;
         upload(constants);
 
         ID3D11DeviceContext1 *c = context_.Get();

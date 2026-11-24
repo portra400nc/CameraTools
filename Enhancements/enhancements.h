@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 54
+#define ENHANCEMENTS_VERSION 55
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -738,6 +738,12 @@ typedef struct EnhancementsAccumulate
     float gain;                 // multiplies the sum's average where present mode writes it and where a DNG develops it,
                                 // as a long exposure's ISO brightens it; 0, negative or not finite reads as the default 1,
                                 // the rest clamp to 1/64..64. Version 21 added it.
+    float chromatic[2];         // axial chromatic aberration of lens samples: red's and blue's pictures lie this many render
+                                // pixels per unit of the lens sample further along it than green's, so each sample's red and
+                                // blue are read there; 0 (the default) reads them under green; clamped to -256..256
+    float swirl;                // swirl of lens samples: at each pixel, the lens points are stretched along the line from the
+                                // picture's center, more toward its corners, and only those still within 1 count, as the
+                                // depth of field's swirl squeezes a disc; 0 (the default) to 1. Version 55 added these.
 } EnhancementsAccumulate;
 
 // A traced shot: while active, every frame runs the trace pass with the gather on over whatever settings are applied,

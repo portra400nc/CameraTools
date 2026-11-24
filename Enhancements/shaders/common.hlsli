@@ -141,6 +141,9 @@ cbuffer Constants : register(b0)
     float flare_clouds;         // 1 while this frame's volume clouds are in their history, which dims the flare's sun
     uint water_stamp;           // this frame's number for water_ps.hlsl's marks, never 0
     float cloud_layers_pad;
+    float2 accum_chromatic;     // EnhancementsAccumulate.chromatic
+    float accum_swirl;          // EnhancementsAccumulate.swirl
+    float accum_pad;
 };
 
 SamplerState point_clamp : register(s0);
