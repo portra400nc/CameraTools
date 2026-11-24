@@ -36,40 +36,6 @@ float3 to_scene(float4 rows[4], int2 pixel, float depth)
     return float3(dot(rows[0], clip), dot(rows[1], clip), dot(rows[2], clip)) / dot(rows[3], clip);
 }
 
-// An anchored shot's lens views see some of the scene the anchor did not: the ground behind a subject's outline, or
-// another leaf of a blurred tree. Such a pixel takes the samples of the anchor's pixel nearby that showed the nearest
-// point to its own, within a share of its distance, on a golden-angle spiral of kFillTaps out to kFillRadius pixels at
-// 2160 rows: light varies smoothly along a surface, and left without samples the pixel showed the game's light, in a halo
-// around the subject. render.w is 1 for an anchored shot's move.
-static const uint kFillTaps = 48;
-static const float kFillRadius = 48;
-static const float kFillShare = 0.03;
-
-uint fill_from(int2 q, float3 p)
-{
-    float radius = kFillRadius * render.y / 2160.0;
-    float best = kFillShare * length(p - eye.xyz) + 0.05;
-    uint found = 0xffffffff;
-    for (uint i = 0; i < kFillTaps; i++)
-    {
-        float angle = float(i) * 2.39996323;
-        float2 o = float2(cos(angle), sin(angle)) * (radius * sqrt((float(i) + 0.5) / float(kFillTaps)));
-        int2 t = q + int2(round(o));
-        if (any(t < 0) || t.x >= int(render.x) || t.y >= int(render.y))
-            continue;
-        float before = old_depth.Load(int3(t, 0));
-        if (before <= 0)
-            continue;
-        float apart = length(to_scene(from_rows, t, before) - p);
-        if (apart < best)
-        {
-            best = apart;
-            found = uint(t.y) * render.x + uint(t.x);
-        }
-    }
-    return found;
-}
-
 [numthreads(8, 8, 1)]
 void main(uint3 id : SV_DispatchThreadID)
 {
@@ -91,23 +57,19 @@ void main(uint3 id : SV_DispatchThreadID)
             if (render.z != 0)
                 v = 1 - v;
             int2 q = int2(floor(float2(u * render.x, v * render.y)));
-            uint from = 0xffffffff;
             if (all(q >= 0) && q.x < int(render.x) && q.y < int(render.y))
             {
                 float before = old_depth.Load(int3(q, 0));
                 float3 was = before > 0 ? to_scene(from_rows, q, before) : float3(1e30, 1e30, 1e30);
                 if (length(was - p) <= eye.w * length(p - eye.xyz) + 0.02)
-                    from = uint(q.y) * render.x + uint(q.x);
-            }
-            if (from == 0xffffffff && render.w != 0)
-                from = fill_from(clamp(q, int2(0, 0), int2(render.xy) - 1), p);
-            if (from != 0xffffffff)
-            {
-                h = old_history[from];
-                g = old_hit[from];
-                k = old_sky[from];
-                l = old_lights[from];
-                r = old_reflect[from];
+                {
+                    uint from = uint(q.y) * render.x + uint(q.x);
+                    h = old_history[from];
+                    g = old_hit[from];
+                    k = old_sky[from];
+                    l = old_lights[from];
+                    r = old_reflect[from];
+                }
             }
         }
     }

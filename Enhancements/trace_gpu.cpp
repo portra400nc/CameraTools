@@ -270,9 +270,7 @@ namespace enhancements
         D3D11_MAPPED_SUBRESOURCE mapped;
         if (FAILED(c->Map(reproject_constants_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
             return false;
-        ReprojectConstants sent = *constants;
-        sent.render[3] = anchored_ ? 1u : 0u;
-        std::memcpy(mapped.pData, &sent, sizeof sent);
+        std::memcpy(mapped.pData, &*constants, sizeof *constants);
         c->Unmap(reproject_constants_.Get(), 0);
         ID3D11Buffer *const buffers[] = { reproject_constants_.Get() };
         // Reflections depend on the view: an unanchored move clears them, as the kernel writes 0 where it reads no copy; an

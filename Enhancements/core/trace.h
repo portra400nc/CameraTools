@@ -50,7 +50,7 @@ namespace enhancements
         float from_rows[4][4];      // the old camera's
         float from_clip[4][4];      // the old camera's scene to clip, the inverse of from_rows
         float eye[4];               // xyz: the new camera in the scene; w: the share of a point's distance it may move and match
-        uint32_t render[4];         // width, height, 1 when targets are stored upside down, 1 for an anchored shot's move
+        uint32_t render[4];         // width, height, 1 when targets are stored upside down, 0
     };
     static_assert(sizeof(ReprojectConstants) == 224);
 
