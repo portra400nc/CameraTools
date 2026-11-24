@@ -475,7 +475,8 @@ int2 dof_ring(int2 h, int i)
 // threshold, and kDofSpritePeak times the mean luminance of the ring two texels away, which a glint or a cluster of them up
 // to three texels across passes and a flat bright area and its edges do not, or with the contrast to grow, which a small
 // lamp has. The sprite takes the light above the ring's least of each channel, which stays in the gather as the
-// surroundings' color there, grown by dof_grow_highlight.
+// surroundings' color there, grown by dof_grow_highlight. In a lens-sampled shot's gap fill, out of focus and the growth
+// go by the lens's disc, dof_contrast.z times the fill's: the samples' average spreads the sprite over that disc.
 DofDetect dof_detect(int2 h)
 {
     DofDetect o;
@@ -488,7 +489,8 @@ DofDetect dof_detect(int2 h)
     float l = dot(c, kDofLuma);
     float2 lens_key = dof_load_focus();
     float3 curve = dof_highlight_curve(lens_key.y);
-    if (abs(o.source.w) < kDofSpriteRadius || l <= curve.x)
+    float disc_scale = max(dof_contrast.z, 1.0f);
+    if (abs(o.source.w) * disc_scale < kDofSpriteRadius || l <= curve.x)
         return o;
     float near_ring = 0.0f, far_ring = 0.0f;
     float3 least = c;
@@ -511,7 +513,7 @@ DofDetect dof_detect(int2 h)
     if (l < kDofSpritePeak * near_ring / 16.0f && contrast < kDofHighlightContrast)
         return o;
     DofLens lens = dof_frame_lens(lens_key.x);
-    float3 grown = c * (dof_grow_highlight(l, contrast, curve, max(abs(dof_capped_coc(o.source.w, lens).y), 0.5f)) / l);
+    float3 grown = c * (dof_grow_highlight(l, contrast, curve, max(abs(dof_capped_coc(o.source.w, lens).y) * disc_scale, 0.5f)) / l);
     o.sprite = true;
     o.as.at.w = dof_sprite_extent(o.source.w, lens);
     o.as.light = float4(grown.x - least.x, grown.y - least.y, grown.z - least.z, 0.0f);

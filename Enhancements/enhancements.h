@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 57
+#define ENHANCEMENTS_VERSION 58
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -653,6 +653,16 @@ typedef struct EnhancementsLeaves
     float shading;              // 0 (the default) the game's, to 1; clamped
 } EnhancementsLeaves;
 
+// A lens-sampled shot's highlights. Its samples' depth of field is a gap fill, a share of the lens's CoC, but their
+// highlights should grow as the whole lens's discs do: with scatter on, a highlight is detected and grown for a disc
+// disc_scale times the depth of field's, so the samples' average spreads it over the lens's disc as bright as the gather
+// draws a disc. Version 58 added it.
+typedef struct EnhancementsLensHighlights
+{
+    float disc_scale;           // the lens's CoC over the depth of field's: 1 / the gap fill; 0 or 1 (the default) the depth of
+                                // field's own; clamped to 1..64
+} EnhancementsLensHighlights;
+
 typedef struct EnhancementsSceneLight
 {
     float exposure_ev;          // 0 (the default) as the game lights it; clamped to -3 to 3
@@ -717,6 +727,7 @@ typedef struct EnhancementsSettings
     EnhancementsGrass grass;
     EnhancementsLeaves leaves;
     EnhancementsCloudLayers cloud_layers;
+    EnhancementsLensHighlights lens_highlights;
 } EnhancementsSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and

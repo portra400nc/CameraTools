@@ -420,6 +420,7 @@ namespace enhancements
         c.highlight[3] = float(kDofSpriteCap);
         c.contrast[0] = s.bokeh_contrast > 0 ? kDofContrastPower : 0;
         c.contrast[1] = s.bokeh_contrast * kDofContrastShare;
+        c.contrast[2] = s.highlight_disc_scale;
         const uint32_t sizes[4] = { half_w, half_h, (half_w + kDofTile - 1) / kDofTile, (half_h + kDofTile - 1) / kDofTile };
         const uint32_t counts[4] = { static_cast<uint32_t>(std::ceil(max_radius * margin / kDofTile)), render.width, render.height,
             std::max(1u, render.height / 100) };

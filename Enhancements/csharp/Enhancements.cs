@@ -339,6 +339,14 @@ namespace CameraToolsEnhancements
         public EnhancementsCloudType Type;
     }
 
+    // EnhancementsLensHighlights in enhancements.h: a lens-sampled shot's highlights grow for the lens's discs, DiscScale
+    // times its gap fill's.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct EnhancementsLensHighlights
+    {
+        public float DiscScale;             // the lens's CoC over the gap fill's; 0 or 1 the depth of field's own
+    }
+
     // EnhancementsCloudLayers in enhancements.h, field for field: a layered sky's middle layer and cirrus.
     [StructLayout(LayoutKind.Sequential)]
     internal struct EnhancementsCloudLayers
@@ -414,6 +422,7 @@ namespace CameraToolsEnhancements
         public EnhancementsGrass Grass;
         public EnhancementsLeaves Leaves;
         public EnhancementsCloudLayers CloudLayers;
+        public EnhancementsLensHighlights LensHighlights;
 
         // The add-on's defaults: everything off, game targets upside down, and when switched on ambient level 0.6, AO
         // strength 0.5 at a 1 m radius, half that strength on grass, vegetation and foliage, full-strength contact
@@ -715,7 +724,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 57;
+        private const uint Version = 58;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
