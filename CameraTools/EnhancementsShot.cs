@@ -41,6 +41,7 @@ namespace CameraTools
             public bool Seen;
             public uint Before;
             public float PhaseBegan;
+            public float Progress;      // when the trace last had a sample, or its phase began
             public SceneFacts Facts;
             public uint Baseline;
             // The add-on's count of the samples' starts when this trace began.
@@ -338,10 +339,14 @@ namespace CameraTools
                     break;
                 case ShotPhase.Tracing:
                     run.Stalled = TracedShot.Stalled(ref run.Baseline, status);
-                    float waited = now - run.PhaseBegan;
+                    // Timed from the last sample: each start of the samples reads as no sample and no rays for a frame, and
+                    // one 90 s into a converging trace gave the shot up and captured the scene again (2026-11-24).
+                    if (status.TraceSamples > 0)
+                        run.Progress = now;
+                    float waited = now - run.Progress;
                     if (status.TraceSamples == 0 && (waited > TracedShot.NoSampleLimit || (waited > TracedShot.NoSampleTimeout && status.TraceMraysX100 == 0)))
                     {
-                        string none = $"no sample {now - run.PhaseBegan:0.0} s after the scene was ready; the add-on says: {Enhancements.Describe()}";
+                        string none = $"no sample for {waited:0.0} s, {now - run.PhaseBegan:0.0} s after the scene was ready; the add-on says: {Enhancements.Describe()}";
                         if (Retry(status, now, none))
                             return null;
                         return ("Screenshot failed: the trace did not start; see ReShade.log", none);
@@ -601,7 +606,7 @@ namespace CameraTools
             // The scene's faces take the lights as the game draws them; from here the shot draws them itself.
             Lights.WorldLightsHeld = phase is ShotPhase.Tracing or ShotPhase.Finishing or ShotPhase.Done;
             run.Phase = phase;
-            run.PhaseBegan = now;
+            run.PhaseBegan = run.Progress = now;
             run.Stalled = false;
         }
 

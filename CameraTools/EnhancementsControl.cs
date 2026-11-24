@@ -196,7 +196,9 @@ namespace CameraTools
             GameClouds.Update(Enhancements.Connected && (EnhancementsModel.CloudsRun(Running) || EnhancementsModel.SkyDrawn(Running)));
             WeatherFollow.Update(Enhancements.Connected && EnhancementsModel.WeatherRuns(Running), Running);
             if (EnhancementsModel.CloudsRun(Running) && (int)Running[Enhancement.CloudType] == EnhancementsModel.LayeredClouds)
-                LayeredSky.Update(NightSky.Days, WeatherFollow.Kind, Time.unscaledDeltaTime);
+                // A traced shot holds the sky as its scene caught it: a blend going on changed the sun the clouds let through,
+                // which built the trace's sky map again and started its samples over.
+                LayeredSky.Update(NightSky.Days, WeatherFollow.Kind, EnhancementsShot.Busy ? 0f : Time.unscaledDeltaTime);
             GameRain.Update(WeatherFollow.Current?.Rain > 0f && Running.On(Enhancement.WeatherRain));
             var now = DepthOfField.Frame;
             if (connections != Enhancements.Connections)
