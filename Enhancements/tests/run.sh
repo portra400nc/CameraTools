@@ -55,7 +55,7 @@ ls *_test.cpp | sed 's/\.cpp$//' | xargs -P "$jobs" -I {} sh -c '
     key=$(shasum < "$2/$1" | cut -c1-40)
     case "$5" in *" $1 "*) ;; *) if [ "${4:-0}" != 1 ] && [ -f "$3/test-$key.log" ]; then cp "$3/test-$key.log" "$2/$1.log"; echo 0 > "$2/$1.status"; exit 0; fi ;; esac
     "$2/$1" "$2" > "$2/$1.log" 2>&1; status=$?; echo $status > "$2/$1.status"
-    [ $status = 0 ] && cp "$2/$1.log" "$3/test-$key.log"' _ {} "$out" "$cache" "${FULL:-0}" "$writers"
+    if [ $status = 0 ]; then cp "$2/$1.log" "$3/test-$key.log"; fi' _ {} "$out" "$cache" "${FULL:-0}" "$writers"
 failed=0
 for test in *_test.cpp; do
     cat "$out/${test%.cpp}.log"
