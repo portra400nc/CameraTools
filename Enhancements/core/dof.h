@@ -211,6 +211,9 @@ namespace enhancements
     // shaders/dof_display.hlsli's sRGB curve and its inverse.
     float dof_srgb_decode(float v);
     float dof_srgb_encode(float c);
+    // shaders/dof_display.hlsli's whole decode of a back buffer's level: the sRGB curve, then the game's filmic curve
+    // undone, into the scene light the lens blurs.
+    float dof_display_decode(float v);
 
     // The constants of the display place: dof_constants at the back buffer's size, upright, with the autofocus's step 0 so
     // its pass there keeps the bloom step's focus and takes the back buffer's mean luminance, and display for

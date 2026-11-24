@@ -15,18 +15,31 @@
 float dof_srgb_to_linear(float v) { return v <= 0.04045f ? v / 12.92f : pow((v + 0.055f) / 1.055f, 2.4f); }
 float dof_linear_to_srgb(float c) { return c <= 0.0031308f ? c * 12.92f : 1.055f * pow(c, 1.0f / 2.4f) - 0.055f; }
 
+// The game's filmic curve and its inverse. It reaches white at a scene value of 1.422, so every level below white comes
+// back as the light the lens blurs; white, light the curve clipped, comes back as 1.5, which R16F keeps past the knee so
+// it stays white.
+float dof_filmic(float x) { return saturate(x * (1.36f * x + 0.047f) / (x * (0.93f * x + 0.56f) + 0.14f)); }
+float dof_filmic_inverse(float y)
+{
+    if (y >= 1.0f)
+        return 1.5f;
+    float a = 0.93f * y - 1.36f, b = 0.56f * y - 0.047f, c = 0.14f * y;
+    return (-b - sqrt(max(b * b - 4.0f * a * c, 0.0f))) / (2.0f * a);
+}
+
 float3 dof_decode_display(float3 v)
 {
     if (dof_display.w == 0.0f)
         return v;
-    return float3(dof_srgb_to_linear(saturate(v.x)), dof_srgb_to_linear(saturate(v.y)), dof_srgb_to_linear(saturate(v.z)));
+    return float3(dof_filmic_inverse(dof_srgb_to_linear(saturate(v.x))), dof_filmic_inverse(dof_srgb_to_linear(saturate(v.y))),
+        dof_filmic_inverse(dof_srgb_to_linear(saturate(v.z))));
 }
 
 float3 dof_encode_display(float3 c)
 {
     if (dof_display.w == 0.0f)
         return c;
-    return float3(dof_linear_to_srgb(saturate(c.x)), dof_linear_to_srgb(saturate(c.y)), dof_linear_to_srgb(saturate(c.z)));
+    return float3(dof_linear_to_srgb(dof_filmic(c.x)), dof_linear_to_srgb(dof_filmic(c.y)), dof_linear_to_srgb(dof_filmic(c.z)));
 }
 
 #ifdef DOF_DISPLAY_IN

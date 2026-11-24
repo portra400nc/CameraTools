@@ -608,7 +608,7 @@ int main(int argc, char **argv)
         uint32_t moved = 0;
         for (size_t i = 0; i < back.size(); i++)
             moved += std::lround(sharp.rgb[i] * 255) != std::lround(back[i] * 255) ? 1 : 0;
-        check("a back buffer on the focus plane comes back level for level through the sRGB curve and R16F", moved == 0 && sharp.nonfinite == 0);
+        check("a back buffer on the focus plane comes back level for level through the sRGB and game's curves and R16F", moved == 0 && sharp.nonfinite == 0);
         // Stripes 4 pixels wide, black and white; the main depth's stored rows 200 to 399, the picture's top half, 30 m away.
         std::vector<float> depth = on_plane;
         for (size_t i = size_t(640) * 200; i < depth.size(); i++)
@@ -618,9 +618,9 @@ int main(int argc, char **argv)
                 back[i * 3 + k] = (i % 1280) / 4 % 2 == 0 ? 0.0f : 1.0f;
         const DofOutput split = render_dof_display(back, depth, *c, 0);
         const auto green = [&split](uint32_t x, uint32_t y) { return split.rgb[(size_t(y) * 1280 + x) * 3 + 1]; };
-        check("the main depth comes upright: the far top's stripes blur to gray, 0.7300 and 0.7402 on a black and a white stripe "
-              "where sRGB's middle gray is 0.7354, while the bottom's on the focus plane stay black and white",
-            near(green(641, 100), 0.7300f, 0.002f) && near(green(645, 100), 0.7402f, 0.002f) && green(641, 700) == 0 && near(green(645, 700), 1, 1e-6f));
+        check("the main depth comes upright: the far top's stripes blur to gray, 0.8712 and 0.8783 on a black and a white stripe "
+              "where the game's curve shows half of white's scene light as 0.8750, while the bottom's on the focus plane stay black and white",
+            near(green(641, 100), 0.8712f, 0.002f) && near(green(645, 100), 0.8783f, 0.002f) && green(641, 700) == 0 && near(green(645, 700), 1, 1e-6f));
     }
 
     FrameSave frame;

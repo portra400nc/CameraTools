@@ -800,6 +800,7 @@ namespace enhancements
 
     float dof_srgb_decode(float v) { return shader::dof_srgb_to_linear(v); }
     float dof_srgb_encode(float c) { return shader::dof_linear_to_srgb(c); }
+    float dof_display_decode(float v) { return shader::dof_filmic_inverse(shader::dof_srgb_to_linear(v)); }
 
     std::optional<DofConstants> dof_dng_constants(const DepthOfFieldSettings &settings, const Camera &camera, Size render, bool flip, uint64_t frame)
     {

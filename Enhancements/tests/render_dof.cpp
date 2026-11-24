@@ -683,7 +683,9 @@ namespace
         const uint32_t w = kNearEdgeWidth, h = height;
         const Camera camera = synthetic_camera();
         const std::optional<std::array<float, 4>> k = dof_depth_coefficients(camera);
-        const float near_gray = 1, far_gray = 0.1f;
+        // On the back buffer the plane is a light gray below the game's curve's knee: near white one 8-bit level holds 3 to
+        // 8% of the edge's scene light, too coarse to measure a slope in.
+        const float near_gray = display ? 0.6f : 1.0f, far_gray = 0.1f;
         DofImage image;
         image.size = { w, h };
         image.rgb.resize(size_t(w) * h * 3);
@@ -704,7 +706,7 @@ namespace
         const DofConstants c = display ? *dof_display_constants(s, camera, image.size, image.size, false, DofTransfer::srgb, 0)
                                        : *dof_constants(s, camera, image.size, false, 0, 0);
         // What the gray levels come back as when the picture's levels are unchanged.
-        const auto stored = [display](float v) { return display ? dof_srgb_decode(std::round(dof_srgb_encode(v) * 255) / 255) : v; };
+        const auto stored = [display](float v) { return display ? dof_display_decode(std::round(dof_srgb_encode(v) * 255) / 255) : v; };
         DofOutput out;
         if (display)
         {
@@ -713,7 +715,7 @@ namespace
                 back[i] = std::round(dof_srgb_encode(image.rgb[i]) * 255) / 255;
             out = render_dof_display(back, image.depth, c, 0);
             for (float &v : out.rgb)
-                v = dof_srgb_decode(v);
+                v = dof_display_decode(v);
         }
         else
             out = render_dof(image, c, 0);
@@ -784,7 +786,7 @@ namespace
                 for (int ch = 0; ch < 3; ch++)
                     image.rgb[(size_t(y) * w + x) * 3 + ch] = near ? near_gray : at < edge ? dark : light;
             }
-        const auto stored = [display](float v) { return display ? dof_srgb_decode(std::round(dof_srgb_encode(v) * 255) / 255) : v; };
+        const auto stored = [display](float v) { return display ? dof_display_decode(std::round(dof_srgb_encode(v) * 255) / 255) : v; };
         DofOutput out;
         if (display)
         {
@@ -793,7 +795,7 @@ namespace
                 back[i] = std::round(dof_srgb_encode(image.rgb[i]) * 255) / 255;
             out = render_dof_display(back, image.depth, c, 0);
             for (float &v : out.rgb)
-                v = dof_srgb_decode(v);
+                v = dof_display_decode(v);
         }
         else
             out = render_dof(image, c, 0);
