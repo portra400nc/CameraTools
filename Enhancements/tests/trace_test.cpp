@@ -842,7 +842,7 @@ int main(int argc, char **argv)
             g.rows[0][0][0] == 0.0f && g.rows[0][0][1] == 1.0f && g.rows[0][0][3] == 8.0f && std::abs(g.rows[0][1][0] - 4.5947f) < 1e-3f && g.rows[0][1][2] == 1.0f
                 && g.rows[1][1][3] == 0.7f && g.rows[1][2][1] == -1.0f && std::abs(g.rows[0][3][1] - (0.9278f * 4.5947f + 0.0722f)) < 1e-3f && g.info[0] == 4);
         check("the traced light is 64 bytes, its reserved words at 48, and the version is 57", sizeof(EnhancementsShotLight) == 64
-            && offsetof(EnhancementsShotLight, reserved) == 48 && ENHANCEMENTS_VERSION == 58);
+            && offsetof(EnhancementsShotLight, reserved) == 48 && ENHANCEMENTS_VERSION == 57);
     }
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;

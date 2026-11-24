@@ -74,14 +74,8 @@ internal static class LensSamplerTests
         var plain = EnhancementsModel.DepthOfField(on, new LensView(true, 16f / 9f, 25, ShotStage.Capture));
         check("a lens-sampled shot's samples blur at f/2.8 over 0.0554 = f/50.5, focused at 15.6 m at once, in the scene, without chromatic aberration or cat's eye; after them the blur is off",
             sampling.Enabled == 1 && MathF.Abs(sampling.FNumber - 2.8f / 0.0554f) < 1e-3f && sampling.FocusDistance == 15.6f && sampling.FocusSeconds == 0f
-            && sampling.Place == EnhancementsDofPlace.Scene && sampling.Chromatic == 0f && sampling.CatEye == 0f
+            && sampling.Place == EnhancementsDofPlace.Scene && sampling.Chromatic == 0f && sampling.CatEye == 0f && sampling.Scatter == 0
             && after.Enabled == 0 && plain.Enabled == 1 && plain.Place == EnhancementsDofPlace.Display && plain.Chromatic == 1f);
-        var discs = on.With(Enhancement.HighlightDiscs, 1f).With(Enhancement.HighlightBoost, 2.5f);
-        var lifted = EnhancementsModel.DepthOfField(discs, new LensView(true, 16f / 9f, 25, ShotStage.Capture, LensSampled: true, LensFill: 0.0554f, LensFocus: 15.6f));
-        check("with Highlight discs on, a lens-sampled shot's fill keeps its highlight sprites and boost, grown for a disc 1 / 0.0554 = 18.05 times the fill's",
-            lifted.Scatter == 1 && lifted.HighlightGain == 2.5f
-            && MathF.Abs(EnhancementsModel.LensHighlightScale(new LensView(true, 16f / 9f, 25, ShotStage.Capture, LensSampled: true, LensFill: 0.0554f)) - 18.05f) < 0.01f
-            && EnhancementsModel.LensHighlightScale(new LensView(true, 16f / 9f, 25, ShotStage.Capture)) == 1f);
         check("under spherical aberration 0.25 at focus 15 m, the center zone focuses at 13.33 m and the rim at 17.14 m, nearer and farther",
             MathF.Abs(LensSampler.ZoneFocus(15f, 0f, 0f, 0.25f) - 13.333f) < 1e-3f && MathF.Abs(LensSampler.ZoneFocus(15f, 0.6f, 0.8f, 0.25f) - 17.143f) < 1e-3f
             && LensSampler.ZoneFocus(15f, 0.6f, 0.8f, 0f) == 15f);

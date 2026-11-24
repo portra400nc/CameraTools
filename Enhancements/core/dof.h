@@ -114,8 +114,7 @@ namespace enhancements
         uint32_t counts[4]; // tiles the dilation reaches, the render size, pixels between the autofocus's depth samples
         float highlight[4]; // the highlights' threshold over the frame's mean luminance, gain, the sprites a field may draw (0: no
                             // scatter), and the near field's first slot in the sprites' buffer
-        float contrast[4];  // the bokeh contrast's lift's power (0: off), the share of the light it may move, and a lens-sampled
-                            // shot's highlight disc scale
+        float contrast[4];  // the bokeh contrast's lift's power (0: off), and the share of the light it may move
         float display[4];   // on the display: the main depth's size, 1 when its rows run up the screen, 1 when the back buffer holds
                             // sRGB-encoded values (0: linear); all 0 in the scene
         float eye[4];       // the eye's surface as the caller reckons it, in meters along the view axis (0: no eye), and the pixels

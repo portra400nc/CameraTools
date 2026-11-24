@@ -433,7 +433,6 @@ namespace CameraTools
             settings.Trace.Enabled = 0;
             settings.Gather.Enabled = 0;
             settings.DepthOfField = DepthOfField(values, lens);
-            settings.LensHighlights.DiscScale = LensHighlightScale(lens);
             // The lens softness is the lens's, so it holds with the depth of field switched off, while the free camera is on.
             settings.LensSoftness.Radius = lens.FreeCamera ? values[Enhancement.LensSoftness] : 0f;
             // Weather's look in place of the user's clouds, haziness and Haze effect, as the game's weather has it now.
@@ -628,11 +627,6 @@ namespace CameraTools
                 values[Enhancement.AnamorphicRatio], edgeSoftness);
         }
 
-        // A lens-sampled shot's gap fill keeps Highlight discs, so its highlights grow as the single-frame depth of field's
-        // do: the add-on detects and grows them for the lens's disc, 1 / the fill times the fill's, and the samples' average
-        // spreads them over it.
-        public static float LensHighlightScale(LensView lens) => lens.LensSampled && lens.LensFill > 0f ? 1f / lens.LensFill : 1f;
-
         public static EnhancementsDepthOfField DepthOfField(EnhancementValues values, LensView lens)
         {
             var dof = EnhancementsSettings.Defaults.DepthOfField;
@@ -677,6 +671,8 @@ namespace CameraTools
                 dof.Chromatic = 0f;
                 dof.CatEye = 0f;
                 dof.Swirl = 0f;
+                dof.Scatter = 0u;
+                dof.HighlightGain = 0f;
                 dof.BokehContrast = 0f;
                 dof.Samples = LiveSamples;
             }
