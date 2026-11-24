@@ -2,9 +2,9 @@
 // to the camera they were traced with, where the old depth there agrees, and none where the point was hidden or off the
 // old view. The occlusion and sun sums, the gather's hits and skies and the traced lights' sums move together, counts and
 // all, so the trace and gather kernels go on adding to them. Reflections depend on the view: they move only from an
-// anchored shot's anchor, whose copy is bound, and are cleared otherwise, as the unbound copy reads 0. With render.w's
-// bit 4, an anchored move takes the pixels its anchor did not see from the view before it, whose own move traced them,
-// and with bit 8 their reflections too: a debug switch while its effect on the picture is measured.
+// anchored shot's anchor, whose copy is bound, and are cleared otherwise, as the unbound copy reads 0. An anchored move
+// takes the pixels its anchor did not see from the view before it, whose own move traced them, reflections and all, so
+// each pixel hidden from the anchor is traced once while the views that cannot see it from the anchor go on.
 
 cbuffer Reproject : register(b0)
 {
@@ -111,7 +111,7 @@ void main(uint3 id : SV_DispatchThreadID)
                 r = old_reflect[from];
             }
         }
-        if ((render.w & 4u) != 0 && h.z == 0)
+        if ((render.w & 1u) != 0 && h.z == 0)
         {
             q = seen_at(last_clip, p);
             if (q.x >= 0 && same_point(last_rows, q, last_depth.Load(int3(q, 0)), p))
@@ -121,7 +121,7 @@ void main(uint3 id : SV_DispatchThreadID)
                 g = last_hit[from];
                 k = last_sky[from];
                 l = last_lights[from];
-                r = (render.w & 8u) != 0 ? last_reflect[from] : none;
+                r = last_reflect[from];
             }
         }
     }

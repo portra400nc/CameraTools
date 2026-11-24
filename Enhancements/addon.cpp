@@ -2564,10 +2564,6 @@ namespace enhancements
                 // A debug dump of anchored moves while C:\ReShade\Enhancements\dump-holes exists.
                 std::error_code missing;
                 trace_gpu.set_dump_holes(fs::exists(output_root() / "dump-holes", missing));
-                // And debug switches for anchored moves' fill from the view before them: fill-last-view, and
-                // fill-last-reflections for their reflections too.
-                trace_gpu.set_fill_last_view(fs::exists(output_root() / "fill-last-view", missing),
-                    fs::exists(output_root() / "fill-last-reflections", missing));
                 TraceGpu::Poll polled = trace_gpu.poll(settings.trace);
                 for (const std::string &line : polled.log)
                     log(reshade::log::level::info, line);

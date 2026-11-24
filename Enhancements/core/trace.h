@@ -52,7 +52,7 @@ namespace enhancements
         float last_rows[4][4];      // an anchored move's view before it, which the anchor is old to: its clip rows
         float last_clip[4][4];      // and its scene to clip
         float eye[4];               // xyz: the new camera in the scene; w: the share of a point's distance it may move and match
-        uint32_t render[4];         // width, height, 1 when targets are stored upside down, 1 for an anchored move, which lists its unseen pixels
+        uint32_t render[4];         // width, height, 1 when targets are stored upside down; bit 1 an anchored move, bit 2 its debug dump
     };
     static_assert(sizeof(ReprojectConstants) == 352);
 
