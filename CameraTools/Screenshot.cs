@@ -392,11 +392,16 @@ namespace CameraTools
                 // A generation the add-on's sum does not have yet, so it empties before the first sample.
                 uint generation = CameraToolsEnhancements.Enhancements.Status.AccumGeneration + 1;
                 string lens = "";
-                if (Supersampling.LensSampled && !traced)
+                // A traced shot's lens samples reuse the lighting it converged at the aperture's center.
+                if (Supersampling.LensSampled && (!traced || EnhancementsShot.Converged))
                 {
                     var (lensShot, why) = DepthOfField.LensShot();
                     if (lensShot != null)
+                    {
                         Supersampling.BeginLens(lensShot);
+                        if (traced)
+                            EnhancementsShot.AnchorForLensSamples();
+                    }
                     lens = lensShot != null ? $"lens-sampled: {why}; " : $"not lens-sampled: {why}; ";
                 }
                 string hold = Supersampling.Hold();

@@ -75,7 +75,7 @@ namespace CameraTools
             samples = category.CreateEntry("SupersamplingSamples", 32,
                 description: $"How many frames a supersampled screenshot averages, from 1 to {MaxSamples}. Each takes two frames.");
             lensSampled = category.CreateEntry("LensSampledScreenshots", false,
-                description: "Depth of field's screenshot method: true renders the scene from points across the lens's aperture and averages them (Lens samples), false blurs the one frame (Single frame). CameraTools' depth of field only; traced shots keep the single frame.");
+                description: "Depth of field's screenshot method: true renders the scene from points across the lens's aperture and averages them (Lens samples), false blurs the one frame (Single frame). CameraTools' depth of field only; a traced shot's samples reuse the lighting it converged at the lens's center.");
             lensSamples = category.CreateEntry("LensSamples", 256,
                 description: $"How many aperture points a lens-sampled screenshot averages, from 1 to {MaxLensSamples}. Each takes two frames.");
             gapFill = category.CreateEntry("LensGapFill", 1f,

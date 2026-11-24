@@ -193,6 +193,20 @@ namespace CameraTools
 
         public static bool Converged => run is { Phase: ShotPhase.Done };
 
+        // A converged shot's lighting becomes the anchor of a lens-sampled screenshot: every lens sample's view takes its
+        // samples from the aperture's center, where they converged, instead of tracing them again. Changes nothing of what
+        // restarts the trace.
+        public static void AnchorForLensSamples()
+        {
+            if (run is { Phase: ShotPhase.Done })
+                SendShot(anchor: true);
+        }
+
+        private static void SendShot(bool anchor)
+            => Enhancements.SetShot(true, 0, TracedShot.BudgetMs, BounceStrength,
+                TracedSunShadows ? EnhancementsTraceOutputs.Ao | EnhancementsTraceOutputs.Sun : EnhancementsTraceOutputs.Ao,
+                TracedReflections, SurfaceGloss, ReflectedLight, (uint)Bounces, live: anchor, anchor: anchor);
+
         // The game runs again under a shot that paused it.
         public static bool Unpaused => run != null && Time.timeScale != 0f;
 
@@ -561,9 +575,7 @@ namespace CameraTools
             run.Owns = true;
             var lights = ShotLights();
             Enhancements.SetShotLights(lights);
-            Enhancements.SetShot(true, 0, TracedShot.BudgetMs, BounceStrength,
-                TracedSunShadows ? EnhancementsTraceOutputs.Ao | EnhancementsTraceOutputs.Sun : EnhancementsTraceOutputs.Ao,
-                TracedReflections, SurfaceGloss, ReflectedLight, (uint)Bounces);
+            SendShot(anchor: false);
             if (lights.Length > 0)
                 Log($"tracing {lights.Length} of CameraTools' lights: " + string.Join("; ", lights.Select(l =>
                     $"({l.X:0.0}, {l.Y:0.0}, {l.Z:0.0}) range {l.Range:0.#}{(l.CosOuter >= -1f ? " spot" : "")}")) + ".");
