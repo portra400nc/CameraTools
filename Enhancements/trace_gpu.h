@@ -184,6 +184,7 @@ namespace enhancements
             bool pending = false;
             uint32_t tiles = 0;                 // the frame's
             uint32_t measured = 0;              // the first submission's, which the timestamps bracket
+            bool holes = false;                 // an anchored move's pass over its listed tiles, which paces nothing
             uint32_t passes_before = 0, passes_after = 0;
             uint64_t epoch = 0;                 // the samples' start it belongs to
         };
@@ -257,6 +258,11 @@ namespace enhancements
         ComPtr<ID3D11Texture2D> anchor_depth_;
         ComPtr<ID3D11ShaderResourceView> anchor_depth_srv_;
         std::optional<TraceConstants> anchor_constants_;
+        // An anchored shot's move traces only the tiles with pixels its anchor lacked: a flag a tile, their list, and the
+        // indirect dispatch's arguments (groups a tile, the tiles listed, 1), which the move's reprojection writes.
+        ComPtr<ID3D11Buffer> hole_flags_, hole_list_, hole_args_;
+        ComPtr<ID3D11UnorderedAccessView> hole_flags_uav_, hole_list_uav_, hole_args_uav_;
+        ComPtr<ID3D11ShaderResourceView> hole_list_srv_;
         ComPtr<ID3D11Buffer> old_reflect_;
         ComPtr<ID3D11UnorderedAccessView> old_reflect_uav_;
         ComPtr<ID3D11ShaderResourceView> old_reflect_srv_;

@@ -35,6 +35,34 @@ namespace enhancements
             return device->CreateShaderResourceView(buffer.Get(), &view, srv.ReleaseAndGetAddressOf());
         }
 
+        // A buffer of uints the GPU writes through a typed view, with misc flags, and a raw shader resource view when srv is
+        // given. vkd3d's compiler has no atomics on raw buffers.
+        HRESULT raw_rw_buffer(ID3D11Device *device, UINT bytes, UINT misc, ComPtr<ID3D11Buffer> &buffer, ComPtr<ID3D11UnorderedAccessView> &uav,
+            ComPtr<ID3D11ShaderResourceView> *srv)
+        {
+            D3D11_BUFFER_DESC desc = {};
+            desc.ByteWidth = bytes;
+            desc.Usage = D3D11_USAGE_DEFAULT;
+            desc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | (srv ? D3D11_BIND_SHADER_RESOURCE : 0u);
+            desc.MiscFlags = misc | (srv ? D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS : 0u);
+            HRESULT hr = device->CreateBuffer(&desc, nullptr, buffer.ReleaseAndGetAddressOf());
+            if (FAILED(hr))
+                return hr;
+            D3D11_UNORDERED_ACCESS_VIEW_DESC access = {};
+            access.Format = DXGI_FORMAT_R32_UINT;
+            access.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+            access.Buffer.NumElements = bytes / 4;
+            hr = device->CreateUnorderedAccessView(buffer.Get(), &access, uav.ReleaseAndGetAddressOf());
+            if (FAILED(hr) || !srv)
+                return hr;
+            D3D11_SHADER_RESOURCE_VIEW_DESC view = {};
+            view.Format = DXGI_FORMAT_R32_TYPELESS;
+            view.ViewDimension = D3D11_SRV_DIMENSION_BUFFEREX;
+            view.BufferEx.NumElements = bytes / 4;
+            view.BufferEx.Flags = D3D11_BUFFEREX_SRV_FLAG_RAW;
+            return device->CreateShaderResourceView(buffer.Get(), &view, srv->ReleaseAndGetAddressOf());
+        }
+
         HRESULT structured_buffer(ID3D11Device *device, UINT stride, UINT count, ComPtr<ID3D11Buffer> &buffer, ComPtr<ID3D11UnorderedAccessView> &uav,
             ComPtr<ID3D11ShaderResourceView> *srv)
         {
@@ -239,6 +267,10 @@ namespace enhancements
             || !copy(gather_sky_, old_sky_, old_sky_uav_, old_sky_srv_) || !copy(light_history_, old_lights_, old_lights_uav_, old_lights_srv_)
             || !copy(reflect_sum_, old_reflect_, old_reflect_uav_, old_reflect_srv_) || !copy_depth(depth, anchor_depth_, anchor_depth_srv_))
             return false;
+        if (FAILED(raw_rw_buffer(device_.Get(), tile_count_ * 4, 0, hole_flags_, hole_flags_uav_, nullptr))
+            || FAILED(raw_rw_buffer(device_.Get(), tile_count_ * 4, 0, hole_list_, hole_list_uav_, &hole_list_srv_))
+            || FAILED(raw_rw_buffer(device_.Get(), 12, D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS, hole_args_, hole_args_uav_, nullptr)))
+            return false;
         anchor_constants_ = started_constants_;
         return true;
     }
@@ -267,10 +299,20 @@ namespace enhancements
             return false;
         }
         ID3D11DeviceContext1 *c = context_.Get();
+        // An anchored move lists the tiles with pixels its anchor did not see, for its pass to trace alone.
+        if (anchored_)
+        {
+            const UINT zero[4] = {};
+            c->ClearUnorderedAccessViewUint(hole_flags_uav_.Get(), zero);
+            const UINT args[3] = { kGroupsPerTile, 0, 1 };
+            c->UpdateSubresource(hole_args_.Get(), 0, nullptr, args, 0, 0);
+        }
+        ReprojectConstants sent = *constants;
+        sent.render[3] = anchored_ ? 1u : 0u;
         D3D11_MAPPED_SUBRESOURCE mapped;
         if (FAILED(c->Map(reproject_constants_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
             return false;
-        std::memcpy(mapped.pData, &*constants, sizeof *constants);
+        std::memcpy(mapped.pData, &sent, sizeof sent);
         c->Unmap(reproject_constants_.Get(), 0);
         ID3D11Buffer *const buffers[] = { reproject_constants_.Get() };
         // Reflections depend on the view: an unanchored move clears them, as the kernel writes 0 where it reads no copy; an
@@ -279,16 +321,17 @@ namespace enhancements
             light_history_ ? old_lights_srv_.Get() : nullptr, anchored_ ? anchor_depth_srv_.Get() : kept_depth_srv_.Get(), depth,
             anchored_ && reflect_sum_ ? old_reflect_srv_.Get() : nullptr };
         ID3D11UnorderedAccessView *const uavs[] = { history_uav_.Get(), gather_hit_uav_.Get(), gather_sky_uav_.Get(), light_history_uav_.Get(),
-            reflect_sum_ ? reflect_sum_uav_.Get() : nullptr };
+            reflect_sum_ ? reflect_sum_uav_.Get() : nullptr, anchored_ ? hole_flags_uav_.Get() : nullptr, anchored_ ? hole_list_uav_.Get() : nullptr,
+            anchored_ ? hole_args_uav_.Get() : nullptr };
         c->CSSetShader(reproject_cs_.Get(), nullptr, 0);
         c->CSSetConstantBuffers(0, 1, buffers);
         c->CSSetShaderResources(0, static_cast<UINT>(std::size(srvs)), srvs);
         c->CSSetUnorderedAccessViews(0, static_cast<UINT>(std::size(uavs)), uavs, nullptr);
         c->Dispatch((size_.width + 7) / 8, (size_.height + 7) / 8, 1);
         ID3D11ShaderResourceView *const no_srvs[7] = {};
-        ID3D11UnorderedAccessView *const no_uavs[5] = {};
+        ID3D11UnorderedAccessView *const no_uavs[std::size(uavs)] = {};
         c->CSSetShaderResources(0, 7, no_srvs);
-        c->CSSetUnorderedAccessViews(0, 5, no_uavs, nullptr);
+        c->CSSetUnorderedAccessViews(0, static_cast<UINT>(std::size(no_uavs)), no_uavs, nullptr);
         return true;
     }
 
@@ -786,7 +829,10 @@ namespace enhancements
         ID3D11Buffer *const buffers[] = { constants_.Get(), frame.gathering ? gather_constants_.Get() : nullptr,
             frame.gathering ? faces_constants_.Get() : nullptr, frame.gathering ? lights_constants_.Get() : nullptr,
             frame.reflecting ? reflect_constants_.Get() : nullptr };
-        ID3D11ShaderResourceView *const srvs[] = { node_srv_.Get(), triangle_srv_.Get(), normals, depth, stencil, tiles_srv_.Get(), alpha_srv_.Get(),
+        // An anchored move traces only the tiles its reprojection listed, as many as it counted into the indirect arguments.
+        const bool holes = frame.reproject && frame.anchor && anchored_ && hole_args_;
+        ID3D11ShaderResourceView *const srvs[] = { node_srv_.Get(), triangle_srv_.Get(), normals, depth, stencil,
+            holes ? hole_list_srv_.Get() : tiles_srv_.Get(), alpha_srv_.Get(),
             frame.gathering ? sky_srv_.Get() : nullptr, frame.gathering ? faces_srv_.Get() : nullptr,
             frame.reflecting ? smoothness : nullptr, frame.reflecting ? material : nullptr };
         ID3D11UnorderedAccessView *const uavs[] = { history_uav_.Get(), counters_uav_.Get(), frame.gathering ? gather_hit_uav_.Get() : nullptr,
@@ -803,7 +849,30 @@ namespace enhancements
         c->Flush();
         c->Begin(flight.disjoint.Get());
         bool uploaded = true;
-        const std::vector<TraceDispatch> parts = trace_chunks(*frame.dispatch, tile_count_, schedule_.chunk);
+        const std::vector<TraceDispatch> parts = holes ? std::vector<TraceDispatch>() : trace_chunks(*frame.dispatch, tile_count_, schedule_.chunk);
+        if (holes && (uploaded = upload(0)))
+        {
+            c->End(flight.begin.Get());
+            if (frame.trace_kernel)
+            {
+                c->CSSetShader(cs_.Get(), nullptr, 0);
+                c->DispatchIndirect(hole_args_.Get(), 0);
+            }
+            c->End(flight.middle.Get());
+            if (frame.gathering)
+            {
+                c->CSSetShader(gather_cs_.Get(), nullptr, 0);
+                c->DispatchIndirect(hole_args_.Get(), 0);
+            }
+            if (frame.reflecting)
+            {
+                c->CSSetShader(reflect_cs_.Get(), nullptr, 0);
+                for (uint32_t ray = 0; ray < static_cast<uint32_t>(frame.reflect.params[3]); ray++)
+                    c->DispatchIndirect(hole_args_.Get(), 0);
+            }
+            c->End(flight.end.Get());
+            c->Flush();
+        }
         for (size_t i = 0; i < parts.size(); i++)
         {
             uploaded = upload(parts[i].first);
@@ -848,6 +917,7 @@ namespace enhancements
         flight.pending = true;
         flight.tiles = frame.dispatch->count;
         flight.measured = parts.empty() ? 0 : parts[0].count;
+        flight.holes = holes;
         flight.passes_before = trace_passes(TraceSchedule { schedule_.tiles, schedule_.visits - frame.dispatch->count, schedule_.batch });
         flight.passes_after = trace_passes(schedule_);
         flight.epoch = epoch_;
@@ -923,7 +993,7 @@ namespace enhancements
             }
             std::memcpy(counts, mapped.pData, sizeof counts);
             context_->Unmap(f.counters.Get(), 0);
-            const double ms = disjoint.Disjoint || disjoint.Frequency == 0 || end < begin ? -1 : double(end - begin) * 1000.0 / double(disjoint.Frequency);
+            const double ms = f.holes || disjoint.Disjoint || disjoint.Frequency == 0 || end < begin ? -1 : double(end - begin) * 1000.0 / double(disjoint.Frequency);
             if (ms > 0)
             {
                 schedule_.batch = next_batch(f.tiles, f.measured, ms, settings.budget_ms, tile_count_);
