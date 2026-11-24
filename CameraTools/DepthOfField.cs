@@ -238,6 +238,10 @@ namespace CameraTools
         private static float focusMeters;
         private static float focusSince;
 
+        // The screenshot's methods, and the lens samples' counts. Above Rows, which reads them while the class initializes.
+        private static readonly string[] Methods = { "Single frame", "Lens samples" };
+        private static readonly int[] SampleCounts = { 64, 128, 256, 512, 1024 };
+
         public static readonly Row[] Rows =
         {
             new Section("Depth of field", () => Problem),
@@ -488,10 +492,6 @@ namespace CameraTools
             _ => ShotStage.Capture,
         }, FocusEyes.Target, Time.timeScale, Supersampling.Lens != null,
             Screenshot.State is ShotState.Sampling ? Supersampling.Fill : 0f, Supersampling.Lens?.Focus ?? 0f);
-
-        // The screenshot's methods, and the lens samples' counts.
-        private static readonly string[] Methods = { "Single frame", "Lens samples" };
-        private static readonly int[] SampleCounts = { 64, 128, 256, 512, 1024 };
 
         // Whether the next screenshot is lens-sampled, if the add-on can take it: it then averages samples whatever the
         // Supersampling switch says, since the lens samples anti-alias too.
