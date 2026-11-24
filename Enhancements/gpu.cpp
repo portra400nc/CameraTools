@@ -3167,16 +3167,16 @@ namespace enhancements
         water_frame_ = frame;
     }
 
-    bool Gpu::save_keep(ID3D11Resource *back_buffer, const std::array<int32_t, 4> &rect)
+    bool Gpu::save_keep(ID3D11Resource *back_buffer, const std::array<float, 4> &rect)
     {
         kept_ = false;
         ComPtr<ID3D11Texture2D> texture;
-        if (rect[2] <= 0 || rect[3] <= 0 || !back_buffer || FAILED(back_buffer->QueryInterface(IID_PPV_ARGS(&texture))))
+        if (!(rect[2] > rect[0]) || !(rect[3] > rect[1]) || !back_buffer || FAILED(back_buffer->QueryInterface(IID_PPV_ARGS(&texture))))
             return false;
         D3D11_TEXTURE2D_DESC d;
         texture->GetDesc(&d);
-        const int32_t x0 = std::clamp<int32_t>(rect[0], 0, int32_t(d.Width)), y0 = std::clamp<int32_t>(rect[1], 0, int32_t(d.Height));
-        const int32_t x1 = std::clamp<int32_t>(rect[0] + rect[2], 0, int32_t(d.Width)), y1 = std::clamp<int32_t>(rect[1] + rect[3], 0, int32_t(d.Height));
+        const auto at = [](float share, UINT size) { return std::clamp<int32_t>(int32_t(std::lround(share * float(size))), 0, int32_t(size)); };
+        const int32_t x0 = at(rect[0], d.Width), y0 = at(rect[1], d.Height), x1 = at(rect[2], d.Width), y1 = at(rect[3], d.Height);
         if (d.SampleDesc.Count != 1 || x1 <= x0 || y1 <= y0)
             return false;
         const UINT width = UINT(x1 - x0), height = UINT(y1 - y0);

@@ -565,7 +565,7 @@ extern "C" uint32_t EnhancementsSaveFrame(void) { return forward(EnhancementsSav
 extern "C" uint32_t EnhancementsDevelopDng(uint32_t a) { return forward(EnhancementsDevelopDng, kEnhancementsDevelopDng, a); }
 extern "C" uint32_t EnhancementsWriteDng(uint32_t a, const char *b, const EnhancementsDngInfo *c) { return forward(EnhancementsWriteDng, kEnhancementsWriteDng, a, b, c); }
 extern "C" void EnhancementsSetAccumulate(const EnhancementsAccumulate *a) { forward(EnhancementsSetAccumulate, kEnhancementsSetAccumulate, a); }
-extern "C" void EnhancementsSetKeepRect(int32_t a, int32_t b, int32_t c, int32_t d) { forward(EnhancementsSetKeepRect, kEnhancementsSetKeepRect, a, b, c, d); }
+extern "C" void EnhancementsSetKeepRect(float a, float b, float c, float d) { forward(EnhancementsSetKeepRect, kEnhancementsSetKeepRect, a, b, c, d); }
 extern "C" void EnhancementsSetShot(const EnhancementsShot *a) { forward(EnhancementsSetShot, kEnhancementsSetShot, a); }
 extern "C" void EnhancementsSetShotLights(const EnhancementsShotLight *a, uint32_t b) { forward(EnhancementsSetShotLights, kEnhancementsSetShotLights, a, b); }
 extern "C" void EnhancementsSetGameLights(const EnhancementsShotLight *a, uint32_t b) { forward(EnhancementsSetGameLights, kEnhancementsSetGameLights, a, b); }

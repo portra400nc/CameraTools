@@ -735,7 +735,7 @@ namespace CameraToolsEnhancements
         private delegate void SetAccumulateCall(ref EnhancementsAccumulate accumulate);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        private delegate void SetKeepRectCall(int x, int y, int width, int height);
+        private delegate void SetKeepRectCall(float left, float top, float right, float bottom);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate float DepthAtCall(float u, float v);
@@ -890,17 +890,20 @@ namespace CameraToolsEnhancements
             return float.IsNaN(light.SkyShare) ? null : light;
         }
 
-        private static (int X, int Y, int Width, int Height)? kept;
+        private static (float Left, float Top, float Right, float Bottom)? kept;
 
-        // The part of the screen, in pixels from its top left, that the depth of field and the lens flare drawn over the
-        // finished frame leave as it was: the toast's, so it stays sharp. null keeps nothing. Sent only when it changes.
-        public static void SetKeepRect((int X, int Y, int Width, int Height)? rect)
+        // The part of the screen, as shares of its width and height from its top left, that the depth of field and the lens
+        // flare drawn over the finished frame leave as it was: the toast's, so it stays sharp. null keeps nothing. Sent only
+        // when it changes; the log says when keeping starts.
+        public static void SetKeepRect((float Left, float Top, float Right, float Bottom)? rect)
         {
             if (addOn == null || rect == kept)
                 return;
+            if (rect != null && kept == null)
+                MelonLogger.Msg($"Enhancements: keeping the toast sharp at {rect.Value.Left:0.000}, {rect.Value.Top:0.000} to {rect.Value.Right:0.000}, {rect.Value.Bottom:0.000} of the screen.");
             kept = rect;
             var r = rect ?? default;
-            addOn.SetKeepRect(r.X, r.Y, r.Width, r.Height);
+            addOn.SetKeepRect(r.Left, r.Top, r.Right, r.Bottom);
         }
 
         // Starts, presents or stops lens-sampled depth of field; it takes effect at the add-on's next frame boundary. While

@@ -111,20 +111,21 @@ namespace CameraTools
 
         public static void ClearToast() => toastUntil = 0f;
 
-        // The toast's pill on screen, in pixels from the top left with a few to spare for its ring, while it shows.
-        public static (int X, int Y, int Width, int Height)? ToastScreenRect
+        // The toast's pill on screen, as shares of the screen from its top left with a canvas unit to spare for its ring, while
+        // it shows: from its layout, in the canvas's units, as Unity's world corners of the canvas's rectangles read zero
+        // during a shot. Ten units to spare left a band of sharp scene around it.
+        public static (float Left, float Top, float Right, float Bottom)? ToastScreenRect
         {
             get
             {
-                if (live == null || !live.Toast.Visible || live.ToastPill == null)
+                if (live == null || !live.Toast.Visible || live.Canvas == null || live.ToastWidth == null)
                     return null;
-                var corners = new Vector3[4];
-                live.ToastPill.GetWorldCorners(corners);
-                float left = Math.Min(corners[0].x, corners[2].x), right = Math.Max(corners[0].x, corners[2].x);
-                float bottom = Math.Min(corners[0].y, corners[2].y), top = Math.Max(corners[0].y, corners[2].y);
-                const int spare = 4;
-                int x = (int)MathF.Floor(left) - spare, y = Screen.height - (int)MathF.Ceiling(top) - spare;
-                return (x, y, (int)MathF.Ceiling(right - left) + 2 * spare, (int)MathF.Ceiling(top - bottom) + 2 * spare);
+                float canvasWidth = live.Canvas.rect.width, canvasHeight = live.Canvas.rect.height;
+                if (canvasWidth <= 0f || canvasHeight <= 0f)
+                    return null;
+                const float spare = 1f;
+                float half = live.ToastWidth.preferredWidth / 2f + Style.ToastPadding + spare, height = live.ToastRow.sizeDelta.y;
+                return (0.5f - half / canvasWidth, (Style.ToastY - spare) / canvasHeight, 0.5f + half / canvasWidth, (Style.ToastY + height + spare) / canvasHeight);
             }
         }
 

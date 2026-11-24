@@ -105,7 +105,7 @@ namespace enhancements
 
         Mailbox<Settings> settings_box;
         std::mutex keep_mutex;
-        std::array<int32_t, 4> keep {};
+        std::array<float, 4> keep {};
         Mailbox<Camera> camera_box;
         Mailbox<std::optional<Celestial>> celestial_box;
         Mailbox<Published> status_box;
@@ -2686,7 +2686,7 @@ namespace enhancements
 
         // Runs the deferred depth of field on the back buffer, once; where says where, for the log, which names each new place.
         // EnhancementsSetKeepRect's rectangle: what the passes drawn on the back buffer leave as it was.
-        std::array<int32_t, 4> keep_rect()
+        std::array<float, 4> keep_rect()
         {
             std::lock_guard<std::mutex> lock(keep_mutex);
             return keep;
@@ -3169,10 +3169,10 @@ extern "C" void EnhancementsSetAccumulate(const EnhancementsAccumulate *raw)
     accumulate_box.put(parse_accumulate(copy));
 }
 
-extern "C" void EnhancementsSetKeepRect(int32_t x, int32_t y, int32_t width, int32_t height)
+extern "C" void EnhancementsSetKeepRect(float left, float top, float right, float bottom)
 {
     std::lock_guard<std::mutex> lock(keep_mutex);
-    keep = { x, y, width, height };
+    keep = { left, top, right, bottom };
 }
 
 extern "C" void EnhancementsSetShotLights(const EnhancementsShotLight *lights, uint32_t count)
