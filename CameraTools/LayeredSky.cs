@@ -61,8 +61,10 @@ namespace CameraTools
             new("Towering cumulus", Low(Towering, 0.35f), null, 0.3f, 1f, Sunny),
             new("Towering cumulus under altocumulus", Low(Towering, 0.3f), Middle(0.5f), 0f, 0.8f, Sunny, Cloudy),
             new("Stratocumulus", Low(Stratocumulus, 0.75f), null, 0f, 1f, Cloudy, Snow),
-            // Rain and thunderstorms fall from a whole gray overcast: under white towers, rain read as a sunny day's.
-            new("Overcast stratus", Low(Stratus, 0.95f), null, 0f, 0.6f, Cloudy, Rain, Storm, Snow, Mist) { Whole = true },
+            new("Overcast stratus", Low(Stratus, 0.95f), null, 0f, 0.6f, Cloudy, Snow, Mist) { Whole = true },
+            // Rain and thunderstorms fall from a whole gray deck, low and a kilometer and a half thick so its base is dark:
+            // under white towers, rain read as a sunny day's.
+            new("Nimbostratus", new SkyLayer(Stratus, 1f, 800f, 1500f, 1000f, 0.1f), null, 0f, 1f, Rain, Storm) { Whole = true },
             new("Towering cumulus building", Low(Towering, 0.45f), Middle(0.5f), 0f, 0.5f, Cloudy),
         };
 

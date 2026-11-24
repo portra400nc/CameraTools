@@ -52,7 +52,10 @@ static const CloudKind kKinds[5] =
     // Altocumulus: the noise's soft overlapping puffs matched the user's photo, where Disney cloudlets read as stamps and
     // Disney's billows carved into the noise shredded the puffs at twice the cost (.work/clouds/kinds round12, round13).
     { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.15, 0, float2(0.55, 0.75), float2(0.15, 0.45), 0, 0, 1, 1 },  // stratocumulus
-    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.1, 1, float2(0.98, 0.98), float2(0.6, 1), 1, 0, 6, 0 },      // stratus
+    // Stratus: the noise's closed sheet. Disney's cloud packed one to a cell left the cells' corners open, blue gaps in
+    // a rain deck (.work/clouds/weather/rainlook3). Full Coverage raises the cover past 1 wherever the weather is but
+    // middling, so a whole deck closes: at 0.85 it kept dark holes (rainlook6).
+    { 0.8, float2(0.35, 1.6), 0.55, 0.3, 0.5, 0.1, 0, float2(0.98, 0.98), float2(0.6, 1), 1, 0, 6, 0 },      // stratus
     { 0.6, float2(1.5, 1.5), 0.4, 0.6, 0.15, 0.25, 1, float2(0.4, 0.45), float2(0.55, 0.8), 0, 0.6, 6, 0 },  // cumulonimbus
     { 0.6, float2(1.5, 1.5), 0.3, 1.0, 0.1, 0.25, 3, float2(0.4, 0.55), float2(0.45, 1), 0, 0, 6, 0 },        // towering cumulus: a cluster (3)
 };
@@ -352,7 +355,11 @@ float volume_scattered(float c, float od)
         b *= 0.7;
         g *= 0.5;
     }
-    return lit;
+    // Through a thick deck the light diffuses rather than dying away: two-stream transmission, 1 / (1 + 3/4 (1 - g) od) at
+    // g = 0.85, of a white cloud's light, over half the optical depth, as our density 0.1 is some twice a real deck's. With
+    // the octaves alone a rain deck's base went black at noon (.work/clouds/weather rainlook4); a real nimbostratus passes
+    // some 15% and its base is the brightest thing under it.
+    return max(lit, 0.24 / (1 + 0.056 * od));
 }
 
 // The share of the sky's light reaching p, after Frostbite (Hillaire 2016, 5.6): from the sky above, stronger up the

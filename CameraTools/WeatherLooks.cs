@@ -24,8 +24,8 @@ namespace CameraTools
         private static readonly Dictionary<WeatherKind, WeatherLook> Looks = new()
         {
             [WeatherKind.Cloudy] = new(Stratocumulus, 82f, 2200f, 800f, 500f, 0.1f, 0.8f, 1f, 1f, 0.15f, 1.5f, 0.02f, 0.45f, Banks: 0.4f, BankSize: 80f),
-            [WeatherKind.Rain] = new(Stratus, 97f, 900f, 600f, 1000f, 0.1f, 0.5f, 0.6f, 0.8f, 0.3f, 3f, 0.006f, 0.12f, Rain: 0.5f, Banks: 0.1f, BankSize: 80f),
-            [WeatherKind.Thunderstorm] = new(Stratus, 100f, 700f, 900f, 1000f, 0.14f, 0.4f, 0.4f, 0.6f, 0.35f, 4f, 0.006f, 0.06f, Rain: 1f, Lightning: 1f, Banks: 0.15f, BankSize: 80f),
+            [WeatherKind.Rain] = new(Stratus, 97f, 900f, 600f, 1000f, 0.1f, 0.5f, 0.6f, 0.8f, 0.3f, 3f, 0.006f, 0.12f, Rain: 0.5f, Banks: 0.1f, BankSize: 80f, Exposure: 1f),
+            [WeatherKind.Thunderstorm] = new(Stratus, 100f, 700f, 900f, 1000f, 0.14f, 0.4f, 0.4f, 0.6f, 0.35f, 4f, 0.006f, 0.06f, Rain: 1f, Lightning: 1f, Banks: 0.15f, BankSize: 80f, Exposure: 1f),
             // Snow is bright: a thinner, broken deck lit through, a whiter sky, more of the sun let through, and more
             // exposure, as the snow on the ground lights the air and the game lights its snowy world dimly.
             [WeatherKind.Snow] = new(Stratocumulus, 84f, 1500f, 400f, 700f, 0.08f, 0.7f, 1f, 1.3f, 0.45f, 5f, 0.012f, 0.7f, Banks: 0.5f, BankSize: 60f, Exposure: 1.5f),

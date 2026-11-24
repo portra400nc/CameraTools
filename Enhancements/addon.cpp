@@ -278,7 +278,7 @@ namespace enhancements
         }
 
         // The camera's sun and sky light as an overcast lets them light the mist: a tenth of the sun under a whole one, and
-        // the physical horizon's own light, at the drawn sky's exposure, grayed and halved, so a thick weather mist fades
+        // the physical horizon's own light, at the drawn sky's exposure, grayed and at 0.8, so a thick weather mist fades
         // into the sky it stands against rather than into the game's sky color, which no overcast dims.
         Camera overcast_camera(Camera c)
         {
@@ -286,7 +286,8 @@ namespace enhancements
             if (o <= 0 || !live_sky)
                 return c;
             const Vec3f &h = live_sky->horizon;
-            const float gray = (0.2126f * h[0] + 0.7152f * h[1] + 0.0722f * h[2]) * 0.5f;
+            // As bright as the deck's base near the horizon, as in a rainy-day photo, where at half it was darker than the sky.
+            const float gray = (0.2126f * h[0] + 0.7152f * h[1] + 0.0722f * h[2]) * 0.8f;
             for (int k = 0; k < 3; k++)
             {
                 c.sun_color[k] *= 1 - 0.9f * o;

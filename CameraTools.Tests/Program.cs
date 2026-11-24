@@ -269,9 +269,9 @@ Check("the table holds 115 fields, each at its own id's place, with the master s
         && clearSky.Clouds.Enabled == 0 && cirrusOnly.CloudPattern.Pattern == EnhancementsCloudPatternKind.Streaks && cirrusOnly.Clouds.Coverage == 0.6f && cirrusOnly.CloudLayers.Middle == 0);
     var rainy = Enumerable.Range(0, 200).Select(day => LayeredSky.Mixes[LayeredSky.Pick(day, 0, WeatherKind.Rain)].Name).Distinct().OrderBy(name => name).ToArray();
     var anyDay = Enumerable.Range(0, 400).Select(day => LayeredSky.Pick(day, 0, null)).ToArray();
-    Check("a day keeps its mix, New sky rolls another, rain rolls only the overcast, and clear or nearly clear skies come up often without weather",
+    Check("a day keeps its mix, New sky rolls another, rain rolls only nimbostratus, and clear or nearly clear skies come up often without weather",
         LayeredSky.Pick(12, 0, null) == LayeredSky.Pick(12, 0, null) && Enumerable.Range(0, 20).Any(roll => LayeredSky.Pick(12, roll, null) != LayeredSky.Pick(12, 0, null))
-        && string.Join(",", rainy) == "Overcast stratus"
+        && string.Join(",", rainy) == "Nimbostratus"
         && anyDay.Count(i => i < 4) > 400 / 5 && anyDay.Distinct().Count() == LayeredSky.Mixes.Length);
     var scaleDays = Enumerable.Range(0, 50).Select(day => LayeredSky.Scales(day + 0.5, day, 0)).ToArray();
     Check("each layer's coverage is its own random 0.45 to 1.75 times the mix's each day, a day keeps it, and New sky rolls it again",
@@ -279,7 +279,7 @@ Check("the table holds 115 fields, each at its own id's place, with the master s
         && scaleDays.Select(s => s.Low).Distinct().Count() > 30 && LayeredSky.Scales(3.5, 3, 0) == LayeredSky.Scales(3.5, 3, 0)
         && LayeredSky.Scales(3.5, 3, 1) != LayeredSky.Scales(3.5, 3, 0));
     Check("an overcast lets an eighth of the direct light through, broken cumulus all of it",
-        Math.Abs(LayeredSky.SunShare(LayeredSky.Of(LayeredSky.Mixes.First(mix => mix.Name == "Overcast stratus"), new SkyScales(1.2f, 1f, 1f))) - 0.12f) < 1e-3f
+        Math.Abs(LayeredSky.SunShare(LayeredSky.Of(LayeredSky.Mixes.First(mix => mix.Name == "Nimbostratus"), new SkyScales(0.7f, 1f, 1f))) - 0.12f) < 1e-3f
         && LayeredSky.SunShare(LayeredSky.Of(LayeredSky.Mixes.First(mix => mix.Name == "Cumulus"), SkyScales.One)) == 1f);
     var from = LayeredSky.Mixes[4];
     var to = LayeredSky.Mixes[9];
@@ -412,7 +412,7 @@ Check("Ambient light's Color is the game's at 1 and gray at 0, and the tone map'
         Check("with Weather on, Rain's look goes to the add-on: stratus at its height, its haziness, and its mist as the Haze effect, which Mist scales",
             weathered.Clouds is { Enabled: 1, Base: 900f, Type: EnhancementsCloudType.Stratus } && weathered.CloudPattern.Pattern == EnhancementsCloudPatternKind.Noise
             && weathered.Sky.Haze == 0.3f && weathered.Atmosphere.Enabled == 1 && weathered.Atmosphere.Density > 0f && weathered.Rain.Amount == 0.5f
-            && EnhancementsModel.Settings(user, weatherLens, WeatherLooks.Look(WeatherKind.Thunderstorm, user)).Rain.Amount == 1f && EnhancementsModel.Settings(user, weatherLens, WeatherLooks.Look(WeatherKind.Thunderstorm, user)).Rain.Lightning == 1f && weathered.Rain.Lightning == 0f && weathered.Mist.Patchiness == 0.6f && weathered.SceneLight.ExposureEv == 0f && EnhancementsModel.Settings(user, weatherLens, WeatherLooks.Look(WeatherKind.Snow, user)).SceneLight.ExposureEv == 1.5f && weathered.Mist.Size == 40f && EnhancementsModel.Settings(user, weatherLens, sunny).Mist.Patchiness == 0f && EnhancementsModel.Settings(user, weatherLens, sunny).Rain.Amount == 0f
+            && EnhancementsModel.Settings(user, weatherLens, WeatherLooks.Look(WeatherKind.Thunderstorm, user)).Rain.Amount == 1f && EnhancementsModel.Settings(user, weatherLens, WeatherLooks.Look(WeatherKind.Thunderstorm, user)).Rain.Lightning == 1f && weathered.Rain.Lightning == 0f && weathered.Mist.Patchiness == 0.1f && weathered.SceneLight.ExposureEv == 1f && EnhancementsModel.Settings(user, weatherLens, WeatherLooks.Look(WeatherKind.Snow, user)).SceneLight.ExposureEv == 1.5f && weathered.Mist.Size == 80f && EnhancementsModel.Settings(user, weatherLens, sunny).Mist.Patchiness == 0f && EnhancementsModel.Settings(user, weatherLens, sunny).Rain.Amount == 0f
             && Math.Abs(halfMist.Atmosphere.Density - weathered.Atmosphere.Density / 2f) < 1e-9f);
         Check("with Weather off, or the physical sky off, the user's own clouds go",
             EnhancementsModel.Settings(user.With(Enhancement.Weather, 0), weatherLens, rain).Clouds.Base == user[Enhancement.CloudHeight]
