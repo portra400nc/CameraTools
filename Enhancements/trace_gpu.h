@@ -148,6 +148,13 @@ namespace enhancements
         // While on, an anchored shot's moves kHoleDumpMoves write each pixel's class in the reprojection, whether the anchor
         // saw it and why not, and its distance (trace_reproject_cs.hlsl), as Poll's files.
         void set_dump_holes(bool on) { dump_holes_ = on; }
+        // A debug switch: anchored moves take what the anchor did not see from the view before them, and with reflections
+        // their reflections too.
+        void set_fill_last_view(bool on, bool reflections)
+        {
+            fill_last_view_ = on;
+            fill_reflections_ = reflections;
+        }
 
         // A save of this frame: copies the history, the normals, the depth with its stencil, and the game's shadow mask and
         // irradiance mirrors (as the trace pass found them) into CPU-readable copies, keeping save's other fields but the
@@ -270,6 +277,10 @@ namespace enhancements
         ComPtr<ID3D11Buffer> old_reflect_;
         ComPtr<ID3D11UnorderedAccessView> old_reflect_uav_;
         ComPtr<ID3D11ShaderResourceView> old_reflect_srv_;
+        // An anchored move's copies of the view before it, whose samples fill what the anchor did not see.
+        ComPtr<ID3D11Buffer> last_history_, last_hit_, last_sky_, last_lights_, last_reflect_;
+        ComPtr<ID3D11UnorderedAccessView> last_history_uav_, last_hit_uav_, last_sky_uav_, last_lights_uav_, last_reflect_uav_;
+        ComPtr<ID3D11ShaderResourceView> last_history_srv_, last_hit_srv_, last_sky_srv_, last_lights_srv_, last_reflect_srv_;
         bool anchor(ID3D11ShaderResourceView *depth);
         std::optional<TraceKey> key_;           // what the samples started with
         std::optional<TraceConstants> started_constants_;   // the constants of the frame that started them, and its gather's,
@@ -282,6 +293,7 @@ namespace enhancements
         uint64_t moves_ = 0;                    // a live shot's moves that carried the samples over
         uint32_t anchor_moves_ = 0;             // the anchored moves since the anchor
         bool dump_holes_ = false;
+        bool fill_last_view_ = false, fill_reflections_ = false;
         ComPtr<ID3D11Buffer> hole_debug_, hole_debug_read_;
         ComPtr<ID3D11UnorderedAccessView> hole_debug_uav_;
         std::vector<std::pair<std::string, std::string>> dumps_;
