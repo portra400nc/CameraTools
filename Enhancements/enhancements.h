@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 53
+#define ENHANCEMENTS_VERSION 54
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -1093,6 +1093,11 @@ typedef struct EnhancementsDngInfo
 // field's tag out. dng_state goes to WRITING, then WRITTEN or FAILED. Returns 1 when accepted, and 0 unless dng_state is
 // READY for id, or when path is null or empty. Version 18 added it, version 19 info, and version 21 its exposure.
 ENHANCEMENTS_EXPORT uint32_t EnhancementsWriteDng(uint32_t id, const char *path, const EnhancementsDngInfo *info);
+
+// The rectangle of the back buffer, in pixels from its top left, that the depth of field and the lens flare drawn on the back
+// buffer leave as it was, so CameraTools' toast drawn over the frame stays sharp; a width or height of 0 keeps nothing.
+// Version 54 added it.
+ENHANCEMENTS_EXPORT void EnhancementsSetKeepRect(int32_t x, int32_t y, int32_t width, int32_t height);
 
 // Copies the accumulation's state; it takes effect at the next frame boundary, like EnhancementsApply. A null pointer, or a
 // size too small to hold mode, changes nothing. It works whether settings.enabled is on or not.

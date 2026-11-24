@@ -104,6 +104,8 @@ namespace enhancements
         };
 
         Mailbox<Settings> settings_box;
+        std::mutex keep_mutex;
+        std::array<int32_t, 4> keep {};
         Mailbox<Camera> camera_box;
         Mailbox<std::optional<Celestial>> celestial_box;
         Mailbox<Published> status_box;
@@ -2683,12 +2685,22 @@ namespace enhancements
         }
 
         // Runs the deferred depth of field on the back buffer, once; where says where, for the log, which names each new place.
+        // EnhancementsSetKeepRect's rectangle: what the passes drawn on the back buffer leave as it was.
+        std::array<int32_t, 4> keep_rect()
+        {
+            std::lock_guard<std::mutex> lock(keep_mutex);
+            return keep;
+        }
+
         void run_dof_display(ID3D11Resource *back_buffer, const std::string &where)
         {
             const DofDisplayFrame frame = *dof_display;
             dof_display.reset();
             bool ran = false;
-            if (const char *moved = gpu.run_depth_of_field_display(back_buffer, frame, ran))
+            gpu.save_keep(back_buffer, keep_rect());
+            const char *moved = gpu.run_depth_of_field_display(back_buffer, frame, ran);
+            gpu.restore_keep(back_buffer);
+            if (moved)
             {
                 trip(moved);
                 return;
@@ -2706,7 +2718,12 @@ namespace enhancements
             const FlareDisplayFrame frame = *flare_display;
             flare_display.reset();
             bool ran = false;
-            if (const char *moved = map ? gpu.run_lens_flare_scene(*map, frame, ran) : gpu.run_lens_flare(back_buffer, frame, ran))
+            if (!map)
+                gpu.save_keep(back_buffer, keep_rect());
+            const char *moved = map ? gpu.run_lens_flare_scene(*map, frame, ran) : gpu.run_lens_flare(back_buffer, frame, ran);
+            if (!map)
+                gpu.restore_keep(back_buffer);
+            if (moved)
                 trip(moved);
             else if (!ran && !flare_failed_logged)
             {
@@ -3150,6 +3167,12 @@ extern "C" void EnhancementsSetAccumulate(const EnhancementsAccumulate *raw)
     EnhancementsAccumulate copy {};
     std::memcpy(&copy, raw, std::min<size_t>(raw->size, sizeof copy));
     accumulate_box.put(parse_accumulate(copy));
+}
+
+extern "C" void EnhancementsSetKeepRect(int32_t x, int32_t y, int32_t width, int32_t height)
+{
+    std::lock_guard<std::mutex> lock(keep_mutex);
+    keep = { x, y, width, height };
 }
 
 extern "C" void EnhancementsSetShotLights(const EnhancementsShotLight *lights, uint32_t count)

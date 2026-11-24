@@ -469,6 +469,11 @@ namespace enhancements
         // when a texture of ours failed. Returns the state guard's finding, null when state came back intact.
         const char *run_depth_of_field_display(ID3D11Resource *back_buffer, const DofDisplayFrame &frame, bool &ran);
 
+        // Copies the part of the back buffer within rect (x, y, width, height, clamped to it) aside, and restore_keep copies
+        // it back, so what a pass draws over the whole back buffer leaves it as it was. false: nothing kept.
+        bool save_keep(ID3D11Resource *back_buffer, const std::array<int32_t, 4> &rect);
+        void restore_keep(ID3D11Resource *back_buffer);
+
         // The lens flare at the bloom step: mirror in the main depth; draw its source's visibility into one of two 1x1 textures
         // from the other, eased over the setting's seconds of seconds, from the depth around the sun where it is on the picture
         // and, with atlas, the atlas and the constants gather_sun copied this frame around the camera; copy it for
@@ -712,7 +717,11 @@ namespace enhancements
         bool sun_ready_ = false;
         uint64_t water_frame_ = ~0ull;          // the frame whose HDR scene copy_water_scene copied
         Mirror water_scene_;
-        Scratch water_marks_;               // water_ps.hlsl's marks: the frame and depth of the water each pixel took                // gather_sun copied the constants and the atlas this frame
+        Scratch water_marks_;
+        ComPtr<ID3D11Texture2D> keep_;              // save_keep's copy, its size and format the last kept part's
+        D3D11_TEXTURE2D_DESC keep_desc_ {};
+        UINT keep_x_ = 0, keep_y_ = 0;
+        bool kept_ = false;               // water_ps.hlsl's marks: the frame and depth of the water each pixel took                // gather_sun copied the constants and the atlas this frame
         ComPtr<ID3D11BlendState> opaque_, additive_, no_write_, over_;
         ComPtr<ID3D11DepthStencilState> no_depth_;
         ComPtr<ID3D11RasterizerState> no_cull_;

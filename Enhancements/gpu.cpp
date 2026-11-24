@@ -3167,6 +3167,49 @@ namespace enhancements
         water_frame_ = frame;
     }
 
+    bool Gpu::save_keep(ID3D11Resource *back_buffer, const std::array<int32_t, 4> &rect)
+    {
+        kept_ = false;
+        ComPtr<ID3D11Texture2D> texture;
+        if (rect[2] <= 0 || rect[3] <= 0 || !back_buffer || FAILED(back_buffer->QueryInterface(IID_PPV_ARGS(&texture))))
+            return false;
+        D3D11_TEXTURE2D_DESC d;
+        texture->GetDesc(&d);
+        const int32_t x0 = std::clamp<int32_t>(rect[0], 0, int32_t(d.Width)), y0 = std::clamp<int32_t>(rect[1], 0, int32_t(d.Height));
+        const int32_t x1 = std::clamp<int32_t>(rect[0] + rect[2], 0, int32_t(d.Width)), y1 = std::clamp<int32_t>(rect[1] + rect[3], 0, int32_t(d.Height));
+        if (d.SampleDesc.Count != 1 || x1 <= x0 || y1 <= y0)
+            return false;
+        const UINT width = UINT(x1 - x0), height = UINT(y1 - y0);
+        if (!keep_ || keep_desc_.Width != width || keep_desc_.Height != height || keep_desc_.Format != d.Format)
+        {
+            D3D11_TEXTURE2D_DESC k = {};
+            k.Width = width;
+            k.Height = height;
+            k.MipLevels = 1;
+            k.ArraySize = 1;
+            k.Format = d.Format;
+            k.SampleDesc.Count = 1;
+            k.Usage = D3D11_USAGE_DEFAULT;
+            keep_.Reset();
+            if (FAILED(device_->CreateTexture2D(&k, nullptr, &keep_)))
+                return false;
+            keep_desc_ = k;
+        }
+        const D3D11_BOX box = { UINT(x0), UINT(y0), 0, UINT(x1), UINT(y1), 1 };
+        context_->CopySubresourceRegion(keep_.Get(), 0, 0, 0, 0, back_buffer, 0, &box);
+        keep_x_ = UINT(x0);
+        keep_y_ = UINT(y0);
+        kept_ = true;
+        return true;
+    }
+
+    void Gpu::restore_keep(ID3D11Resource *back_buffer)
+    {
+        if (kept_ && back_buffer)
+            context_->CopySubresourceRegion(back_buffer, 0, keep_x_, keep_y_, 0, keep_.Get(), 0, nullptr);
+        kept_ = false;
+    }
+
     constexpr UINT kWaterMarksSlot = 7;  // u7 in water_ps.hlsl
 
     bool Gpu::draw_water(const GameDraw &w, const FrameMap &map, const SkyDraw &sky, const PhysicalWaterSettings &water, const Camera &camera,

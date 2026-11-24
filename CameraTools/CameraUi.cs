@@ -111,6 +111,23 @@ namespace CameraTools
 
         public static void ClearToast() => toastUntil = 0f;
 
+        // The toast's pill on screen, in pixels from the top left with a few to spare for its ring, while it shows.
+        public static (int X, int Y, int Width, int Height)? ToastScreenRect
+        {
+            get
+            {
+                if (live == null || !live.Toast.Visible || live.ToastPill == null)
+                    return null;
+                var corners = new Vector3[4];
+                live.ToastPill.GetWorldCorners(corners);
+                float left = Math.Min(corners[0].x, corners[2].x), right = Math.Max(corners[0].x, corners[2].x);
+                float bottom = Math.Min(corners[0].y, corners[2].y), top = Math.Max(corners[0].y, corners[2].y);
+                const int spare = 4;
+                int x = (int)MathF.Floor(left) - spare, y = Screen.height - (int)MathF.Ceiling(top) - spare;
+                return (x, y, (int)MathF.Ceiling(right - left) + 2 * spare, (int)MathF.Ceiling(top - bottom) + 2 * spare);
+            }
+        }
+
         // Whether anything of CameraTools' is on screen, a part that is still fading out included.
         public static bool OnScreen => live != null
             ? live.Hud.Visible || live.Guide.Visible || live.Focus.Visible || live.PlayBar.Visible || live.Panel.Visible || live.Toast.Visible

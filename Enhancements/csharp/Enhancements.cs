@@ -709,7 +709,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 53;
+        private const uint Version = 54;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -733,6 +733,9 @@ namespace CameraToolsEnhancements
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void SetAccumulateCall(ref EnhancementsAccumulate accumulate);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate void SetKeepRectCall(int x, int y, int width, int height);
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate float DepthAtCall(float u, float v);
@@ -785,7 +788,7 @@ namespace CameraToolsEnhancements
         private sealed record AddOn(IntPtr Module, ApplyCall Apply, SetCameraCall SetCamera, GetStatusCall GetStatus, DescribeCall Describe, CompareCall Compare,
             SetAccumulateCall SetAccumulate, DepthAtCall DepthAt, CaptureSceneCall CaptureScene, SaveTraceCall SaveTrace, SetShotCall SetShot, SaveFrameCall SaveFrame,
             DevelopDngCall DevelopDng, WriteDngCall WriteDng, SetShotLightsCall SetShotLights, SetGameLightsCall SetGameLights,
-            SetCharacterLightsCall SetCharacterLights, SetCelestialCall SetCelestial, GetWorldLightCall GetWorldLight);
+            SetCharacterLightsCall SetCharacterLights, SetCelestialCall SetCelestial, GetWorldLightCall GetWorldLight, SetKeepRectCall SetKeepRect);
 
         private static readonly float[] camera = new float[52];
         private static readonly byte[] line = new byte[512];
@@ -885,6 +888,19 @@ namespace CameraToolsEnhancements
             var light = new EnhancementsWorldLight { Size = (uint)Marshal.SizeOf<EnhancementsWorldLight>(), SkyShare = float.NaN };
             addOn.GetWorldLight(ref celestial, haze, ref light);
             return float.IsNaN(light.SkyShare) ? null : light;
+        }
+
+        private static (int X, int Y, int Width, int Height)? kept;
+
+        // The part of the screen, in pixels from its top left, that the depth of field and the lens flare drawn over the
+        // finished frame leave as it was: the toast's, so it stays sharp. null keeps nothing. Sent only when it changes.
+        public static void SetKeepRect((int X, int Y, int Width, int Height)? rect)
+        {
+            if (addOn == null || rect == kept)
+                return;
+            kept = rect;
+            var r = rect ?? default;
+            addOn.SetKeepRect(r.X, r.Y, r.Width, r.Height);
         }
 
         // Starts, presents or stops lens-sampled depth of field; it takes effect at the add-on's next frame boundary. While
@@ -1127,14 +1143,16 @@ namespace CameraToolsEnhancements
                 || !TryExport<SetGameLightsCall>(module, "EnhancementsSetGameLights", out var setGameLights)
                 || !TryExport<SetCharacterLightsCall>(module, "EnhancementsSetCharacterLights", out var setCharacterLights)
                 || !TryExport<SetCelestialCall>(module, "EnhancementsSetCelestial", out var setCelestial)
-                || !TryExport<GetWorldLightCall>(module, "EnhancementsGetWorldLight", out var getWorldLight))
+                || !TryExport<GetWorldLightCall>(module, "EnhancementsGetWorldLight", out var getWorldLight)
+                || !TryExport<SetKeepRectCall>(module, "EnhancementsSetKeepRect", out var setKeepRect))
             {
                 MelonLogger.Warning($"Enhancements: {ModuleName} version {found} is missing an export.");
                 return;
             }
             rejected = IntPtr.Zero;
             addOn = new AddOn(module, apply, setCamera, getStatus, describe, compare, setAccumulate, depthAt, captureScene, saveTrace, setShot, saveFrame,
-                developDng, writeDng, setShotLights, setGameLights, setCharacterLights, setCelestial, getWorldLight);
+                developDng, writeDng, setShotLights, setGameLights, setCharacterLights, setCelestial, getWorldLight, setKeepRect);
+            kept = null;
             Connections++;
             MelonLogger.Msg($"Enhancements: connected to {ModuleName} version {found}.");
         }
