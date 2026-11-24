@@ -216,21 +216,6 @@ namespace enhancements
         old_lights_srv_.Reset();
         kept_depth_srv_.Reset();
         kept_depth_.Reset();
-        last_history_srv_.Reset();
-        last_hit_srv_.Reset();
-        last_sky_srv_.Reset();
-        last_lights_srv_.Reset();
-        last_reflect_srv_.Reset();
-        last_history_uav_.Reset();
-        last_hit_uav_.Reset();
-        last_sky_uav_.Reset();
-        last_lights_uav_.Reset();
-        last_reflect_uav_.Reset();
-        last_history_.Reset();
-        last_hit_.Reset();
-        last_sky_.Reset();
-        last_lights_.Reset();
-        last_reflect_.Reset();
     }
 
     bool TraceGpu::keep_depth(ID3D11ShaderResourceView *depth) { return copy_depth(depth, kept_depth_, kept_depth_srv_); }
@@ -295,18 +280,9 @@ namespace enhancements
     {
         // Anchored, the samples come from the anchor's view, whose copies stay as they are; else from the last view's.
         const std::optional<TraceConstants> &from = anchored_ ? anchor_constants_ : started_constants_;
-        std::optional<ReprojectConstants> constants = from ? reproject_constants(*from, frame.constants) : std::nullopt;
+        const std::optional<ReprojectConstants> constants = from ? reproject_constants(*from, frame.constants) : std::nullopt;
         if (!constants || !reproject_cs_)
             return false;
-        // Anchored, the view before this move is the last one started: its samples fill what the anchor did not see.
-        if (anchored_)
-        {
-            const std::optional<ReprojectConstants> last = started_constants_ ? reproject_constants(*started_constants_, frame.constants) : std::nullopt;
-            if (!last)
-                return false;
-            std::memcpy(constants->last_rows, last->from_rows, sizeof constants->last_rows);
-            std::memcpy(constants->last_clip, last->from_clip, sizeof constants->last_clip);
-        }
         const UINT pixels = size_.width * size_.height;
         const auto copy = [&](const ComPtr<ID3D11Buffer> &from, ComPtr<ID3D11Buffer> &to, ComPtr<ID3D11UnorderedAccessView> &uav,
                               ComPtr<ID3D11ShaderResourceView> &srv) {
@@ -321,13 +297,6 @@ namespace enhancements
             || !copy(gather_sky_, old_sky_, old_sky_uav_, old_sky_srv_) || !copy(light_history_, old_lights_, old_lights_uav_, old_lights_srv_)))
         {
             fail("a live shot's move could not copy the samples");
-            return false;
-        }
-        if (anchored_ && (!copy(history_, last_history_, last_history_uav_, last_history_srv_) || !copy(gather_hit_, last_hit_, last_hit_uav_, last_hit_srv_)
-            || !copy(gather_sky_, last_sky_, last_sky_uav_, last_sky_srv_) || !copy(light_history_, last_lights_, last_lights_uav_, last_lights_srv_)
-            || !copy(reflect_sum_, last_reflect_, last_reflect_uav_, last_reflect_srv_)))
-        {
-            fail("an anchored move could not copy the view before it");
             return false;
         }
         ID3D11DeviceContext1 *c = context_.Get();
@@ -352,10 +321,7 @@ namespace enhancements
         // anchored one carries the anchor's, its moves being a lens's few centimeters.
         ID3D11ShaderResourceView *const srvs[] = { old_history_srv_.Get(), gather_hit_ ? old_hit_srv_.Get() : nullptr, gather_sky_ ? old_sky_srv_.Get() : nullptr,
             light_history_ ? old_lights_srv_.Get() : nullptr, anchored_ ? anchor_depth_srv_.Get() : kept_depth_srv_.Get(), depth,
-            anchored_ && reflect_sum_ ? old_reflect_srv_.Get() : nullptr, anchored_ ? last_history_srv_.Get() : nullptr,
-            anchored_ && gather_hit_ ? last_hit_srv_.Get() : nullptr, anchored_ && gather_sky_ ? last_sky_srv_.Get() : nullptr,
-            anchored_ && light_history_ ? last_lights_srv_.Get() : nullptr, anchored_ && reflect_sum_ ? last_reflect_srv_.Get() : nullptr,
-            anchored_ ? kept_depth_srv_.Get() : nullptr };
+            anchored_ && reflect_sum_ ? old_reflect_srv_.Get() : nullptr };
         ID3D11UnorderedAccessView *const uavs[] = { history_uav_.Get(), gather_hit_uav_.Get(), gather_sky_uav_.Get(), light_history_uav_.Get(),
             reflect_sum_ ? reflect_sum_uav_.Get() : nullptr, anchored_ ? hole_list_uav_.Get() : nullptr, anchored_ ? hole_args_uav_.Get() : nullptr };
         c->CSSetShader(reproject_cs_.Get(), nullptr, 0);
@@ -363,9 +329,9 @@ namespace enhancements
         c->CSSetShaderResources(0, static_cast<UINT>(std::size(srvs)), srvs);
         c->CSSetUnorderedAccessViews(0, static_cast<UINT>(std::size(uavs)), uavs, nullptr);
         c->Dispatch((size_.width + 7) / 8, (size_.height + 7) / 8, 1);
-        ID3D11ShaderResourceView *const no_srvs[std::size(srvs)] = {};
+        ID3D11ShaderResourceView *const no_srvs[7] = {};
         ID3D11UnorderedAccessView *const no_uavs[std::size(uavs)] = {};
-        c->CSSetShaderResources(0, static_cast<UINT>(std::size(no_srvs)), no_srvs);
+        c->CSSetShaderResources(0, 7, no_srvs);
         c->CSSetUnorderedAccessViews(0, static_cast<UINT>(std::size(no_uavs)), no_uavs, nullptr);
         return true;
     }
