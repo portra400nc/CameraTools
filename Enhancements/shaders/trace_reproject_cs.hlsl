@@ -1,7 +1,8 @@
 // A live shot's move: each pixel of the new view takes the samples of the pixel that showed the same point of the scene
 // to the camera they were traced with, where the old depth there agrees, and none where the point was hidden or off the
 // old view. The occlusion and sun sums, the gather's hits and skies and the traced lights' sums move together, counts and
-// all, so the trace and gather kernels go on adding to them. Reflections depend on the view and are cleared apart.
+// all, so the trace and gather kernels go on adding to them. Reflections depend on the view: they move only from an
+// anchored shot's anchor, whose copy is bound, and are cleared otherwise, as the unbound copy reads 0.
 
 cbuffer Reproject : register(b0)
 {
@@ -16,12 +17,14 @@ StructuredBuffer<float4> old_history : register(t0);
 StructuredBuffer<float4> old_hit : register(t1);
 StructuredBuffer<float4> old_sky : register(t2);
 StructuredBuffer<float4> old_lights : register(t3);
+StructuredBuffer<float4> old_reflect : register(t6);
 Texture2D<float> old_depth : register(t4);      // the depth the samples were traced over, reversed Z
 Texture2D<float> new_depth : register(t5);
 RWStructuredBuffer<float4> history : register(u0);
 RWStructuredBuffer<float4> hit : register(u1);
 RWStructuredBuffer<float4> sky : register(u2);
 RWStructuredBuffer<float4> lights : register(u3);
+RWStructuredBuffer<float4> reflect : register(u4);
 
 // A stored pixel and its depth in the scene's frame, through a camera's clip rows, as trace_common.hlsli's scene_position.
 float3 to_scene(float4 rows[4], int2 pixel, float depth)
@@ -41,7 +44,7 @@ void main(uint3 id : SV_DispatchThreadID)
         return;
     uint at = uint(pixel.y) * render.x + uint(pixel.x);
     float4 none = 0;
-    float4 h = none, g = none, k = none, l = none;
+    float4 h = none, g = none, k = none, l = none, r = none;
     float d = new_depth.Load(int3(pixel, 0));
     if (d > 0)
     {
@@ -65,6 +68,7 @@ void main(uint3 id : SV_DispatchThreadID)
                     g = old_hit[from];
                     k = old_sky[from];
                     l = old_lights[from];
+                    r = old_reflect[from];
                 }
             }
         }
@@ -73,4 +77,5 @@ void main(uint3 id : SV_DispatchThreadID)
     hit[at] = g;
     sky[at] = k;
     lights[at] = l;
+    reflect[at] = r;
 }

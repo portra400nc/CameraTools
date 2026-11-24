@@ -188,7 +188,9 @@ namespace enhancements
         kept_depth_.Reset();
     }
 
-    bool TraceGpu::keep_depth(ID3D11ShaderResourceView *depth)
+    bool TraceGpu::keep_depth(ID3D11ShaderResourceView *depth) { return copy_depth(depth, kept_depth_, kept_depth_srv_); }
+
+    bool TraceGpu::copy_depth(ID3D11ShaderResourceView *depth, ComPtr<ID3D11Texture2D> &to, ComPtr<ID3D11ShaderResourceView> &to_srv)
     {
         if (!depth)
             return false;
@@ -200,28 +202,52 @@ namespace enhancements
         D3D11_TEXTURE2D_DESC desc;
         texture->GetDesc(&desc);
         D3D11_TEXTURE2D_DESC kept {};
-        if (kept_depth_)
-            kept_depth_->GetDesc(&kept);
-        if (!kept_depth_ || kept.Width != desc.Width || kept.Height != desc.Height || kept.Format != desc.Format)
+        if (to)
+            to->GetDesc(&kept);
+        if (!to || kept.Width != desc.Width || kept.Height != desc.Height || kept.Format != desc.Format)
         {
             D3D11_SHADER_RESOURCE_VIEW_DESC view;
             depth->GetDesc(&view);
-            kept_depth_srv_.Reset();
-            if (FAILED(device_->CreateTexture2D(&desc, nullptr, kept_depth_.ReleaseAndGetAddressOf()))
-                || FAILED(device_->CreateShaderResourceView(kept_depth_.Get(), &view, kept_depth_srv_.ReleaseAndGetAddressOf())))
+            to_srv.Reset();
+            if (FAILED(device_->CreateTexture2D(&desc, nullptr, to.ReleaseAndGetAddressOf()))
+                || FAILED(device_->CreateShaderResourceView(to.Get(), &view, to_srv.ReleaseAndGetAddressOf())))
             {
-                kept_depth_.Reset();
-                kept_depth_srv_.Reset();
+                to.Reset();
+                to_srv.Reset();
                 return false;
             }
         }
-        context_->CopyResource(kept_depth_.Get(), texture.Get());
+        context_->CopyResource(to.Get(), texture.Get());
+        return true;
+    }
+
+    // An anchored live shot's anchor: copies of the samples it has now, which every later move takes its samples from, with
+    // the depth and camera they were traced with.
+    bool TraceGpu::anchor(ID3D11ShaderResourceView *depth)
+    {
+        const UINT pixels = size_.width * size_.height;
+        const auto copy = [&](const ComPtr<ID3D11Buffer> &from, ComPtr<ID3D11Buffer> &to, ComPtr<ID3D11UnorderedAccessView> &uav,
+                              ComPtr<ID3D11ShaderResourceView> &srv) {
+            if (!from)
+                return true;
+            if (!to && FAILED(structured_buffer(device_.Get(), 16, pixels, to, uav, &srv)))
+                return false;
+            context_->CopyResource(to.Get(), from.Get());
+            return true;
+        };
+        if (!started_constants_ || !copy(history_, old_history_, old_history_uav_, old_history_srv_) || !copy(gather_hit_, old_hit_, old_hit_uav_, old_hit_srv_)
+            || !copy(gather_sky_, old_sky_, old_sky_uav_, old_sky_srv_) || !copy(light_history_, old_lights_, old_lights_uav_, old_lights_srv_)
+            || !copy(reflect_sum_, old_reflect_, old_reflect_uav_, old_reflect_srv_) || !copy_depth(depth, anchor_depth_, anchor_depth_srv_))
+            return false;
+        anchor_constants_ = started_constants_;
         return true;
     }
 
     bool TraceGpu::reproject(const TraceFrame &frame, ID3D11ShaderResourceView *depth)
     {
-        const std::optional<ReprojectConstants> constants = started_constants_ ? reproject_constants(*started_constants_, frame.constants) : std::nullopt;
+        // Anchored, the samples come from the anchor's view, whose copies stay as they are; else from the last view's.
+        const std::optional<TraceConstants> &from = anchored_ ? anchor_constants_ : started_constants_;
+        const std::optional<ReprojectConstants> constants = from ? reproject_constants(*from, frame.constants) : std::nullopt;
         if (!constants || !reproject_cs_)
             return false;
         const UINT pixels = size_.width * size_.height;
@@ -234,8 +260,8 @@ namespace enhancements
             context_->CopyResource(to.Get(), from.Get());
             return true;
         };
-        if (!copy(history_, old_history_, old_history_uav_, old_history_srv_) || !copy(gather_hit_, old_hit_, old_hit_uav_, old_hit_srv_)
-            || !copy(gather_sky_, old_sky_, old_sky_uav_, old_sky_srv_) || !copy(light_history_, old_lights_, old_lights_uav_, old_lights_srv_))
+        if (!anchored_ && (!copy(history_, old_history_, old_history_uav_, old_history_srv_) || !copy(gather_hit_, old_hit_, old_hit_uav_, old_hit_srv_)
+            || !copy(gather_sky_, old_sky_, old_sky_uav_, old_sky_srv_) || !copy(light_history_, old_lights_, old_lights_uav_, old_lights_srv_)))
         {
             fail("a live shot's move could not copy the samples");
             return false;
@@ -247,23 +273,22 @@ namespace enhancements
         std::memcpy(mapped.pData, &*constants, sizeof *constants);
         c->Unmap(reproject_constants_.Get(), 0);
         ID3D11Buffer *const buffers[] = { reproject_constants_.Get() };
+        // Reflections depend on the view: an unanchored move clears them, as the kernel writes 0 where it reads no copy; an
+        // anchored one carries the anchor's, its moves being a lens's few centimeters.
         ID3D11ShaderResourceView *const srvs[] = { old_history_srv_.Get(), gather_hit_ ? old_hit_srv_.Get() : nullptr, gather_sky_ ? old_sky_srv_.Get() : nullptr,
-            light_history_ ? old_lights_srv_.Get() : nullptr, kept_depth_srv_.Get(), depth };
-        ID3D11UnorderedAccessView *const uavs[] = { history_uav_.Get(), gather_hit_uav_.Get(), gather_sky_uav_.Get(), light_history_uav_.Get() };
+            light_history_ ? old_lights_srv_.Get() : nullptr, anchored_ ? anchor_depth_srv_.Get() : kept_depth_srv_.Get(), depth,
+            anchored_ && reflect_sum_ ? old_reflect_srv_.Get() : nullptr };
+        ID3D11UnorderedAccessView *const uavs[] = { history_uav_.Get(), gather_hit_uav_.Get(), gather_sky_uav_.Get(), light_history_uav_.Get(),
+            reflect_sum_ ? reflect_sum_uav_.Get() : nullptr };
         c->CSSetShader(reproject_cs_.Get(), nullptr, 0);
         c->CSSetConstantBuffers(0, 1, buffers);
         c->CSSetShaderResources(0, static_cast<UINT>(std::size(srvs)), srvs);
         c->CSSetUnorderedAccessViews(0, static_cast<UINT>(std::size(uavs)), uavs, nullptr);
         c->Dispatch((size_.width + 7) / 8, (size_.height + 7) / 8, 1);
-        ID3D11ShaderResourceView *const no_srvs[6] = {};
-        ID3D11UnorderedAccessView *const no_uavs[4] = {};
-        c->CSSetShaderResources(0, 6, no_srvs);
-        c->CSSetUnorderedAccessViews(0, 4, no_uavs, nullptr);
-        if (reflect_sum_)
-        {
-            const UINT zero[4] = {};
-            c->ClearUnorderedAccessViewUint(reflect_sum_uav_.Get(), zero);
-        }
+        ID3D11ShaderResourceView *const no_srvs[7] = {};
+        ID3D11UnorderedAccessView *const no_uavs[5] = {};
+        c->CSSetShaderResources(0, 7, no_srvs);
+        c->CSSetUnorderedAccessViews(0, 5, no_uavs, nullptr);
         return true;
     }
 
@@ -484,10 +509,11 @@ namespace enhancements
         if (f.restart == TraceRestart::none && schedule_.tiles != tiles)
             f.restart = TraceRestart::render;
         f.live = settings.reproject;
+        f.anchor = settings.reproject && settings.anchor;
         // A live shot carries its samples over a camera move, where the history and the depth they were traced over are
         // this size's; reflections, which depend on the view, are off in a live shot.
         f.reproject = f.restart == TraceRestart::camera && settings.reproject && started_constants_ && history_ && kept_depth_srv_ && size_ == key.render
-            && !f.reflecting;
+            && (!f.reflecting || (f.anchor && anchored_));
         f.reset = f.restart != TraceRestart::none && !f.reproject;
         if (f.reset)
         {
@@ -622,6 +648,7 @@ namespace enhancements
             key_ = frame.key;
             started_constants_ = frame.constants;
             started_gather_ = frame.gather;
+            anchored_ = false;
             if (frame.live && !keep_depth(depth))
                 return false;
         }
@@ -634,6 +661,18 @@ namespace enhancements
             key_ = frame.key;
             started_constants_ = frame.constants;
             started_gather_ = frame.gather;
+        }
+        // An anchored shot takes its anchor on its first frame with every pixel traced, before its camera first moves.
+        if (!frame.anchor)
+            anchored_ = false;
+        else if (!anchored_ && !frame.reset && !frame.reproject && trace_passes(schedule_) >= 1)
+        {
+            if (!anchor(depth))
+            {
+                fail("an anchored shot could not copy its anchor");
+                return false;
+            }
+            anchored_ = true;
         }
         schedule_ = frame.schedule;
         gathering_ = frame.gathering;

@@ -95,7 +95,8 @@ namespace enhancements
             && offsetof(EnhancementsCharacterLights, lights) == 40 && offsetof(EnhancementsCharacterLights, world) == 296
             && sizeof(EnhancementsCharacterLights) == 336);
         static_assert(offsetof(EnhancementsShot, active) == 4 && offsetof(EnhancementsShot, budget_ms) == 12 && offsetof(EnhancementsShot, strength) == 16
-            && offsetof(EnhancementsShot, outputs) == 20 && offsetof(EnhancementsShot, live) == 40 && sizeof(EnhancementsShot) == 44);
+            && offsetof(EnhancementsShot, outputs) == 20 && offsetof(EnhancementsShot, live) == 40 && offsetof(EnhancementsShot, anchor) == 44
+            && sizeof(EnhancementsShot) == 48);
 
     namespace hlsl
     {
@@ -766,8 +767,11 @@ namespace enhancements
             shot.bounces = std::clamp<uint32_t>(raw->bounces, 1, 15);
         if (knows(offsetof(EnhancementsShot, live), sizeof raw->live))
             shot.live = raw->live != 0;
-        // A live shot's view moves, and reflections depend on it.
-        if (shot.live)
+        if (knows(offsetof(EnhancementsShot, anchor), sizeof raw->anchor))
+            shot.anchor = shot.live && raw->anchor != 0;
+        // A live shot's view moves, and reflections depend on it. An anchored one keeps them, carried from the anchor's
+        // view: turning them off would start the samples again, and its moves are a lens's, a few centimeters.
+        if (shot.live && !shot.anchor)
             shot.reflect.enabled = false;
         return shot;
     }
@@ -800,8 +804,10 @@ namespace enhancements
         s.reflect = shot.reflect;
         s.gather.bounces = shot.bounces;
         s.trace.reproject = shot.live;
-        // Characters move once a live shot's game runs again, and the scene holds them where its capture saw them.
-        if (shot.live)
+        s.trace.anchor = shot.anchor;
+        // Characters move once a live shot's game runs again, and the scene holds them where its capture saw them. An
+        // anchored shot's game stays paused.
+        if (shot.live && !shot.anchor)
             s.trace.characters = false;
         return s;
     }

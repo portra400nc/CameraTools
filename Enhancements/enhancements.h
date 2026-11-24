@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 55
+#define ENHANCEMENTS_VERSION 56
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -772,6 +772,10 @@ typedef struct EnhancementsShot
                                 // where it still shows the same surfaces instead of starting them again; reflections, which
                                 // depend on the view, stay off, and characters, which move once the game runs, cast nothing.
                                 // 0, and a caller without it, start again. Version 45 added it.
+    uint32_t anchor;            // 1 with live: the samples the shot has when it rises become the anchor, and every move after
+                                // takes its samples from the anchor's view, not the last one, so a lens-sampled shot's views
+                                // reuse the lighting converged at the aperture's center without resampling it each move;
+                                // reflections and characters' shadows stay as they were and carry over too. Version 56 added it.
 } EnhancementsShot;
 
 // A light a traced shot traces: one of CameraTools' own, which the caller switches off in the game while the shot traces. The

@@ -176,6 +176,7 @@ namespace enhancements
         bool characters = true, alpha_cards = true; // EnhancementsTrace.casters
         bool whole_cards = false;                   // ENHANCEMENTS_TRACE_CAST_WHOLE_CARDS: the alpha tests off
         bool reproject = false;                     // a live shot's: a camera move carries the samples over; not in the key
+        bool anchor = false;                        // an anchored live shot's: moves carry the anchor's samples; not in the key
         float ao_distance = 2.0f;
         float ao_strength = 1.0f;
         float sun_size = 0.0093f;
@@ -431,6 +432,7 @@ namespace enhancements
         ReflectSettings reflect;
         uint32_t bounces = 1;
         bool live = false;          // EnhancementsShot.live
+        bool anchor = false;        // EnhancementsShot.anchor, only with live
     };
 
     // Honors size like parse_settings. A null pointer is no shot. samples clamps to 4096, budget_ms to 2..2000 and strength

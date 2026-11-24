@@ -33,6 +33,7 @@ namespace enhancements
         bool reset = false;                     // the samples start again: the history is cleared first
         bool reproject = false;                 // a live shot's camera moved: the samples are carried to its new view first
         bool live = false;                      // a live shot's: the depth the samples are traced over is kept for a move
+        bool anchor = false;                    // an anchored live shot's: moves take the anchor's samples
         TraceRestart restart = TraceRestart::none;  // and why
         bool traced = false;                    // every traced pixel has a sample after this frame's tiles
         TraceConstants constants {};            // tiles left 0; dispatch sets them
@@ -168,6 +169,7 @@ namespace enhancements
         bool reproject(const TraceFrame &frame, ID3D11ShaderResourceView *depth);
         // The depth the samples are traced over, copied from depth for the next move.
         bool keep_depth(ID3D11ShaderResourceView *depth);
+        bool copy_depth(ID3D11ShaderResourceView *depth, ComPtr<ID3D11Texture2D> &to, ComPtr<ID3D11ShaderResourceView> &to_srv);
         // Frees a move's copies and the kept depth, which follow the history's size.
         void free_moves();
         bool sync(Size render, bool gathering, bool lit, bool reflecting);
@@ -247,6 +249,16 @@ namespace enhancements
         ComPtr<ID3D11ShaderResourceView> old_history_srv_, old_hit_srv_, old_sky_srv_, old_lights_srv_;
         ComPtr<ID3D11Texture2D> kept_depth_;    // the depth the samples are traced over
         ComPtr<ID3D11ShaderResourceView> kept_depth_srv_;
+        // An anchored live shot's anchor: the old_* copies hold its samples, and these its depth and camera, until the
+        // shot stops anchoring or its samples start again.
+        bool anchored_ = false;
+        ComPtr<ID3D11Texture2D> anchor_depth_;
+        ComPtr<ID3D11ShaderResourceView> anchor_depth_srv_;
+        std::optional<TraceConstants> anchor_constants_;
+        ComPtr<ID3D11Buffer> old_reflect_;
+        ComPtr<ID3D11UnorderedAccessView> old_reflect_uav_;
+        ComPtr<ID3D11ShaderResourceView> old_reflect_srv_;
+        bool anchor(ID3D11ShaderResourceView *depth);
         std::optional<TraceKey> key_;           // what the samples started with
         std::optional<TraceConstants> started_constants_;   // the constants of the frame that started them, and its gather's,
         GatherConstants started_gather_ {};                 // which every later frame's camera, sun and light are
