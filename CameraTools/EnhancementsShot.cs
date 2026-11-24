@@ -202,8 +202,12 @@ namespace CameraTools
                 SendShot(anchor: true);
         }
 
+        // While the lens samples run, the trace only fills the few pixels a lens point sees that the center did not: a small
+        // budget a frame keeps each sample's two frames short, where the converging budget made each take seconds.
+        private const float LensSampleBudgetMs = 20f;
+
         private static void SendShot(bool anchor)
-            => Enhancements.SetShot(true, 0, TracedShot.BudgetMs, BounceStrength,
+            => Enhancements.SetShot(true, 0, anchor ? LensSampleBudgetMs : TracedShot.BudgetMs, BounceStrength,
                 TracedSunShadows ? EnhancementsTraceOutputs.Ao | EnhancementsTraceOutputs.Sun : EnhancementsTraceOutputs.Ao,
                 TracedReflections, SurfaceGloss, ReflectedLight, (uint)Bounces, live: anchor, anchor: anchor);
 
