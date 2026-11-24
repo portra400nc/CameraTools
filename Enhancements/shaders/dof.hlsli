@@ -63,6 +63,11 @@ static const float kDofHiddenFade = 2.0f;
 // The CoC in half-size pixels behind focus from which the post-filter starts averaging a pixel's far field with its
 // neighbors', fully at twice it.
 static const float kDofSmoothFrom = 2.0f;
+
+// The full-size CoC of a half-size texel's nearest surface from which a pixel behind focus takes its far field whatever
+// the pixel's own CoC, fully from the second: blurred over more than its 2x2 block, the texel's far field shows no block.
+// A pixel's choice between two strongly blurred surfaces would otherwise follow their sharp outline through the blur.
+static const float2 kDofTexelBlurred = float2(2.0f, 4.0f);
 // The share by which the mean CoC of a filtered read of the sources may differ from its source's own before the gather
 // takes the source's texel instead: the read averaged in a surface at another depth, whose light would spread with the
 // source's disc, as a subject in focus beside the background would spread over its blur as a halo around it.
@@ -1251,14 +1256,17 @@ float3 dof_composite(int2 pixel)
     float fx = at.x - floor(at.x), fy = at.y - floor(at.y);
     float3 far = float3(0.0f, 0.0f, 0.0f);
     float far_weight = 0.0f;
-    bool usable[4];
+    float usable[4];
     UNROLL for (int i = 0; i < 4; i++)
     {
         int2 q = int2(base.x + i % 2, base.y + i / 2);
         float b = (i % 2 == 0 ? 1.0f - fx : fx) * (i / 2 == 0 ? 1.0f - fy : fy);
         float4 f = dof_load_far(q);
-        usable[i] = f.w > 0.0f && (coc <= 0.5f || dof_texel_coc(q, focus, lens) >= coc - max(1.0f, 0.5f * coc));
-        float w = usable[i] ? b : 0.0f;
+        float texel = coc <= 0.5f ? 0.0f : dof_texel_coc(q, focus, lens);
+        usable[i] = f.w <= 0.0f ? 0.0f
+            : coc <= 0.5f || texel >= coc - max(1.0f, 0.5f * coc) ? 1.0f
+            : saturate((texel - kDofTexelBlurred.x) / (kDofTexelBlurred.y - kDofTexelBlurred.x));
+        float w = usable[i] * b;
         far = far + float3(f.x, f.y, f.z) * w;
         far_weight = far_weight + w;
     }
@@ -1276,6 +1284,18 @@ float3 dof_composite(int2 pixel)
             far_weight = far_weight + w;
         }
     }
+    // A pixel seen through a gap in a nearer blurred surface, such as the sky between leaves, finds that surface in every
+    // texel around it, and the surface's blur covers it.
+    if (far_weight <= 0.0f && coc > 0.5f)
+    {
+        UNROLL for (int m = 0; m < 4; m++)
+        {
+            float4 f = dof_load_far(int2(base.x + m % 2, base.y + m / 2));
+            float w = f.w > 0.0f ? (m % 2 == 0 ? 1.0f - fx : fx) * (m / 2 == 0 ? 1.0f - fy : fy) : 0.0f;
+            far = far + float3(f.x, f.y, f.z) * w;
+            far_weight = far_weight + w;
+        }
+    }
     float3 pooled = far_weight > 0.0f ? far / far_weight : sharp;
     float3 under = float3(0.0f, 0.0f, 0.0f);
     float4 layer = float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -1286,7 +1306,7 @@ float3 dof_composite(int2 pixel)
         int2 q = int2(base.x + j % 2, base.y + j / 2);
         float b = (j % 2 == 0 ? 1.0f - fx : fx) * (j / 2 == 0 ? 1.0f - fy : fy);
         float4 f = dof_load_far(q);
-        under = under + (usable[j] ? float3(f.x, f.y, f.z) : pooled) * b;
+        under = under + (pooled + (float3(f.x, f.y, f.z) - pooled) * usable[j]) * b;
         layer = layer + dof_load_near_layer(q) * b;
         near_cover = near_cover + dof_load_near_cover(q) * b;
         float4 n = dof_load_near(q);

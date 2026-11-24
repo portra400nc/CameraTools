@@ -18,9 +18,9 @@ jobs=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
 flags="-std=c++17 -O2 -pthread -Wall -Wextra -Werror -I .."
 cache=${ENHANCEMENTS_TEST_CACHE:-${TMPDIR:-/tmp}/enhancements-test-cache}
 mkdir -p "$cache/objects"
-# Each object is kept by a hash of its source, every header of ours and the flags, and compiles again only when one of
-# them changed: compiling the core and the tests anew took 21 s of every run.
-headers=$(cat ../*.h ../core/*.h | shasum | cut -c1-40)
+# Each object is kept by a hash of its source, every header of ours, the shaders the core compiles as C++ and the flags,
+# and compiles again only when one of them changed: compiling the core and the tests anew took 21 s of every run.
+headers=$(cat ../*.h ../core/*.h ../shaders/*.hlsli | shasum | cut -c1-40)
 mkdir "$out/core"
 ls ../core/*.cpp fixture.cpp *_test.cpp | xargs -P "$jobs" -I {} sh -c '
     key=$( { echo "$1 $4"; cat "$2"; } | shasum | cut -c1-40)
@@ -214,6 +214,23 @@ if [ -n "$frames" ] && [ -f "$arm/frame.tsv" ]; then
     echo "PASS the blurred grass over the arm shows the arm behind it, not the background in shards"
 else
     echo "SKIP the arm: no .work/dof/frames/frame-20261029-210604"
+fi
+# The maples, frame-20261124-140254: maples 20 to 40 m away against the sky, behind a fruit stand 15 m away in focus, at
+# f/1.2 as a 1:25 miniature with Max blur 8, live. Over the maples' blur, neighbors may differ by at most 30 levels: the
+# sky through gaps in the leaves found only nearer texels around it and kept its sharp color, in white specks, and a pixel
+# behind focus took or refused a blurred maple's texel by the CoC of its own sharp depth, which traced the leaves' sharp
+# outline through the blur, 177 levels a step.
+maples=$frames/frame-20261124-140254
+if [ -n "$frames" ] && [ -f "$maples/frame.tsv" ]; then
+    if fresh "$out/render_dof" "$maples" render_dof.sh maples; then
+        RENDER_DOF_BIN="$out/render_dof" sh render_dof.sh "$maples" "$out/maples.png" f=1.2 sensor=573.6 x=0.458 y=0.582 max_blur=0.08 sa=0.5 \
+            chromatic=1 cat_eye=0.7 scatter=1 gain=0 threshold=1.5 samples=49 crop=1115,0,125,110 near_steps=1e30 most_steps=30 \
+            > "$out/maples.txt" || { cat "$out/maples.txt"; echo "FAIL the blurred maples show sharp specks or a ragged rim against the sky"; exit 1; }
+        passed
+    fi
+    echo "PASS the blurred maples blur into the sky with no specks or ragged rim"
+else
+    echo "SKIP the maples: no .work/dof/frames/frame-20261124-140254"
 fi
 # The harbor, frame-20261024-134128, written as a DNG with frame_dng's test EXIF: byte for byte the reference file
 # (.work/dng/lightroom-test/harbor-look.dng, the layout the user opened in Lightroom on 2026-10-29 with the white at the
