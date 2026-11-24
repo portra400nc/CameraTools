@@ -267,8 +267,7 @@ namespace enhancements
             || !copy(gather_sky_, old_sky_, old_sky_uav_, old_sky_srv_) || !copy(light_history_, old_lights_, old_lights_uav_, old_lights_srv_)
             || !copy(reflect_sum_, old_reflect_, old_reflect_uav_, old_reflect_srv_) || !copy_depth(depth, anchor_depth_, anchor_depth_srv_))
             return false;
-        if (FAILED(raw_rw_buffer(device_.Get(), tile_count_ * 4, 0, hole_flags_, hole_flags_uav_, nullptr))
-            || FAILED(raw_rw_buffer(device_.Get(), tile_count_ * 4, 0, hole_list_, hole_list_uav_, &hole_list_srv_))
+        if (FAILED(raw_rw_buffer(device_.Get(), (pixels + 1) * 4, 0, hole_list_, hole_list_uav_, &hole_list_srv_))
             || FAILED(raw_rw_buffer(device_.Get(), 12, D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS, hole_args_, hole_args_uav_, nullptr)))
             return false;
         anchor_constants_ = started_constants_;
@@ -299,11 +298,12 @@ namespace enhancements
             return false;
         }
         ID3D11DeviceContext1 *c = context_.Get();
-        // An anchored move lists the tiles with pixels its anchor did not see, for its pass to trace alone.
+        // An anchored move lists the pixels its anchor did not see, for its pass to trace alone.
         if (anchored_)
         {
-            const UINT zero[4] = {};
-            c->ClearUnorderedAccessViewUint(hole_flags_uav_.Get(), zero);
+            const UINT none = 0;
+            const D3D11_BOX count = { 0, 0, 0, 4, 1, 1 };
+            c->UpdateSubresource(hole_list_.Get(), 0, &count, &none, 0, 0);
             const UINT args[3] = { kGroupsPerTile, 0, 1 };
             c->UpdateSubresource(hole_args_.Get(), 0, nullptr, args, 0, 0);
         }
@@ -321,8 +321,7 @@ namespace enhancements
             light_history_ ? old_lights_srv_.Get() : nullptr, anchored_ ? anchor_depth_srv_.Get() : kept_depth_srv_.Get(), depth,
             anchored_ && reflect_sum_ ? old_reflect_srv_.Get() : nullptr };
         ID3D11UnorderedAccessView *const uavs[] = { history_uav_.Get(), gather_hit_uav_.Get(), gather_sky_uav_.Get(), light_history_uav_.Get(),
-            reflect_sum_ ? reflect_sum_uav_.Get() : nullptr, anchored_ ? hole_flags_uav_.Get() : nullptr, anchored_ ? hole_list_uav_.Get() : nullptr,
-            anchored_ ? hole_args_uav_.Get() : nullptr };
+            reflect_sum_ ? reflect_sum_uav_.Get() : nullptr, anchored_ ? hole_list_uav_.Get() : nullptr, anchored_ ? hole_args_uav_.Get() : nullptr };
         c->CSSetShader(reproject_cs_.Get(), nullptr, 0);
         c->CSSetConstantBuffers(0, 1, buffers);
         c->CSSetShaderResources(0, static_cast<UINT>(std::size(srvs)), srvs);
@@ -747,12 +746,13 @@ namespace enhancements
         target_ = frame.target;
 
         // The constants with a dispatch's first tile, at b0 for the kernel and b1 for the apply draw.
+        const bool holes = frame.reproject && frame.anchor && anchored_ && hole_args_;
         const auto upload = [&](uint32_t first) {
             TraceConstants constants = frame.constants;
             constants.trace_tiles[0] = first;
             // An anchored shot's views show each pixel's own samples, however few: the views' average takes out the
             // noise that the blur of its neighbors would otherwise hide with their light.
-            constants.trace_tiles[2] = frame.anchor && anchored_ ? 1u : 0u;
+            constants.trace_tiles[2] = holes ? 2u : frame.anchor && anchored_ ? 1u : 0u;
             constants.trace_tiles[1] = tile_count_;
             D3D11_MAPPED_SUBRESOURCE mapped;
             const HRESULT result = c->Map(constants_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
@@ -829,8 +829,7 @@ namespace enhancements
         ID3D11Buffer *const buffers[] = { constants_.Get(), frame.gathering ? gather_constants_.Get() : nullptr,
             frame.gathering ? faces_constants_.Get() : nullptr, frame.gathering ? lights_constants_.Get() : nullptr,
             frame.reflecting ? reflect_constants_.Get() : nullptr };
-        // An anchored move traces only the tiles its reprojection listed, as many as it counted into the indirect arguments.
-        const bool holes = frame.reproject && frame.anchor && anchored_ && hole_args_;
+        // An anchored move traces only the pixels its reprojection listed, in as many group rows as it counted.
         ID3D11ShaderResourceView *const srvs[] = { node_srv_.Get(), triangle_srv_.Get(), normals, depth, stencil,
             holes ? hole_list_srv_.Get() : tiles_srv_.Get(), alpha_srv_.Get(),
             frame.gathering ? sky_srv_.Get() : nullptr, frame.gathering ? faces_srv_.Get() : nullptr,

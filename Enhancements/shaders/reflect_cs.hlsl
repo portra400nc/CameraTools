@@ -2,6 +2,7 @@
 // reflect_sum: its light summed, and the samples, up to reflect_params.w times the gather's, as it runs that many times a pass. Each group adds its rays, guard stops and stack overflows to the gather's
 // counters. Registers stay inside gpu.h's ranges: t0-t10, u0-u5, b0-b4.
 #include "gather_bindings.hlsli"
+#include "work_pixel.hlsli"
 
 cbuffer Reflect : register(b4)
 {
@@ -25,8 +26,7 @@ void main(uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID, uint lane :
     if (lane < 3u)
         group_counts[lane] = 0u;
     GroupMemoryBarrierWithGroupSync();
-    uint tile = tile_list.Load(((trace_tiles.x + group.y) % trace_tiles.y) * 4u);
-    int2 pixel = int2((tile & 0xFFFFu) * 64u + (group.x % 8u) * 8u + thread.x, (tile >> 16) * 64u + (group.x / 8u) * 8u + thread.y);
+    int2 pixel = work_pixel(group, thread, lane);
     if (pixel.x < int(trace_render.x) && pixel.y < int(trace_render.y))
     {
         uint at = uint(pixel.y) * trace_render.x + uint(pixel.x);

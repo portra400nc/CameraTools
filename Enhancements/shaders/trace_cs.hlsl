@@ -47,6 +47,7 @@ uint4 alpha_row(uint index) { return alpha.Load4(index * 4u); }
 #define STACK_STORE(lane, slot, value) stack_lds[(lane) * 24u + (slot)] = (value)
 #define STACK_LOAD(lane, slot) stack_lds[(lane) * 24u + (slot)]
 #include "trace.hlsli"
+#include "work_pixel.hlsli"
 
 groupshared uint group_counts[kTraceCounterCount];
 
@@ -56,8 +57,7 @@ void main(uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID, uint lane :
     if (lane < kTraceCounterCount)
         group_counts[lane] = 0u;
     GroupMemoryBarrierWithGroupSync();
-    uint tile = tile_list.Load(((trace_tiles.x + group.y) % trace_tiles.y) * 4u);
-    int2 pixel = int2((tile & 0xFFFFu) * 64u + (group.x % 8u) * 8u + thread.x, (tile >> 16) * 64u + (group.x / 8u) * 8u + thread.y);
+    int2 pixel = work_pixel(group, thread, lane);
     if (pixel.x < int(trace_render.x) && pixel.y < int(trace_render.y))
     {
         uint at = uint(pixel.y) * trace_render.x + uint(pixel.x);

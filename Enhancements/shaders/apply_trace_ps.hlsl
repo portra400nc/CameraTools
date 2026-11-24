@@ -87,7 +87,7 @@ Targets main(float4 position : SV_Position)
     if (!is_world(s))
         return o;
     float2 averages = float2(h.z > 0 ? h.x / h.z : 1, h.w > 0 ? h.y / h.w : 1);
-    // trace_tiles.z is 1 for an anchored shot's views, which show each pixel's own samples.
+    // trace_tiles.z is 1 for an anchored shot's views and 2 for their moves, which show each pixel's own samples.
     if (trace_tiles.z == 0 && ((h.z > 0 && h.z < kBlurBelow) || (h.w > 0 && h.w < kBlurBelow)))
     {
         float2 blurred = blurred_averages(pixel, view_position_at(pixel).z, view_normal_at(pixel));

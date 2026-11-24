@@ -25,11 +25,11 @@ RWStructuredBuffer<float4> hit : register(u1);
 RWStructuredBuffer<float4> sky : register(u2);
 RWStructuredBuffer<float4> lights : register(u3);
 RWStructuredBuffer<float4> reflect : register(u4);
-// render.w is 1 for an anchored shot's move, which lists each 64x64 tile with a world pixel the anchor did not see once,
-// as x | y << 16, and counts them into the indirect dispatch's arguments' second uint, for its pass to trace alone.
-RWBuffer<uint> hole_flags : register(u5);
-RWBuffer<uint> hole_list : register(u6);
-RWBuffer<uint> hole_args : register(u7);
+// render.w is 1 for an anchored shot's move, which lists each world pixel its anchor did not see, for its pass to trace
+// alone (work_pixel.hlsli): their count, then each as x | y << 16. The indirect dispatch's second argument counts a
+// group row for each 4096 of them.
+RWBuffer<uint> hole_list : register(u5);
+RWBuffer<uint> hole_args : register(u6);
 
 // A stored pixel and its depth in the scene's frame, through a camera's clip rows, as trace_common.hlsli's scene_position.
 float3 to_scene(float4 rows[4], int2 pixel, float depth)
@@ -80,16 +80,11 @@ void main(uint3 id : SV_DispatchThreadID)
     }
     if (render.w != 0 && d > 0 && h.z == 0)
     {
-        uint2 t = uint2(pixel) / 64u;
-        uint index = t.y * ((render.x + 63u) / 64u) + t.x;
-        uint was;
-        InterlockedOr(hole_flags[index], 1u, was);
-        if (was == 0)
-        {
-            uint slot;
-            InterlockedAdd(hole_args[1], 1u, slot);
-            hole_list[slot] = t.x | (t.y << 16);
-        }
+        uint slot;
+        InterlockedAdd(hole_list[0], 1u, slot);
+        hole_list[slot + 1u] = uint(pixel.x) | (uint(pixel.y) << 16);
+        if (slot % 4096u == 0u)
+            InterlockedAdd(hole_args[1], 1u);
     }
     history[at] = h;
     hit[at] = g;
