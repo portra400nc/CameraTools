@@ -505,7 +505,17 @@ namespace enhancements
         }
         f.target = trace_target(settings, gather_settings, f.gathering);
         const uint32_t tiles = static_cast<uint32_t>(((key.render.width + kTileSize - 1) / kTileSize) * ((key.render.height + kTileSize - 1) / kTileSize));
-        f.restart = !key_ ? TraceRestart::scene : trace_restart(*key_, key);
+        // An anchored shot's lens samples keep the anchor's light: the world is held, but a layered sky's clouds drift on and
+        // move the sky map, and the sun and sky colors with it, and starting the samples again lost the anchor, after which
+        // every move started them again too. So it compares its moves against the anchor's sky, sun and light.
+        TraceKey compared = key;
+        if (settings.reproject && settings.anchor && anchored_ && key_)
+        {
+            compared.sky = key_->sky;
+            compared.light = key_->light;
+            compared.toward_sun = key_->toward_sun;
+        }
+        f.restart = !key_ ? TraceRestart::scene : trace_restart(*key_, compared);
         if (f.restart == TraceRestart::none && schedule_.tiles != tiles)
             f.restart = TraceRestart::render;
         f.live = settings.reproject;
