@@ -65,8 +65,9 @@ Check("the binding's shot is 40 bytes with its strength at 16, its outputs at 20
 Check("the binding's DNG camera is enhancements.h's 44 bytes, with its date at 16, its shutter time at 36 and its ISO at 40",
     Marshal.SizeOf<EnhancementsDngInfo>() == 44 && Offset<EnhancementsDngInfo>(nameof(EnhancementsDngInfo.DateTime)) == 16
     && Offset<EnhancementsDngInfo>(nameof(EnhancementsDngInfo.ExposureTimeS)) == 36 && Offset<EnhancementsDngInfo>(nameof(EnhancementsDngInfo.Iso)) == 40);
-Check("the binding's accumulation is enhancements.h's 24 bytes, with its gain at 20",
-    Marshal.SizeOf<EnhancementsAccumulate>() == 24 && Offset<EnhancementsAccumulate>(nameof(EnhancementsAccumulate.Gain)) == 20);
+Check("the binding's accumulation is enhancements.h's 36 bytes, with its gain at 20, its chromatic aberration at 24 and its swirl at 32",
+    Marshal.SizeOf<EnhancementsAccumulate>() == 36 && Offset<EnhancementsAccumulate>(nameof(EnhancementsAccumulate.Gain)) == 20
+    && Offset<EnhancementsAccumulate>(nameof(EnhancementsAccumulate.ChromaticRed)) == 24 && Offset<EnhancementsAccumulate>(nameof(EnhancementsAccumulate.Swirl)) == 32);
 Check("the restart reasons and the scene states count as enhancements.h's", (uint)EnhancementsTraceRestart.Scene == 1 && (uint)EnhancementsTraceRestart.Camera == 4
     && (uint)EnhancementsTraceRestart.Light == 6 && (uint)EnhancementsTraceState.Ready == 3 && (uint)EnhancementsTraceState.Failed == 5
     && (uint)EnhancementsSceneFlags.Release == 32 && (uint)EnhancementsSceneFlags.Light == 64);

@@ -8,8 +8,20 @@ namespace CameraTools
     }
 
     // One lens-sampled screenshot: its aperture points, the aperture's radius in meters, the focus distance in meters along
-    // the view, locked before the first sample, and the cat's eye the add-on's accumulator cuts each pixel's points by.
-    internal sealed record LensShot((float X, float Y)[] Points, float Radius, float Focus, float CatEye);
+    // the view, locked before the first sample, the cat's eye and swirl the add-on's accumulator cuts each pixel's points
+    // by, red's and blue's shift against green in render pixels per unit of a point, and the spherical aberration that
+    // focuses each point by its radius.
+    internal sealed record LensShot((float X, float Y)[] Points, float Radius, float Focus, float CatEye, float Swirl = 0f,
+        (float Red, float Blue) Chromatic = default, float SphericalAberration = 0f)
+    {
+        // The farthest point from the center: the add-on's lens sample and its cuts take the points over it, so the
+        // aperture fits their unit disc whatever its blades or squeeze.
+        public float Reach { get; } = Points.Length == 0 ? 1f : MathF.Max(Points.Max(p => MathF.Sqrt(p.X * p.X + p.Y * p.Y)), 1e-6f);
+
+        public (float X, float Y) Sample(int index) => (Points[index].X / Reach, Points[index].Y / Reach);
+
+        public float FocusAt(int index) => LensSampler.ZoneFocus(Focus, Points[index].X, Points[index].Y, SphericalAberration);
+    }
 
     // The camera arithmetic of lens-sampled depth of field: where in the aperture each sample looks from, how wide the
     // aperture is, how the projection keeps the focus plane still while the camera moves inside it, and how much each
@@ -66,6 +78,22 @@ namespace CameraTools
         // depth d has z = -d, and the camera's move shifts it by -x, so m02 * -focus must give back m00 * x.
         public static (float M02, float M12) Shear(float m00, float m11, float x, float y, float focus)
             => (-m00 * x / focus, -m11 * y / focus);
+
+        // Where the zone of the aperture through a point focuses, in meters, under spherical aberration sa: in inverse
+        // distance, each zone's focus moves by sa times its radius squared over the mean, 0.5, so the mean focus stays. With
+        // sa above 0 the rim focuses farther: behind focus a point's disc gathers its light at the rim, a soap bubble, and in
+        // front it spreads it there, as an overcorrected lens's does. 0.5 times the soap bubble row gives the rim the
+        // fourfold light of the gather's disc at 0.5.
+        public static float ZoneFocus(float focus, float x, float y, float sa) => focus / (1f - sa * (x * x + y * y - 0.5f));
+
+        // How many render pixels a channel's picture lies further along a unit lens point than green's: its focal length is
+        // dispersion longer, so its CoC is green's less v d / (2 N (1 + d)) on the sensor, v the sensor's distance behind
+        // the lens, f S / (S - f), as the add-on's depth of field reckons it (shaders/dof.hlsli, dof_lens_at).
+        public static float ChromaticShift(float focalMm, float fNumber, float focusMeters, float sensorMm, int heightPx, float dispersion)
+        {
+            float s = focusMeters * 1000f, v = focalMm * s / MathF.Max(s - focalMm, 1e-3f);
+            return v * dispersion / (2f * fNumber * (1f + dispersion)) * heightPx / sensorMm;
+        }
 
         // The share of the full CoC each sample's own depth of field blurs by, so the copies of a point the samples make
         // merge into its disc: neighboring points lie sqrt(pi / count) of the aperture's radius apart, and a disc of half

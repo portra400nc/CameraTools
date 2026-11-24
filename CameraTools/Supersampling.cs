@@ -39,8 +39,11 @@ namespace CameraTools
         // The lens-sampled screenshot that runs, from its start to its end, or null.
         public static LensShot Lens { get; private set; }
 
-        // Where in the aperture the camera looks from this sample, in meters right and up of its pose.
+        // Where in the aperture the camera looks from this sample, in meters right and up of its pose, and where its zone
+        // of the aperture focuses.
         public static (float X, float Y) CameraOffset { get; private set; }
+
+        private static float sampleFocus;
 
         // The offset within the pixel the camera looks through, in pixels, or null for the pixel's centre.
         public static (float X, float Y)? Offset { get; private set; }
@@ -93,16 +96,20 @@ namespace CameraTools
             {
                 var (x, y) = lens.Points[index];
                 CameraOffset = (x * lens.Radius, y * lens.Radius);
-                sample = new LensSample(x, y, (uint)index, mark);
+                sampleFocus = lens.FocusAt(index);
+                var (sx, sy) = lens.Sample(index);
+                sample = new LensSample(sx, sy, (uint)index, mark);
                 return;
             }
             sample = new LensSample(0f, 0f, (uint)index, mark);
         }
 
-        // A lens-sampled screenshot's accumulator also cuts each pixel's aperture points by the cat's eye.
+        // A lens-sampled screenshot's accumulator also cuts each pixel's aperture points by the cat's eye and swirl, and
+        // reads red and blue along the point. The add-on's points lie in its unit disc, so the shifts are per unit of it.
         public static void Accumulate(EnhancementsAccumulateMode mode, uint generation, float gain = 1f)
             => Enhancements.SetAccumulate(new EnhancementsAccumulate { Mode = mode, Generation = generation, Gain = gain, CatEye = Lens?.CatEye ?? 0f,
-                CatEyeFalloff = 0.1f });
+                CatEyeFalloff = 0.1f, Swirl = Lens?.Swirl ?? 0f, ChromaticRed = (Lens?.Chromatic.Red ?? 0f) * (Lens?.Reach ?? 1f),
+                ChromaticBlue = (Lens?.Chromatic.Blue ?? 0f) * (Lens?.Reach ?? 1f) });
 
         public static void Centre()
         {
@@ -137,7 +144,7 @@ namespace CameraTools
             }
             if (Lens is { } lens && CameraOffset != (0f, 0f))
             {
-                var (m02, m12) = LensSampler.Shear(projection.m00, projection.m11, CameraOffset.X, CameraOffset.Y, lens.Focus);
+                var (m02, m12) = LensSampler.Shear(projection.m00, projection.m11, CameraOffset.X, CameraOffset.Y, sampleFocus > 0f ? sampleFocus : lens.Focus);
                 projection.m02 += m02;
                 projection.m12 += m12;
             }

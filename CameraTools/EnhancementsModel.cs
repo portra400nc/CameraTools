@@ -190,6 +190,10 @@ namespace CameraTools
         private static readonly string[] Shapes = { "Round", "5 blades", "6 blades", "7 blades", "8 blades", "9 blades" };
         // Aperture shape's options as blades: 0 is round.
         private const uint FewestBlades = 5;
+
+        // The add-on's achromat: red's and blue's focal lengths are this share longer than green's at chromatic 1
+        // (shaders/dof.hlsli, kDofChromaticRed and kDofChromaticBlue).
+        public const float ChromaticRed = 0.0005f, ChromaticBlue = 0.0012f;
         // Light shafts' Quality: Low, Medium and High as samples along each ray.
         private static readonly uint[] ShaftSteps = { 24, 48, 96 };
         // Clouds' Types, by index (Last type's value). The volume types draw the add-on's clouds, Disney's cloud or our

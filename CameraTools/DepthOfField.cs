@@ -495,8 +495,15 @@ namespace CameraTools
             float fNumber = EnhancementsModel.Stops[(int)Values[Enhancement.DepthOfFieldAperture]];
             float radius = LensSampler.Radius(freecam.Pose.Fov, Aspect, fNumber, Miniature);
             var points = LensSampler.Points(Supersampling.LensSamples, EnhancementsModel.LensAperture(Values, Supersampling.EdgeSoftness));
-            return (new LensShot(points, radius, focus, Values[Enhancement.CatsEye]),
-                $"{points.Length} aperture points, radius {radius * 100f:0.0} cm at f/{fNumber:0.##} 1:{Miniature}, focus {focus:0.00} m");
+            // The add-on's depth of field's lens: a full-frame lens and sensor Miniature times larger, and its dispersions.
+            float focal = Lens.FocalLength(freecam.Pose.Fov, Aspect) * Miniature, sensor = Lens.SensorHeight(Aspect) * Miniature;
+            float chromatic = Values[Enhancement.BokehChromaticAberration];
+            var shift = (LensSampler.ChromaticShift(focal, fNumber, focus, sensor, Screen.height, chromatic * EnhancementsModel.ChromaticRed),
+                LensSampler.ChromaticShift(focal, fNumber, focus, sensor, Screen.height, chromatic * EnhancementsModel.ChromaticBlue));
+            float sa = Math.Clamp(0.5f * Values[Enhancement.SoapBubble], -0.38f, 0.38f);
+            return (new LensShot(points, radius, focus, Values[Enhancement.CatsEye], Values[Enhancement.Swirl], shift, sa),
+                $"{points.Length} aperture points, radius {radius * 100f:0.0} cm at f/{fNumber:0.##} 1:{Miniature}, focus {focus:0.00} m, "
+                + $"red {shift.Item1:0.00} and blue {shift.Item2:0.00} px, spherical aberration {sa:0.00}");
         }
 
         private static string Problem => Ours ? Enhancements.Missing

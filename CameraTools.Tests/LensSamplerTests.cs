@@ -76,6 +76,18 @@ internal static class LensSamplerTests
             sampling.Enabled == 1 && MathF.Abs(sampling.FNumber - 2.8f / 0.0554f) < 1e-3f && sampling.FocusDistance == 15.6f && sampling.FocusSeconds == 0f
             && sampling.Place == EnhancementsDofPlace.Scene && sampling.Chromatic == 0f && sampling.CatEye == 0f && sampling.Scatter == 0
             && after.Enabled == 0 && plain.Enabled == 1 && plain.Place == EnhancementsDofPlace.Display && plain.Chromatic == 1f);
+        check("under spherical aberration 0.25 at focus 15 m, the center zone focuses at 13.33 m and the rim at 17.14 m, nearer and farther",
+            MathF.Abs(LensSampler.ZoneFocus(15f, 0f, 0f, 0.25f) - 13.333f) < 1e-3f && MathF.Abs(LensSampler.ZoneFocus(15f, 0.6f, 0.8f, 0.25f) - 17.143f) < 1e-3f
+            && LensSampler.ZoneFocus(15f, 0.6f, 0.8f, 0f) == 15f);
+        // 24 mm on full frame at 16:9 as a 1:25 miniature: 600 mm on a 530.6 mm tall sensor, 2160 rows, focus 15.61 m.
+        float sensor = 2f * 21.65f / MathF.Sqrt(1f + 256f / 81f) * 25f;
+        check("at 600 mm f/1.2 focused at 15.61 m on 2160 rows, red lies 0.529 pixels further along a unit lens point than green and blue 1.268",
+            MathF.Abs(LensSampler.ChromaticShift(600f, 1.2f, 15.61f, sensor, 2160, 0.0005f) - 0.529f) < 2e-3f
+            && MathF.Abs(LensSampler.ChromaticShift(600f, 1.2f, 15.61f, sensor, 2160, 0.0012f) - 1.268f) < 2e-3f);
+        var pentagonShot = new LensShot(bladed, 0.25f, 15f, 0f);
+        check("a lens shot hands the add-on its points over the farthest one, which lies on its unit circle, here 1.0904 out",
+            MathF.Abs(pentagonShot.Reach - 1.0904f) < 0.01f && Enumerable.Range(0, bladed.Length).Max(i => MathF.Sqrt(pentagonShot.Sample(i).X * pentagonShot.Sample(i).X
+                + pentagonShot.Sample(i).Y * pentagonShot.Sample(i).Y)) is var most && MathF.Abs(most - 1f) < 1e-5f);
         // The vertical field of view a full-frame 24 mm lens has on a 16:9 picture.
         float aspect = 16f / 9f, fov = 2f * MathF.Atan(21.65f / (24f * MathF.Sqrt(1f + aspect * aspect))) * 180f / MathF.PI;
         check("a 24 mm lens at f/1.2 has an aperture 1 cm in radius, and 25 cm as a 1:25 miniature",
