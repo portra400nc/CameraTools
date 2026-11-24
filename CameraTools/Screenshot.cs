@@ -461,6 +461,22 @@ namespace CameraTools
                 State = new ShotState.Presenting(sampling.Before, sampling.Resized, sampling.Started, now, sampling.Generation, ReShade.Status.Presents);
                 return;
             }
+            if (sampling.Before.Traced && Supersampling.Lens != null)
+            {
+                switch (TracedLensView.Next(CameraToolsEnhancements.Enhancements.Status.TraceLensIndex, sampling.Index, sampling.Frame))
+                {
+                    case LensViewStep.Hold:
+                        Supersampling.Show(sampling.Index, mark: false);
+                        State = sampling with { Frame = sampling.Frame + 1 };
+                        return;
+                    case LensViewStep.AddUnfinished:
+                        Melon<CameraTools>.Logger.Warning($"Screenshot: lens sample {sampling.Index} added after {TracedLensView.HoldLimit} frames without its trace finished.");
+                        break;
+                }
+                Supersampling.Show(sampling.Index, mark: true);
+                State = sampling with { Index = sampling.Index + 1, Frame = 0 };
+                return;
+            }
             Supersampling.Show(sampling.Index, mark: sampling.Frame == 0);
             State = sampling.Frame + 1 < HoldFrames ? sampling with { Frame = sampling.Frame + 1 } : sampling with { Index = sampling.Index + 1, Frame = 0 };
         }

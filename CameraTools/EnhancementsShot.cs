@@ -202,9 +202,10 @@ namespace CameraTools
                 SendShot(anchor: true);
         }
 
-        // While the lens samples run, the trace only fills the few pixels a lens point sees that the center did not: a small
-        // budget a frame keeps each sample's two frames short, where the converging budget made each take seconds.
-        private const float LensSampleBudgetMs = 20f;
+        // While the lens samples run, the trace only traces the few pixels a lens point sees that the center did not, a
+        // pass for each view: a budget a frame that finishes that pass in a few frames, where the converging budget made each
+        // view take seconds.
+        private const float LensSampleBudgetMs = 50f;
 
         private static void SendShot(bool anchor)
             => Enhancements.SetShot(true, 0, anchor ? LensSampleBudgetMs : TracedShot.BudgetMs, BounceStrength,

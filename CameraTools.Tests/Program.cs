@@ -35,8 +35,9 @@ bool Fails(Action read)
 }
 
 // The binding: what enhancements.h's static_asserts say of version 19.
-Check("the binding's status is enhancements.h's 168 bytes, with the restarts at 132, their reason at 136, the shot at 140, the saved frames at 144, the focus at 148, the flare's visibility at 152 and the DNG's id, state and failure at 156, 160 and 164",
-    Marshal.SizeOf<EnhancementsStatus>() == 168 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.DngId)) == 156
+Check("the binding's status is enhancements.h's 176 bytes with the trace's lens index at 168, with the restarts at 132, their reason at 136, the shot at 140, the saved frames at 144, the focus at 148, the flare's visibility at 152 and the DNG's id, state and failure at 156, 160 and 164",
+    Marshal.SizeOf<EnhancementsStatus>() == 176 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceLensIndex)) == 168
+    && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.DngId)) == 156
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.DngState)) == 160 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.DngFailure)) == 164
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.FlareVisibility)) == 152 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceTarget)) == 116
     && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceLight)) == 128 && Offset<EnhancementsStatus>(nameof(EnhancementsStatus.TraceRestarts)) == 132
@@ -1247,6 +1248,9 @@ Check("the binding's world light is enhancements.h's 32 bytes, its moon at 16 an
     Marshal.SizeOf<EnhancementsWorldLight>() == 32 && Offset<EnhancementsWorldLight>(nameof(EnhancementsWorldLight.MoonR)) == 16
     && Offset<EnhancementsWorldLight>(nameof(EnhancementsWorldLight.SkyShare)) == 28);
 CelestialTests.Run(Check);
+Check("a traced lens view holds until the add-on has traced it, is added once it has, and is added anyway after 150 frames",
+    TracedLensView.Next(4, 5, 10) == LensViewStep.Hold && TracedLensView.Next(5, 5, 0) == LensViewStep.Add
+    && TracedLensView.Next(0xffffffff, 5, 150) == LensViewStep.AddUnfinished && TracedLensView.Next(0, 0, 0) == LensViewStep.Add);
 LensSamplerTests.Run(Check);
 
 Console.WriteLine($"CameraTools tests: {failures} failed");
