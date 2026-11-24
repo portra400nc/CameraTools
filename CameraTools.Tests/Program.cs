@@ -1245,6 +1245,7 @@ Check("the binding's world light is enhancements.h's 32 bytes, its moon at 16 an
     Marshal.SizeOf<EnhancementsWorldLight>() == 32 && Offset<EnhancementsWorldLight>(nameof(EnhancementsWorldLight.MoonR)) == 16
     && Offset<EnhancementsWorldLight>(nameof(EnhancementsWorldLight.SkyShare)) == 28);
 CelestialTests.Run(Check);
+LensSamplerTests.Run(Check);
 
 Console.WriteLine($"CameraTools tests: {failures} failed");
 return failures == 0 ? 0 : 1;
