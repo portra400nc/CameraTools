@@ -495,6 +495,19 @@ int main(int argc, char **argv)
         check("a face kept at half size has half the pixels, its depth the nearest of each four",
             half.size == Size { 48, 30 } && half.depth.size() == 48 * 30 && half.albedo.size() == 48 * 30 * 4 && half.depth[0] >= faces[0].depth[0]
             && half.depth[0] >= faces[0].depth[1] && half.depth[0] >= faces[0].depth[96]);
+        FaceImages edge;
+        edge.size = { 2, 2 };
+        edge.depth = { 0.5f, 0.0f, 0.0f, 0.0f };
+        edge.hdr = { hdr_stored({ 1, 1, 1 }), hdr_stored({ 60000, 60000, 60000 }), hdr_stored({ 60000, 60000, 60000 }), hdr_stored({ 60000, 60000, 60000 }) };
+        halve_face(edge);
+        check("a surface's pixel halved beside the sun's disc in the sky keeps the surface's light, not a quarter of the sun's",
+            edge.depth[0] == 0.5f && near(hdr_rgb(edge.hdr[0]), Vec3f { 1, 1, 1 }, 1e-2f));
+        FaceImages sky_only = edge;
+        sky_only.size = { 2, 2 };
+        sky_only.depth = { 0.0f, 0.0f, 0.0f, 0.0f };
+        sky_only.hdr = { hdr_stored({ 1, 1, 1 }), hdr_stored({ 3, 3, 3 }), hdr_stored({ 1, 1, 1 }), hdr_stored({ 3, 3, 3 }) };
+        halve_face(sky_only);
+        check("four sky pixels halve into their mean", near(hdr_rgb(sky_only.hdr[0]), Vec3f { 2, 2, 2 }, 1e-2f));
     }
     {
         const Vec3f blue = { 0.5f, 0.25f, 1.0f };

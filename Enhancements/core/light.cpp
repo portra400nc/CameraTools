@@ -181,16 +181,24 @@ namespace enhancements
                     for (int c = 0; c < 4; c++)
                         albedo[to * 4 + c] = static_cast<uint8_t>((f.albedo[from[0] * 4 + c] + f.albedo[from[1] * 4 + c] + f.albedo[from[2] * 4 + c]
                             + f.albedo[from[3] * 4 + c] + 2) / 4);
+                // The light of the pixels on the nearest surface alone, within 2% of its depth, as the halved pixel keeps that
+                // surface's depth: averaged with the sky beside an edge, the sun's disc (some 60000) lit the edge's surface
+                // at a quarter of it, and every gather ray that hit there drew a bright square (2026-11-24, face 5 of
+                // scene-20261124-115047).
                 if (has_hdr)
                 {
                     Vec3f sum {};
+                    float count = 0;
                     for (size_t at : from)
                     {
+                        if (has_depth && std::abs(f.depth[at] - f.depth[nearest]) > 0.02f * f.depth[nearest])
+                            continue;
                         const Vec3f c = hdr_rgb(f.hdr[at]);
                         for (int k = 0; k < 3; k++)
                             sum[k] += c[k];
+                        count++;
                     }
-                    hdr[to] = hdr_stored({ sum[0] * 0.25f, sum[1] * 0.25f, sum[2] * 0.25f });
+                    hdr[to] = hdr_stored({ sum[0] / count, sum[1] / count, sum[2] / count });
                 }
             }
         f.size = half;
