@@ -152,9 +152,21 @@ float4 reflected_scene(float3 p, float3 r)
     return 0;
 }
 
+RWTexture2D<uint> water_marks : register(u7);  // the frame (top 8 bits) and depth (low 24) of the water each pixel took
+
+// Early depth, so a mesh's water hidden behind the scene leaves no mark.
+[earlydepthstencil]
 float4 main(float4 position : SV_Position) : SV_Target0
 {
     int2 pixel = int2(position.xy);
+    // A pixel takes a surface's water once a frame: where two of the game's water meshes overlap, the second one's would
+    // add the change again. Another surface, one at another depth, still takes its own.
+    uint depth_bits = uint(saturate(position.z) * 16777215.0);
+    uint before;
+    InterlockedExchange(water_marks[pixel], (water_stamp << 24) | depth_bits, before);
+    float before_depth = float(before & 0xFFFFFF);
+    if ((before >> 24) == water_stamp && abs(before_depth - float(depth_bits)) <= max(0.01 * float(depth_bits), 16.0))
+        discard;
     float2 uv = position.xy * render_size.zw;
     float3 at = view_position(uv, position.z);
     float3x3 to_view = (float3x3)world_to_view;

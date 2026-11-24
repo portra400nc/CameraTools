@@ -170,7 +170,8 @@ namespace enhancements
         float cloud_mid_type;
         float cloud_layers;         // 1 the main layer alone, 2 with the middle one
         float flare_clouds;         // 1 while this frame's volume clouds are in their history
-        float cloud_layers_pad[2];
+        uint32_t water_stamp;       // this frame's number for water_ps.hlsl's marks, never 0
+        float cloud_layers_pad;
     };
     static_assert(sizeof(Constants) == 1008 && offsetof(Constants, cloud_mid_coverage) == 960 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
@@ -3166,6 +3167,8 @@ namespace enhancements
         water_frame_ = frame;
     }
 
+    constexpr UINT kWaterMarksSlot = 7;  // u7 in water_ps.hlsl
+
     bool Gpu::draw_water(const GameDraw &w, const FrameMap &map, const SkyDraw &sky, const PhysicalWaterSettings &water, const Camera &camera,
         bool flip, uint64_t frame, float seconds, float wind_radians)
     {
@@ -3182,6 +3185,9 @@ namespace enhancements
         k.water_size = water.size;
         k.water_time = seconds;
         k.water_wind = wind_radians;
+        k.water_stamp = static_cast<uint32_t>(frame % 255) + 1;
+        if (!water_marks_.sync(device_.Get(), map.render, DXGI_FORMAT_R32_UINT, false, true))
+            return false;
         upload(k);
 
         ID3D11ShaderResourceView *game_depth = nullptr;
@@ -3196,7 +3202,13 @@ namespace enhancements
         ours[19] = sky_view_[2].srv();
         ours[20] = sky_view_[3].srv();
         ours[21] = sky_view_[4].srv();
+        // The game draws some water in overlapping meshes, and the change added twice drew a straight, deeper blue strip
+        // where two met (2026-11-24, Inazuma's harbor): the marks let each surface's water into a pixel once a frame. The
+        // UAV takes the last slot, after any render target the game's water draw binds.
+        ID3D11UnorderedAccessView *marks = water_marks_.uav(), *none = nullptr;
+        context_->OMSetRenderTargetsAndUnorderedAccessViews(D3D11_KEEP_RENDER_TARGETS_AND_DEPTH_STENCIL, nullptr, nullptr, kWaterMarksSlot, 1, &marks, nullptr);
         draw_in_place(w, water_ps_.Get(), ours, water_blend_.Get());
+        context_->OMSetRenderTargetsAndUnorderedAccessViews(D3D11_KEEP_RENDER_TARGETS_AND_DEPTH_STENCIL, nullptr, nullptr, kWaterMarksSlot, 1, &none, nullptr);
         if (game_depth)
             game_depth->Release();
         return true;

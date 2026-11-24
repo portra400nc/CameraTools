@@ -139,7 +139,8 @@ cbuffer Constants : register(b0)
     float cloud_mid_type;
     float cloud_layers;         // 1 the main layer alone, 2 with the middle one
     float flare_clouds;         // 1 while this frame's volume clouds are in their history, which dims the flare's sun
-    float2 cloud_layers_pad;
+    uint water_stamp;           // this frame's number for water_ps.hlsl's marks, never 0
+    float cloud_layers_pad;
 };
 
 SamplerState point_clamp : register(s0);

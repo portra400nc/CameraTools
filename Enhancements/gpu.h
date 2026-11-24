@@ -711,7 +711,8 @@ namespace enhancements
         std::optional<CombineConstants> combine_;   // the newest read
         bool sun_ready_ = false;
         uint64_t water_frame_ = ~0ull;          // the frame whose HDR scene copy_water_scene copied
-        Mirror water_scene_;                // gather_sun copied the constants and the atlas this frame
+        Mirror water_scene_;
+        Scratch water_marks_;               // water_ps.hlsl's marks: the frame and depth of the water each pixel took                // gather_sun copied the constants and the atlas this frame
         ComPtr<ID3D11BlendState> opaque_, additive_, no_write_, over_;
         ComPtr<ID3D11DepthStencilState> no_depth_;
         ComPtr<ID3D11RasterizerState> no_cull_;
