@@ -445,12 +445,13 @@ namespace enhancements
         // combine step to the tone map, as diagnose_bloom does, with the copies into the HDR scene among them and the draws
         // the steps matched at, and is removed.
         bool record_frame = false;
+        std::vector<uint64_t> debug_skip;   // the skip-shaders file's pixel shaders
         std::vector<std::string> record_notes;
         fs::path output_root();
 
         void note_record(const std::string &note)
         {
-            if (record_frame && record_notes.size() < 200)
+            if (record_frame && record_notes.size() < 600)
                 record_notes.push_back("after draw " + std::to_string(tracker.traced().size()) + ": " + note);
         }
 
@@ -471,6 +472,17 @@ namespace enhancements
             if (frames % 30 != 0)
                 return;
             std::error_code error;
+            // A debug file skip-shaders, of pixel shader hashes in hex one a line, leaves those draws out after the combine
+            // step, to find which of the game's draws draws something.
+            {
+                std::vector<uint64_t> skip;
+                std::ifstream in(output_root() / "skip-shaders");
+                std::string line;
+                while (std::getline(in, line))
+                    if (!line.empty())
+                        skip.push_back(std::strtoull(line.c_str(), nullptr, 16));
+                debug_skip = std::move(skip);
+            }
             const fs::path ask = output_root() / "record-frame";
             if (fs::exists(ask, error))
             {
@@ -1775,7 +1787,11 @@ namespace enhancements
         // targets; the see-through things it draws later, such as the giant tree over Snezhnaya, are drawn over the sky at
         // depth 0 too and stay. The game draws it with either pixel shader, the second in the free camera on 2026-11-21.
         static constexpr uint64_t kSkyDomes[] = { 0x7b771d2354311b7bull, 0x4755b11bd415cd81ull };
-        enum class GameShader : uint8_t { other, water, dome };
+        // The see-through layer the game draws under each water surface, before its water, which lightens the shallows: under
+        // physical water, which draws the depth itself, it lit the shallows up to where the seabed ends, at a hard line
+        // against the deep sea (2026-11-25, Inazuma's coast).
+        static constexpr uint64_t kWaterOverlays[] = { 0x306f4fc9af6030d4ull, 0x94780db220b8eb05ull };
+        enum class GameShader : uint8_t { other, water, dome, water_overlay };
         uint64_t shader_checked = 0;    // the pixel shader object last looked up, its code's hash, and what it draws
         uint64_t shader_hash = 0;
         GameShader shader_kind = GameShader::other;
@@ -1793,6 +1809,7 @@ namespace enhancements
                 shader_hash = hash;
                 shader_kind = std::find(std::begin(kWaterShaders), std::end(kWaterShaders), hash) != std::end(kWaterShaders) ? GameShader::water
                     : std::find(std::begin(kSkyDomes), std::end(kSkyDomes), hash) != std::end(kSkyDomes) ? GameShader::dome
+                    : std::find(std::begin(kWaterOverlays), std::end(kWaterOverlays), hash) != std::end(kWaterOverlays) ? GameShader::water_overlay
                     : GameShader::other;
             }
             if (shader_kind != GameShader::other)
@@ -1838,6 +1855,12 @@ namespace enhancements
                 return false;
             if (after_dome)
                 return true;
+            if (!debug_skip.empty())
+            {
+                bound_shader();
+                if (std::find(debug_skip.begin(), debug_skip.end(), shader_hash) != debug_skip.end())
+                    return true;
+            }
             const Gpu::GameDraw draw { indexed, count, instances, first, vertex_offset, first_instance };
             switch (bound_shader())
             {
@@ -1847,6 +1870,8 @@ namespace enhancements
                 dome_frame = frames;
                 after_dome = true;
                 return true;
+            case GameShader::water_overlay:
+                return settings.water.enabled;
             case GameShader::water:
             {
                 if (!settings.water.enabled)
@@ -1966,8 +1991,25 @@ namespace enhancements
             return draw_physical(cmd_list, false, vertices, instances, first_vertex, 0, first_instance) || skip;
         }
 
+        // In a recorded frame, each draw into the HDR scene after the forward step, by its shaders' hashes and its kind as
+        // the add-on reads it, so a see-through surface the add-on does not know can be found.
+        void note_record_shaders(uint64_t elements)
+        {
+            if (!record_frame || !tracker.matched().has(Step::forward) || tracker.matched().has(Step::tonemap))
+                return;
+            const GameShader kind = bound_shader();
+            const std::optional<ShaderCode> vs = shaders.find(gpu.bound_vertex_shader());
+            char text[160];
+            std::snprintf(text, sizeof text, "a draw of %llu elements, pixel shader %016llx, vertex shader %016llx, read as %s",
+                static_cast<unsigned long long>(elements), static_cast<unsigned long long>(shader_hash), static_cast<unsigned long long>(vs ? vs->hash : 0),
+                kind == GameShader::water ? "water" : kind == GameShader::dome ? "the dome" : kind == GameShader::water_overlay ? "water's under layer" : "other");
+            note_record(text);
+        }
+
         bool on_draw_indexed(command_list *cmd_list, uint32_t indices, uint32_t instances, uint32_t first_index, int32_t vertex_offset, uint32_t first_instance)
         {
+            if (cmd_list == immediate)
+                note_record_shaders(uint64_t { indices } * instances);
             if (armed.load(std::memory_order_relaxed) && cmd_list == immediate && scene_frame && in_gbuffer)
                 replay_scene({ ReplayKind::indexed, indices, instances, first_index, vertex_offset, first_instance, nullptr, 0 });
             const bool skip = on_draw_any(cmd_list);

@@ -9,6 +9,17 @@
 Texture2D<float3> scene : register(t0);             // mirror of the game's HDR scene
 Texture2D<float> depth : register(t2);              // mirror of the main depth, reversed Z
 Texture2D<float> aerial_lit : register(t8);         // aerial_lit_ps.hlsl's share of lit air, half size, while sky_aerial_lit
+Texture2D<uint> water_marks : register(t15);        // water_ps.hlsl's marks: the frame (top 8 bits) and depth (low 24) of the water
+
+// The reversed depth of the water drawn over the pixel this frame, or 0. The game's water writes no depth, so the haze
+// over a sea took the seabed's distance in the shallows and none past the seabed's end, a hard line between the two.
+float water_depth_at(int2 pixel)
+{
+    if (water_stamp == 0)
+        return 0;
+    uint mark = water_marks.Load(int3(pixel, 0));
+    return (mark >> 24) == water_stamp ? float(mark & 0xFFFFFF) / 16777215.0 : 0;
+}
 
 // Aerial perspective: the scene point's light through the air between, sky_aerial times as far as it is (sky.hlsli's
 // aerial_light).
@@ -24,10 +35,17 @@ float3 main(float4 position : SV_Position) : SV_Target0
     int2 pixel = int2(position.xy);
     float3 color = scene.Load(int3(pixel, 0));
     float scene_depth = depth.Load(int3(pixel, 0));
+    // Over water, the haze to its surface: nearer than the seabed under it, and over the deep sea, where the depth holds
+    // only the sky, there.
+    float water_depth = water_depth_at(pixel);
+    bool over_water = water_depth > scene_depth;
+    if (over_water)
+        scene_depth = water_depth;
     if (scene_depth > 0)
     {
         float3 at = view_position(position.xy * render_size.zw, scene_depth);
-        color = night_vegetation(color, pixel, at);
+        if (!over_water)
+            color = night_vegetation(color, pixel, at);
         if (sky_aerial <= 0)
             return color;
         float3 toward = normalize(mul(normalize(at), (float3x3)world_to_view));

@@ -2535,6 +2535,9 @@ namespace enhancements
             constants.sun_columns = sun->columns;
             constants.sun_rows = sun->rows;
         }
+        // The water drawn this frame, which writes no depth: its marks give the haze its surface's distance.
+        const bool marked = water_frame_ == frame_ && water_marks_.srv();
+        constants.water_stamp = marked ? static_cast<uint32_t>(frame_ % 255) + 1 : 0;
         upload(constants);
         ID3D11DeviceContext1 *c = context_.Get();
         scene_in_.copy_from(c, native(scene));
@@ -2563,10 +2566,13 @@ namespace enhancements
             sky_transmittance_srv_.Get(), sky_multiple_srv_.Get() };
         ID3D11RenderTargetView *const view_out[] = { sky_view_[0].rtv(), sky_view_[1].rtv(), sky_view_[2].rtv(), sky_view_[3].rtv(), sky_view_[4].rtv() };
         draw_fullscreen(sky_view_ps_.Get(), tables, kSrvSlots, view_out, 5, kView);
-        ID3D11ShaderResourceView *const drawn[kSrvSlots] = { scene_in_.srv(), sky_view_[0].srv(), depth_.srv(), sky_view_[1].srv(), sky_view_[2].srv(),
+        ID3D11ShaderResourceView *const drawn[kSrvSlots + 1] = { scene_in_.srv(), sky_view_[0].srv(), depth_.srv(), sky_view_[1].srv(), sky_view_[2].srv(),
             sky_view_[3].srv(), sky_view_[4].srv(), moon_face_srv_.Get(), shaded ? aerial_lit_.srv() : nullptr, sky_transmittance_srv_.Get(), sky_multiple_srv_.Get(),
-            vegetation ? depth_.stencil_srv() : nullptr, vegetation ? normals_.srv() : nullptr, vegetation ? albedo_.srv() : nullptr, last_auto_exposure() };
-        draw_fullscreen(sky_ps_.Get(), drawn, kSrvSlots, scene_out_.rtv(), map.render);
+            vegetation ? depth_.stencil_srv() : nullptr, vegetation ? normals_.srv() : nullptr, vegetation ? albedo_.srv() : nullptr, last_auto_exposure(),
+            marked ? water_marks_.srv() : nullptr };
+        draw_fullscreen(sky_ps_.Get(), drawn, kSrvSlots + 1, scene_out_.rtv(), map.render);
+        ID3D11ShaderResourceView *const unbound[1] = {};
+        c->PSSetShaderResources(kSrvSlots, 1, unbound);
         if (sky.stars && star_count_ > 0)
         {
             // draw_fullscreen's state with the stars' shaders: a strip of 4 vertices a star, added where the sky shows.

@@ -206,6 +206,20 @@ float4 main(float4 position : SV_Position) : SV_Target0
     // showing the sunlit bed through it; past a hundred meters the water is taken to be at least a twentieth as deep as
     // it is far, which a sea's floor is at such a slant anyway.
     path = max(path, max(length(at) - 100, 0) * 0.05);
+    // Near the end of the seabed the game draws, the water deepens over some 120 m of the surface instead of at once: past
+    // it the depth buffer holds no bed, and the shallows' sunlit sand ended at a hard line against deep water.
+    if (bed_depth > 0)
+    {
+        float reach = clamp(120 / max(pixel_m, 1e-3), 4, 160);
+        float bedded = 0;
+        [unroll] for (uint k = 0; k < 18; k++)
+        {
+            float angle = k * 2.3999632, radius = reach * (k % 3 + 1) / 3;
+            int2 q = clamp(pixel + int2(float2(cos(angle), sin(angle)) * radius), int2(0, 0), int2(render_size.xy) - 1);
+            bedded += game_depth.Load(int3(q, 0)) > 0 ? 1 : 0;
+        }
+        path = lerp(max(path, 100), path, smoothstep(0.3, 1, bedded / 18));
+    }
     float3 absorb = float3(0.45, 0.07, 0.035) * (6 / water_clarity) + 0.01;
     float3 through = exp(-absorb * path);
     // The water's own color: the sky's and the sun's light scattered back by the water it lies in.
