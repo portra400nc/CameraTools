@@ -3637,8 +3637,8 @@ namespace enhancements
         const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
         const auto scene_format = static_cast<DXGI_FORMAT>(scene.format);
         const std::optional<std::array<float, 4>> k = dof_depth_coefficients(camera);
-        // Blocks a 120th of the picture's height a side, as render_frame.py's 3-pixel boxes at 400 rows were.
-        const uint32_t block = std::max(1u, static_cast<uint32_t>(std::lround(map.render.height / 120.0)));
+        // Blocks a 240th of the picture's height a side, 9 pixels at 2160 rows: blocks of an ornament's size left crosses in its disc.
+        const uint32_t block = std::max(1u, static_cast<uint32_t>(std::lround(map.render.height / 240.0)));
         const Size blocks = { (map.render.width + block - 1) / block, (map.render.height + block - 1) / block };
         ID3D11Device *d = device_.Get();
         if (!k || !scene_in_.sync(d, native(scene), scene_format, false) || !scene_out_.sync(d, native(scene), scene_format, true)
@@ -3664,21 +3664,23 @@ namespace enhancements
             uint32_t pass;
             Scratch *target;
             Size size;
-        } draws[] = { { 0, &lift_small_, blocks }, { 1, &lift_around_, blocks } };
+        } draws[] = { { 0, &lift_small_, blocks }, { 1, &lift_around_, blocks }, { 2, &lift_small_, blocks } };
         for (const auto &draw : draws)
         {
             constants.accum_lift_pass = draw.pass;
             upload(constants);
             ID3D11ShaderResourceView *const unbound[kSrvSlots] = {};
             c->PSSetShaderResources(0, kSrvSlots, unbound);
-            ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), lift_small_.srv() };
-            draw_fullscreen(lift_ps_.Get(), srvs, draw.pass == 0 ? 1 : 2, draw.target->rtv(), draw.size);
+            // Pass 0 reads the scene, pass 1 the block means, pass 2 the gains, into the block means' texture.
+            ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), draw.pass == 1 ? lift_small_.srv() : nullptr,
+                draw.pass == 2 ? lift_around_.srv() : nullptr };
+            draw_fullscreen(lift_ps_.Get(), srvs, 3, draw.target->rtv(), draw.size);
         }
-        constants.accum_lift_pass = 2;
+        constants.accum_lift_pass = 3;
         upload(constants);
         ID3D11ShaderResourceView *const unbound[kSrvSlots] = {};
         c->PSSetShaderResources(0, kSrvSlots, unbound);
-        ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), lift_small_.srv(), lift_around_.srv(), depth_.srv() };
+        ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), lift_small_.srv(), nullptr, depth_.srv() };
         draw_fullscreen(lift_ps_.Get(), srvs, 4, scene_out_.rtv(), map.render);
         scene_out_.copy_to(c, native(scene));
         return GameCall::keep;
