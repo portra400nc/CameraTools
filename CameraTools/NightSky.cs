@@ -279,7 +279,9 @@ namespace CameraTools
             var clock = sky.gameTime;
             if (clock != null && clock._playerGameTimeSynced)
             {
-                if (days != (int)clock.GameDay)
+                // Held while a traced shot or live tracing runs: the server's day goes on under the held hour, and its turn
+                // moved the moon a day's 12 degrees, which built the trace's sky again and started its samples over.
+                if (days != (int)clock.GameDay && !EnhancementsShot.Busy && !LiveTrace.On)
                 {
                     days = (int)clock.GameDay;
                     Save();
