@@ -204,6 +204,7 @@ namespace enhancements
         uint64_t settings_seen = 0, camera_seen = 0, compare_seen = 0, accumulate_seen = 0, scene_seen = 0, shot_seen = 0, lights_seen = 0;
         AccumulateSettings accumulate;      // this frame's, taken at present
         uint32_t lift_generation = 0xffffffffu;    // the sum generation whose highlight lift the log last named
+        uint32_t accumulate_notes = 0;              // the accumulator's passes and skips the log named this sum
         Accumulator accumulator;
         // The depth texel in flight: the point it answers, and the frame and camera it was copied with.
         struct DepthCopy
@@ -819,6 +820,21 @@ namespace enhancements
             const bool anchored = settings.trace.anchor && trace_gpu.anchored();
             const bool traced_view = !anchored || (trace_wrote && trace_lens_index == camera.lens.index);
             const AccumulateTick tick = accumulate_tick(accumulator, accumulate, camera.lens, camera_age == 0 && traced_view, map.render);
+            // Which marked frames a sum passes by, and which samples it skips, for a shot that adds fewer samples than it shows.
+            if (accumulate.mode == AccumulateMode::add && camera.lens.mark && !tick.add && tick.next.last_index != camera.lens.index && accumulate_notes < 12)
+            {
+                accumulate_notes++;
+                log(reshade::log::level::info, "the accumulator passes by sample " + std::to_string(camera.lens.index) + "'s marked frame: its camera is "
+                    + std::to_string(camera_age) + " frames old" + (traced_view ? std::string() : ", not traced whole under it") + ".");
+            }
+            if (tick.add && tick.next.samples > 1 && accumulator.last_index && camera.lens.index != *accumulator.last_index + 1 && accumulate_notes < 12)
+            {
+                accumulate_notes++;
+                log(reshade::log::level::info, "the accumulator adds sample " + std::to_string(camera.lens.index) + " after sample "
+                    + std::to_string(*accumulator.last_index) + ".");
+            }
+            if (tick.clear)
+                accumulate_notes = 0;
             if (!tick.clear && !tick.add && !tick.present)
                 return;
             const char *moved = nullptr;
