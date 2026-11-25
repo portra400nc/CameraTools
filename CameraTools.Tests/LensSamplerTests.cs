@@ -92,6 +92,15 @@ internal static class LensSamplerTests
         float aspect = 16f / 9f, fov = 2f * MathF.Atan(21.65f / (24f * MathF.Sqrt(1f + aspect * aspect))) * 180f / MathF.PI;
         check("a 24 mm lens at f/1.2 has an aperture 1 cm in radius, and 25 cm as a 1:25 miniature",
             MathF.Abs(LensSampler.Radius(fov, aspect, 1.2f, 1) - 0.01f) < 1e-5f && MathF.Abs(LensSampler.Radius(fov, aspect, 1.2f, 25) - 0.25f) < 1e-4f);
+        var order = LensSampler.TimeOrder(256);
+        float worst = 0f;
+        for (int start = 0; start + 32 <= 256; start += 32)
+            worst = MathF.Max(worst, MathF.Abs(Enumerable.Range(start, 32).Average(k => round[order[k]].X * round[order[k]].X + round[order[k]].Y * round[order[k]].Y) - 0.5f));
+        check("a long exposure takes each of 256 points once, and every 32 frames of its shutter look through the whole aperture: their mean squared radius within 0.08 of 0.5",
+            order.Distinct().Count() == 256 && order.All(i => i >= 0 && i < 256) && worst < 0.08f);
+        check("through 256 lens samples a 1/60 s exposure records 256 frames at 15360 a second, a 4 s one at 60 a second 256 frames at 64, and at 120 its own 480",
+            LongExposurePlan.LensFrames(1f / 60f, 60, 256) == (256, 15360) && LongExposurePlan.LensFrames(4f, 60, 256) == (256, 64)
+            && LongExposurePlan.LensFrames(4f, 120, 256) == (480, 120));
         // A point 3 m ahead and one 9 m ahead, seen before and after the camera moves 0.25 m right and 0.1 m up with the shear
         // for focus at 3 m: Unity's projection x = m00 * x_view + m02 * z_view over w = -z_view.
         float m00 = 1.2f, m11 = 2.1f;

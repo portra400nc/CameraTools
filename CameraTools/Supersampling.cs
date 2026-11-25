@@ -108,12 +108,12 @@ namespace CameraTools
         public static void Show(int index, bool mark)
         {
             Offset = SupersamplingPattern.Offset(index);
-            if (Lens is { } lens && index < lens.Points.Length)
+            if (Lens is { } lens && lens.PointOf(index) is var point && point < lens.Points.Length)
             {
-                var (x, y) = lens.Points[index];
+                var (x, y) = lens.Points[point];
                 CameraOffset = (x * lens.Radius, y * lens.Radius);
-                sampleFocus = lens.FocusAt(index);
-                var (sx, sy) = lens.Sample(index);
+                sampleFocus = lens.FocusAt(point);
+                var (sx, sy) = lens.Sample(point);
                 sample = new LensSample(sx, sy, (uint)index, mark);
                 return;
             }

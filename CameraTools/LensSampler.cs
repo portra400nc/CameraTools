@@ -13,10 +13,15 @@ namespace CameraTools
     // focuses each point by its radius, the highlight lift's strength and threshold, by which the add-on multiplies each
     // sample's out-of-focus light that stands above its surroundings (Enhancements/shaders/lift.hlsli), and the lens's CoC
     // radius in render pixels per diopter from focus, which fades the lift in.
+    // A long exposure's lens samples are also its time steps: Order gives the point each frame looks through, so every
+    // stretch of the shutter sees the whole aperture.
     internal sealed record LensShot((float X, float Y)[] Points, float Radius, float Focus, float CatEye, float Swirl = 0f,
         (float Red, float Blue) Chromatic = default, float SphericalAberration = 0f, float Lift = 0f, float LiftThreshold = 2f,
-        float CocPerDiopter = 0f)
+        float CocPerDiopter = 0f, int[] Order = null)
     {
+        // The point frame looks through.
+        public int PointOf(int frame) => Order is { } order && frame < order.Length ? order[frame] : frame;
+
         // The farthest point from the center: the add-on's lens sample and its cuts take the points over it, so the
         // aperture fits their unit disc whatever its blades or squeeze.
         public float Reach { get; } = Points.Length == 0 ? 1f : MathF.Max(Points.Max(p => MathF.Sqrt(p.X * p.X + p.Y * p.Y)), 1e-6f);
@@ -104,6 +109,16 @@ namespace CameraTools
         // as the exact disc does on lamps, but on the Deck stars at night still showed each copy as a dot; the whole
         // spacing smoothed the simulation's lamps below the exact disc's ripple.
         public static float GapFill(int count) => MathF.Sqrt(MathF.PI / Math.Max(count, 1));
+
+        // The order a long exposure's frames take the points in, as their time steps. The points run from the center out,
+        // ring by ring; taken in that order, a motion streak's start would be seen through the center and its end through the
+        // rim, a sharp head and a soft tail. The points ordered by the golden ratio's multiples of their index spread each
+        // run of frames over every ring and every side, so each moment of the shutter looks through the whole aperture.
+        public static int[] TimeOrder(int count)
+        {
+            float phi = (MathF.Sqrt(5f) - 1f) / 2f;
+            return Enumerable.Range(0, Math.Max(count, 0)).OrderBy(i => ((i + 0.5) * phi) % 1.0).ToArray();
+        }
 
         // The aperture's outline: how far it reaches in each direction, and the angles that split its area evenly.
         private sealed class Shape

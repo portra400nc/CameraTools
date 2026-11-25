@@ -5,6 +5,18 @@ namespace CameraTools
     // The long exposure's decisions, apart from the game so tests run them.
     internal static class LongExposurePlan
     {
+        // A lens-sampled long exposure's frames and the game's capture frame rate: the exposure's own frames, or as many as
+        // the lens samples when it has fewer, its frame rate raised so they span the same shutter time. A 1/60 s portrait
+        // through 256 points steps the game 1/15360 s a frame.
+        public static (int Frames, int FramesPerSecond) LensFrames(float seconds, int framesPerSecond, int lensSamples)
+        {
+            int frames = Frames(seconds, framesPerSecond);
+            if (frames >= lensSamples)
+                return (frames, framesPerSecond);
+            int rate = Math.Max(framesPerSecond, (int)Math.Ceiling(lensSamples / Math.Max((double)seconds, 1e-6)));
+            return (Frames(seconds, rate), rate);
+        }
+
         public static readonly int[] Smoothness = { 60, 120, 240, 480 };
         public static readonly string[] SmoothnessLabels = Smoothness.Select(frames => $"{frames} / s").ToArray();
 

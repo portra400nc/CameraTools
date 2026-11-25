@@ -491,7 +491,7 @@ namespace CameraTools
             ShotState.Countdown => ShotStage.Countdown,
             _ => ShotStage.Capture,
         }, FocusEyes.Target, Time.timeScale, Supersampling.Lens != null,
-            Screenshot.State is ShotState.Sampling ? Supersampling.Fill : 0f, Supersampling.Lens?.Focus ?? 0f);
+            Screenshot.State is ShotState.Sampling or ShotState.Recording ? Supersampling.Fill : 0f, Supersampling.Lens?.Focus ?? 0f);
 
         // Whether the next screenshot is lens-sampled, if the add-on can take it: it then averages samples whatever the
         // Supersampling switch says, since the lens samples anti-alias too.
@@ -499,7 +499,8 @@ namespace CameraTools
 
         // A lens-sampled screenshot of the free camera's view through CameraTools' depth of field, focused where the
         // add-on's autofocus has settled; or null with why not.
-        public static (LensShot Shot, string Why) LensShot()
+        // count: the points, Supersampling.LensSamples unless a long exposure takes one a frame; order: the frames' points.
+        public static (LensShot Shot, string Why) LensShot(int? count = null, int[] order = null)
         {
             if (!Ours || !OwnOn)
                 return (null, "CameraTools' depth of field is off");
@@ -510,7 +511,7 @@ namespace CameraTools
                 return (null, "the add-on has no focus distance yet");
             float fNumber = EnhancementsModel.Stops[(int)Values[Enhancement.DepthOfFieldAperture]];
             float radius = LensSampler.Radius(freecam.Pose.Fov, Aspect, fNumber, Miniature);
-            var points = LensSampler.Points(Supersampling.LensSamples, EnhancementsModel.LensAperture(Values, Supersampling.EdgeSoftness));
+            var points = LensSampler.Points(count ?? Supersampling.LensSamples, EnhancementsModel.LensAperture(Values, Supersampling.EdgeSoftness));
             // The add-on's depth of field's lens: a full-frame lens and sensor Miniature times larger, and its dispersions.
             float focal = Lens.FocalLength(freecam.Pose.Fov, Aspect) * Miniature, sensor = Lens.SensorHeight(Aspect) * Miniature;
             float chromatic = Values[Enhancement.BokehChromaticAberration];
@@ -522,7 +523,7 @@ namespace CameraTools
             float lift = Values.On(Enhancement.HighlightDiscs) ? Values[Enhancement.HighlightBoost] : 0f;
             float focalPixels = 0.5f * Screen.height / MathF.Tan(freecam.Pose.Fov * MathF.PI / 360f);
             return (new LensShot(points, radius, focus, Values[Enhancement.CatsEye], Values[Enhancement.Swirl], shift, sa, lift,
-                Values[Enhancement.HighlightThreshold], radius * focalPixels),
+                Values[Enhancement.HighlightThreshold], radius * focalPixels, order),
                 $"{points.Length} aperture points, radius {radius * 100f:0.0} cm at f/{fNumber:0.##} 1:{Miniature}, focus {focus:0.00} m, "
                 + $"red {shift.Item1:0.00} and blue {shift.Item2:0.00} px, spherical aberration {sa:0.00}, highlight lift {lift:0.0}");
         }

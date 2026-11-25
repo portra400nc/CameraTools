@@ -399,10 +399,23 @@ namespace CameraTools
             if (unmet == null && settling.Before.Long is { } shot)
             {
                 uint generation = CameraToolsEnhancements.Enhancements.Status.AccumGeneration + 1;
-                int target = LongExposurePlan.Frames(shot.Exposure.Seconds, shot.FramesPerSecond);
-                string world = NativeExposure.Start(shot.FramesPerSecond, generation);
+                int target = LongExposurePlan.Frames(shot.Exposure.Seconds, shot.FramesPerSecond), rate = shot.FramesPerSecond;
+                string lens = "";
+                // Through Lens samples, each frame is a time step and an aperture point at once, so the motion and the lens
+                // blur average in one sum, as on film: at least the lens samples' frames, their order spread over the shutter.
+                if (DepthOfField.LensSampledWanted)
+                {
+                    (target, rate) = LongExposurePlan.LensFrames(shot.Exposure.Seconds, shot.FramesPerSecond, Supersampling.LensSamples);
+                    var (lensShot, why) = DepthOfField.LensShot(target, LensSampler.TimeOrder(target));
+                    if (lensShot != null)
+                        Supersampling.BeginLens(lensShot);
+                    else
+                        (target, rate) = (LongExposurePlan.Frames(shot.Exposure.Seconds, shot.FramesPerSecond), shot.FramesPerSecond);
+                    lens = lensShot != null ? $"lens-sampled, a point a frame: {why}; " : $"not lens-sampled: {why}; ";
+                }
+                string world = NativeExposure.Start(rate, generation);
                 Melon<CameraTools>.Logger.Msg($"Screenshot: recording {target} frames for generation {generation} {now - settling.Started:0.0} s after the button; "
-                    + $"{world}; window {Window}; {bridge}.");
+                    + $"{lens}{world}; window {Window}; {bridge}.");
                 float real = Time.realtimeSinceStartup;
                 State = new ShotState.Recording(settling.Before, settling.Resized, settling.Started, real, generation, target, 0, 0, real);
                 return;
