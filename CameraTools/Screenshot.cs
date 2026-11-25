@@ -462,9 +462,10 @@ namespace CameraTools
                 State = new ShotState.Presenting(sampling.Before, sampling.Resized, sampling.Started, now, sampling.Generation, ReShade.Status.Presents);
                 return;
             }
-            // A traced lens-sampled shot marks both frames of a view: the add-on adds it once, from the first frame it traced
-            // whole under that lens sample.
-            Supersampling.Show(sampling.Index, mark: sampling.Frame == 0 || (sampling.Before.Traced && Supersampling.Lens != null));
+            // Both frames of a sample are marked: the add-on adds it once, from the first whose camera push came in time and,
+            // in a traced lens-sampled shot, which it traced whole under that sample. Marking the first alone dropped a sample
+            // whenever its push came late, one in most shots once the highlight lift slowed the frames (2026-11-25).
+            Supersampling.Show(sampling.Index, mark: true);
             State = sampling.Frame + 1 < HoldFrames ? sampling with { Frame = sampling.Frame + 1 } : sampling with { Index = sampling.Index + 1, Frame = 0 };
         }
 
