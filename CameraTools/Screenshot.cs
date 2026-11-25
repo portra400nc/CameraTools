@@ -140,7 +140,9 @@ namespace CameraTools
         {
             ("the supersampling", busy =>
             {
-                if (busy.Before.Supersampled)
+                // A lens-sampled long exposure is not supersampled but sets the lens too, which left the live view's depth of
+                // field off after it.
+                if (busy.Before.Supersampled || Supersampling.Lens != null)
                     Supersampling.End();
             }),
             ("the traced lighting", busy =>
