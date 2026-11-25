@@ -26,11 +26,20 @@ static const float kWrap = 0.5;             // the wrapped Lambert's: (N.L + w) 
 // green leaves take it all and white or pale flowers, drawn with the leaves, keep their color.
 static const float kLeafDarken = 0.35, kLeafDesaturate = 0.3;
 
-// The leaf's color as a real leaf's would be: darker and less saturated by its own saturation.
+// How green a leaf's color is, 0 to 1: 1 where green outweighs red and blue by a tenth of the brightest, 0 where it falls
+// a tenth short. Pink cherry blossoms, drawn as leaves, took the green canopy's darkening and the sky's blue light and
+// turned purple; a color that is not green keeps its own.
+float greenness(float3 albedo)
+{
+    float high = max(albedo.r, max(albedo.g, albedo.b));
+    return high > 1e-4 ? smoothstep(-0.1, 0.1, (albedo.g - max(albedo.r, albedo.b)) / high) : 0;
+}
+
+// The leaf's color as a real leaf's would be: darker and less saturated by its own saturation, as far as it is green.
 float3 leaf_albedo(float3 albedo)
 {
     float high = max(albedo.r, max(albedo.g, albedo.b)), low = min(albedo.r, min(albedo.g, albedo.b));
-    float saturation = high > 1e-4 ? (high - low) / high : 0;
+    float saturation = high > 1e-4 ? (high - low) / high * greenness(albedo) : 0;
     float lum = dot(albedo, float3(0.2126, 0.7152, 0.0722));
     float3 leaf = lerp(albedo, lum, kLeafDesaturate * saturation) * (1 - kLeafDarken * saturation);
     // Then Leaf shading's Brightness and Saturation rows.
@@ -56,7 +65,10 @@ float4 main(float4 position : SV_Position) : SV_Target0
     {
         float3 n = normalize(nl.rgb * 2 - 1);
         float sun = sun_up ? saturate((dot(n, toward_sun) + kWrap) / (1 + kWrap)) * l.a : 0;
-        float3 lit = leaf_albedo(albedo) * (leaf_light_in.Load(int3(pixel, 0)) + sun_color * sun);
+        // The light's own color on green leaves; on blossoms and other colors only its brightness, so they keep their hue.
+        float3 light = leaf_light_in.Load(int3(pixel, 0)) + sun_color * sun;
+        light = lerp(dot(light, float3(0.2126, 0.7152, 0.0722)), light, greenness(albedo));
+        float3 lit = leaf_albedo(albedo) * light;
         color = lerp(color, lit, saturate(leaf_light));
     }
     if (transmission_strength > 0 && l.a > 0 && sun_up)
