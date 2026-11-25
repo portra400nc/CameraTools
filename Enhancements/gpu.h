@@ -374,7 +374,7 @@ namespace enhancements
         std::optional<GameCall> run_traced_foliage(const FrameMap &map, float leaf_light, const Camera &camera, bool flip);
         // Light through leaves' copy at the combine step, after our passes: each grass and leaf pixel's albedo and its sun
         // visibility in the shadow mask into leaves_. false when an entry or a texture of ours is missing.
-        bool capture_leaves(const FrameMap &map);
+        bool capture_leaves(const FrameMap &map, std::string &why);
         // At the combine step: the grass pass's blades and ground, for run_grass at the bloom step.
         bool capture_grass(const FrameMap &map);
         // For the bound game grass draw, layers (1 or 2) sets of copies of its vertex shader's constants that move, turn
@@ -720,6 +720,10 @@ namespace enhancements
         uint64_t water_frame_ = ~0ull;          // the frame whose HDR scene copy_water_scene copied
         Mirror water_scene_;
         Scratch water_marks_;
+        uint64_t leaves_missed_ = 0;                // leaf passes that found no leaves of their frame
+    public:
+        uint64_t leaves_missed() const { return leaves_missed_; }
+    private:
         ComPtr<ID3D11Texture2D> keep_;              // save_keep's copy, its size and format the last kept part's
         D3D11_TEXTURE2D_DESC keep_desc_ {};
         UINT keep_x_ = 0, keep_y_ = 0;

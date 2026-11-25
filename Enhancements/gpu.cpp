@@ -1577,23 +1577,35 @@ namespace enhancements
         return GameCall::keep;
     }
 
-    bool Gpu::capture_leaves(const FrameMap &map)
+    bool Gpu::capture_leaves(const FrameMap &map, std::string &why)
     {
         leaves_fresh_ = false;
+        why.clear();
         const std::optional<Texture> &mask = map[Entry::shadow_mask], &albedo = map[Entry::albedo], &depth = map[Entry::depth];
         ID3D11Device *d = device_.Get();
         const std::optional<Texture> &normals = map[Entry::normals];
         // Without a sun, before sunrise and after sunset, the game draws no shadow mask: the leaves are captured unlit by
         // the sun (an unbound mask reads 0), and Leaf shading still lights them by the sky.
-        if (!albedo || !depth || !normals || !leaves_.sync(d, map.render, DXGI_FORMAT_R8G8B8A8_UNORM)
-            || !leaf_normals_.sync(d, map.render, DXGI_FORMAT_R8G8B8A8_UNORM) || !leaf_light_.sync(d, map.render, DXGI_FORMAT_R16G16B16A16_FLOAT)
-            || !map[Entry::ambient_diffuse]
-            || !irradiance_in_.sync(d, native(*map[Entry::ambient_diffuse]), static_cast<DXGI_FORMAT>(map[Entry::ambient_diffuse]->format), false)
+        if (!albedo || !depth || !normals || !map[Entry::ambient_diffuse])
+        {
+            why = std::string("the frame found no ") + (!albedo ? "albedo" : !depth ? "depth" : !normals ? "normals" : "diffuse irradiance");
+            return false;
+        }
+        if (!leaves_.sync(d, map.render, DXGI_FORMAT_R8G8B8A8_UNORM) || !leaf_normals_.sync(d, map.render, DXGI_FORMAT_R8G8B8A8_UNORM)
+            || !leaf_light_.sync(d, map.render, DXGI_FORMAT_R16G16B16A16_FLOAT))
+        {
+            why = "our leaf textures could not be made";
+            return false;
+        }
+        if (!irradiance_in_.sync(d, native(*map[Entry::ambient_diffuse]), static_cast<DXGI_FORMAT>(map[Entry::ambient_diffuse]->format), false)
             || !normals_.sync(d, native(*normals), static_cast<DXGI_FORMAT>(normals->format), false)
             || (mask && !shadow_mask_in_.sync(d, native(*mask), static_cast<DXGI_FORMAT>(mask->format), false))
             || !leaf_albedo_.sync(d, native(*albedo), static_cast<DXGI_FORMAT>(albedo->format), false)
             || !depth_.sync(d, native(*depth), static_cast<DXGI_FORMAT>(depth->format), false))
+        {
+            why = "a mirror of the game's targets could not be made";
             return false;
+        }
         ID3D11DeviceContext1 *c = context_.Get();
         if (mask)
             shadow_mask_in_.copy_from(c, native(*mask));
@@ -2051,7 +2063,10 @@ namespace enhancements
     {
         // The leaves capture_leaves copied at this frame's combine step, once.
         if (!leaves_fresh_)
+        {
+            leaves_missed_++;
             return GameCall::keep;
+        }
         leaves_fresh_ = false;
         const Texture &scene = *map[Entry::hdr_scene], &depth = *map[Entry::depth];
         const auto scene_format = static_cast<DXGI_FORMAT>(scene.format);

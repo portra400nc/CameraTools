@@ -270,7 +270,9 @@ namespace enhancements
         float logged_rain = 0;              // the rain the log last named
         bool logged_lift = false;           // whether the log last said the scene's light ran
         bool water_scene_stale = false;     // whether the game drew since physical water's copy of the scene
-        bool after_dome = false;        // the dome drew the physical sky and no targets were bound since
+        bool after_dome = false;
+        std::string leaves_why;         // why the last leaf capture failed, empty when it did not
+        bool leaves_none_said = false;  // the log said the leaf pass found no leaves        // the dome drew the physical sky and no targets were bound since
         bool ambient_physical_said = false;     // the log said the ambient pass took the physical sky's color
 
         // How overcast the physical sky's clouds make it, 0 to 1: nothing at 60% coverage and below, all of it at 100%, by
@@ -1277,7 +1279,17 @@ namespace enhancements
                         call = gpu.run_traced_foliage(map, settings.leaf_shading, sky_camera(), settings.flip);
                         break;
                     case PassId::transmission:
+                    {
+                        const uint64_t missed = gpu.leaves_missed();
                         call = gpu.run_transmission(map, settings.transmission, settings.leaf_shading, sky_camera(), settings.flip);
+                        // A leaf pass with no leaves of its frame does nothing; the log says when that starts and stops.
+                        const bool none = gpu.leaves_missed() != missed;
+                        if (none != leaves_none_said)
+                            log(none ? reshade::log::level::warning : reshade::log::level::info, none
+                                ? "the leaf pass found no leaves captured this frame, so Leaf shading and Light through leaves do nothing."
+                                : "the leaf pass has its frame's leaves again.");
+                        leaves_none_said = none;
+                    }
                         break;
                     case PassId::grass:
                         call = gpu.run_grass(map, settings.grass_roots, sky_camera(), settings.flip);
@@ -1417,7 +1429,13 @@ namespace enhancements
                 {
                     if (!guard)
                         guard.emplace(gpu.context(), moved);
-                    gpu.capture_leaves(map);
+                    std::string why;
+                    gpu.capture_leaves(map, why);
+                    // Without its leaves the leaf pass does nothing, so the log says when the capture stops and starts again.
+                    if (why != leaves_why)
+                        log(why.empty() ? reshade::log::level::info : reshade::log::level::warning,
+                            why.empty() ? "the leaves are captured at the combine step again." : "the leaves could not be captured at the combine step: " + why + ".");
+                    leaves_why = why;
                 }
                 // So does the grass pass copy its blades and ground.
                 if (step == Step::combine && settings.enabled && settings.grass_roots > 0)
