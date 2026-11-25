@@ -748,8 +748,8 @@ typedef struct EnhancementsAccumulate
                                 // out-of-focus light is multiplied by how far it stands above its own surroundings, so a
                                 // lantern or a gold ornament keeps its disc as a brighter real one would, and what is in focus
                                 // stays as it was; the strength, 0 (the default) off to 8, the gain at most 1 + 2 strength
-    float lift_threshold;       // how far above its surroundings light starts to lift; default 2, clamped to 1..16. Version
-                                // 59 added these.
+    float lift_threshold;       // how far above the brightest of its surroundings light starts to lift, as 1 + (threshold -
+                                // 1) / 4 times it; default 2, clamped to 1..16. Version 59 added these.
     float lift_coc[2];          // the lens's CoC radius in render pixels per diopter, the aperture radius times the focal length
                                 // in render pixels, and the focus's diopters, 1 / its meters: the lift fades in with the CoC
                                 // they give each pixel's depth. Version 60 added it.

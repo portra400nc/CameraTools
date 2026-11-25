@@ -205,6 +205,8 @@ namespace enhancements
         AccumulateSettings accumulate;      // this frame's, taken at present
         uint32_t lift_generation = 0xffffffffu;    // the sum generation whose highlight lift the log last named
         uint32_t accumulate_notes = 0;              // the accumulator's passes and skips the log named this sum
+        uint32_t accumulate_first = 0;              // the sum's first sample added
+        uint32_t presented_generation = 0xffffffffu;   // the sum generation whose presenting the log last named
         Accumulator accumulator;
         // The depth texel in flight: the point it answers, and the frame and camera it was copied with.
         struct DepthCopy
@@ -835,6 +837,11 @@ namespace enhancements
             }
             if (tick.clear)
                 accumulate_notes = 0;
+            if (tick.add && tick.next.samples == 1)
+                accumulate_first = camera.lens.index;
+            if (tick.present && presented_generation != accumulate.generation && (presented_generation = accumulate.generation, true))
+                log(reshade::log::level::info, "the accumulator presents " + std::to_string(accumulator.samples) + " samples, the first sample "
+                    + std::to_string(accumulate_first) + " and the last " + (accumulator.last_index ? std::to_string(*accumulator.last_index) : std::string("none")) + ".");
             if (!tick.clear && !tick.add && !tick.present)
                 return;
             const char *moved = nullptr;

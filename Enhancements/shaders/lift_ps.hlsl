@@ -1,6 +1,6 @@
 // The highlight lift's draws over a lens sample's HDR scene (lift.hlsli), by accum_lift_pass: 0 the block means of its
-// luminance, accum_lift_block render pixels a side, into a texture that size; 1 the 7 x 7 mean of those around each
-// block; 2 the scene times the gain.
+// luminance, accum_lift_block render pixels a side, into a texture that size; 1 the brightest of 16 blocks on a ring two
+// blocks out around each block; 2 the scene times the gain.
 #include "common.hlsli"
 #include "lift.hlsli"
 
@@ -33,14 +33,14 @@ float4 main(float4 position : SV_Position) : SV_Target0
     {
         int2 size;
         small.GetDimensions(size.x, size.y);
-        float sum = 0, count = 0;
-        [unroll] for (int y = -3; y <= 3; y++)
-            [unroll] for (int x = -3; x <= 3; x++)
-            {
-                sum += small.Load(int3(clamp(pixel + int2(x, y), 0, size - 1), 0));
-                count += 1;
-            }
-        return sum / count;
+        float brightest = 0;
+        [unroll] for (int k = 0; k < 16; k++)
+        {
+            float a = 6.2831853 * k / 16;
+            int2 at = pixel + int2(round(2 * cos(a)), round(2 * sin(a)));
+            brightest = max(brightest, small.Load(int3(clamp(at, 0, size - 1), 0)));
+        }
+        return brightest;
     }
     float2 uv = (position.xy) * render_size.zw;
     float reversed = depth.Load(int3(pixel, 0));
