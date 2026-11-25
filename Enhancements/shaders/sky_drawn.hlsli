@@ -64,13 +64,37 @@ float3 air_light(float3 view)
 static const float kMostLight = 60000;
 
 // The sky toward view, a unit world direction.
+// The sea past the end of the game's world, out to the horizon, toward view below it: the sky mirrored by its Fresnel
+// share, the sun's glitter on its swell, and the deep water's own color, behind the air between, as far as Distance haze
+// makes it. Past a map's edge seen from high up the game's sea mesh stopped some kilometers out, a hard line with the
+// horizon's haze carried on down below it (2026-11-25).
+float3 open_sea(float3 view, float r)
+{
+    float mu = view.y;
+    float km = -r * mu - sqrt(max(r * r * mu * mu - r * r + kSkyGround * kSkyGround, 0));
+    float facing = saturate(-mu);
+    float fresnel = 0.02 + 0.98 * pow(1 - facing, 5);
+    float3 mirrored = float3(view.x, -view.y, view.z);
+    float3 sky = air_light(mirrored) + sky_night_glow(mirrored);
+    float3 sun = sky_light_at(r, sky_toward_sun.y) * max(sky_toward_sun.y, 0);
+    float glitter = 802 / (2 * kSkyPi) * pow(saturate(dot(mirrored, sky_toward_sun)), 800);
+    float3 body = (air_light(float3(0, 1, 0)) * kSkyPi + sun) * float3(0.004, 0.012, 0.014);
+    float3 sea = fresnel * (sky + sun * glitter) + (1 - fresnel) * body;
+    float3 through;
+    float3 inscatter = aerial_light(km * max(sky_aerial, 1), view, 1, through);
+    return sea * sky_scale * through + inscatter;
+}
+
 float3 drawn_sky_toward(float3 view)
 {
     float pixel_angle = max(length(ddx(view)), length(ddy(view)));
     // Below the horizon the tables hold the planet's dark ground, which the game's world covers; where the world ends short
-    // of the horizon, as past a map's edge seen from high up, the horizon's haze carries on down instead.
+    // of the horizon, the open sea carries on to it.
     float r = sky_viewer_radius();
-    float lowest = -sqrt(max(1 - (kSkyGround / r) * (kSkyGround / r), 0)) + 0.002;
+    float lowest = -sqrt(max(1 - (kSkyGround / r) * (kSkyGround / r), 0));
+    if (view.y < lowest)
+        return min(open_sea(view, r), kMostLight);
+    lowest += 0.002;
     float3 air_view = view.y < lowest ? float3(normalize(view.xz + 1e-6) * sqrt(1 - lowest * lowest), lowest).xzy : view;
     float3 light = air_light(air_view) + sky_night_glow(air_view);
     float3 through = sky_view_transmittance(view);

@@ -49,7 +49,7 @@ float noise3(float3 p)
 // The water's height at world (x, z), in meters: five layers of noise from six meters long down to forty centimeters,
 // each turned its own way and carried down the wind at the speed deep water carries waves of its length, which also
 // sets how fast each one changes, and two long swells along the wind. water_waves scales its height, water_size its length. A layer fades out where
-// its waves span fewer than four of pixel_m, the meters a pixel covers there, so far water does not shimmer; no layer
+// its waves span fewer than eight of pixel_m, the meters a pixel covers there, so far water does not shimmer; no layer
 // shorter than shortest counts.
 float wave_height(float2 world, float pixel_m, float shortest)
 {
@@ -66,7 +66,7 @@ float wave_height(float2 world, float pixel_m, float shortest)
         float2x2 turn = float2x2(cos(angle), -sin(angle), sin(angle), cos(angle));
         float speed = sqrt(9.81 * length_m / 6.2831853);
         float2 q = mul(turn, p - wind * speed * water_time) / length_m;
-        float seen = saturate(length_m / (4 * pixel_m) - 1) * (length_m >= shortest ? 1 : 0);
+        float seen = saturate(length_m / (8 * pixel_m) - 1) * (length_m >= shortest ? 1 : 0);
         h += seen * amplitude * noise3(float3(q, water_time * speed / length_m * 0.5 + i * 17.13));
         length_m *= 0.53;
         amplitude *= 0.5;
@@ -76,7 +76,9 @@ float wave_height(float2 world, float pixel_m, float shortest)
         float angle = water_wind + (k == 0 ? 0.3 : -0.45), swell = k == 0 ? 11 : 7.3;
         float2 d = float2(cos(angle), sin(angle));
         float kw = 6.2831853 / swell;
-        h += 0.05 * sin(kw * dot(d, p) - sqrt(9.81 * kw) * water_time + k * 2.1);
+        // Faded as the layers are: unfaded, far out the swells aliased into rings around the camera.
+        float seen = saturate(swell / (8 * pixel_m) - 1);
+        h += seen * 0.05 * sin(kw * dot(d, p) - sqrt(9.81 * kw) * water_time + k * 2.1);
     }
     return h * water_waves * water_size;
 }
