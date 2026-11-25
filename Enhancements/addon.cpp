@@ -1080,6 +1080,9 @@ namespace enhancements
                 live.sun.toward = { camera.toward_sky_sun[0], camera.toward_sky_sun[1], camera.toward_sky_sun[2] };
             if (live.sun.toward != Vec3f {} && (!live_sky_asked || sky_request_differs(*live_sky_asked, live)))
             {
+                // A new sky map starts a trace's samples again, so the log says what changed while one runs.
+                if (live_sky_asked && trace_gpu.state() != TraceState::none)
+                    log(reshade::log::level::info, "the live sky is built again, as its " + sky_request_change(*live_sky_asked, live) + " changed.");
                 if (!live_sky_builder)
                     live_sky_builder.emplace();
                 live_sky_builder->request(live);

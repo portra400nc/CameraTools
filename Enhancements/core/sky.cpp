@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 namespace enhancements
 {
@@ -505,6 +506,36 @@ namespace enhancements
         };
         return light_differs(a.sun, b.sun) || light_differs(a.moon, b.moon) || a.haze != b.haze || a.sunset != b.sunset || a.exposure.day_light != b.exposure.day_light
             || a.exposure.night_power != b.exposure.night_power || a.exposure.night_stops != b.exposure.night_stops;
+    }
+
+    std::string sky_request_change(const SkyRequest &a, const SkyRequest &b)
+    {
+        std::string out;
+        char text[96];
+        const auto add = [&out](const char *what) { out += (out.empty() ? "" : ", ") + std::string(what); };
+        const auto light = [&](const char *name, const SkyLight &x, const SkyLight &y) {
+            const float cosine = std::clamp(dot(x.toward, y.toward), -1.0f, 1.0f);
+            if (cosine < 0.9999905f)
+            {
+                std::snprintf(text, sizeof text, "%s direction %.3g degrees", name, std::acos(cosine) * 57.29578f);
+                add(text);
+            }
+            const float most = std::max(x.illuminance, y.illuminance);
+            if (std::fabs(x.illuminance - y.illuminance) > 0.01f * most)
+            {
+                std::snprintf(text, sizeof text, "%s illuminance %.3g%%", name, most > 0 ? 100 * std::fabs(x.illuminance - y.illuminance) / most : 0.0f);
+                add(text);
+            }
+        };
+        light("sun", a.sun, b.sun);
+        light("moon", a.moon, b.moon);
+        if (a.haze != b.haze)
+            add("haze");
+        if (a.sunset != b.sunset)
+            add("sunset");
+        if (a.exposure.day_light != b.exposure.day_light || a.exposure.night_power != b.exposure.night_power || a.exposure.night_stops != b.exposure.night_stops)
+            add("exposure");
+        return out;
     }
 
     SkyBuilder::SkyBuilder() : thread_([this] { run(); }) {}

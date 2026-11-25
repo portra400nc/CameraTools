@@ -11,6 +11,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -160,6 +161,10 @@ namespace enhancements
     // Whether two requests build skies far enough apart to build again: a light's direction a quarter of a degree, its
     // illuminance 1%, the haze or the exposure at all.
     bool sky_request_differs(const SkyRequest &a, const SkyRequest &b);
+
+    // What differs between two requests as sky_request_differs counts it, for the log: "sun direction 0.31 degrees",
+    // "moon illuminance 3.2%" and so on, comma-separated; empty when nothing does.
+    std::string sky_request_change(const SkyRequest &a, const SkyRequest &b);
 
     // A thunderstorm's lightning at one moment: how bright the flash lights the scene, 0 to 1.5, and its bolt, drawn in the
     // sky while bolt is above 0, at an azimuth in radians from the camera's heading toward world +z's side, most of them
