@@ -73,11 +73,11 @@ namespace CameraTools
             enabled = category.CreateEntry("ScreenshotSupersampling", false,
                 description: "Smooth the screenshot's edges by averaging many frames, each looking through another point of every pixel. Pauses the game for the shot and needs CameraToolsEnhancements.addon64.");
             samples = category.CreateEntry("SupersamplingSamples", 32,
-                description: $"How many frames a supersampled screenshot averages, from 1 to {MaxSamples}. Each takes two frames.");
+                description: $"How many frames a supersampled screenshot averages, from 1 to {MaxSamples}. Each takes a frame.");
             lensSampled = category.CreateEntry("LensSampledScreenshots", false,
-                description: "Depth of field's screenshot method: true renders the scene from points across the lens's aperture and averages them (Lens samples), false blurs the one frame (Single frame). CameraTools' depth of field only; a traced shot's samples reuse the lighting it converged at the lens's center.");
+                description: "Depth of field's screenshot method: true renders the scene from points across the lens's aperture and averages them (Lens samples), false blurs the one frame (Single frame). CameraTools' depth of field only. A traced shot's samples reuse the lighting it converged at the lens's center.");
             lensSamples = category.CreateEntry("LensSamples", 256,
-                description: $"How many aperture points a lens-sampled screenshot averages, from 1 to {MaxLensSamples}. Each takes two frames.");
+                description: $"How many aperture points a lens-sampled screenshot averages, from 1 to {MaxLensSamples}. Each takes a frame.");
             gapFill = category.CreateEntry("LensGapFill", 1f,
                 description: "How much each lens sample is blurred so a point's copies merge into one disc, as a multiple of the automatic fill for the sample count, from 0 (off) to 4.");
             edgeSoftness = category.CreateEntry("LensEdgeSoftness", 0f,

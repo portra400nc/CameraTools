@@ -41,7 +41,7 @@ The **Bokeh** rows shape each blur disc, in front of the focus and behind it:
 | Aperture shape | Round, or 5 to 9 blades |
 | Blade roundness | From straight blades at 0 to round at 1. With blades only. |
 | Blade rotation | Turns the blades, from 0° to 90°. With blades only. |
-| Soap bubble | The light across each disc, from -1 to 1, 0.6 by default. Above 0, discs behind the focus get bright rims and discs in front soft centers, as an over-corrected lens draws them; below 0 the other way round. 0 lights them evenly. |
+| Soap bubble | The light across each disc, from -1 to 1, 0.6 by default. Above 0, discs behind the focus get bright rims and discs in front soft centers, as an over-corrected lens draws them. Below 0 the other way round. 0 lights them evenly. |
 | Chromatic aberration | Color fringes on the discs, from 0 to 5. 1 is a real lens's: green behind the focus and purple in front. Higher values exaggerate it. |
 | Cat's eye | Cuts discs toward the picture's corners into cat's eyes, as a fast lens does, from 0 to 1 |
 | Swirl | Stretches discs around the picture's center toward its corners, the swirly look of Petzval lenses, from 0 to 1 |
@@ -52,8 +52,8 @@ The **Highlights** rows bring out small bright things:
 | Row | What it does |
 |--|--|
 | Highlight discs | Draws small bright lights, glints and sky specks as discs of their own, with smooth edges. Off by default. |
-| Highlight boost | How much brighter a small light that stands out of its surroundings gets, from 0 to 4, 2 by default. With Highlight discs only. |
-| Highlight threshold | How much brighter than the picture's average a light must be to count, from 1.5 to 4 times, 2 by default. With Highlight discs only. |
+| Highlight boost | How much brighter a small light that stands out of its surroundings gets, from 0 to 4, 2 by default. With Highlight discs only. In a lens-sampled screenshot, the strength of the [highlight lift](#lens-sampled-screenshots). |
+| Highlight threshold | How much brighter than the picture's average a light must be to count, from 1.5 to 4 times, 2 by default. With Highlight discs only. In a lens-sampled screenshot, how far a light must stand above its surroundings. |
 | Bokeh contrast | Lets spots that stand out of their surroundings, such as grass tips and leaf glints, blur into visible discs, from 0 (off) to 1 |
 
 In Eyes mode the focus point sits on the iris of the active character's nearer eye, and the focus reads the eye's surface, so the iris is sharp even close up at f/1.2. It changes eyes only when the other one is 3 cm nearer, so it does not flicker while the character faces the camera. When no eye is on screen, it focuses on the focus point until an eye comes back.
@@ -61,6 +61,21 @@ In Eyes mode the focus point sits on the iris of the active character's nearer e
 These values are kept in the `[CameraToolsEnhancements]` section of `MelonPreferences.cfg`. The Graphics tab's Highest and Lowest presets leave them alone.
 
 The blur comes from the depth buffer, so things that write no depth, such as glass, water surfaces and particles, blur as whatever lies behind them.
+
+### Lens-sampled screenshots
+
+The **Screenshots** rows pick how a screenshot blurs. Single frame blurs one picture, as the live view does. Lens samples renders the scene from many points across the lens's opening and averages them, as a real lens does. The live view keeps the Single frame blur.
+
+| Row | What it does |
+|--|--|
+| Method | Single frame or Lens samples |
+| Samples | Points across the lens's opening, from 64 to 1024, 256 by default |
+| Gap fill | Blurs each point a little so a light's copies merge into one disc. Auto suits the Samples. |
+| Bokeh edge softness | Fewer points toward the rim, for softer disc edges, from 0 (off) to 1 |
+
+The Bokeh rows and Miniature scale shape lens-sampled screenshots too. Max blur does not cap them. Each point takes one frame, so 256 samples take about 95 seconds at 3840x2160 on the Steam Deck.
+
+With Highlight discs on, the highlight lift brightens small out-of-focus lights, such as lamps and gold ornaments, before the points are averaged, so they keep their discs. Highlight boost sets its strength and Highlight threshold how far a light must stand above its surroundings. What is in focus never changes.
 
 ### Cinematic DOF and iMMERSE
 
@@ -115,6 +130,8 @@ The Enhancements add-on adds up each frame's light before bloom and the game's t
 
 Nothing of CameraTools is on screen while it records, and the camera holds still. Changing the game speed during the recording cancels the screenshot and puts everything back.
 
+With the depth of field's Method set to Lens samples, each recorded frame also looks through a different point of the lens, so the shot holds both motion blur and lens blur. A short shutter records at least as many frames as Samples, in smaller steps. A 1/60 s portrait at 256 samples took about 85 seconds.
+
 ## Screenshots
 
 Take screenshot takes a screenshot through ReShade with one button.
@@ -125,7 +142,7 @@ Take screenshot does this:
 2. Applies the Highest preset, your own if you saved one, and resolution slot 1, and turns ReShade's effects on.
 3. Counts down 3 seconds, if 3-second countdown is on.
 4. Waits until the picture has settled, ReShade has compiled its effects at the new size, and the depth of field has had time to focus. CameraTools' own depth of field waits until its focus has held still for half a second, at most 5 seconds; it renders the shot with more samples than the live view, after ReShade's effects that read the depth buffer. In Focus point mode Cinematic DOF and iMMERSE ease their focus toward the point, and start over when the resolution changes. iMMERSE takes up to 2 seconds, depending on its Adjustment Speed setting. Cinematic DOF moves a share of the way each frame, set by its Auto-focus transition speed, so CameraTools waits as long as that takes at 8 frames per second: about 4 seconds at the default speed. The first screenshot at a size can take many seconds.
-5. With Long exposure on, records for the shutter time.
+5. With Long exposure on, records for the shutter time. With Method set to Lens samples, renders the lens's points.
 6. Saves the screenshot to ReShade's screenshot folder.
 7. Puts the graphics settings, the enhancements and the resolution back as they were, turns ReShade's effects off, opens the panel again, and shows the file's name.
 
@@ -165,4 +182,8 @@ The `[CameraToolsReShade]` section of `MelonPreferences.cfg` holds:
 | `LongExposureIso` | `100` | 100, 200, 400, 800 or 1600 |
 | `LongExposureSmoothness` | `240` | Game frames for each second of shutter time: 60, 120, 240 or 480 |
 | `LongExposureFramesPerSecond` | `0` | Frames the last long exposure added each real second, for the time estimate. CameraTools sets it. |
+| `LensSampledScreenshots` | `false` | The Method row: `true` for Lens samples, `false` for Single frame |
+| `LensSamples` | `256` | The Samples row: points across the lens's opening, from 1 to 4096 |
+| `LensGapFill` | `1` | The Gap fill row, as a multiple of the automatic fill, from 0 (off) to 4 |
+| `LensEdgeSoftness` | `0` | The Bokeh edge softness row, from 0 to 1 |
 | `ScreenshotDng` | `false` | Also save a DNG beside each screenshot. The ReShade tab's switch changes it. |
