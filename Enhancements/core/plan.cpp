@@ -734,7 +734,7 @@ namespace enhancements
                 a.chromatic[c] = finite_or(raw.chromatic[c], 0.0f, -256.0f, 256.0f);
         if (knows(offsetof(EnhancementsAccumulate, swirl), sizeof raw.swirl))
             a.swirl = finite_or(raw.swirl, defaults.swirl, 0.0f, 1.0f);
-        if (knows(offsetof(EnhancementsAccumulate, lift_threshold), sizeof raw.lift + sizeof raw.lift_threshold))
+        if (knows(offsetof(EnhancementsAccumulate, lift), sizeof raw.lift + sizeof raw.lift_threshold))
         {
             a.lift = finite_or(raw.lift, defaults.lift, 0.0f, 8.0f);
             a.lift_threshold = finite_or(raw.lift_threshold, defaults.lift_threshold, 1.0f, 16.0f);

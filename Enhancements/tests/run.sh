@@ -9,6 +9,8 @@
 # check_bvh.sh on it. The core compiles once, optimized, and the tests run side by side. The checks over saved frames and
 # the scene run only when their tool's code, arguments or inputs changed since their last pass; FULL=1 runs them all.
 set -e
+# A step that stops the run, as a test that does not compile, says so: the run's callers look for FAIL.
+trap 'echo "FAIL tests/run.sh stopped at line $LINENO (a compile error or a missing file above)"' ERR
 cd "$(dirname "$0")"
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT

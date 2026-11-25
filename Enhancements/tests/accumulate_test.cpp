@@ -141,7 +141,7 @@ int main()
         check("a projection that does not invert gives no depth", !view_depth(singular, 0.5f, 0.5f, 0.5f));
     }
     {
-        EnhancementsAccumulate raw { sizeof raw, ENHANCEMENTS_ACCUMULATE_ADD, 7, 0.4f, 0.2f, 0, { 0, 0 }, 0 };
+        EnhancementsAccumulate raw { sizeof raw, ENHANCEMENTS_ACCUMULATE_ADD, 7, 0.4f, 0.2f, 0, { 0, 0 }, 0, 0, 0 };
         const AccumulateSettings whole = parse_accumulate(raw);
         check("a whole struct reads add, generation 7, cat's eye 0.4, falloff 0.2", whole.mode == AccumulateMode::add
             && whole.generation == 7 && whole.cat_eye == 0.4f && whole.cat_eye_falloff == 0.2f);
@@ -178,7 +178,7 @@ int main()
               && over.lift_threshold == 1.0f && older.lift == 0.0f && older.lift_threshold == 2.0f);
     }
     {
-        EnhancementsAccumulate raw { sizeof raw, ENHANCEMENTS_ACCUMULATE_PRESENT, 3, 0, 0.1f, 4, { 0, 0 }, 0 };
+        EnhancementsAccumulate raw { sizeof raw, ENHANCEMENTS_ACCUMULATE_PRESENT, 3, 0, 0.1f, 4, { 0, 0 }, 0, 0, 0 };
         check("a gain of 4 reads as 4", parse_accumulate(raw).gain == 4.0f);
         raw.gain = 0;
         check("a zeroed gain reads as plain averaging, 1", parse_accumulate(raw).gain == 1.0f);
@@ -206,7 +206,7 @@ int main()
             && version54.chromatic[0] == 0.0f && version54.chromatic[1] == 0.0f && version54.swirl == 0.0f);
         raw.gain = 16;
         raw.size = offsetof(EnhancementsAccumulate, gain);
-        check("version 20's 20-byte struct, which ends before gain, reads gain 1", sizeof raw == 36 && parse_accumulate(raw).gain == 1.0f
+        check("version 20's 20-byte struct, which ends before gain, reads gain 1", sizeof raw == 44 && parse_accumulate(raw).gain == 1.0f
             && parse_accumulate(raw).mode == AccumulateMode::present);
     }
     {
