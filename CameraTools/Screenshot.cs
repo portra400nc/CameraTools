@@ -34,7 +34,10 @@ namespace CameraTools
 
         // Supersampling, after Settling: Index is the sample on screen, and Frame how many frames it has been there. Index
         // -1 waits for the add-on to empty its sum for Generation. Since is when the samples began.
-        public sealed record Sampling(ShotBefore Before, bool Resized, float Started, float Since, uint Generation, int Count, int Index, int Frame)
+        // Added is the add-on's sum when sample Index began, so the sample is in once the sum grows past it; Frame counts
+        // the frames it was shown, Skipped the samples given up on.
+        public sealed record Sampling(ShotBefore Before, bool Resized, float Started, float Since, uint Generation, int Count, int Index, int Frame,
+            uint Added = 0, int Skipped = 0)
             : Busy(Before, Resized, Started);
 
         // A long exposure, after Settling: Index frames were shown, each one step of game time, until the add-on's sum for
@@ -80,9 +83,9 @@ namespace CameraTools
         private const ulong SaveFrames = 3;
         // A sample's limit counts from the previous one, so a slow frame rate at 4K does not fail a long run.
         private const float SampleTimeout = 15f;
-        // Frames each sample stays on screen. The first is marked: whether the add-on takes the camera push before the frame
-        // renders or one frame later, the frame it adds then shows that sample.
-        private const int HoldFrames = 2;
+        // A sample stays on screen until the add-on's sum takes it, usually the frame after it is shown, and at most this many
+        // frames, after which it is given up on. Two fixed frames a sample took 186 s for 256 at 4K on the Deck.
+        private const int MostHoldFrames = 8;
         // Presents of the average before the capture, so it reaches ReShade's frame and RTGI's history.
         private const ulong PresentFrames = 4;
 
@@ -443,7 +446,7 @@ namespace CameraTools
             {
                 var status = CameraToolsEnhancements.Enhancements.Status;
                 if (status.AccumMode == CameraToolsEnhancements.EnhancementsAccumulateMode.Add && status.AccumGeneration == sampling.Generation)
-                    State = sampling = sampling with { Index = 0, Frame = 0, Since = now };
+                    State = sampling = sampling with { Index = 0, Frame = 0, Since = now, Added = status.AccumSamples };
                 else
                 {
                     if (now - sampling.Since >= SampleTimeout)
@@ -457,16 +460,28 @@ namespace CameraTools
                 Supersampling.Centre();
                 Supersampling.Accumulate(CameraToolsEnhancements.EnhancementsAccumulateMode.Present, sampling.Generation);
                 ReShade.SetEffects(true);
-                Melon<CameraTools>.Logger.Msg($"Screenshot: {sampling.Count} samples shown in {now - sampling.Since:0.0} s, "
-                    + $"{CameraToolsEnhancements.Enhancements.Status.AccumSamples} added.");
+                Melon<CameraTools>.Logger.Msg($"Screenshot: {sampling.Count} samples shown in {now - sampling.Since:0.0} s"
+                    + (sampling.Skipped > 0 ? $", {sampling.Skipped} given up on after {MostHoldFrames} frames each." : "."));
                 State = new ShotState.Presenting(sampling.Before, sampling.Resized, sampling.Started, now, sampling.Generation, ReShade.Status.Presents);
                 return;
             }
-            // Both frames of a sample are marked: the add-on adds it once, from the first whose camera push came in time and,
-            // in a traced lens-sampled shot, which it traced whole under that sample. Marking the first alone dropped a sample
-            // whenever its push came late, one in most shots once the highlight lift slowed the frames (2026-11-25).
+            // The sample shown is in once the add-on's sum grew past what it held when the sample began: the next one shows at
+            // once. Every frame of a sample is marked, and the add-on adds it once, from the first whose camera push came in
+            // time and, in a traced lens-sampled shot, which it traced whole under that sample.
+            if (sampling.Frame > 0)
+            {
+                var status = CameraToolsEnhancements.Enhancements.Status;
+                bool added = status.AccumGeneration == sampling.Generation && status.AccumSamples > sampling.Added;
+                if (added || sampling.Frame >= MostHoldFrames)
+                {
+                    State = sampling = sampling with { Index = sampling.Index + 1, Frame = 0, Added = status.AccumSamples,
+                        Skipped = sampling.Skipped + (added ? 0 : 1) };
+                    if (sampling.Index == sampling.Count)
+                        return;
+                }
+            }
             Supersampling.Show(sampling.Index, mark: true);
-            State = sampling.Frame + 1 < HoldFrames ? sampling with { Frame = sampling.Frame + 1 } : sampling with { Index = sampling.Index + 1, Frame = 0 };
+            State = sampling with { Frame = sampling.Frame + 1 };
         }
 
         // One frame of a long exposure. Runs before the free camera pushes the camera this frame. Every frame looks through
