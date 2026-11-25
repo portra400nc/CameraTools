@@ -613,9 +613,10 @@ namespace enhancements
         const uint32_t tiles = static_cast<uint32_t>(((key.render.width + kTileSize - 1) / kTileSize) * ((key.render.height + kTileSize - 1) / kTileSize));
         // An anchored shot's lens samples keep the anchor's light: the world is held, but a layered sky's clouds drift on and
         // move the sky map, and the sun and sky colors with it, and starting the samples again lost the anchor, after which
-        // every move started them again too. So it compares its moves against the anchor's sky, sun and light.
+        // every move started them again too. So it compares its moves against the anchor's sky, sun and light, from the frame
+        // it asks for the anchor: a sky map that moved between that frame and the anchor's lost the converged light too.
         TraceKey compared = key;
-        if (settings.reproject && settings.anchor && anchored_ && key_)
+        if (settings.reproject && settings.anchor && key_)
         {
             compared.sky = key_->sky;
             compared.light = key_->light;
