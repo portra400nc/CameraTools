@@ -23,7 +23,7 @@ namespace CameraTools
         ToneMap, ToneMapCurve, ToneMapExposure, ToneMapAutoExposure, ToneMapBloom, ToneMapSaturation, ToneMapContrast, ToneMapShadows, ToneMapHighlights,
         LensFlare, LensFlareSource, LensFlareX, LensFlareY, LensFlareStrength, LensFlareArcs, LensFlareRainbow, LensFlareFilledArcs, LensFlareGhosts, LensFlareStreaks,
         LensFlareGlare, LensFlareSize, LensFlareWarmth, LensFlareRedFringe, LensFlareTexture,
-        PhysicalSky, SkyHaziness, SunsetColor, DistanceHaze, NightBrightness,
+        PhysicalSky, SkyHaziness, SunsetColor, DistanceHaze, NightBrightness, HideGameMist,
         PhysicalWater, WaterClarity, WaterWaves, WaterSize,
         Clouds, CloudType, CloudCoverage, CloudHeight, CloudThickness, CloudSize, CloudDensity, CloudEdgeDetail, CloudSunlight, CloudSkyLight,
         CloudWind, CloudWindDirection, CloudQuality, CloudKind,
@@ -312,6 +312,7 @@ namespace CameraTools
             Slider(Enhancement.SunsetColor, Enhancement.PhysicalSky, "Sunset color", 0f, 100f, 0f, 5f, 0, "%"),
             Slider(Enhancement.DistanceHaze, Enhancement.PhysicalSky, "Distance haze", 0f, 32f, 8f, 1f, 0, "×"),
             Slider(Enhancement.NightBrightness, Enhancement.PhysicalSky, "Night brightness", 0f, 200f, 85f, 5f, 0, "%"),
+            new(Enhancement.HideGameMist, EnhancementKind.Switch, "Hide game mist", Enhancement.PhysicalSky, 1f),
             Switch(Enhancement.PhysicalWater, "Physical water"),
             Slider(Enhancement.WaterClarity, Enhancement.PhysicalWater, "Clarity", 0.5f, 20f, 6f, 0.5f, 1, " m"),
             Slider(Enhancement.WaterWaves, Enhancement.PhysicalWater, "Wave height", 0f, 300f, 100f, 10f, 0, "%"),
@@ -712,6 +713,7 @@ namespace CameraTools
             Enhancement.PhysicalWater => "Real reflections and depth for rivers, lakes and the sea",
             Enhancement.Weather => "Clouds and mist that follow the game's weather",
             Enhancement.WeatherRain => values.On(Enhancement.WeatherRain) ? "Real raindrops in place of the game's" : "The game's own rain",
+            Enhancement.HideGameMist => "Low clouds, smoke and wind dust",
             Enhancement.GrassCustomTexture => CustomGrassFound() switch
             {
                 true => "From ReShade's Enhancements\\grass-port folder",

@@ -196,7 +196,7 @@ namespace CameraTools
             // toast as it was.
             Enhancements.SetKeepRect(CameraUi.ToastScreenRect);
             // The game's clouds keep its painted lighting, which the physical sky's contradicts.
-            GameClouds.Update(Enhancements.Connected && (EnhancementsModel.CloudsRun(Running) || EnhancementsModel.SkyDrawn(Running)));
+            GameClouds.Update(Enhancements.Connected && (EnhancementsModel.CloudsRun(Running) || EnhancementsModel.SkyDrawn(Running)), Running.On(Enhancement.HideGameMist));
             WeatherFollow.Update(Enhancements.Connected && EnhancementsModel.WeatherRuns(Running), Running);
             if (EnhancementsModel.CloudsRun(Running) && (int)Running[Enhancement.CloudType] == EnhancementsModel.LayeredClouds)
                 // A traced shot holds the sky as its scene caught it: a blend going on changed the sun the clouds let through,

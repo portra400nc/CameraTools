@@ -7,11 +7,13 @@ namespace CameraTools
     // emitters' sprites), hidden while the Enhancements add-on draws CameraTools' clouds or the physical sky, and back once that stops.
     // So are the clouds the world places as effects, low cloud planes and puffs such as Eff_Stages_Cloud_Soft_02 and
     // Eff_Stages_Dq_Lidao_Cloud_04's CloudBall: lit by the game's sky colors, they stood as pink smoke under the physical
-    // sky. The far cloud impostors stay.
+    // sky. The far cloud impostors stay. So is the wind's drifting dust, EffectPool's Eff_Wind_Dust, which stood as a patch
+    // of light smoke on the ground.
     internal static class GameClouds
     {
         private const string SkyPath = "/StageRoot/EnviroSystem(Clone)";
         private const string WorldPath = "/BigWorld(Clone)";
+        private const string DustPath = "/EffectPool/Eff_Wind_Dust";
         // How often a missing sky is looked for again, as after a scene change.
         private const float LookEvery = 1f;
         // How often the world's streamed-in chunks are looked through for new cloud effects.
@@ -35,10 +37,17 @@ namespace CameraTools
             if (Time.unscaledTime < worldAt)
                 return;
             worldAt = Time.unscaledTime + WorldEvery;
+            int before = world.Count;
+            var dust = GameObject.Find(DustPath);
+            if (dust != null && seenEffects.Add(dust.Pointer))
+                foreach (var renderer in dust.GetComponentsInChildren<Renderer>(true))
+                {
+                    renderer.enabled = false;
+                    world.Add(renderer);
+                }
             var root = GameObject.Find(WorldPath);
             if (root == null)
                 return;
-            int before = world.Count;
             var chunks = root.transform;
             for (int c = 0; c < chunks.childCount; c++)
             {
@@ -71,9 +80,14 @@ namespace CameraTools
             worldAt = 0f;
         }
 
-        // Once a frame: whether CameraTools' clouds or the physical sky run.
-        public static void Update(bool ours)
+        // Once a frame: whether CameraTools' clouds or the physical sky run, and whether the world's cloud effects and the
+        // wind's dust go with the game's clouds (Hide game mist).
+        public static void Update(bool ours, bool mist)
         {
+            if (ours && mist)
+                HideWorldClouds();
+            else if (world.Count > 0 || seenEffects.Count > 0)
+                ShowWorldClouds();
             if (!ours)
             {
                 foreach (var renderer in held)
@@ -81,10 +95,8 @@ namespace CameraTools
                         renderer.enabled = true;
                 held.Clear();
                 lookAt = 0f;
-                ShowWorldClouds();
                 return;
             }
-            HideWorldClouds();
             held.RemoveAll(renderer => renderer == null);
             foreach (var renderer in held)
                 if (renderer.enabled)
