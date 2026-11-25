@@ -40,11 +40,12 @@ Texture2D<float> last_depth : register(t12);
 // group row for each 4096 of them.
 RWBuffer<uint> hole_list : register(u5);
 RWBuffer<uint> hole_args : register(u6);
-// With render.w's bit 2, a debug dump of the move: each pixel's class (kHole*) in the low 8 bits and its distance from the
-// new camera in decimeters above them.
+// With render.w's bit 2, a debug dump of the move: each pixel's class against the anchor (kHole*) in the low 4 bits, against
+// the view before for one the anchor lacked (kLast*) in the next 4, and its distance from the new camera in decimeters above.
 RWBuffer<uint> hole_debug : register(u7);
 static const uint kHoleNotWorld = 0, kHoleSeen = 1, kHoleOffView = 2, kHoleAnchorSky = 3, kHoleAnchorNearer = 4, kHoleAnchorFarther = 5,
     kHoleAnchorUntraced = 6;
+static const uint kLastNone = 0, kLastOffView = 1, kLastOther = 2, kLastFilled = 3, kLastUntraced = 4;
 
 // A stored pixel and its depth in the scene's frame, through a camera's clip rows, as trace_common.hlsli's scene_position.
 float3 to_scene(float4 rows[4], int2 pixel, float depth)
@@ -87,7 +88,7 @@ void main(uint3 id : SV_DispatchThreadID)
     float4 none = 0;
     float4 h = none, g = none, k = none, l = none, r = none;
     float d = new_depth.Load(int3(pixel, 0));
-    uint kind = kHoleNotWorld;
+    uint kind = kHoleNotWorld, last = kLastNone;
     float distance = 0;
     if (d > 0)
     {
@@ -114,10 +115,12 @@ void main(uint3 id : SV_DispatchThreadID)
         if ((render.w & 1u) != 0 && h.z == 0)
         {
             q = seen_at(last_clip, p);
+            last = q.x < 0 ? kLastOffView : kLastOther;
             if (q.x >= 0 && same_point(last_rows, q, last_depth.Load(int3(q, 0)), p))
             {
                 uint from = uint(q.y) * render.x + uint(q.x);
                 h = last_history[from];
+                last = h.z > 0 ? kLastFilled : kLastUntraced;
                 g = last_hit[from];
                 k = last_sky[from];
                 l = last_lights[from];
@@ -126,7 +129,7 @@ void main(uint3 id : SV_DispatchThreadID)
         }
     }
     if ((render.w & 2u) != 0)
-        hole_debug[at] = kind | (min(uint(distance * 10), 0xFFFFFFu) << 8);
+        hole_debug[at] = kind | (last << 4) | (min(uint(distance * 10), 0xFFFFFFu) << 8);
     if (render.w != 0 && d > 0 && h.z == 0)
     {
         uint slot;
