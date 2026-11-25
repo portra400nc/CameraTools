@@ -224,9 +224,11 @@ GatherData gather_ray_of(GatherData r, float3 o, float3 d, float3 eye, uint seed
             if (shown.w > 0.5f)
             {
                 float3 seen = XYZ(shown);
-                float bright = source_gain_of(luminance_of(seen), source);
-                if (bright > 1.0f)
-                    seen = float3(min(seen.x * bright, kBrightestSource), min(seen.y * bright, kBrightestSource), min(seen.z * bright, kBrightestSource));
+                float bright = max(source_gain_of(luminance_of(seen), source), 1.0f);
+                // Capped whether boosted or not: the sun's glare on far ground in a face picture, some 300 times the sunlit
+                // ground's light, drew a bright square wherever a gather ray hit there (2026-11-25, face 5 of
+                // scene-20261125-173907).
+                seen = float3(min(seen.x * bright, kBrightestSource), min(seen.y * bright, kBrightestSource), min(seen.z * bright, kBrightestSource));
                 seen = seen * gain;
                 if (!last)
                 {
