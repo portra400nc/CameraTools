@@ -837,7 +837,9 @@ namespace enhancements
         Readback exposure_read_;        // the stops for the log
         bool exposure_read_pending_ = false;
         Scratch dof_focus_[2];      // 1x1 R32G32_FLOAT: the focus distance in meters and the frame's mean luminance, this frame's and the last's in turn
-        Scratch lift_small_, lift_around_;  // R32_FLOAT: the highlight lift's block means, then its spread gains; its block gains (shaders/lift_ps.hlsl)
+        // The highlight lift's block means (R32_FLOAT), and its blocks' gains and surroundings' brightest, then spread
+        // (R32G32_FLOAT; shaders/lift_ps.hlsl).
+        Scratch lift_small_, lift_around_, lift_spread_;
         uint32_t dof_focus_at_ = 0; // the one this frame writes
         uint32_t dof_focus_kept_ = 0;   // the one the last bloom step wrote, which the display place reads
         Readback dof_focus_read_;   // the focus for the status

@@ -3643,7 +3643,7 @@ namespace enhancements
         ID3D11Device *d = device_.Get();
         if (!k || !scene_in_.sync(d, native(scene), scene_format, false) || !scene_out_.sync(d, native(scene), scene_format, true)
             || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false) || !lift_small_.sync(d, blocks, DXGI_FORMAT_R32_FLOAT)
-            || !lift_around_.sync(d, blocks, DXGI_FORMAT_R32_FLOAT))
+            || !lift_around_.sync(d, blocks, DXGI_FORMAT_R32G32_FLOAT) || !lift_spread_.sync(d, blocks, DXGI_FORMAT_R32G32_FLOAT))
             return std::nullopt;
         Constants constants = {};
         constants.render_size[0] = static_cast<float>(map.render.width);
@@ -3664,14 +3664,14 @@ namespace enhancements
             uint32_t pass;
             Scratch *target;
             Size size;
-        } draws[] = { { 0, &lift_small_, blocks }, { 1, &lift_around_, blocks }, { 2, &lift_small_, blocks } };
+        } draws[] = { { 0, &lift_small_, blocks }, { 1, &lift_around_, blocks }, { 2, &lift_spread_, blocks } };
         for (const auto &draw : draws)
         {
             constants.accum_lift_pass = draw.pass;
             upload(constants);
             ID3D11ShaderResourceView *const unbound[kSrvSlots] = {};
             c->PSSetShaderResources(0, kSrvSlots, unbound);
-            // Pass 0 reads the scene, pass 1 the block means, pass 2 the gains, into the block means' texture.
+            // Pass 0 reads the scene, pass 1 the block means, pass 2 the gains.
             ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), draw.pass == 1 ? lift_small_.srv() : nullptr,
                 draw.pass == 2 ? lift_around_.srv() : nullptr };
             draw_fullscreen(lift_ps_.Get(), srvs, 3, draw.target->rtv(), draw.size);
@@ -3680,7 +3680,7 @@ namespace enhancements
         upload(constants);
         ID3D11ShaderResourceView *const unbound[kSrvSlots] = {};
         c->PSSetShaderResources(0, kSrvSlots, unbound);
-        ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), lift_small_.srv(), nullptr, depth_.srv() };
+        ID3D11ShaderResourceView *const srvs[] = { scene_in_.srv(), nullptr, lift_spread_.srv(), depth_.srv() };
         draw_fullscreen(lift_ps_.Get(), srvs, 4, scene_out_.rtv(), map.render);
         scene_out_.copy_to(c, native(scene));
         return GameCall::keep;

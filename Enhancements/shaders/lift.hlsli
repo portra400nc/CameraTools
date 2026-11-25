@@ -6,7 +6,9 @@
 // area's edge or corner have bright blocks on their ring and take none (the mean of the blocks around lifted those into
 // a haze over what lay next to them). Each block then takes the largest gain of the 3 x 3 blocks around it, read
 // bilinear, so a whole ornament takes its brightest part's gain: blocks its own size lifted part of it and left crosses
-// in its disc. t is 1 + (threshold - 1) / 4: the row's 2 is 1.25.
+// in its disc. A pixel takes that gain only as far as it stands above the brightest of the surroundings it was measured
+// against, fully at twice it: the dark, far background beside an ornament near focus, which the spread gain reached,
+// kept a bright ring around it. t is 1 + (threshold - 1) / 4: the row's 2 is 1.25.
 // The gain fades in with the lens's CoC from a quarter of a 400-row picture's pixel to one, so what is in focus stays
 // as the game drew it, and a wider disc spreads the lifted light thinner, as a real lens's does.
 // (.work/dof/lift/render_frame.py tried it on a saved frame against an exposure lift and an expansion curve.)
@@ -23,10 +25,12 @@ float lift_block_gain(float small, float brightest)
     return clamp(1 + 4 * accum_lift * max(ratio - t, 0), 1, 1 + 2 * accum_lift);
 }
 
-// The gain at a pixel whose blocks' gain is gain and whose lens CoC is coc render pixels on a picture rows tall.
-float lift_faded(float gain, float coc, float rows)
+// The gain at a pixel of luminance l whose blocks' gain and surroundings' brightest are spread, and whose lens CoC is coc
+// render pixels on a picture rows tall.
+float lift_faded(float l, float2 spread, float coc, float rows)
 {
-    return 1 + (gain - 1) * saturate((coc - rows / 400) / (rows * 3 / 400));
+    float own = saturate(l / max(spread.y, 1e-4) - 1);
+    return 1 + (spread.x - 1) * own * saturate((coc - rows / 400) / (rows * 3 / 400));
 }
 
 #endif

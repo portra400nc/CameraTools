@@ -5,8 +5,8 @@
 #include "lift.hlsli"
 
 Texture2D<float3> scene : register(t0);     // mirror of the game's HDR scene
-Texture2D<float> small : register(t1);      // pass 0's, and pass 2's in pass 3
-Texture2D<float> around : register(t2);     // pass 1's
+Texture2D<float> small : register(t1);      // pass 0's
+Texture2D<float2> around : register(t2);    // pass 1's, and pass 2's in pass 3: the gain and the surroundings' brightest
 Texture2D<float> depth : register(t3);      // mirror of the main depth, reversed
 
 float4 main(float4 position : SV_Position) : SV_Target0
@@ -40,22 +40,27 @@ float4 main(float4 position : SV_Position) : SV_Target0
             int2 at = pixel + int2(round(4 * cos(a)), round(4 * sin(a)));
             brightest = max(brightest, small.Load(int3(clamp(at, 0, size - 1), 0)));
         }
-        return lift_block_gain(small.Load(int3(pixel, 0)), brightest);
+        return float4(lift_block_gain(small.Load(int3(pixel, 0)), brightest), brightest, 0, 0);
     }
     if (accum_lift_pass == 2)
     {
         int2 size;
         around.GetDimensions(size.x, size.y);
-        float most = 1;
+        float2 most = float2(1, around.Load(int3(pixel, 0)).y);
         [unroll] for (int y = -1; y <= 1; y++)
             [unroll] for (int x = -1; x <= 1; x++)
-                most = max(most, around.Load(int3(clamp(pixel + int2(x, y), 0, size - 1), 0)));
-        return most;
+            {
+                float2 g = around.Load(int3(clamp(pixel + int2(x, y), 0, size - 1), 0));
+                if (g.x > most.x)
+                    most = g;
+            }
+        return float4(most, 0, 0);
     }
     float2 uv = (position.xy) * render_size.zw;
     float reversed = depth.Load(int3(pixel, 0));
     float inverse = max(-(accum_lift_depth.x * reversed + accum_lift_depth.y) / (accum_lift_depth.z * reversed + accum_lift_depth.w), 0);
     float coc = accum_lift_coc.x * abs(accum_lift_coc.y - inverse);
-    float gain = lift_faded(small.SampleLevel(linear_clamp, uv, 0), coc, render_size.y);
-    return float4(scene.Load(int3(pixel, 0)) * gain, 1);
+    float3 c = scene.Load(int3(pixel, 0));
+    float gain = lift_faded(dot(c, kLiftLuma), around.SampleLevel(linear_clamp, uv, 0), coc, render_size.y);
+    return float4(c * gain, 1);
 }
