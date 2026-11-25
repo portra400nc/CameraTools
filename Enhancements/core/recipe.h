@@ -93,6 +93,7 @@ namespace enhancements
 
         Targets targets;
         std::vector<Clear> clears;  // emptied, not freed, at each frame, so the hot path stops allocating after a frame
+        mutable bool lit = false;   // a draw into the HDR scene read the normals after the combine step: the deferred lighting began
 
         bool cleared(ResourceId id, const Color &color) const;
     };

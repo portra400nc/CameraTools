@@ -441,6 +441,44 @@ namespace enhancements
         uint32_t bloom_traces = 0;
         uint64_t bloom_trace_until = 0;
 
+        // A frame recorded on request: a file named record-frame in output_root() records the next frame's draws from the
+        // combine step to the tone map, as diagnose_bloom does, with the copies into the HDR scene among them and the draws
+        // the steps matched at, and is removed.
+        bool record_frame = false;
+        std::vector<std::string> record_notes;
+        fs::path output_root();
+
+        void note_record(const std::string &note)
+        {
+            if (record_frame && record_notes.size() < 200)
+                record_notes.push_back("after draw " + std::to_string(tracker.traced().size()) + ": " + note);
+        }
+
+        // At present: the recorded frame to the log, then whether the next one is asked for.
+        void record_present()
+        {
+            if (record_frame)
+            {
+                record_frame = false;
+                log(reshade::log::level::info, "the recorded frame " + std::to_string(frames) + ": its " + std::to_string(tracker.traced().size())
+                    + " draws from the combine step to the tonemap draw, with render targets (rt), depth (ds) and pixel shader inputs (t):");
+                for (const std::string &line : describe_trace(tracker))
+                    log(reshade::log::level::info, "  " + line);
+                for (const std::string &note : record_notes)
+                    log(reshade::log::level::info, "  " + note);
+                record_notes.clear();
+            }
+            if (frames % 30 != 0)
+                return;
+            std::error_code error;
+            const fs::path ask = output_root() / "record-frame";
+            if (fs::exists(ask, error))
+            {
+                fs::remove(ask, error);
+                record_frame = true;
+            }
+        }
+
         // At present, for a frame whose bloom step fell back.
         void diagnose_bloom()
         {
@@ -462,6 +500,20 @@ namespace enhancements
             for (const std::string &line : lines)
                 log(reshade::log::level::info, "  " + line);
             bloom_traces++;
+        }
+
+        std::string hdr_copy_note(resource source, resource dest, const char *how)
+        {
+            const std::optional<Texture> &hdr = tracker.map()[Entry::hdr_scene];
+            if (!hdr)
+                return {};
+            const uint64_t id = static_cast<uint64_t>(hdr->id);
+            if (dest.handle != id && source.handle != id)
+                return {};
+            char text[160];
+            std::snprintf(text, sizeof text, "%s %s the HDR scene (%s #%llx)", how, dest.handle == id ? "into" : "out of", dest.handle == id ? "from" : "to",
+                static_cast<unsigned long long>(dest.handle == id ? source.handle : dest.handle));
+            return text;
         }
 
         // A restore that left the game's bindings different would corrupt the rest of every frame, so the add-on stops
@@ -1510,7 +1562,10 @@ namespace enhancements
             bool skip = false;
             for (const StepSpec &spec : kRecipe)
                 if (moments.has(spec.step))
+                {
+                    note_record(std::string("the ") + spec.name + " step " + (tracker.fell_back().has(spec.step) ? "fell back here" : "matched at the next draw"));
                     skip |= on_step(spec.step);
+                }
             return skip;
         }
 
@@ -3101,7 +3156,8 @@ namespace enhancements
             if (scene_frame)
                 scene_gpu.begin_frame();
             gpu.end_frame(arm && settings.enabled ? settings.view : View::off);
-            tracker.trace(bloom_traces < kBloomTraces && frames < bloom_trace_until);
+            record_present();
+            tracker.trace(record_frame || (bloom_traces < kBloomTraces && frames < bloom_trace_until));
             tracker.begin_frame();
             report = FrameReport::start(settings);
             report.armed = arm;
@@ -3167,6 +3223,36 @@ namespace enhancements
         bool listen(typename reshade::addon_event_traits<ev>::decl callback)
         {
             return host->listen(static_cast<uint32_t>(ev), reinterpret_cast<void *>(callback));
+        }
+    }
+}
+
+namespace enhancements
+{
+    namespace
+    {
+        bool on_copy_resource(command_list *cmd_list, resource source, resource dest)
+        {
+            if (record_frame && cmd_list == immediate)
+                if (const std::string note = hdr_copy_note(source, dest, "a copy"); !note.empty())
+                    note_record(note);
+            return false;
+        }
+
+        bool on_copy_texture_region(command_list *cmd_list, resource source, uint32_t, const subresource_box *, resource dest, uint32_t, const subresource_box *, filter_mode)
+        {
+            if (record_frame && cmd_list == immediate)
+                if (const std::string note = hdr_copy_note(source, dest, "a region copy"); !note.empty())
+                    note_record(note);
+            return false;
+        }
+
+        bool on_resolve_texture_region(command_list *cmd_list, resource source, uint32_t, const subresource_box *, resource dest, uint32_t, uint32_t, uint32_t, uint32_t, format)
+        {
+            if (record_frame && cmd_list == immediate)
+                if (const std::string note = hdr_copy_note(source, dest, "a resolve"); !note.empty())
+                    note_record(note);
+            return false;
         }
     }
 }
@@ -3446,6 +3532,9 @@ extern "C" __declspec(dllexport) bool EnhancementsStart(const Host *stub)
         && listen<reshade::addon_event::draw>(on_draw)
         && listen<reshade::addon_event::draw_indexed>(on_draw_indexed)
         && listen<reshade::addon_event::draw_or_dispatch_indirect>(on_draw_or_dispatch_indirect)
+        && listen<reshade::addon_event::copy_resource>(on_copy_resource)
+        && listen<reshade::addon_event::copy_texture_region>(on_copy_texture_region)
+        && listen<reshade::addon_event::resolve_texture_region>(on_resolve_texture_region)
         && listen<reshade::addon_event::destroy_device>(on_destroy_device);
 }
 

@@ -383,6 +383,16 @@ int main()
             fixture::replay(rows, tracker) == forward_at(933));
     }
     {
+        // A draw without the normals right after the combine step's clear, as near the ground: the deferred draws after it
+        // would paint over the forward step's passes.
+        auto rows = walk;
+        std::vector<fixture::Row> early = fixture::slice(walk, 932, 932);
+        early[0].seq += 20000;
+        fixture::insert_before(rows, 927, early);
+        FrameTracker tracker;
+        check("214859 with a draw without the normals before the deferred draws: the forward moment stays at 932", fixture::replay(rows, tracker) == k214859);
+    }
+    {
         // Draws into another target between the deferred and the forward draws: 932 to 934 into 13, then the HDR scene again.
         auto rows = walk;
         std::vector<fixture::Row> away = fixture::slice(walk, 939, 939), back = fixture::slice(walk, 944, 944);

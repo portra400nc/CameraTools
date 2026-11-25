@@ -18,7 +18,7 @@
 #define ENHANCEMENTS_FORWARDED_EVENTS(X) \
     X(present) X(reshade_present) X(reshade_begin_effects) X(reshade_render_technique) X(reshade_finish_effects) \
     X(bind_render_targets_and_depth_stencil) X(clear_render_target_view) X(draw) X(draw_indexed) X(draw_or_dispatch_indirect) \
-    X(destroy_device)
+    X(destroy_device) X(copy_resource) X(copy_texture_region) X(resolve_texture_region)
 
 namespace enhancements
 {

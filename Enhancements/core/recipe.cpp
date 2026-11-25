@@ -158,13 +158,22 @@ namespace enhancements
         // and in 111824 two more surface classes into the HDR scene and a second target. Its forward draws (sky,
         // transparents, fog) do not, so the first draw into the HDR scene that does not is the moment the deferred
         // lighting is whole and nothing has been drawn over it yet.
+        //
+        // Only once a draw that reads them began the deferred lighting: near the ground (a village, 2026-11-25) the first
+        // draw after the combine step's clear composites half-size lighting without the normals, and the deferred draws
+        // after it painted the lit scene over what the forward step's passes drew.
         bool match_forward(const Seen &seen, const FrameEvent &event, FrameMap &map)
         {
             const auto *draw = std::get_if<Draw>(&event);
             if (!draw || seen.targets.count == 0 || seen.targets.color[0].id != map[Entry::hdr_scene]->id)
                 return false;
             const ResourceId normals = map[Entry::normals]->id;
-            return !samples(*draw, [normals](const Texture &t) { return t.id == normals; });
+            if (samples(*draw, [normals](const Texture &t) { return t.id == normals; }))
+            {
+                seen.lit = true;
+                return false;
+            }
+            return seen.lit;
         }
 
         // The game writes the G-buffer in three binds: the main draws, then decals into rt0 to rt4 and into rt0, rt1, rt2
@@ -328,6 +337,7 @@ namespace enhancements
     {
         // The targets survive: those bound at the end of one frame are still bound at the start of the next.
         seen_.clears.clear();
+        seen_.lit = false;
         map_ = {};
         matched_ = {};
         fell_back_ = {};
@@ -350,6 +360,7 @@ namespace enhancements
             && bind->targets.depth->id != map_[Entry::depth]->id)
         {
             restarts_++;
+            seen_.lit = false;
             map_ = {};
             matched_ = {};
             fell_back_ = {};
