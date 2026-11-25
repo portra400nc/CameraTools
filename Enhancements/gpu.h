@@ -408,7 +408,8 @@ namespace enhancements
         std::optional<GameCall> run_grass(const FrameMap &map, float roots, const Camera &camera, bool flip);
         // Light through leaves: the sun's light grass and leaves let through, by strength, added to the HDR scene where
         // capture_leaves found them this frame. Keeps the scene without that copy. Empty when a texture of ours failed.
-        std::optional<GameCall> run_transmission(const FrameMap &map, float strength, float leaf_light, const Camera &camera, bool flip);
+        std::optional<GameCall> run_transmission(const FrameMap &map, float strength, float leaf_light, float leaf_brightness, float leaf_saturation,
+            const Camera &camera, bool flip);
         std::optional<GameCall> run_atmosphere(const FrameMap &map, const AtmosphereSettings &settings, const Camera &camera, bool flip, float drift_x, float drift_z);
         // The cloud layer: bake the cells around the camera into cloud_map_, march the slab at half size into cloud_rays_
         // with the game's camera constants gather_sun copied, and lay the result over the sky's pixels. wind is the meters

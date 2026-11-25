@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 60
+#define ENHANCEMENTS_VERSION 61
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -653,6 +653,15 @@ typedef struct EnhancementsLeaves
     float shading;              // 0 (the default) the game's, to 1; clamped
 } EnhancementsLeaves;
 
+// How Leaf shading colors the relit leaves: brightness and saturation as changes from 0 (the default), the leaves as the
+// pass colors them, a darker, less saturated green the more saturated a leaf is. Brightness -0.75 is a quarter as bright,
+// 1 twice; saturation -1 gray, 1 twice. Version 61 added it.
+typedef struct EnhancementsLeafLook
+{
+    float brightness;           // clamped to -0.75 to 1
+    float saturation;           // clamped to -1 to 1
+} EnhancementsLeafLook;
+
 typedef struct EnhancementsSceneLight
 {
     float exposure_ev;          // 0 (the default) as the game lights it; clamped to -3 to 3
@@ -717,6 +726,7 @@ typedef struct EnhancementsSettings
     EnhancementsGrass grass;
     EnhancementsLeaves leaves;
     EnhancementsCloudLayers cloud_layers;
+    EnhancementsLeafLook leaf_look;
 } EnhancementsSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and

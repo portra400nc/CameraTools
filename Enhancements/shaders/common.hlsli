@@ -149,7 +149,9 @@ cbuffer Constants : register(b0)
     float accum_lift_block;     // lift_ps.hlsl's block side in render pixels
     float4 accum_lift_depth;    // 1 / view depth of a reversed depth d: -(x d + y) / (z d + w)
     uint accum_lift_pass;       // lift_ps.hlsl's draw
-    float3 accum_lift_pad;
+    float leaf_brightness;      // Leaf shading's Brightness and Saturation, 1 the pass's own look
+    float leaf_saturation;
+    float accum_lift_pad;
 };
 
 SamplerState point_clamp : register(s0);

@@ -326,6 +326,7 @@ namespace enhancements
         uint32_t grass_copies = 1;              // EnhancementsGrass.copies
         float grass_height = 1;                 // EnhancementsGrass.height
         float leaf_shading = 0;                 // EnhancementsLeaves.shading
+        float leaf_brightness = 1, leaf_saturation = 1;     // 1 plus EnhancementsLeafLook's
         bool plugins = false;                   // plug-ins are loaded, which draw at the G-buffer's end and the combine step
         ContactShadowSettings contact_shadows;
         AtmosphereSettings atmosphere;

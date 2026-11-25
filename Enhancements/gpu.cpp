@@ -180,7 +180,9 @@ namespace enhancements
         float accum_lift_block;
         float accum_lift_depth[4];
         uint32_t accum_lift_pass;
-        float accum_lift_pad[3];
+        float leaf_brightness;      // Settings.leaf_brightness, for transmission_ps.hlsl
+        float leaf_saturation;
+        float accum_lift_pad;
     };
     static_assert(sizeof(Constants) == 1072 && offsetof(Constants, accum_lift) == 1020 && offsetof(Constants, accum_lift_depth) == 1040 && offsetof(Constants, accum_chromatic) == 1008 && offsetof(Constants, cloud_mid_coverage) == 960 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
@@ -2059,7 +2061,8 @@ namespace enhancements
         return GameCall::keep;
     }
 
-    std::optional<GameCall> Gpu::run_transmission(const FrameMap &map, float strength, float leaf_light, const Camera &camera, bool flip)
+    std::optional<GameCall> Gpu::run_transmission(const FrameMap &map, float strength, float leaf_light, float leaf_brightness, float leaf_saturation,
+        const Camera &camera, bool flip)
     {
         // The leaves capture_leaves copied at this frame's combine step, once.
         if (!leaves_fresh_)
@@ -2077,6 +2080,8 @@ namespace enhancements
             return std::nullopt;
         constants.transmission_strength = strength;
         constants.leaf_light = leaf_light;
+        constants.leaf_brightness = leaf_brightness;
+        constants.leaf_saturation = leaf_saturation;
         upload(constants);
         ID3D11DeviceContext1 *c = context_.Get();
         scene_in_.copy_from(c, native(scene));

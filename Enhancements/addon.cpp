@@ -1333,7 +1333,8 @@ namespace enhancements
                     case PassId::transmission:
                     {
                         const uint64_t missed = gpu.leaves_missed();
-                        call = gpu.run_transmission(map, settings.transmission, settings.leaf_shading, sky_camera(), settings.flip);
+                        call = gpu.run_transmission(map, settings.transmission, settings.leaf_shading, settings.leaf_brightness, settings.leaf_saturation,
+                            sky_camera(), settings.flip);
                         // A leaf pass with no leaves of its frame does nothing; the log says when that starts and stops.
                         const bool none = gpu.leaves_missed() != missed;
                         if (none != leaves_none_said)

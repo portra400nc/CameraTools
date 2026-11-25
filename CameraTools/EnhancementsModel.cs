@@ -12,7 +12,7 @@ namespace CameraTools
         AmbientLight, AmbientLevel, AmbientColor, AmbientOcclusion, AmbientOcclusionRadius, AmbientFoliageOcclusion,
         ContactShadows, ContactShadowLength, ContactShadowStrength, ContactShadowFoliage,
         LightThroughLeaves, LightThroughLeavesStrength,
-        LeafShading, LeafShadingStrength,
+        LeafShading, LeafShadingStrength, LeafBrightness, LeafSaturation,
         SkillLight, SkillLightStrength,
         GrassDepth, GrassRootShade, GrassDensity, GrassCustomTexture, GrassCustomHeight,
         SoftSunShadows, SunShadowSoftness, SunShadowStrength,
@@ -252,6 +252,8 @@ namespace CameraTools
             Slider(Enhancement.LightThroughLeavesStrength, Enhancement.LightThroughLeaves, "Strength", 0f, 200f, 100f, 5f, 0, "%"),
             Switch(Enhancement.LeafShading, "Leaf shading"),
             Slider(Enhancement.LeafShadingStrength, Enhancement.LeafShading, "Strength", 0f, 100f, 100f, 5f, 0, "%"),
+            Slider(Enhancement.LeafBrightness, Enhancement.LeafShading, "Brightness", 25f, 200f, 100f, 5f, 0, "%"),
+            Slider(Enhancement.LeafSaturation, Enhancement.LeafShading, "Saturation", 0f, 200f, 100f, 5f, 0, "%"),
             Switch(Enhancement.SkillLight, "Skill light"),
             Slider(Enhancement.SkillLightStrength, Enhancement.SkillLight, "Strength", 0f, 400f, 100f, 5f, 0, "%"),
             Switch(Enhancement.GrassDepth, "Grass"),
@@ -392,6 +394,8 @@ namespace CameraTools
             settings.Grass.Port = custom ? 2f : grass && settings.Grass.Copies > 1f ? 1f : 0f;
             settings.Grass.Height = values[Enhancement.GrassCustomHeight] / 100f;
             settings.Leaves.Shading = values.On(Enhancement.LeafShading) ? values[Enhancement.LeafShadingStrength] / 100f : 0f;
+            settings.LeafLook.Brightness = values[Enhancement.LeafBrightness] / 100f - 1f;
+            settings.LeafLook.Saturation = values[Enhancement.LeafSaturation] / 100f - 1f;
             settings.ContactShadows.Enabled = Bit(Enhancement.ContactShadows);
             settings.ContactShadows.Length = values[Enhancement.ContactShadowLength];
             settings.ContactShadows.Strength = values[Enhancement.ContactShadowStrength];

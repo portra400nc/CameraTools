@@ -51,7 +51,7 @@ Check("the binding's shot is 40 bytes with its strength at 16, its outputs at 20
     && Offset<EnhancementsCharacterLights>(nameof(EnhancementsCharacterLights.World)) == 296
     && Offset<EnhancementsCharacterLights>(nameof(EnhancementsCharacterLights.Lights)) == 40
     && Offset<EnhancementsShot>(nameof(EnhancementsShot.BudgetMs)) == 12 && Offset<EnhancementsShot>(nameof(EnhancementsShot.Outputs)) == 20
-    && Offset<EnhancementsShot>(nameof(EnhancementsShot.Strength)) == 16 && Marshal.SizeOf<EnhancementsSettings>() == 600 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.CloudLayers)) == 560 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Grass)) == 536 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Transmission)) == 532 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.SceneLight)) == 528 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Mist)) == 520 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.CloudPattern)) == 508 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Rain)) == 512 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Aerial)) == 484
+    && Offset<EnhancementsShot>(nameof(EnhancementsShot.Strength)) == 16 && Marshal.SizeOf<EnhancementsSettings>() == 608 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.CloudLayers)) == 560 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Grass)) == 536 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Transmission)) == 532 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.SceneLight)) == 528 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Mist)) == 520 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.CloudPattern)) == 508 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Rain)) == 512 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Aerial)) == 484
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Water)) == 488
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.AmbientColor)) == 400 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Tones)) == 404
     && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.LensSoftness)) == 412 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.AutoExposure)) == 416 && Offset<EnhancementsSettings>(nameof(EnhancementsSettings.Sky)) == 420
@@ -207,8 +207,8 @@ var fresh = EnhancementValues.Defaults;
 var outside = new LensView(false, 1.6f, 1, ShotStage.None);
 var inside = new LensView(true, 1.6f, 1, ShotStage.None);
 EnhancementsSettings Settings(EnhancementValues values) => EnhancementsModel.Settings(values, outside);
-Check("the table holds 115 fields, each at its own id's place, with the master switch and sixteen effects' switches, and 21 of the depth of field",
-    EnhancementsModel.Fields.Length == 115 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
+Check("the table holds 117 fields, each at its own id's place, with the master switch and sixteen effects' switches, and 21 of the depth of field",
+    EnhancementsModel.Fields.Length == 117 && EnhancementsModel.Fields.Select((field, at) => (int)field.Id == at).All(ok => ok)
     && EnhancementsModel.Fields.Count(field => field.Lens) == 21
     && string.Join(",", EnhancementsModel.Effects.Select(field => field.Label)) == "Ambient light,Contact shadows,Light through leaves,Leaf shading,Skill light,Grass,Soft sun shadows,Haze,Light shafts,Wet surfaces,Tone map,Lens flare,Physical sky,Physical water,Clouds,Weather");
 {

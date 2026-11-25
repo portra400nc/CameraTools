@@ -32,7 +32,10 @@ float3 leaf_albedo(float3 albedo)
     float high = max(albedo.r, max(albedo.g, albedo.b)), low = min(albedo.r, min(albedo.g, albedo.b));
     float saturation = high > 1e-4 ? (high - low) / high : 0;
     float lum = dot(albedo, float3(0.2126, 0.7152, 0.0722));
-    return lerp(albedo, lum, kLeafDesaturate * saturation) * (1 - kLeafDarken * saturation);
+    float3 leaf = lerp(albedo, lum, kLeafDesaturate * saturation) * (1 - kLeafDarken * saturation);
+    // Then Leaf shading's Brightness and Saturation rows.
+    float leaf_lum = dot(leaf, float3(0.2126, 0.7152, 0.0722));
+    return max(lerp(leaf_lum, leaf, leaf_saturation), 0) * leaf_brightness;
 }
 
 float3 srgb_to_linear(float3 c) { return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4); }
