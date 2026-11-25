@@ -1,4 +1,5 @@
 using MelonLoader;
+using MelonLoader.Utils;
 using UnityEngine;
 using static CameraTools.CameraTools;
 
@@ -85,6 +86,23 @@ namespace CameraTools
         // on the Deck and one 94.5 s, all 256 added; waiting for the add-on's count to grow, which CameraTools reads about two
         // frames late, 207 s.
         private const int HoldFrames = 1;
+        // A developer's override, read as a shot's samples begin: UserData/CameraTools/lens-hold-frames holding a number
+        // from 1 to 8, to compare holds without a rebuild.
+        private static readonly string HoldFramesFile = Path.Combine(MelonEnvironment.UserDataDirectory, "CameraTools", "lens-hold-frames");
+        private static int holdFrames = HoldFrames;
+
+        private static int ReadHoldFrames()
+        {
+            try
+            {
+                if (File.Exists(HoldFramesFile) && int.TryParse(File.ReadAllText(HoldFramesFile).Trim(), out int frames))
+                    return Math.Clamp(frames, 1, 8);
+            }
+            catch (IOException)
+            {
+            }
+            return HoldFrames;
+        }
         // Presents of the average before the capture, so it reaches ReShade's frame and RTGI's history.
         private const ulong PresentFrames = 4;
 
@@ -445,7 +463,12 @@ namespace CameraTools
             {
                 var status = CameraToolsEnhancements.Enhancements.Status;
                 if (status.AccumMode == CameraToolsEnhancements.EnhancementsAccumulateMode.Add && status.AccumGeneration == sampling.Generation)
+                {
+                    holdFrames = ReadHoldFrames();
+                    if (holdFrames != HoldFrames)
+                        Melon<CameraTools>.Logger.Msg($"Screenshot: each sample holds {holdFrames} frames ({HoldFramesFile}).");
                     State = sampling = sampling with { Index = 0, Frame = 0, Since = now };
+                }
                 else
                 {
                     if (now - sampling.Since >= SampleTimeout)
@@ -466,7 +489,7 @@ namespace CameraTools
             // Every frame of a sample is marked: the add-on adds it once, from the first whose camera push came in time and, in
             // a traced lens-sampled shot, which it traced whole under that sample. The capture's log counts the samples added.
             Supersampling.Show(sampling.Index, mark: true);
-            State = sampling.Frame + 1 < HoldFrames ? sampling with { Frame = sampling.Frame + 1 } : sampling with { Index = sampling.Index + 1, Frame = 0 };
+            State = sampling.Frame + 1 < holdFrames ? sampling with { Frame = sampling.Frame + 1 } : sampling with { Index = sampling.Index + 1, Frame = 0 };
         }
 
         // One frame of a long exposure. Runs before the free camera pushes the camera this frame. Every frame looks through
