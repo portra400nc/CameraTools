@@ -10,11 +10,12 @@ namespace CameraTools
     // One lens-sampled screenshot: its aperture points, the aperture's radius in meters, the focus distance in meters along
     // the view, locked before the first sample, the cat's eye and swirl the add-on's accumulator cuts each pixel's points
     // by, red's and blue's shift against green in render pixels per unit of a point, the spherical aberration that
-    // focuses each point by its radius, and the highlight lift's strength and threshold: the add-on expands each sample's
-    // bright light before its gap fill and the sum and compresses the average back, so small bright lights keep their
-    // discs (Enhancements/shaders/lift.hlsli).
+    // focuses each point by its radius, the highlight lift's strength and threshold, by which the add-on multiplies each
+    // sample's out-of-focus light that stands above its surroundings (Enhancements/shaders/lift.hlsli), and the lens's CoC
+    // radius in render pixels per diopter from focus, which fades the lift in.
     internal sealed record LensShot((float X, float Y)[] Points, float Radius, float Focus, float CatEye, float Swirl = 0f,
-        (float Red, float Blue) Chromatic = default, float SphericalAberration = 0f, float Lift = 0f, float LiftThreshold = 2f)
+        (float Red, float Blue) Chromatic = default, float SphericalAberration = 0f, float Lift = 0f, float LiftThreshold = 2f,
+        float CocPerDiopter = 0f)
     {
         // The farthest point from the center: the add-on's lens sample and its cuts take the points over it, so the
         // aperture fits their unit disc whatever its blades or squeeze.

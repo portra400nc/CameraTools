@@ -517,10 +517,12 @@ namespace CameraTools
             var shift = (LensSampler.ChromaticShift(focal, fNumber, focus, sensor, Screen.height, chromatic * EnhancementsModel.ChromaticRed),
                 LensSampler.ChromaticShift(focal, fNumber, focus, sensor, Screen.height, chromatic * EnhancementsModel.ChromaticBlue));
             float sa = Math.Clamp(0.5f * Values[Enhancement.SoapBubble], -0.38f, 0.38f);
-            // Highlight discs lift the samples' highlights by Highlight boost from Highlight threshold.
+            // Highlight discs lift the samples' out-of-focus highlights by Highlight boost from Highlight threshold times their
+            // surroundings, fading in with the CoC: the aperture's radius times the focal length in render pixels per diopter.
             float lift = Values.On(Enhancement.HighlightDiscs) ? Values[Enhancement.HighlightBoost] : 0f;
+            float focalPixels = 0.5f * Screen.height / MathF.Tan(freecam.Pose.Fov * MathF.PI / 360f);
             return (new LensShot(points, radius, focus, Values[Enhancement.CatsEye], Values[Enhancement.Swirl], shift, sa, lift,
-                Values[Enhancement.HighlightThreshold]),
+                Values[Enhancement.HighlightThreshold], radius * focalPixels),
                 $"{points.Length} aperture points, radius {radius * 100f:0.0} cm at f/{fNumber:0.##} 1:{Miniature}, focus {focus:0.00} m, "
                 + $"red {shift.Item1:0.00} and blue {shift.Item2:0.00} px, spherical aberration {sa:0.00}, highlight lift {lift:0.0}");
         }

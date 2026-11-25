@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 59
+#define ENHANCEMENTS_VERSION 60
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -744,12 +744,15 @@ typedef struct EnhancementsAccumulate
     float swirl;                // swirl of lens samples: at each pixel, the lens points are stretched along the line from the
                                 // picture's center, more toward its corners, and only those still within 1 count, as the
                                 // depth of field's swirl squeezes a disc; 0 (the default) to 1. Version 55 added these.
-    float lift;                 // the highlight lift of lens samples: each sample's HDR scene is expanded above the threshold
-                                // before its gap fill and the sum, and the average compressed back by the inverse, so what is
-                                // in focus comes back as it was and a small bright light keeps its disc as a brighter scene's
-                                // would; the strength, 0 (the default) off to 8
-    float lift_threshold;       // where the lift starts, in times the scene's mean luminance, which the add-on measures from
-                                // the scene as the sum's samples begin; default 2, clamped to 1..16. Version 59 added these.
+    float lift;                 // the highlight lift of lens samples: before each sample's gap fill and the sum, its
+                                // out-of-focus light is multiplied by how far it stands above its own surroundings, so a
+                                // lantern or a gold ornament keeps its disc as a brighter real one would, and what is in focus
+                                // stays as it was; the strength, 0 (the default) off to 8, the gain at most 1 + 2 strength
+    float lift_threshold;       // how far above its surroundings light starts to lift; default 2, clamped to 1..16. Version
+                                // 59 added these.
+    float lift_coc[2];          // the lens's CoC radius in render pixels per diopter, the aperture radius times the focal length
+                                // in render pixels, and the focus's diopters, 1 / its meters: the lift fades in with the CoC
+                                // they give each pixel's depth. Version 60 added it.
 } EnhancementsAccumulate;
 
 // A traced shot: while active, every frame runs the trace pass with the gather on over whatever settings are applied,

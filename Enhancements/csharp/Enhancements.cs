@@ -494,7 +494,9 @@ namespace CameraToolsEnhancements
         public float ChromaticBlue;
         public float Swirl;
         public float Lift;              // the highlight lift's strength, 0 off
-        public float LiftThreshold;     // where it starts, in times the frame's mean luminance
+        public float LiftThreshold;     // how far above its surroundings out-of-focus light starts to lift
+        public float LiftCocPerDiopter; // the lens's CoC radius in render pixels per diopter from focus
+        public float LiftFocusDiopters; // 1 / the focus distance in meters
     }
 
     // EnhancementsCamera.lens_sample in enhancements.h: the aperture point the camera was moved to, x right and y up in the unit
@@ -717,7 +719,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 59;
+        private const uint Version = 60;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

@@ -203,10 +203,7 @@ namespace enhancements
         bool shot_frame = false;            // this frame runs with the shot
         uint64_t settings_seen = 0, camera_seen = 0, compare_seen = 0, accumulate_seen = 0, scene_seen = 0, shot_seen = 0, lights_seen = 0;
         AccumulateSettings accumulate;      // this frame's, taken at present
-        // The sum generation whose key the highlight lift measured, as its first frame expands, so its samples and its
-        // average share one curve; and whether this frame's scene is expanded, to compress it back after the accumulator.
-        uint32_t lift_generation = 0xffffffffu;
-        bool lift_expanded = false;
+        uint32_t lift_generation = 0xffffffffu;    // the sum generation whose highlight lift the log last named
         Accumulator accumulator;
         // The depth texel in flight: the point it answers, and the frame and camera it was copied with.
         struct DepthCopy
@@ -789,24 +786,22 @@ namespace enhancements
             sun_frame = sun_check(sun_parse, gpu.gather_sun(*map[Entry::sun_atlas], frames), map[Entry::sun_atlas]->size);
         }
 
-        // At the bloom step: the highlight lift over the HDR scene, expanding it before our passes, the lens sample's gap
-        // fill among them, and compressing it back after the accumulator.
-        void lift_at_bloom(const FrameMap &map, bool expand)
+        // At the bloom step, before our passes and the lens sample's gap fill among them: the highlight lift over the HDR scene.
+        void lift_at_bloom(const FrameMap &map)
         {
-            const bool measure = expand && accumulate.generation != lift_generation;
-            if (measure)
+            if (accumulate.generation != lift_generation)
             {
                 lift_generation = accumulate.generation;
-                log(reshade::log::level::info, "the highlight lift of generation " + std::to_string(accumulate.generation) + " starts at "
-                    + std::to_string(accumulate.lift_threshold) + " times the scene's mean luminance, at strength " + std::to_string(accumulate.lift) + ".");
+                log(reshade::log::level::info, "the highlight lift of generation " + std::to_string(accumulate.generation) + ": out-of-focus light "
+                    + std::to_string(accumulate.lift_threshold) + " times its surroundings and above, at strength " + std::to_string(accumulate.lift)
+                    + ", CoC " + std::to_string(accumulate.lift_coc[0]) + " px a diopter from focus at " + std::to_string(accumulate.lift_coc[1]) + " diopters.");
             }
             const char *moved = nullptr;
             std::optional<GameCall> call;
             {
                 StateGuard guard(gpu.context(), moved);
-                call = gpu.run_lift(map, accumulate.lift, accumulate.lift_threshold, expand, measure);
+                call = gpu.run_lift(map, accumulate, camera);
             }
-            lift_expanded = expand && call && !moved;
             if (moved)
                 trip(moved);
             else if (!call)
@@ -1200,7 +1195,7 @@ namespace enhancements
                     frame_save_wanted = false;
                 }
                 if (accumulate.mode == AccumulateMode::add && accumulate.lift > 0 && map[Entry::hdr_scene])
-                    lift_at_bloom(map, true);
+                    lift_at_bloom(map);
             }
             const Plan p = plan(step, map, settings, inputs());
             report.note(p);
@@ -1410,8 +1405,6 @@ namespace enhancements
             if (step == Step::bloom)
             {
                 accumulate_at_bloom(map);
-                if (lift_expanded)
-                    lift_at_bloom(map, false);
                 copy_depth_at_bloom(map);
             }
             if (step == Step::tonemap_read && settings.scene_light != 0)

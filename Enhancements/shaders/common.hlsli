@@ -144,9 +144,12 @@ cbuffer Constants : register(b0)
     float2 accum_chromatic;     // EnhancementsAccumulate.chromatic
     float accum_swirl;          // EnhancementsAccumulate.swirl
     float accum_lift;           // the highlight lift's strength (lift.hlsli); 0 off
-    float accum_lift_threshold; // its threshold in times the scene's mean luminance (lift.hlsli)
-    uint accum_lift_mode;       // lift_ps.hlsl's: 1 expand, 2 compress
-    float2 accum_lift_pad;
+    float accum_lift_threshold; // how far above its surroundings light starts to lift
+    float2 accum_lift_coc;      // the lens's CoC in render pixels per diopter, and the focus's diopters
+    float accum_lift_block;     // lift_ps.hlsl's block side in render pixels
+    float4 accum_lift_depth;    // 1 / view depth of a reversed depth d: -(x d + y) / (z d + w)
+    uint accum_lift_pass;       // lift_ps.hlsl's draw
+    float3 accum_lift_pad;
 };
 
 SamplerState point_clamp : register(s0);

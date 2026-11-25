@@ -410,7 +410,8 @@ namespace enhancements
         float chromatic[2] = { 0.0f, 0.0f };
         float swirl = 0.0f;
         float lift = 0.0f;              // the highlight lift's strength (shaders/lift.hlsli); 0 off
-        float lift_threshold = 2.0f;    // its threshold in times the frame's mean luminance
+        float lift_threshold = 2.0f;    // how far above its surroundings out-of-focus light starts to lift
+        float lift_coc[2] = { 0.0f, 0.0f };     // the lens's CoC in render pixels per diopter, and the focus's diopters
     };
 
     // Honors size like parse_settings, maps an unknown mode to off, replaces non-finite floats with the default and
