@@ -748,9 +748,8 @@ typedef struct EnhancementsAccumulate
                                 // before its gap fill and the sum, and the average compressed back by the inverse, so what is
                                 // in focus comes back as it was and a small bright light keeps its disc as a brighter scene's
                                 // would; the strength, 0 (the default) off to 8
-    float lift_threshold;       // where the lift starts, in times the frame's mean luminance as the depth of field's
-                                // autofocus measured it when the sum emptied; default 2, clamped to 1..16. Version 59 added
-                                // these.
+    float lift_threshold;       // where the lift starts, in times the scene's mean luminance, which the add-on measures from
+                                // the scene as the sum's samples begin; default 2, clamped to 1..16. Version 59 added these.
 } EnhancementsAccumulate;
 
 // A traced shot: while active, every frame runs the trace pass with the gather on over whatever settings are applied,

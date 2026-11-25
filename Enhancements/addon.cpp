@@ -203,10 +203,8 @@ namespace enhancements
         bool shot_frame = false;            // this frame runs with the shot
         uint64_t settings_seen = 0, camera_seen = 0, compare_seen = 0, accumulate_seen = 0, scene_seen = 0, shot_seen = 0, lights_seen = 0;
         AccumulateSettings accumulate;      // this frame's, taken at present
-        // The highlight lift's threshold in the scene's units, taken from the autofocus's mean luminance when a sum's
-        // generation first expands, so its samples and its average share one curve; and whether this frame's scene is
-        // expanded, to compress it back after the accumulator.
-        float lift_threshold = 0;
+        // The sum generation whose key the highlight lift measured, as its first frame expands, so its samples and its
+        // average share one curve; and whether this frame's scene is expanded, to compress it back after the accumulator.
         uint32_t lift_generation = 0xffffffffu;
         bool lift_expanded = false;
         Accumulator accumulator;
@@ -795,19 +793,18 @@ namespace enhancements
         // fill among them, and compressing it back after the accumulator.
         void lift_at_bloom(const FrameMap &map, bool expand)
         {
-            if (expand && accumulate.generation != lift_generation)
+            const bool measure = expand && accumulate.generation != lift_generation;
+            if (measure)
             {
                 lift_generation = accumulate.generation;
-                lift_threshold = accumulate.lift_threshold * std::max(gpu.dof_key(), 0.25f);
                 log(reshade::log::level::info, "the highlight lift of generation " + std::to_string(accumulate.generation) + " starts at "
-                    + std::to_string(lift_threshold) + ", " + std::to_string(accumulate.lift_threshold) + " times the mean luminance "
-                    + std::to_string(gpu.dof_key()) + ", at strength " + std::to_string(accumulate.lift) + ".");
+                    + std::to_string(accumulate.lift_threshold) + " times the scene's mean luminance, at strength " + std::to_string(accumulate.lift) + ".");
             }
             const char *moved = nullptr;
             std::optional<GameCall> call;
             {
                 StateGuard guard(gpu.context(), moved);
-                call = gpu.run_lift(map, accumulate.lift, lift_threshold, expand);
+                call = gpu.run_lift(map, accumulate.lift, accumulate.lift_threshold, expand, measure);
             }
             lift_expanded = expand && call && !moved;
             if (moved)
@@ -833,7 +830,7 @@ namespace enhancements
             std::optional<GameCall> call;
             {
                 StateGuard guard(gpu.context(), moved);
-                call = gpu.run_accumulate(map, tick, accumulate, camera.lens, settings.flip, lift_threshold);
+                call = gpu.run_accumulate(map, tick, accumulate, camera.lens, settings.flip);
             }
             if (moved)
                 trip(moved);

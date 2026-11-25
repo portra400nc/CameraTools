@@ -6,10 +6,11 @@
 
 Texture2D<float4> sum : register(t0);       // rgb: weighted HDR sum, a: weight sum
 Texture2D<float3> scene : register(t1);     // mirror of the game's HDR scene
+Texture2D<float> key : register(t2);        // the highlight lift's, lift_key_ps.hlsl's; unbound without the lift
 
 float3 main(float4 position : SV_Position) : SV_Target0
 {
     int3 pixel = int3(position.xy, 0);
     float4 s = sum.Load(pixel);
-    return s.a > 0 ? lift_compress(s.rgb / s.a, accum_lift_threshold, accum_lift) * accum_gain : scene.Load(pixel);
+    return s.a > 0 ? lift_compress(s.rgb / s.a, lift_threshold(key.Load(int3(0, 0, 0))), accum_lift) * accum_gain : scene.Load(pixel);
 }

@@ -7,11 +7,17 @@
 // By luminance, so hues stay: x = L / t goes to g(x) = min(1 + (exp(s (x - 1)) - 1) / s, kLiftMostGain x) above 1, which
 // meets t with slope 1. The cap keeps a sun's texel within the scene's float format; both parts rise, so the inverse is
 // the larger of their inverses. t is the threshold in the scene's units, s the strength (0: off).
+//
+// The threshold is accum_lift_threshold times the scene's mean luminance that lift_key_ps.hlsl measured when the sum's
+// samples began, at least kLiftKeyFloor, as the depth of field's highlights take theirs (dof.hlsli, kDofHighlightKeyFloor).
 #ifndef LIFT_HLSLI
 #define LIFT_HLSLI
 
 static const float kLiftMostGain = 256.0;
 static const float3 kLiftLuma = float3(0.2126, 0.7152, 0.0722);
+static const float kLiftKeyFloor = 0.25;
+
+float lift_threshold(float key) { return accum_lift_threshold * max(key, kLiftKeyFloor); }
 
 float3 lift_expand(float3 c, float t, float s)
 {

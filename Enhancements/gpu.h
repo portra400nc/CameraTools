@@ -558,14 +558,12 @@ namespace enhancements
         // times the cat's-eye weight of lens, with the weight in alpha, additively into sum_; present draws sum.rgb / sum.a
         // where sum.a > 0, and the scene elsewhere, and copies it over the game's HDR scene. Empty when a texture of ours
         // failed; then the sum is not to be trusted.
-        // lift_threshold: the highlight lift's in the scene's units, which present mode compresses the average by.
         std::optional<GameCall> run_accumulate(const FrameMap &map, const AccumulateTick &tick, const AccumulateSettings &settings,
-            const LensSample &lens, bool flip, float lift_threshold);
+            const LensSample &lens, bool flip);
         // The highlight lift over the HDR scene (shaders/lift.hlsli): expands it before a lens sample's gap fill, or
-        // compresses it back after the sample is added.
-        std::optional<GameCall> run_lift(const FrameMap &map, float strength, float threshold, bool expand);
-        // The frame's mean luminance the depth of field's autofocus last read back with the focus; 0 before any.
-        float dof_key() const { return dof_key_; }
+        // compresses it back after the sample is added. threshold: in times the scene's mean luminance, which measure
+        // takes from this frame's scene first, as a sum's samples begin.
+        std::optional<GameCall> run_lift(const FrameMap &map, float strength, float threshold, bool expand, bool measure);
 
         // At the bloom step: copies the main depth's texel at into a CPU-readable texture for read_depth_texel. false when
         // a copy is still unread or a texture of ours failed.
@@ -678,7 +676,7 @@ namespace enhancements
         bool sync_sky_tables(const std::shared_ptr<const Atmosphere> &atmosphere);
         ComPtr<ID3D11ComputeShader> dof_scatter_cs_, cloud_shape_cs_, cloud_detail_cs_;
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, ambient_specular_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_, cloud_map_ps_, clouds_ps_, cloud_shadows_ps_, clouds_apply_ps_, clouds_resolve_ps_, clouds_painted_ps_,
-            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, lift_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, character_light_ps_, character_shadow_ps_, character_sun_ps_, grass_capture_ps_, grass_ps_, grass_apply_ps_, character_balance_ps_, character_balance_adapt_ps_, sky_dome_view_ps_, sky_direction_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
+            tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, lift_ps_, lift_key_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, character_light_ps_, character_shadow_ps_, character_sun_ps_, grass_capture_ps_, grass_ps_, grass_apply_ps_, character_balance_ps_, character_balance_adapt_ps_, sky_dome_view_ps_, sky_direction_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
             apply_gather_ps_, reflect_apply_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_, dof_soften_ps_, dof_behind_ps_,
             dof_sprite_ps_, dof_lift_ps_, dof_display_in_ps_, dof_display_out_ps_, dof_near_ps_, dof_near_mask_ps_, dof_near_fill_ps_, flare_visibility_ps_, flare_ps_,
             dng_ps_, dng_flare_ps_, exposure_meter_ps_, exposure_adapt_ps_;
@@ -841,7 +839,7 @@ namespace enhancements
         Readback exposure_read_;        // the stops for the log
         bool exposure_read_pending_ = false;
         Scratch dof_focus_[2];      // 1x1 R32G32_FLOAT: the focus distance in meters and the frame's mean luminance, this frame's and the last's in turn
-        float dof_key_ = 0;         // the mean luminance read back with the focus
+        Scratch lift_key_;          // 1x1 R32_FLOAT: the highlight lift's key, the scene's mean luminance as its sum began
         float lift_ = 0, lift_threshold_ = 0;   // the sum's highlight lift, as its last accumulate call gave it, for a DNG of it
         uint32_t dof_focus_at_ = 0; // the one this frame writes
         uint32_t dof_focus_kept_ = 0;   // the one the last bloom step wrote, which the display place reads
