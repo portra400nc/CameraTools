@@ -1588,6 +1588,7 @@ namespace enhancements
         const std::optional<Texture> &normals = map[Entry::normals];
         // Without a sun, before sunrise and after sunset, the game draws no shadow mask: the leaves are captured unlit by
         // the sun (an unbound mask reads 0), and Leaf shading still lights them by the sky.
+        const std::optional<Texture> &smoothness = map[Entry::smoothness];
         if (!albedo || !depth || !normals || !map[Entry::ambient_diffuse])
         {
             why = std::string("the frame found no ") + (!albedo ? "albedo" : !depth ? "depth" : !normals ? "normals" : "diffuse irradiance");
@@ -1603,7 +1604,8 @@ namespace enhancements
             || !normals_.sync(d, native(*normals), static_cast<DXGI_FORMAT>(normals->format), false)
             || (mask && !shadow_mask_in_.sync(d, native(*mask), static_cast<DXGI_FORMAT>(mask->format), false))
             || !leaf_albedo_.sync(d, native(*albedo), static_cast<DXGI_FORMAT>(albedo->format), false)
-            || !depth_.sync(d, native(*depth), static_cast<DXGI_FORMAT>(depth->format), false))
+            || !depth_.sync(d, native(*depth), static_cast<DXGI_FORMAT>(depth->format), false)
+            || (smoothness && !smoothness_in_.sync(d, native(*smoothness), static_cast<DXGI_FORMAT>(smoothness->format), false)))
         {
             why = "a mirror of the game's targets could not be made";
             return false;
@@ -1615,8 +1617,10 @@ namespace enhancements
         depth_.copy_from(c, native(*depth));
         normals_.copy_from(c, native(*normals));
         irradiance_in_.copy_from(c, native(*map[Entry::ambient_diffuse]));
-        ID3D11ShaderResourceView *const srvs[] = { mask ? shadow_mask_in_.srv() : nullptr, normals_.srv(), depth_.srv(), depth_.stencil_srv(), nullptr,
-            leaf_albedo_.srv(), irradiance_in_.srv() };
+        if (smoothness)
+            smoothness_in_.copy_from(c, native(*smoothness));
+        ID3D11ShaderResourceView *const srvs[] = { mask ? shadow_mask_in_.srv() : nullptr, normals_.srv(), depth_.srv(), depth_.stencil_srv(),
+            smoothness ? smoothness_in_.srv() : nullptr, leaf_albedo_.srv(), irradiance_in_.srv() };
         ID3D11RenderTargetView *const targets[] = { leaves_.rtv(), leaf_normals_.rtv(), leaf_light_.rtv() };
         draw_fullscreen(leaf_capture_ps_.Get(), srvs, 7, targets, 3, map.render);
         leaves_fresh_ = true;

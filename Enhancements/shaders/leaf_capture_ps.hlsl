@@ -5,6 +5,7 @@
 #include "gbuffer.hlsli"
 
 Texture2D<float2> shadow_mask : register(t0);   // the game's shadow mask: .x sun visibility
+Texture2D<float> smoothness : register(t4);     // G-buffer rt4; unbound, 0, when the frame found none
 Texture2D<float4> albedo : register(t5);        // G-buffer rt1, sRGB-encoded as stored
 Texture2D<float3> irradiance : register(t6);    // the diffuse irradiance (ambient pair rt1), ours when Ambient light is on
 
@@ -23,7 +24,14 @@ Leaf main(float4 position : SV_Position)
     if (!is_foliage(s))
         return o;
     o.color = float4(albedo.Load(int3(pixel, 0)).rgb, shadow_mask.Load(int3(pixel, 0)).x);
-    o.normal = float4(normals.Load(int3(pixel, 0)).rgb, s == 136 || s == 137 ? 1 : 0);
+    // Trees' and bushes' leaves, and the petals and leaves lying on the ground: stencil 129 as grass, but with no
+    // smoothness at all and a color that is not green (fallen cherry petals in Inazuma, 2026-11-25), which the game lights
+    // with its leaf ramp as brightly as the canopy.
+    float3 c = albedo.Load(int3(pixel, 0)).rgb;
+    float high = max(c.r, max(c.g, c.b));
+    bool green = high > 1e-4 && c.g - max(c.r, c.b) > 0.02 * high;
+    bool fallen = s == 129 && smoothness.Load(int3(pixel, 0)) < 0.004 && !green;
+    o.normal = float4(normals.Load(int3(pixel, 0)).rgb, s == 136 || s == 137 || fallen ? 1 : 0);
     o.light = float4(irradiance.Load(int3(pixel, 0)), 1);
     return o;
 }
