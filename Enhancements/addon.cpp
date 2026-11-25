@@ -218,6 +218,7 @@ namespace enhancements
         std::optional<DepthCopy> depth_copy;
         Camera camera {};
         uint32_t camera_age = UINT32_MAX;
+        bool camera_taken = false;          // this frame's camera push was taken, at its first step
         bool scene_frame = false;           // the scene capture replays this frame's G-buffer draws
         bool scene_gbuffer = false;         // and copies its G-buffer at the combine step: the view face of a GBUFFER request
         bool scene_light = false;           // and its albedo, stencil and HDR: every face of a LIGHT request
@@ -1177,6 +1178,12 @@ namespace enhancements
         // The work at one moment. Returns the event's return value: true skips the game's call.
         bool on_step(Step step)
         {
+            if (!camera_taken)
+            {
+                camera_taken = true;
+                if (camera_box.take(camera, camera_seen))
+                    camera_age = 0;
+            }
             const FrameMap &map = tracker.map();
             // The plug-ins draw into the G-buffer when its pass ends, before anything reads it, and read it whole once the
             // lighting begins.
@@ -3045,9 +3052,11 @@ namespace enhancements
             }
             shot_frame = !capture && shot.active;
             trace_gpu.shot_consistency(shot_frame);
-            if (camera_box.take(camera, camera_seen))
-                camera_age = 0;
-            else if (camera_age != UINT32_MAX)
+            // The camera is taken at the frame's first step, not here: the game's main thread pushes the camera of the frame
+            // it is about to render after the last frame's present, so taken here every frame ran on the camera before it, which
+            // a lens-sampled shot holding a sample one frame showed as each view reprojected with the last view's camera.
+            camera_taken = false;
+            if (camera_age != UINT32_MAX)
                 camera_age++;
             accumulate_box.take(accumulate, accumulate_seen);
             celestial_box.take(celestial, celestial_seen);
