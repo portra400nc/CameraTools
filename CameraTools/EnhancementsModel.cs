@@ -252,7 +252,7 @@ namespace CameraTools
             Slider(Enhancement.LightThroughLeavesStrength, Enhancement.LightThroughLeaves, "Strength", 0f, 200f, 100f, 5f, 0, "%"),
             Switch(Enhancement.LeafShading, "Leaf shading"),
             Slider(Enhancement.LeafShadingStrength, Enhancement.LeafShading, "Strength", 0f, 100f, 100f, 5f, 0, "%"),
-            Slider(Enhancement.LeafBrightness, Enhancement.LeafShading, "Brightness", 25f, 200f, 100f, 5f, 0, "%"),
+            Slider(Enhancement.LeafBrightness, Enhancement.LeafShading, "Brightness", 25f, 500f, 100f, 5f, 0, "%"),
             Slider(Enhancement.LeafSaturation, Enhancement.LeafShading, "Saturation", 0f, 200f, 100f, 5f, 0, "%"),
             Switch(Enhancement.SkillLight, "Skill light"),
             Slider(Enhancement.SkillLightStrength, Enhancement.SkillLight, "Strength", 0f, 400f, 100f, 5f, 0, "%"),

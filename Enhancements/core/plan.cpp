@@ -560,7 +560,7 @@ namespace enhancements
             s.leaf_shading = finite_or(raw.leaves.shading, 0.0f, 0.0f, 1.0f);
         if (knows(offsetof(EnhancementsSettings, leaf_look), sizeof raw.leaf_look))
         {
-            s.leaf_brightness = 1 + finite_or(raw.leaf_look.brightness, 0.0f, -0.75f, 1.0f);
+            s.leaf_brightness = 1 + finite_or(raw.leaf_look.brightness, 0.0f, -0.75f, 4.0f);
             s.leaf_saturation = 1 + finite_or(raw.leaf_look.saturation, 0.0f, -1.0f, 1.0f);
         }
         if (knows(offsetof(EnhancementsSettings, cloud_layers), sizeof raw.cloud_layers))

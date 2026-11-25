@@ -655,10 +655,10 @@ typedef struct EnhancementsLeaves
 
 // How Leaf shading colors the relit leaves: brightness and saturation as changes from 0 (the default), the leaves as the
 // pass colors them, a darker, less saturated green the more saturated a leaf is. Brightness -0.75 is a quarter as bright,
-// 1 twice; saturation -1 gray, 1 twice. Version 61 added it.
+// 4 five times, as bright as the game's leaf lighting gets; saturation -1 gray, 1 twice. Version 61 added it.
 typedef struct EnhancementsLeafLook
 {
-    float brightness;           // clamped to -0.75 to 1
+    float brightness;           // clamped to -0.75 to 4
     float saturation;           // clamped to -1 to 1
 } EnhancementsLeafLook;
 

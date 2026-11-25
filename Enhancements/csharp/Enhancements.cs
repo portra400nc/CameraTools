@@ -329,7 +329,7 @@ namespace CameraToolsEnhancements
     [StructLayout(LayoutKind.Sequential)]
     internal struct EnhancementsLeafLook
     {
-        public float Brightness;            // -0.75 to 1
+        public float Brightness;            // -0.75 to 4
         public float Saturation;            // -1 to 1
     }
 
