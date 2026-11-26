@@ -53,6 +53,14 @@ namespace CameraTools
                 : WeatherKind.Sunny;
         }
 
+        // The preset's weather, or Cloudy where the climate is cloudy and the preset a clear sky: in Inazuma the game draws
+        // its cloudy climate, and the World tab's Cloudy, with "BigWorld/Weather_ClearSky" (2026-11-26).
+        public static WeatherKind Of(string preset, bool cloudy)
+        {
+            var kind = OfPreset(preset);
+            return kind == WeatherKind.Sunny && cloudy ? WeatherKind.Cloudy : kind;
+        }
+
         // The look of a weather: Sunny's is the user's clouds, haziness and Haze effect as their rows set them.
         public static WeatherLook Look(WeatherKind kind, EnhancementValues values) => kind == WeatherKind.Sunny
             ? new((int)values[Enhancement.CloudKind], values[Enhancement.CloudCoverage], values[Enhancement.CloudHeight], values[Enhancement.CloudThickness],

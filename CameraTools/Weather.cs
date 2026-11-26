@@ -139,6 +139,23 @@ namespace CameraTools
             }
         }
 
+        // Whether the climate shown is cloudy: the World tab's while it asks for one, else the game's.
+        public static bool Cloudy()
+        {
+            if (held != null)
+                return Options[held.Choice].Climate == Climate.CLIMATE_CLOUDY;
+            try
+            {
+                var manager = Manager();
+                return manager != null && manager.KNKAEDIADAI() == Climate.CLIMATE_CLOUDY;
+            }
+            catch (Exception e)
+            {
+                CameraTools.LogOnce($"Weather: reading the climate failed ({e.GetType().Name}: {e.Message}).");
+                return false;
+            }
+        }
+
         // The stored instance, not Instance, which may create a second manager when there is none.
         private static WeatherManager Manager()
         {

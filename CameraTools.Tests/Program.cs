@@ -402,6 +402,9 @@ Check("Ambient light's Color is the game's at 1 and gray at 0, and the tone map'
             && WeatherLooks.OfPreset("BigWorld/Weather_Storm") == WeatherKind.Thunderstorm && WeatherLooks.OfPreset("BigWorld/Weather_Snow_Heavy") == WeatherKind.Snow
             && WeatherLooks.OfPreset("BigWorld/Weather_Foggy") == WeatherKind.Mist && WeatherLooks.OfPreset("BigWorld/Weather_Cloudy") == WeatherKind.Cloudy
             && WeatherLooks.OfPreset(null) == WeatherKind.Sunny && WeatherLooks.OfPreset("Desert/Weather_Sandstorm") == WeatherKind.Mist);
+        Check("a cloudy climate over a clear-sky preset looks Cloudy, and over rain still rains",
+            WeatherLooks.Of("BigWorld/Weather_ClearSky", true) == WeatherKind.Cloudy && WeatherLooks.Of("BigWorld/Weather_ClearSky", false) == WeatherKind.Sunny
+            && WeatherLooks.Of("BigWorld/Weather_Rain_Light", true) == WeatherKind.Rain);
         Check("Sunny is the user's clouds and haziness, its sun whole; Rain a low stratus with most of the sun held back",
             sunny.Coverage == user[Enhancement.CloudCoverage] && sunny.Height == user[Enhancement.CloudHeight] && sunny.Haziness == user[Enhancement.SkyHaziness] && sunny.Sun == 1f
             && rain.Kind == 2 && rain.Coverage > 90f && rain.Height < 1000f && rain.Sun < 0.2f && rain.Mist > 0f);

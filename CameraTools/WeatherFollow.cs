@@ -42,7 +42,7 @@ namespace CameraTools
                 return;
             }
             string preset = Weather.RenderedPreset();
-            var now = WeatherLooks.OfPreset(preset);
+            var now = WeatherLooks.Of(preset, Weather.Cloudy());
             if (Current == null || now != target)
                 MelonLoader.Melon<CameraTools>.Logger.Msg($"Weather: the sky shows {preset ?? "no preset"}, which looks {WeatherLooks.Name(now)}.");
             if (Current == null)
