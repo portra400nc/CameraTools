@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define ENHANCEMENTS_VERSION 61
+#define ENHANCEMENTS_VERSION 62
 
 // The native tests compile this header on macOS, where there is nothing to export.
 #ifdef _WIN32
@@ -662,6 +662,15 @@ typedef struct EnhancementsLeafLook
     float saturation;           // clamped to -1 to 1
 } EnhancementsLeafLook;
 
+// The drawn sky's light under an overcast: the clouds and the weather mist in front of them lit sky_ev stops brighter, by
+// the share of the sky the clouds close (nothing at 60% coverage and below, all of it at 100%), while the world keeps its
+// light. Our rain deck showed a quarter as bright as the light it sent onto the ground, where in a rainy-day photo the
+// sky is some ten times as bright as wet road. Version 62 added it.
+typedef struct EnhancementsOvercastLight
+{
+    float sky_ev;               // 0 (the default) as lit; clamped to 0 to 4
+} EnhancementsOvercastLight;
+
 typedef struct EnhancementsSceneLight
 {
     float exposure_ev;          // 0 (the default) as the game lights it; clamped to -3 to 3
@@ -727,6 +736,7 @@ typedef struct EnhancementsSettings
     EnhancementsLeaves leaves;
     EnhancementsCloudLayers cloud_layers;
     EnhancementsLeafLook leaf_look;
+    EnhancementsOvercastLight overcast_light;
 } EnhancementsSettings;
 
 // Lens-sampled depth of field: over several frames, the caller moves the camera to points of a virtual aperture and

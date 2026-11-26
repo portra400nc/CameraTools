@@ -286,6 +286,9 @@ namespace enhancements
             return t * t * (3 - 2 * t);
         }
 
+        // How much brighter the drawn clouds and the weather mist show than lit, by how overcast the sky is.
+        float overcast_sky() { return std::exp2(settings.overcast_sky_ev * overcast()); }
+
         // The camera's sun and sky light as an overcast lets them light the mist: a tenth of the sun under a whole one, and
         // the physical horizon's own light, at the drawn sky's exposure, grayed and at 0.8, so a thick weather mist fades
         // into the sky it stands against rather than into the game's sky color, which no overcast dims.
@@ -296,7 +299,7 @@ namespace enhancements
                 return c;
             const Vec3f &h = live_sky->horizon;
             // As bright as the deck's base near the horizon, as in a rainy-day photo, where at half it was darker than the sky.
-            const float gray = (0.2126f * h[0] + 0.7152f * h[1] + 0.0722f * h[2]) * 0.8f;
+            const float gray = (0.2126f * h[0] + 0.7152f * h[1] + 0.0722f * h[2]) * 0.8f * overcast_sky();
             for (int k = 0; k < 3; k++)
             {
                 c.sun_color[k] *= 1 - 0.9f * o;
@@ -483,6 +486,7 @@ namespace enhancements
                         skip.push_back(std::strtoull(line.c_str(), nullptr, 16));
                 debug_skip = std::move(skip);
             }
+
             const fs::path ask = output_root() / "record-frame";
             if (fs::exists(ask, error))
             {
@@ -1384,7 +1388,10 @@ namespace enhancements
                         cloud_wind[0] = std::fmod(cloud_wind[0] + std::cos(radians) * step, 1.0e5f);
                         cloud_wind[1] = std::fmod(cloud_wind[1] + std::sin(radians) * step, 1.0e5f);
                         // A screenshot's frames, summed for its supersampling, march the clouds at the full size.
-                        call = gpu.run_clouds(map, settings.clouds, cloud_camera(), cloud_wind, frames, settings.flip,
+                        CloudSettings lit = settings.clouds;
+                        lit.sun *= overcast_sky();
+                        lit.ambient *= overcast_sky();
+                        call = gpu.run_clouds(map, lit, cloud_camera(), cloud_wind, frames, settings.flip,
                             sky_draw ? &*sky_draw : nullptr, accumulate.mode != AccumulateMode::off);
                         break;
                     }

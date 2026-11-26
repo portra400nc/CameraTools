@@ -325,6 +325,13 @@ namespace CameraToolsEnhancements
         public float Shading;               // leaves shaded by their facing, 0 the game's to 1
     }
 
+    // EnhancementsOvercastLight in enhancements.h: the drawn clouds' and weather mist's lift under an overcast, in stops.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct EnhancementsOvercastLight
+    {
+        public float SkyEv;                 // 0 to 4
+    }
+
     // EnhancementsLeafLook in enhancements.h: Leaf shading's brightness and saturation as changes from 0, the pass's own look.
     [StructLayout(LayoutKind.Sequential)]
     internal struct EnhancementsLeafLook
@@ -423,6 +430,7 @@ namespace CameraToolsEnhancements
         public EnhancementsLeaves Leaves;
         public EnhancementsCloudLayers CloudLayers;
         public EnhancementsLeafLook LeafLook;
+        public EnhancementsOvercastLight OvercastLight;
 
         // The add-on's defaults: everything off, game targets upside down, and when switched on ambient level 0.6, AO
         // strength 0.5 at a 1 m radius, half that strength on grass, vegetation and foliage, full-strength contact
@@ -728,7 +736,7 @@ namespace CameraToolsEnhancements
     internal static class Enhancements
     {
         private const string ModuleName = "CameraToolsEnhancements.addon64";
-        private const uint Version = 61;
+        private const uint Version = 62;
         private const float LookInterval = 1f;
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

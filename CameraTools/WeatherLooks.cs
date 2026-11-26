@@ -8,10 +8,10 @@ namespace CameraTools
     // A weather's look: our clouds (a Clouds Type's shape and its rows), the sky's haziness, the mist (the Haze effect's
     // density row and height falloff), the share of the sun's and the moon's direct light the cover lets through, the
     // rain, 0 none to 1 a downpour, the lightning, 0 none to 1 a strike about every 7 seconds, and the mist's banks: how
-    // patchy, 0 an even haze to 1 banks with clear air between, and how many meters across, and a lift of the finished
-    // picture in stops.
+    // patchy, 0 an even haze to 1 banks with clear air between, and how many meters across, a lift of the finished
+    // picture in stops, and a lift of the clouds and the mist alone under the overcast, in stops.
     internal sealed record WeatherLook(int Kind, float Coverage, float Height, float Thickness, float Size, float Density, float EdgeDetail,
-        float CloudSun, float CloudSky, float Haziness, float Mist, float MistFalloff, float Sun, bool Clouds = true, float Rain = 0f, float Lightning = 0f, float Banks = 0f, float BankSize = 40f, float Exposure = 0f);
+        float CloudSun, float CloudSky, float Haziness, float Mist, float MistFalloff, float Sun, bool Clouds = true, float Rain = 0f, float Lightning = 0f, float Banks = 0f, float BankSize = 40f, float Exposure = 0f, float SkyEv = 0f);
 
     internal static class WeatherLooks
     {
@@ -24,7 +24,9 @@ namespace CameraTools
         private static readonly Dictionary<WeatherKind, WeatherLook> Looks = new()
         {
             [WeatherKind.Cloudy] = new(Stratocumulus, 82f, 2200f, 800f, 500f, 0.1f, 0.8f, 1f, 1f, 0.15f, 1.5f, 0.02f, 0.45f, Banks: 0.4f, BankSize: 80f),
-            [WeatherKind.Rain] = new(Stratus, 97f, 900f, 600f, 1000f, 0.1f, 0.5f, 0.6f, 0.8f, 0.3f, 3f, 0.006f, 0.12f, Rain: 0.5f, Banks: 0.1f, BankSize: 80f, Exposure: 1f),
+            // Rain's exposure is a rainy-road photo's: a pale gray sky (190 of 255) over dark wet road (64); its deck and mist
+            // showed a quarter as bright as the light they sent onto the ground.
+            [WeatherKind.Rain] = new(Stratus, 97f, 900f, 600f, 1000f, 0.1f, 0.5f, 0.6f, 0.8f, 0.3f, 3f, 0.006f, 0.12f, Rain: 0.5f, Banks: 0.1f, BankSize: 80f, Exposure: 1.5f, SkyEv: 2.3f),
             [WeatherKind.Thunderstorm] = new(Stratus, 100f, 700f, 900f, 1000f, 0.14f, 0.4f, 0.4f, 0.6f, 0.35f, 4f, 0.006f, 0.06f, Rain: 1f, Lightning: 1f, Banks: 0.15f, BankSize: 80f, Exposure: 1f),
             // Snow is bright: a thinner, broken deck lit through, a whiter sky, more of the sun let through, and more
             // exposure, as the snow on the ground lights the air and the game lights its snowy world dimly.
@@ -69,7 +71,7 @@ namespace CameraTools
             float coverage = Mix(a.Clouds ? a.Coverage : 0f, b.Clouds ? b.Coverage : 0f);
             return new WeatherLook(shape.Kind, coverage, Mix(a.Height, b.Height), Mix(a.Thickness, b.Thickness), Mix(a.Size, b.Size), Mix(a.Density, b.Density),
                 Mix(a.EdgeDetail, b.EdgeDetail), Mix(a.CloudSun, b.CloudSun), Mix(a.CloudSky, b.CloudSky), Mix(a.Haziness, b.Haziness), Mix(a.Mist, b.Mist),
-                Mix(a.MistFalloff, b.MistFalloff), Mix(a.Sun, b.Sun), coverage > 0f, Mix(a.Rain, b.Rain), Mix(a.Lightning, b.Lightning), Mix(a.Banks, b.Banks), Mix(a.BankSize, b.BankSize), Mix(a.Exposure, b.Exposure));
+                Mix(a.MistFalloff, b.MistFalloff), Mix(a.Sun, b.Sun), coverage > 0f, Mix(a.Rain, b.Rain), Mix(a.Lightning, b.Lightning), Mix(a.Banks, b.Banks), Mix(a.BankSize, b.BankSize), Mix(a.Exposure, b.Exposure), Mix(a.SkyEv, b.SkyEv));
         }
 
         // The add-on's settings with the look's clouds, haziness and mist, the mist scaled by mist (1 the look's own). The
@@ -99,6 +101,7 @@ namespace CameraTools
             settings.Mist.Patchiness = look.Banks;
             settings.Mist.Size = look.BankSize;
             settings.SceneLight.ExposureEv = look.Exposure;
+            settings.OvercastLight.SkyEv = look.SkyEv;
         }
     }
 }

@@ -17,7 +17,7 @@ namespace enhancements
         static_assert(std::size(kCloudPatternNames) == static_cast<size_t>(CloudPattern::count));
         const char *const kCloudTypeNames[] = { "cumulus", "stratocumulus", "stratus", "cumulonimbus", "towering" };
         static_assert(std::size(kCloudTypeNames) == static_cast<size_t>(CloudType::count));
-        static_assert(sizeof(EnhancementsSettings) == 608, "settings_tsv writes every field: give a new one a column");
+        static_assert(sizeof(EnhancementsSettings) == 612, "settings_tsv writes every field: give a new one a column");
         // compare_remaining took the padding at the end, so a caller built before it still sends 72 bytes. The accumulator's
         // three fields follow, and the scene capture's three took the 4 bytes of padding after them and one more row, so a
         // caller of version 6 sends 88 and gets scene_face in its padding. The trace's five follow them, and the gather's four
@@ -180,7 +180,7 @@ namespace enhancements
                           "\tlens_flare.size\tlens_flare.warmth\tlens_flare.chromatic\tlens_flare.visibility_seconds\tlens_flare.filled_arcs\tlens_flare.place\tlens_flare.rainbow\tlens_flare.texture"
                           "\tambient.neutral\ttonemap.shadows\ttonemap.highlights\tlens_softness.radius\ttonemap.auto_exposure\tsky.physical\tsky.haze"
                           "\tclouds.enabled\tclouds.coverage\tclouds.base\tclouds.thickness\tclouds.size\tclouds.stretch\tclouds.density"
-                          "\tclouds.detail\tclouds.wind_speed\tclouds.wind_direction\tclouds.sun\tclouds.ambient\tclouds.steps\tclouds.type\tsky.aerial\twater.enabled\twater.clarity\twater.waves\twater.size\tsky.sunset\tclouds.pattern\train.amount\train.lightning\tmist.patchiness\tmist.size\tscene_light.exposure_ev\ttransmission.strength\tgrass.root_shade\tgrass.layers\tgrass.port\tgrass.copies\tgrass.height\tleaves.shading\tclouds.middle.type\tclouds.middle.coverage\tclouds.middle.base\tclouds.middle.thickness\tclouds.middle.size\tclouds.middle.stretch\tclouds.middle.density\tclouds.middle.detail\tclouds.cirrus\tleaves.brightness\tleaves.saturation\n";
+                          "\tclouds.detail\tclouds.wind_speed\tclouds.wind_direction\tclouds.sun\tclouds.ambient\tclouds.steps\tclouds.type\tsky.aerial\twater.enabled\twater.clarity\twater.waves\twater.size\tsky.sunset\tclouds.pattern\train.amount\train.lightning\tmist.patchiness\tmist.size\tscene_light.exposure_ev\ttransmission.strength\tgrass.root_shade\tgrass.layers\tgrass.port\tgrass.copies\tgrass.height\tleaves.shading\tclouds.middle.type\tclouds.middle.coverage\tclouds.middle.base\tclouds.middle.thickness\tclouds.middle.size\tclouds.middle.stretch\tclouds.middle.density\tclouds.middle.detail\tclouds.cirrus\tleaves.brightness\tleaves.saturation\tovercast_light.sky_ev\n";
         for (size_t i = 0; i < variants.size(); i++)
         {
             const Settings &s = variants[i].settings;
@@ -229,7 +229,7 @@ namespace enhancements
                 + (k.middle ? std::string(kCloudTypeNames[static_cast<size_t>(k.middle->type)]) + '\t' + number(k.middle->coverage) + '\t' + number(k.middle->base) + '\t'
                     + number(k.middle->thickness) + '\t' + number(k.middle->size) + '\t' + number(k.middle->stretch) + '\t' + number(k.middle->density) + '\t'
                     + number(k.middle->detail)
-                    : std::string("none\t\t\t\t\t\t\t")) + '\t' + number(k.cirrus) + '\t' + number(s.leaf_brightness) + '\t' + number(s.leaf_saturation) + '\n';
+                    : std::string("none\t\t\t\t\t\t\t")) + '\t' + number(k.cirrus) + '\t' + number(s.leaf_brightness) + '\t' + number(s.leaf_saturation) + '\t' + number(s.overcast_sky_ev) + '\n';
         }
         return out;
     }
