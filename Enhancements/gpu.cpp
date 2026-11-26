@@ -3286,6 +3286,19 @@ namespace enhancements
     bool Gpu::draw_water(const GameDraw &w, const FrameMap &map, const SkyDraw &sky, const PhysicalWaterSettings &water, const Camera &camera,
         bool flip, uint64_t frame, float seconds, float wind_radians)
     {
+        // Only the main view's water. The game also draws water for other cameras after the combine step, and their marks
+        // laid that view's sea, cut by its mountains, into the main view's sky as pale blocks (2026-11-26).
+        {
+            ID3D11RenderTargetView *rtv = nullptr;
+            context_->OMGetRenderTargets(1, &rtv, nullptr);
+            ComPtr<ID3D11Resource> target;
+            if (rtv)
+                rtv->GetResource(&target);
+            release(rtv);
+            const std::optional<Texture> &hdr = map[Entry::hdr_scene];
+            if (!hdr || target.Get() != native(*hdr))
+                return false;
+        }
         // A frame whose forward step came after some of its water copies the scene at its first water draw instead, so
         // no water of the frame is left to the game.
         const bool first = frame != water_frame_;
