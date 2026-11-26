@@ -206,7 +206,11 @@ GatherData gather_ray_of(GatherData r, float3 o, float3 d, float3 eye, uint seed
             float3 q = o + d * h.t;
             o = q + hn * (0.02f + 1.0e-4f * length(q - eye));
             float3 albedo = albedo_of(r1.w);
-            float gain = max(min(surface, 0.9f / max(max(albedo.x, max(albedo.y, albedo.z)), 1.0e-3f)), 1.0f);
+            uint cls = (r0.w >> 24) & 15u;
+            bool card = cls == 1u || cls == 2u;
+            // Leaves and grass reflect what the game shows of them: brightened toward 0.9 as the rest, a purple canopy cast
+            // saturated magenta over the ground beside it (2026-11-26), where real leaves reflect a tenth of the light.
+            float gain = max(min(card ? 1.0f : surface, 0.9f / max(max(albedo.x, max(albedo.y, albedo.z)), 1.0e-3f)), 1.0f);
             albedo = albedo * gain;
             if (bounce == 0u)
             {
@@ -244,15 +248,13 @@ GatherData gather_ray_of(GatherData r, float3 o, float3 d, float3 eye, uint seed
             {
                 if (!last)
                     here = float3(0.0f, 0.0f, 0.0f);
-                // Vegetation and foliage take the sun on either side at the middle of the game's wrapped cosine, from the side
-                // that faces it.
-                uint cls = (r0.w >> 24) & 15u;
-                bool card = cls == 1u || cls == 2u;
                 // The game's own lights, baked on the triangle's front (core/trace.h): 16 is kBakedLightRange.
                 if (front || card)
                     here = here + albedo_of(r2.w) * (16.0f * gain);
                 light = light + through * here;
                 through = through * albedo;
+                // Vegetation and foliage take the sun on either side at the middle of the game's wrapped cosine, from the side
+                // that faces it.
                 float cosine = card ? 0.5f : dot(hn, XYZ(gather_shade));
                 direct = cosine > 0.0f && sun_cone.w > 0.0f ? XYZ(gather_sun) * cosine : float3(0.0f, 0.0f, 0.0f);
                 // The one shadow ray goes to the sun or to a traced light: one light, taken at random, weighed against the sun by

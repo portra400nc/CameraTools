@@ -31,8 +31,9 @@ MAX_GROUP_SHARED = 64 * 24 * 4 + 32 * 4
 # and 2,049, and the reflection kernel, which shares it, from 44 and 1,764 to 51 and 1,971. Build 382 converged a 4K shot
 # of one bounce on the Deck in 173.5 s against build 381's 161.8 s at the same street: 7% slower. Bounce strength's gain on the
 # hit surfaces took them to 2,060 and 1,981 instructions. An anchored move's list of unseen pixels, which each kernel reads
-# its pixel from (work_pixel.hlsli), took them to 2,063 and 2,020.
-KERNELS = (("trace_cs", 48, 1700), ("gather_cs", 52, 2070), ("reflect_cs", 51, 2030))
+# its pixel from (work_pixel.hlsli), took them to 2,063 and 2,020. Leaves and grass left out of that gain took the gather
+# kernel to 2,071.
+KERNELS = (("trace_cs", 48, 1700), ("gather_cs", 52, 2080), ("reflect_cs", 51, 2030))
 
 
 def measure(asm):
