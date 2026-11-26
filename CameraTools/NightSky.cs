@@ -149,7 +149,7 @@ namespace CameraTools
             // Only the sky's share dims, by the sky the character sees: the game's lamps near it keep lighting it as before.
             var ours = Light.Value.Light;
             float ourDirect = 0.2126f * ours.X + 0.7152f * ours.Y + 0.0722f * ours.Z;
-            float gameDirect = Luminance(new Vec3(gameColor.r, gameColor.g, gameColor.b)) * gameIntensity;
+            float gameDirect = Luminance(Linear(gameColor)) * LinearIntensity(gameIntensity);
             float gameSky = gameDirect + gameAmbient;
             float outdoors = gameSky > 1e-4f ? Math.Clamp((ourDirect + AmbientScale * gameAmbient) / gameSky, 0f, 1f) : 1f;
             bodies.VegetationScale = outdoors;
@@ -162,7 +162,7 @@ namespace CameraTools
             float skyKept = gameSky * (open * outdoors + (1 - open));
             CharacterScale = gameSky + lamps > 1e-4f ? Math.Clamp((skyKept + lamps) / (gameSky + lamps), 0f, 1f) : 1f;
             var gameAmbientColor = GameAmbient();
-            CharacterWorld = WorldOnCharacter(ours, gameAmbientColor * AmbientScale, Linear(gameColor) * gameIntensity, gameAmbientColor, lamps, open);
+            CharacterWorld = WorldOnCharacter(ours, gameAmbientColor * AmbientScale, Linear(gameColor) * LinearIntensity(gameIntensity), gameAmbientColor, lamps, open);
             LampLight = lamps;
             SkyOpenness = open;
             Enhancements.SetCelestial(bodies);
@@ -236,6 +236,14 @@ namespace CameraTools
             var game = gameDirect + gameAmbient + new Vec3(lamps);
             return new CharacterWorldLight(ToUnity(sun * open), ToUnity((sky + new Vec3(lamps)) * open + game * (1 - open)), ToUnity(game));
         }
+
+        // Genshin draws its lights with Unity's lightsUseLinearIntensity off: the light the shaders get is the gamma color
+        // times the intensity, raised to 2.2, so the intensity counts raised to 2.2 too. Our sun pushed at 2.458 reached the
+        // combine constants as 7.235 (2026-11-26), three times the sky's balance at a morning sun.
+        private const float LightGamma = 2.2f;
+
+        // The linear light a main light of intensity i gives per unit of its linear color.
+        public static float LinearIntensity(float i) => MathF.Pow(Math.Max(i, 0f), LightGamma);
 
         private static Vec3 Linear(Color c)
         {
@@ -323,7 +331,7 @@ namespace CameraTools
             {
                 gameColor = main.color;
                 gameIntensity = main.intensity;
-                var linear = main.color.linear * main.intensity;
+                var linear = main.color.linear * LinearIntensity(main.intensity);
                 if (!sky.IsNight)
                     dayLight = 0.2126f * linear.r + 0.7152f * linear.g + 0.0722f * linear.b;
             }
@@ -344,7 +352,7 @@ namespace CameraTools
             ourRotation = Quaternion.LookRotation(-ToUnity(light.Toward));
             held.transform.rotation = ourRotation;
             held.color = ourColor;
-            held.intensity = ourIntensity;
+            held.intensity = MathF.Pow(ourIntensity, 1f / LightGamma);
             // Read back, as Unity stores them, so the next frame tells the game's writes from ours.
             ourColor = held.color;
             ourIntensity = held.intensity;
