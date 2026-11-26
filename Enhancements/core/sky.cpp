@@ -390,14 +390,21 @@ namespace enhancements
         float night_floor(const Atmosphere &a) { return kPi * luminance_of(night_glow(a, { 0, 1, 0 })); }
     }
 
-    float exposure_gain(const Atmosphere &a, const SkyLight &sun, const SkyLight &moon, const SkyExposure &exposure)
+    namespace
+    {
+    // The light the exposure meters, and its gain before the twilight's floor.
+    float metered_light(const Atmosphere &a, const SkyLight &sun, const SkyLight &moon)
     {
         // A low moon lights the level ground little, yet its beam, its glow and what faces it stay as bright as a high moon's:
         // the night takes the moon's light on a surface facing it where that is more, so a low moon is not exposed toward
         // a moonless night's brightness, which washed the sky out to a grey day around a glowing moon.
         const float facing_moon = moon.illuminance > 0 && moon.toward[1] > 0 ? moon.illuminance * luminance_of(sky_transmittance(a, moon.toward)) : 0;
-        const float light = level_illuminance(a, sun) + std::max(level_illuminance(a, moon), facing_moon) + night_floor(a);
-        const float low_sun = level_illuminance(a, { { 0.98481f, 0.17365f, 0 }, 1 });
+        return level_illuminance(a, sun) + std::max(level_illuminance(a, moon), facing_moon) + night_floor(a);
+    }
+
+    float metered_gain(const Atmosphere &a, const SkyLight &sun, const float light, const SkyExposure &exposure)
+    {
+        const float low_sun = level_illuminance(a, { { std::sqrt(1 - kLowSunSine * kLowSunSine), kLowSunSine, 0 }, 1 });
         const float noon = level_illuminance(a, { { 0, 1, 0 }, 1 });
         if (!(light > 0))
             return 1;
@@ -415,6 +422,40 @@ namespace enhancements
         // The lift auto exposure gave the blue hour, taken over as it fades out, so the night follows on without a jump.
         gain *= std::exp2(kNightLiftStops * (1 - auto_exposure_share(sun)));
         return std::min(gain, std::exp2(std::max(exposure.night_stops, 0.0f)));
+    }
+
+    // The sun at the given elevation, its azimuth kept.
+    SkyLight sun_at(const SkyLight &sun, float sine)
+    {
+        float x = sun.toward[0], z = sun.toward[2], flat = std::sqrt(x * x + z * z);
+        if (flat < 1e-6f)
+            x = 1, z = 0, flat = 1;
+        const float cosine = std::sqrt(1 - sine * sine);
+        return { { x / flat * cosine, sine, z / flat * cosine }, sun.illuminance };
+    }
+    }
+
+    float exposure_gain(const Atmosphere &a, const SkyLight &sun, const SkyLight &moon, const SkyExposure &exposure)
+    {
+        const float light = metered_light(a, sun, moon);
+        if (!(light > 0))
+            return 1;
+        const float gain = metered_gain(a, sun, light, exposure);
+        // The twilight shows no darker than the night before it, nor than the sun at 10 degrees: the exposure falls with the
+        // night's lift faster than the dawn's light rises, and with a high moon the world went 2.3 stops darker from the sun
+        // 12 degrees down till it was 3 up (2026-11-26). Its sky's light stays under the sun's at 10 degrees, though: lit by
+        // the sky alone, a blue hour as bright as a moonlit night drew a sky brighter than the morning's. The night itself,
+        // and the day from 10 degrees up, keep theirs.
+        if (!(sun.toward[1] < kLowSunSine) || !(sun.toward[1] > kNightSine) || sun.illuminance <= 0)
+            return gain;
+        const auto sky_light = [&](const SkyLight &at) { return sky_floor(a, at) + sky_floor(a, moon) + night_floor(a); };
+        const auto shown = [&](float sine, bool sky) {
+            const SkyLight at = sun_at(sun, sine);
+            const float l = metered_light(a, at, moon);
+            return (sky ? sky_light(at) : l) * metered_gain(a, at, l, exposure);
+        };
+        const float floor = std::min(shown(kNightSine, false), shown(kLowSunSine, false)) / light;
+        return std::max(gain, std::min(floor, shown(kLowSunSine, true) / sky_light(sun)));
     }
 
     float auto_exposure_share(const SkyLight &sun)

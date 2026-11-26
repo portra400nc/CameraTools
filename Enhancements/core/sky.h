@@ -100,6 +100,9 @@ namespace enhancements
         float night_stops = 17;
     };
 
+    // The sine of the sun at 10 degrees up, below which the exposure lifts the light by more than kDayAdaptation, and of the
+    // sun at 18 degrees down, where the night begins: the twilight between shows no darker than either.
+    constexpr float kLowSunSine = 0.17365f, kNightSine = -0.30902f;
     // How far the exposure follows the day's light on a level floor below the noon sun's: 0 not at all, 1 holding it as bright.
     constexpr float kDayAdaptation = 0.5f;
     // The sun's direct light on the world over the white balance's white: about 5200 K, its luminance 1.

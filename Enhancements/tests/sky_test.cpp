@@ -133,6 +133,34 @@ int main()
         std::fabs(afternoon_gain - 1.08f) < 0.02f && std::fabs(morning - 1.89f) < 0.03f);
     const Vec3f dusk_scale = sky_scale(air, { toward(-6), 1 }, no_moon, exposure);
     check("past it the exposure follows the falling light", dusk_scale[1] > 20 * day_scale[1]);
+    {
+        SkyExposure night = exposure;
+        night.night_power = 0.94f;
+        night.night_stops = 30;
+        const SkyLight high_moon = { toward(80), moon_illuminance(0.3f) };
+        const auto shown = [&](float degrees) {
+            const SkyLight sun = { toward(degrees), 1 };
+            return sky_scale(air, sun, high_moon, night)[1] * level_illuminance(air, sun);
+        };
+        const auto lit = [&](float degrees) {
+            const SkyLight sun = { toward(degrees), 1 };
+            return sky_scale(air, sun, high_moon, night)[1] * (level_illuminance(air, sun) + level_illuminance(air, high_moon) + 3.14159265f * luminance(night_glow(air, { 0, 1, 0 })));
+        };
+        float darkest = 1e30f;
+        for (float e = -18; e <= 10; e += 0.25f)
+            darkest = std::min(darkest, lit(e));
+        std::printf("INFO with a moon 80 degrees up, the twilight's darkest shown light is %.4f of the night's at 18 degrees down\n", darkest / lit(-18));
+        float brightest_sky = 0;
+        for (float e = -18; e <= 0; e += 0.25f)
+        {
+            const SkyLight sun = { toward(e), 1 };
+            brightest_sky = std::max(brightest_sky, sky_scale(air, sun, high_moon, night)[1] * (sky_floor(air, sun) + sky_floor(air, high_moon)));
+        }
+        const SkyLight low_sun = { toward(10), 1 };
+        const float morning_sky = sky_scale(air, low_sun, high_moon, night)[1] * (sky_floor(air, low_sun) + sky_floor(air, high_moon));
+        check("with a high moon the dawn keeps 3/4 of the night's light, where the exposure fell 2.3 stops faster than the light rose, and its sky till sunrise no brighter than at 10 degrees",
+            darkest > 0.7f * lit(-18) && brightest_sky < 1.01f * morning_sky && shown(-6) > 0);
+    }
     exposure.night_stops = 15;
     check("and at night it stops at night_stops", std::fabs(sky_scale(air, { toward(-40), 1 }, no_moon, exposure)[1] / day_scale[1] - std::exp2(15.0f)) < 1);
     check("glow lights the night sky toward the horizon more than overhead, and nothing below it",
