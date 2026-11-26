@@ -3288,7 +3288,8 @@ namespace enhancements
     {
         // A frame whose forward step came after some of its water copies the scene at its first water draw instead, so
         // no water of the frame is left to the game.
-        if (frame != water_frame_)
+        const bool first = frame != water_frame_;
+        if (first)
             copy_water_scene(map, frame);
         Constants k;
         if (frame != water_frame_ || !sky.atmosphere || !sync_sky_tables(sky.atmosphere) || !pass_constants(camera, map.render, flip, k))
@@ -3302,6 +3303,13 @@ namespace enhancements
         k.water_stamp = static_cast<uint32_t>(frame % 255) + 1;
         if (!water_marks_.sync(device_.Get(), map.render, DXGI_FORMAT_R32_UINT, false, true))
             return false;
+        // The stamp comes round again every 255 frames, so a pixel water left long ago would match it once more: the sky
+        // drew stale water depths as pale blocks of distant haze for three frames every 255 (2026-11-26, a still camera).
+        if (first)
+        {
+            const UINT zero[4] = {};
+            context_->ClearUnorderedAccessViewUint(water_marks_.uav(), zero);
+        }
         upload(k);
 
         ID3D11ShaderResourceView *game_depth = nullptr;
