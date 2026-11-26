@@ -449,6 +449,7 @@ namespace enhancements
         // the steps matched at, and is removed.
         bool record_frame = false;
         std::vector<uint64_t> debug_skip;   // the skip-shaders file's pixel shaders
+        std::vector<std::string> debug_passes;  // the skip-passes file's pass names
         std::vector<std::string> record_notes;
         fs::path output_root();
 
@@ -485,6 +486,17 @@ namespace enhancements
                     if (!line.empty())
                         skip.push_back(std::strtoull(line.c_str(), nullptr, 16));
                 debug_skip = std::move(skip);
+            }
+            // A debug file skip-passes, of pass names one a line as the status line writes them, leaves those passes out,
+            // to measure what each costs in a frame.
+            {
+                std::vector<std::string> passes;
+                std::ifstream in(output_root() / "skip-passes");
+                std::string line;
+                while (std::getline(in, line))
+                    if (!line.empty())
+                        passes.push_back(line);
+                debug_passes = std::move(passes);
             }
 
             const fs::path ask = output_root() / "record-frame";
@@ -1319,6 +1331,8 @@ namespace enhancements
                 {
                     const Decision &d = p.items[i];
                     if (d.kind != Decision::Kind::run)
+                        continue;
+                    if (!debug_passes.empty() && std::find(debug_passes.begin(), debug_passes.end(), pass_name(d.pass)) != debug_passes.end())
                         continue;
                     if (!guard)
                         guard.emplace(gpu.context(), moved);

@@ -551,6 +551,8 @@ namespace enhancements
 
     // Letters of either case share a glyph, and any other character reads as '?'. Text past the capacity is cut.
     Label encode_label(std::string_view text);
+    // The pass's name, as the status line and the skip-passes debug file write it.
+    const char *pass_name(PassId id);
 
     // The view's name as describe() writes it; when its entry was not found, then ": " and why, or " missing" without one.
     Label view_label(View view, bool found, std::string_view why = {});

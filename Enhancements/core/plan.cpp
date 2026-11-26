@@ -232,6 +232,8 @@ namespace enhancements
         }
     }
 
+    const char *pass_name(PassId id) { return pass_spec(id).name; }
+
     Label encode_label(std::string_view text)
     {
         Label label;

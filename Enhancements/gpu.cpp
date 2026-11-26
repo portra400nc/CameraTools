@@ -183,8 +183,9 @@ namespace enhancements
         float leaf_brightness;      // Settings.leaf_brightness, for transmission_ps.hlsl
         float leaf_saturation;
         float accum_lift_pad;
+        float cloud_shadow_map[4];  // cloud_shadows_ps.hlsl's map: center x and z, span, mode
     };
-    static_assert(sizeof(Constants) == 1072 && offsetof(Constants, accum_lift) == 1020 && offsetof(Constants, accum_lift_depth) == 1040 && offsetof(Constants, accum_chromatic) == 1008 && offsetof(Constants, cloud_mid_coverage) == 960 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
+    static_assert(sizeof(Constants) == 1088 && offsetof(Constants, cloud_shadow_map) == 1072 && offsetof(Constants, accum_lift) == 1020 && offsetof(Constants, accum_lift_depth) == 1040 && offsetof(Constants, accum_chromatic) == 1008 && offsetof(Constants, cloud_mid_coverage) == 960 && offsetof(Constants, water_clarity) == 864 && offsetof(Constants, sky_aerial) == 848 && offsetof(Constants, sky_vegetation) == 852 && offsetof(Constants, sky_toward_sun) == 736 && offsetof(Constants, sky_cloud_illuminance) == 844 && offsetof(Constants, cloud_prev_world_to_view) == 576 && offsetof(Constants, cloud_phase) == 704
         && sizeof(Constants) % 16 == 0 && offsetof(Constants, cloud_coverage) == 496 && offsetof(Constants, cloud_map_center) == 528
         && offsetof(Constants, cloud_toward_sun) == 560 && offsetof(Constants, tone_shadows) == 480 && offsetof(Constants, accum_gain) == 488 && offsetof(Constants, flare_sun_uv) == 456 && offsetof(Constants, wetness) == 408 && offsetof(Constants, shafts_anisotropy) == 432 && offsetof(Constants, label) == 272 && offsetof(Constants, sun_color) == 304
         && offsetof(Constants, sky_color) == 320 && offsetof(Constants, bloom_strength) == 352 && offsetof(Constants, sun_cascades) == 368
@@ -2331,13 +2332,41 @@ namespace enhancements
         // The game's sun, whose light the shadow mask scales.
         for (int k = 0; k < 3; k++)
             constants.cloud_toward_sun[k] = camera.toward_sun[k];
-        upload(constants);
         ID3D11DeviceContext1 *c = context_.Get();
+        // The map: kCloudShadowMapSpan meters around where the sun's ray from below the camera enters the lowest layer,
+        // its center on whole texels so the shadows hold still as the camera moves.
+        constexpr uint32_t kCloudShadowMapSide = 384;   // kCloudShadowMapSide in shaders/cloud_shadows_ps.hlsl
+        constexpr float kCloudShadowMapSpan = 12000;
+        const float *l = camera.toward_sun;
+        const bool mapped = l[1] >= 0.02f && cloud_shadow_map_.sync(d, { kCloudShadowMapSide, kCloudShadowMapSide }, DXGI_FORMAT_R16G16_FLOAT);
+        if (mapped)
+        {
+            float base = settings.base;
+            if (settings.middle)
+                base = std::min(base, settings.middle->base);
+            const float *m = camera.world_to_view;
+            float eye[3];
+            for (int k = 0; k < 3; k++)
+                eye[k] = -(m[k] * m[3] + m[4 + k] * m[7] + m[8 + k] * m[11]);
+            const float rise = std::max(base - eye[1], 0.0f) / l[1], texel = kCloudShadowMapSpan / kCloudShadowMapSide;
+            constants.cloud_shadow_map[0] = std::round((eye[0] + l[0] * rise) / texel) * texel;
+            constants.cloud_shadow_map[1] = std::round((eye[2] + l[2] * rise) / texel) * texel;
+            constants.cloud_shadow_map[2] = kCloudShadowMapSpan;
+            constants.cloud_shadow_map[3] = 2;
+            upload(constants);
+            ID3D11ShaderResourceView *const fill[] = { nullptr, nullptr, nullptr, nullptr, nullptr, cloud_map_.srv(), lattice_srv_.Get(),
+                cloud_shape_srv_.Get(), cloud_detail_srv_.Get(), nullptr, nullptr, nullptr, cloud_types_srv_.Get(), cloud_volume_srv_.Get() };
+            draw_fullscreen(cloud_shadows_ps_.Get(), fill, 14, cloud_shadow_map_.rtv(), { kCloudShadowMapSide, kCloudShadowMapSide });
+            constants.cloud_shadow_map[3] = 1;
+        }
+        upload(constants);
         shadow_mask_in_.copy_from(c, native(mask));
         depth_.copy_from(c, native(depth));
         ID3D11ShaderResourceView *const srvs[] = { shadow_mask_in_.srv(), nullptr, depth_.srv(), depth_.stencil_srv(), nullptr, cloud_map_.srv(), lattice_srv_.Get(),
-            cloud_shape_srv_.Get(), cloud_detail_srv_.Get(), nullptr, nullptr, nullptr, cloud_types_srv_.Get(), cloud_volume_srv_.Get() };
-        draw_fullscreen(cloud_shadows_ps_.Get(), srvs, 14, shadow_mask_out_.rtv(), map.render);
+            cloud_shape_srv_.Get(), cloud_detail_srv_.Get(), nullptr, nullptr, nullptr, cloud_types_srv_.Get(), cloud_volume_srv_.Get(), mapped ? cloud_shadow_map_.srv() : nullptr };
+        draw_fullscreen(cloud_shadows_ps_.Get(), srvs, 15, shadow_mask_out_.rtv(), map.render);
+        ID3D11ShaderResourceView *const unbound[1] = {};
+        c->PSSetShaderResources(14, 1, unbound);
         shadow_mask_out_.copy_to(c, native(mask));
         return GameCall::keep;
     }

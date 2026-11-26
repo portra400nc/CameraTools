@@ -152,6 +152,8 @@ cbuffer Constants : register(b0)
     float leaf_brightness;      // Leaf shading's Brightness and Saturation, 1 the pass's own look
     float leaf_saturation;
     float accum_lift_pad;
+    float4 cloud_shadow_map;    // cloud_shadows_ps.hlsl's map: its center's world x and z, the meters it spans, and 0 none,
+                                // 1 the mask reads it, 2 this draw fills it
 };
 
 SamplerState point_clamp : register(s0);
