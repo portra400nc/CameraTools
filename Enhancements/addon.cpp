@@ -1010,7 +1010,8 @@ namespace enhancements
         }
 
         // At the combine step, before the plan: what the trace pass does this frame, which says whether it writes the
-        // frame. The sun comes from the game's cascade 0 when its constants were read back, else from the pushed camera.
+        // frame. Under the physical sky the sun is the pushed camera's, the main light the sky's bodies drive and the game
+        // shades with; else the game's cascade 0 when its constants were read back, else the pushed camera's.
         void prepare_trace(const FrameMap &map)
         {
             trace_frame.reset();
@@ -1022,11 +1023,15 @@ namespace enhancements
             if (const std::optional<SunCbuffers> &sun = fresh_sun())
             {
                 const SunFacts facts = sun_facts(*sun);
-                if (facts.toward_sun)
+                // The game holds its shadows' light at 35 degrees of elevation or more, so toward sunset shadows traced
+                // along it fell from 25 degrees above the sun that lights the surfaces and the sky draws (2026-11-26).
+                if (facts.toward_sun && !(settings.sky.enabled && source == "pushed"))
                 {
                     toward = *facts.toward_sun;
                     source = "game";
                 }
+                else if (source == "pushed" && settings.sky.enabled)
+                    source = "sky";
                 if (facts.floating_origin)
                     check_world_shift(*facts.floating_origin);
                 if (trace_gpu.state() != TraceState::ready)
@@ -1042,6 +1047,7 @@ namespace enhancements
                 char apart[64];
                 std::snprintf(apart, sizeof apart, ", %.2f degrees apart", std::acos(std::clamp(cosine, -1.0, 1.0)) * 57.29577951308232);
                 log(reshade::log::level::info, "the trace's sun comes from " + (source == "game" ? "the game's cascade 0, which the game's own sun shadows follow: " + vec_text(toward)
+                    : source == "sky" ? "the physical sky's sun, which drives the game's main light: " + vec_text(toward)
                     : source == "pushed" ? "the pushed camera, as the game's shadow-mask constants were not read: " + vec_text(toward)
                     : std::string("nowhere: there is no sun")) + "; the pushed camera's is " + vec_text(pushed) + (source == "game" && pushed != Vec3 {} ? apart : "") + ".");
                 trace_sun_source = source;
