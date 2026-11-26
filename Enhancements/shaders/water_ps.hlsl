@@ -17,7 +17,7 @@ Texture2D<float4> view_rest : register(t21);
 SamplerState linear_wrap : register(s3);
 
 static const float kWaterF0 = 0.02;                 // Fresnel at normal incidence, water against air
-static const uint kWaveLayers = 5;
+static const uint kWaveLayers = 7;
 static const uint kReflectSteps = 48;
 
 float3 air_light(float3 view)
@@ -46,12 +46,35 @@ float noise3(float3 p)
     return lerp(a, b, f.z) * 2 - 1;
 }
 
-// The water's height at world (x, z), in meters: five layers of noise from six meters long down to forty centimeters,
+// What varies over tens of meters and breaks the waves' regularity seen from above: a warp in meters that bends the
+// swells' crests, the swells' height, and the gusts that roughen or calm the short waves in patches drifting down the
+// wind. It changes little over a pixel's few centimeters, so it is taken once a pixel.
+struct WaveField
+{
+    float2 warp;
+    float swell;
+    float gust;
+};
+
+WaveField wave_field(float2 world)
+{
+    float2 p = world / water_size;
+    float2 wind = float2(cos(water_wind), sin(water_wind));
+    WaveField f;
+    f.warp = float2(noise3(float3(p / 21, water_time * 0.02)), noise3(float3(p / 21 + 31.7, water_time * 0.02 + 5.3))) * 3;
+    f.swell = saturate(0.45 + 0.75 * noise3(float3(p / 26 + 7.1, water_time * 0.01 + 2.9)));
+    float2 drift = (p - wind * 2 * water_time) / 140;
+    f.gust = 0.6 + 0.28 * noise3(float3(drift + 3.3, water_time * 0.02)) + 0.12 * noise3(float3(drift * 2.7 + 11.9, water_time * 0.03));
+    return f;
+}
+
+// The water's height at world (x, z), in meters: seven layers of noise from eighteen meters long down to forty centimeters,
 // each turned its own way and carried down the wind at the speed deep water carries waves of its length, which also
-// sets how fast each one changes, and two long swells along the wind. water_waves scales its height, water_size its length. A layer fades out where
-// its waves span fewer than eight of pixel_m, the meters a pixel covers there, so far water does not shimmer; no layer
-// shorter than shortest counts.
-float wave_height(float2 world, float pixel_m, float shortest)
+// sets how fast each one changes, all as rough as field's gust there, and three long swells along the wind, their crests
+// bent by field's warp and as high as its swell. water_waves scales its height, water_size its length. A layer fades out
+// where its waves span fewer than eight of pixel_m, the meters a pixel covers there, so far water does not shimmer; no
+// layer shorter than shortest counts.
+float wave_height(float2 world, float pixel_m, float shortest, WaveField field)
 {
     // Wave size stretches the waves and their height alike, and slows them as longer waves are slower.
     float2 p = world / water_size;
@@ -59,7 +82,8 @@ float wave_height(float2 world, float pixel_m, float shortest)
     shortest /= water_size;
     float2 wind = float2(cos(water_wind), sin(water_wind));
     float h = 0;
-    float length_m = 6, amplitude = 0.12;
+    // The two longest are gentler than the others' steepness: from above, waves of every length and no single one.
+    float length_m = 18, amplitude = 0.2 * field.gust;
     [unroll] for (uint i = 0; i < kWaveLayers; i++)
     {
         float angle = water_wind + (i * 2.39996323 - 1.2) * 0.35;
@@ -67,28 +91,33 @@ float wave_height(float2 world, float pixel_m, float shortest)
         float speed = sqrt(9.81 * length_m / 6.2831853);
         float2 q = mul(turn, p - wind * speed * water_time) / length_m;
         float seen = saturate(length_m / (8 * pixel_m) - 1) * (length_m >= shortest ? 1 : 0);
-        h += seen * amplitude * noise3(float3(q, water_time * speed / length_m * 0.5 + i * 17.13));
+        // Faded layers are skipped: far water would otherwise pay for every layer it no longer shows.
+        [branch] if (seen > 0)
+            h += seen * amplitude * noise3(float3(q, water_time * speed / length_m * 0.5 + i * 17.13));
         length_m *= 0.53;
-        amplitude *= 0.5;
+        amplitude *= i == 0 ? 0.75 : i == 1 ? 0.8 : 0.5;
     }
-    [unroll] for (uint k = 0; k < 2; k++)
+    // Lengths and angles with no common period, so their crests never line up into a grid.
+    static const float3 kSwells[3] = { float3(11, 0.3, 0.03), float3(7.3, -0.45, 0.025), float3(17.9, 1.05, 0.02) };
+    float2 bent = p + field.warp;
+    [unroll] for (uint k = 0; k < 3; k++)
     {
-        float angle = water_wind + (k == 0 ? 0.3 : -0.45), swell = k == 0 ? 11 : 7.3;
+        float swell = kSwells[k].x, angle = water_wind + kSwells[k].y;
         float2 d = float2(cos(angle), sin(angle));
         float kw = 6.2831853 / swell;
         // Faded as the layers are: unfaded, far out the swells aliased into rings around the camera.
         float seen = saturate(swell / (8 * pixel_m) - 1);
-        h += seen * 0.05 * sin(kw * dot(d, p) - sqrt(9.81 * kw) * water_time + k * 2.1);
+        h += seen * kSwells[k].z * field.swell * sin(kw * dot(d, bent) - sqrt(9.81 * kw) * water_time + k * 2.1);
     }
     return h * water_waves * water_size;
 }
 
 // The surface's slope at world (x, z), from the heights a few centimeters apart.
-float2 wave_slope(float2 p, float pixel_m, float shortest)
+float2 wave_slope(float2 p, float pixel_m, float shortest, WaveField field)
 {
     const float e = 0.04;
-    float h = wave_height(p, pixel_m, shortest);
-    return float2(wave_height(p + float2(e, 0), pixel_m, shortest) - h, wave_height(p + float2(0, e), pixel_m, shortest) - h) / e;
+    float h = wave_height(p, pixel_m, shortest, field);
+    return float2(wave_height(p + float2(e, 0), pixel_m, shortest, field) - h, wave_height(p + float2(0, e), pixel_m, shortest, field) - h) / e;
 }
 
 // A light's glint off the waves: GGX with the roughness of the ripples too small to draw, Fresnel at the half vector.
@@ -176,12 +205,13 @@ float4 main(float4 position : SV_Position) : SV_Target0
     float3 world = mul(transpose(to_view), at - eye_offset);
     // The meters a pixel covers on the water here, along the view.
     float pixel_m = length(at) / max(projection_scale, 1);
-    float2 slope = wave_slope(world.xz, pixel_m, 0);
+    WaveField field = wave_field(world.xz);
+    float2 slope = wave_slope(world.xz, pixel_m, 0, field);
     float3 n_world = normalize(float3(-slope.x, 1, -slope.y));
     float3 n = normalize(mul(to_view, n_world));
     // The mirrored ray follows only the waves a meter and longer: the small ripples' reflections would change from
     // pixel to pixel and frame to frame.
-    float2 swell = wave_slope(world.xz, pixel_m, 1);
+    float2 swell = wave_slope(world.xz, pixel_m, 1, field);
     float3 n_mirror = normalize(mul(to_view, normalize(float3(-swell.x, 1, -swell.y))));
     float3 v = -normalize(at);
     float3 v_world = mul(transpose(to_view), v);
