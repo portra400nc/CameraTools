@@ -719,6 +719,7 @@ namespace enhancements
         std::optional<CombineConstants> combine_;   // the newest read
         bool sun_ready_ = false;
         uint64_t water_frame_ = ~0ull;          // the frame whose HDR scene copy_water_scene copied
+        uint64_t marks_frame_ = ~0ull;          // the frame whose water marks draw_water cleared
         Mirror water_scene_;
         Scratch water_marks_;
         uint64_t leaves_missed_ = 0;                // leaf passes that found no leaves of their frame
