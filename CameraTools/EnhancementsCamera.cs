@@ -28,7 +28,7 @@ namespace CameraTools
             // The sun light shines along its forward axis, so the sun lies the other way.
             var sun = sky ? sky.MainLight : null;
             Vector3 towardSun = sun ? -sun.transform.forward : Vector3.zero;
-            Color sunColor = sun ? sun.color.linear * sun.intensity : Color.black;
+            Color sunColor = sun ? sun.color.linear * NightSky.LinearIntensity(sun.intensity) : Color.black;
             Color skyColor = RenderSettings.ambientSkyColor.linear;
             Light = new SkyLight(new Vec3(towardSun.x, towardSun.y, towardSun.z), new Vec3(sunColor.r, sunColor.g, sunColor.b),
                 new Vec3(skyColor.r, skyColor.g, skyColor.b), wetness);
