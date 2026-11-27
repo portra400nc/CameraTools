@@ -183,12 +183,18 @@ namespace
         return out;
     }
 
-    // The baseline exposure an image of one bright pixel gets.
-    double exposure_of(float largest)
+    // The baseline exposure, as numerator and denominator, and the tone curve's point at x = 1/4 an image of one bright
+    // pixel gets.
+    std::array<double, 3> profile_of(float largest)
     {
         const float pixels[] = { largest, 0.1f, 0.0f, 0.2f, 0.3f, 0.4f };
         const Tiff t = parse(encode_dng({ pixels, 2, 1 }));
-        return double(numerator(t, 50730)) / denominator(t, 50730);
+        return { double(numerator(t, 50730)), double(denominator(t, 50730)), float_at(t, 50940, 2 * 128 + 1) };
+    }
+
+    double game_tone(double x)
+    {
+        return std::min(1.0, x * (1.36 * x + 0.047) / (x * (0.93 * x + 0.56) + 0.14));
     }
 }
 
@@ -197,8 +203,13 @@ int main(int argc, char **argv)
     check("the headroom is the smallest power of two at or above the brightest channel, from 1 to 16",
         dng_headroom(0) == 1 && dng_headroom(0.7f) == 1 && dng_headroom(1) == 1 && dng_headroom(1.01f) == 2 && dng_headroom(3.2f) == 4
         && dng_headroom(4) == 4 && dng_headroom(9.75f) == 16 && dng_headroom(40) == 16 && dng_headroom(NAN) == 1);
-    check("BaselineExposure is log2 of the headroom over the game's white, 1.422, in thousandths: -0.508 for a brightest channel of 0.7, 1.492 for 3.2, 3.492 for 40",
-        exposure_of(0.7f) == -0.508 && exposure_of(3.2f) == 1.492 && exposure_of(40) == 3.492 && std::fabs(dng_white() - 1.42199) < 1e-5);
+    {
+        // The file's 1 is the headroom: 1/4 of it is the scene's 0.25 at a headroom of 1, 1 at 4 and 4 at 16, which the game shows as white.
+        const auto dim = profile_of(0.7f), mid = profile_of(3.2f), bright = profile_of(40);
+        check("BaselineExposure is 0/1 at any headroom, and the curve is the game's of the headroom times the file's value",
+            dim[0] == 0 && dim[1] == 1 && mid[0] == 0 && bright[0] == 0 && std::fabs(dim[2] - game_tone(0.25)) < 1e-6
+            && std::fabs(mid[2] - game_tone(1)) < 1e-6 && bright[2] == 1);
+    }
 
     {
         // Two rows of two RGBA pixels, stored as the game stores them, rows running up the screen. The top row seen is
@@ -234,17 +245,17 @@ int main(int argc, char **argv)
             matrix_ok &= numerator(t, 50721, i) == matrix[i] && denominator(t, 50721, i) == 1000000;
         check("ColorMatrix1 is XYZ (D65) to linear Rec. 709 in millionths, as shot under D65 with a neutral of 1, 1, 1", matrix_ok && value(t, 50778) == 21
             && numerator(t, 50728, 0) == 1 && denominator(t, 50728, 0) == 1 && numerator(t, 50728, 2) == 1 && denominator(t, 50728, 2) == 1);
-        check("BaselineExposure is 1492/1000 for a headroom of 4", t.tags.at(50730).type == 10 && numerator(t, 50730) == 1492 && denominator(t, 50730) == 1000);
+        check("BaselineExposure is 0/1", t.tags.at(50730).type == 10 && numerator(t, 50730) == 0 && denominator(t, 50730) == 1);
         check("the profile's look table is 36 hues by 16 saturations by 32 sRGB-encoded values of three floats",
             value(t, 50981, 0) == 36 && value(t, 50981, 1) == 16 && value(t, 50981, 2) == 32 && t.tags.at(50982).type == 11
             && t.tags.at(50982).count == 36 * 16 * 32 * 3 && value(t, 51108) == 1);
         check("the profile is CameraTools Game, free to copy", text(t, 50936) == std::string("CameraTools Game", 17) && value(t, 50941) == 0);
         const Tag &curve = t.tags.at(50940);
-        const float x = 0.25f * 1.42199f;
-        check("its tone curve is 257 pairs of floats from (0, 0) to (1, 1), at x = (i / 256)^2, the game's curve of 1.422 x",
+        const double x = 0.0625 * 4;
+        check("its tone curve is 257 pairs of floats from (0, 0) to (1, 1), at x = (i / 256)^2, the game's curve of the headroom, 4, times x",
             curve.type == 11 && curve.count == 514 && float_at(t, 50940, 0) == 0 && float_at(t, 50940, 1) == 0 && float_at(t, 50940, 512) == 1
-            && float_at(t, 50940, 513) == 1 && float_at(t, 50940, 2 * 128) == 0.25f
-            && std::fabs(float_at(t, 50940, 2 * 128 + 1) - x * (1.36f * x + 0.047f) / (x * (0.93f * x + 0.56f) + 0.14f)) < 1e-5f);
+            && float_at(t, 50940, 513) == 1 && float_at(t, 50940, 2 * 64) == 0.0625f
+            && std::fabs(float_at(t, 50940, 2 * 64 + 1) - game_tone(x)) < 1e-6);
         // v / 4 * 65535, rounded: 1 -> 16384 (16383.75), 2 -> 32768 (32767.5), 4 -> 65535; -1, NaN and 0 -> 0; infinity -> 65535.
         const std::vector<uint32_t> expected = {
             16384, 32768, 65535,    0, 0, 65535,            // top row as seen: the second stored
@@ -324,18 +335,27 @@ int main(int argc, char **argv)
         const float bright[] = { 40.0f, 16.0f, 8.0f };
         const Tiff t = parse(encode_dng({ bright, 1, 1 }));
         check("a channel of 40 clips at the largest headroom, 16, which a channel of 16 fills and one of 8 halves",
-            samples(encode_dng({ bright, 1, 1 }), t) == std::vector<uint32_t> { 65535, 65535, 32768 } && numerator(t, 50730) == 3492);
+            samples(encode_dng({ bright, 1, 1 }), t) == std::vector<uint32_t> { 65535, 65535, 32768 });
     }
     {
         // Adobe's raw processing at the look table's nodes, as the DNG SDK's reference code does it: the node's color in
         // ProPhoto linear HSV, the node's change, the tone curve on the largest and smallest channel and the middle at its
-        // share, back to Rec. 709. The game applies its curve to each Rec. 709 channel of the scene, the file's value times
-        // its white. A sky blue, a leaf green, a skin tone, a saturated red and a dim violet, all colors the game can show:
-        // past Rec. 709 the game clips a channel at 0 and Adobe cannot.
-        const std::vector<float> look = dng_look_table();
+        // share, back to Rec. 709. The table scales the sRGB-encoded value, as the SDK's RefBaselineHueSatMap does. The
+        // game applies its curve to each Rec. 709 channel of the scene, the file's value times the headroom. At a headroom
+        // of 1 a sky blue, a leaf green, a skin tone, a saturated red and a dim violet, all colors the game can show: past
+        // Rec. 709 the game clips a channel at 0 and Adobe cannot. At 16 a sky whose blue the game clips, as it paled in
+        // the Lightroom shot of 2026-11-27, a red wall, a gold, a skin tone and a shadow.
+        for (const auto &[headroom_at, nodes] : std::vector<std::pair<float, std::vector<std::array<uint32_t, 3>>>> {
+            { 1.0f, { { 20, 10, 26 }, { 11, 10, 22 }, { 1, 6, 28 }, { 0, 15, 24 }, { 26, 12, 12 } } },
+            { 16.0f, { { 21, 12, 10 }, { 21, 9, 12 }, { 35, 10, 9 }, { 2, 9, 8 }, { 1, 5, 7 }, { 30, 4, 3 } } } })
+        {
+        const float headroom = headroom_at;
+        const std::vector<float> look = dng_look_table(headroom);
         using V = std::array<double, 3>;
         const double m[3][3] = { { 0.5293, 0.3300, 0.1407 }, { 0.0984, 0.8734, 0.0282 }, { 0.0169, 0.1176, 0.8655 } };   // Rec. 709 to ProPhoto
-        const auto tone = [](double x) { x *= 1.42199; return std::min(1.0, x * (1.36 * x + 0.047) / (x * (0.93 * x + 0.56) + 0.14)); };
+        const auto tone = [headroom](double x) { return game_tone(x * headroom); };
+        const auto encode = [](double v) { return v <= 0.0031308 ? 12.92 * v : 1.055 * std::pow(v, 1 / 2.4) - 0.055; };
+        const auto decode = [](double e) { return e <= 0.04045 ? e / 12.92 : std::pow((e + 0.055) / 1.055, 2.4); };
         const auto hsv = [](const V &c) {
             const double hi = std::max({ c[0], c[1], c[2] }), lo = std::min({ c[0], c[1], c[2] }), d = hi - lo;
             double h = d <= 0 ? 0 : c[0] == hi ? (c[1] - c[2]) / d : c[1] == hi ? 2 + (c[2] - c[0]) / d : 4 + (c[0] - c[1]) / d;
@@ -350,13 +370,13 @@ int main(int argc, char **argv)
         };
         double worst = 0;
         // (hue index, saturation index, value index) of each node checked.
-        for (const auto &[hi, si, vi] : std::vector<std::array<uint32_t, 3>> { { 20, 10, 26 }, { 11, 10, 22 }, { 1, 6, 28 }, { 0, 15, 24 }, { 26, 12, 12 } })
+        for (const auto &[hi, si, vi] : nodes)
         {
-            const double enc = vi / 31.0, v = enc <= 0.04045 ? enc / 12.92 : std::pow((enc + 0.055) / 1.055, 2.4);
+            const double v = decode(vi / 31.0);
             const V p = rgb(hi / 6.0, si / 15.0, v);
             const float *n = &look[((size_t(vi) * 36 + hi) * 16 + si) * 3];
             const V h2 = hsv(p);
-            V q = rgb(h2[0] + n[0] / 60.0, std::min(h2[1] * n[1], 1.0), h2[2] * n[2]);
+            V q = rgb(h2[0] + n[0] / 60.0, std::min(h2[1] * n[1], 1.0), decode(std::clamp(encode(h2[2]) * n[2], 0.0, 1.0)));
             std::array<int, 3> o = { 0, 1, 2 };
             std::sort(o.begin(), o.end(), [&q](int a, int b) { return q[a] < q[b]; });
             V toned {};
@@ -384,13 +404,14 @@ int main(int argc, char **argv)
                 worst = std::max(worst, std::fabs(encode_a - encode_g) * 255);
             }
         }
-        const std::string said = "at the look table's nodes Adobe's processing shows a sky blue, a leaf green, a skin tone, a red and a dim violet as the game does, within 1.5 of 255 ("
+        const std::string said = "at a headroom of " + std::to_string(int(headroom)) + " the look table's nodes show in Adobe's processing as in the game, within 1.5 of 255 ("
             + std::to_string(worst) + ")";
         check(said.c_str(), worst < 1.5);
+        }
     }
     {
         const float dark[] = { 0.0f, 0.0f, 0.0f };
-        check("a black image gets a headroom of 1", numerator(parse(encode_dng({ dark, 1, 1 })), 50730) == -508);
+        check("a black image gets a headroom of 1", float_at(parse(encode_dng({ dark, 1, 1 })), 50940, 2 * 128 + 1) == float(game_tone(0.25)));
     }
     {
         TonemapSettings ours;

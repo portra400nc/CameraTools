@@ -264,21 +264,14 @@ namespace enhancements
         return headroom;
     }
 
-    double dng_white()
-    {
-        // game_tone(x) = 1 is 0.43x^2 - 0.513x - 0.14 = 0.
-        return (0.513 + std::sqrt(0.513 * 0.513 + 4 * 0.43 * 0.14)) / (2 * 0.43);
-    }
-
-    std::vector<std::pair<float, float>> dng_tone_curve()
+    std::vector<std::pair<float, float>> dng_tone_curve(float headroom)
     {
         std::vector<std::pair<float, float>> curve;
-        const double white = dng_white();
         for (int i = 0; i <= 256; i++)
         {
             const double t = i / 256.0;
             const double x = t * t;
-            curve.emplace_back(static_cast<float>(x), static_cast<float>(std::min(1.0, game_tone(white * x))));
+            curve.emplace_back(static_cast<float>(x), static_cast<float>(std::min(1.0, game_tone(headroom * x))));
         }
         return curve;
     }
@@ -355,22 +348,26 @@ namespace enhancements
         }
 
         // The file value the profile's curve turns into y, by halving: the curve rises.
-        double curve_input(double y, double white)
+        double curve_input(double y, double headroom)
         {
             double lo = 0, hi = 1;
             for (int i = 0; i < 48; i++)
             {
                 const double mid = 0.5 * (lo + hi);
-                (std::min(1.0, game_tone(white * mid)) < y ? lo : hi) = mid;
+                (std::min(1.0, game_tone(headroom * mid)) < y ? lo : hi) = mid;
             }
             return 0.5 * (lo + hi);
         }
+
+        double srgb_encode(double v)
+        {
+            return v <= 0.0031308 ? 12.92 * v : 1.055 * std::pow(v, 1 / 2.4) - 0.055;
+        }
     }
 
-    std::vector<float> dng_look_table()
+    std::vector<float> dng_look_table(float headroom)
     {
         const Matrix to_prophoto = rec709_to_prophoto(), to_rec709 = inverse(to_prophoto);
-        const double white = dng_white();
         // Each node's change, and the value it is for, by its place: value, hue, saturation.
         std::vector<float> table;
         table.reserve(size_t(kDngLookHues) * kDngLookSats * kDngLookVals * 3);
@@ -390,7 +387,7 @@ namespace enhancements
                         const Rgb scene = times(to_rec709, from_hsv(h, s, v));
                         Rgb shown {};
                         for (int k = 0; k < 3; k++)
-                            shown[k] = std::min(1.0, game_tone(std::max(scene[k], 0.0) * white));
+                            shown[k] = std::min(1.0, game_tone(std::max(scene[k], 0.0) * headroom));
                         Rgb want = times(to_prophoto, shown);
                         for (double &c : want)
                             c = std::clamp(c, 0.0, 1.0);
@@ -399,14 +396,15 @@ namespace enhancements
                         std::array<int, 3> order = { 0, 1, 2 };
                         std::sort(order.begin(), order.end(), [&want](int a, int b) { return want[a] < want[b]; });
                         const double lo = want[order[0]], mid = want[order[1]], top = want[order[2]];
-                        const double lo2 = curve_input(lo, white), top2 = curve_input(top, white);
+                        const double lo2 = curve_input(lo, headroom), top2 = curve_input(top, headroom);
                         Rgb before {};
                         before[order[0]] = lo2;
                         before[order[2]] = top2;
                         before[order[1]] = top > lo ? lo2 + (top2 - lo2) * (mid - lo) / (top - lo) : lo2;
                         const Rgb got = to_hsv(before);
                         const double shift = std::fmod(got[0] - h + 9, 6) - 3;
-                        node = { shift * 60, got[1] / s, got[2] / v };
+                        // Adobe scales the value as the table encodes it, sRGB.
+                        node = { shift * 60, got[1] / s, srgb_encode(got[2]) / encoded };
                     }
                     row[size_t(hi) * kDngLookSats + si] = node;
                 }
@@ -506,7 +504,6 @@ namespace enhancements
                 if (const float v = image.pixels[i * channels + k]; std::isfinite(v))
                     largest = std::max(largest, v);
         const float headroom = dng_headroom(largest);
-        const uint32_t stops = static_cast<uint32_t>(std::log2(headroom));
 
         // The samples top row first, then each tile, its pixels past the picture's edge repeating the last row and column.
         std::vector<uint16_t> picture(size_t(width) * height * 3);
@@ -533,7 +530,7 @@ namespace enhancements
             }
 
         IfdEntry curve { 50940, kFloat, {} };
-        for (const auto &[x, y] : dng_tone_curve())
+        for (const auto &[x, y] : dng_tone_curve(headroom))
             for (const float v : { x, y })
             {
                 uint32_t bits;
@@ -541,14 +538,12 @@ namespace enhancements
                 put32(curve.data, bits);
             }
         IfdEntry look { 50982, kFloat, {} };
-        for (const float v : dng_look_table())
+        for (const float v : dng_look_table(headroom))
         {
             uint32_t bits;
             std::memcpy(&bits, &v, sizeof bits);
             put32(look.data, bits);
         }
-        // The file's 1 is the scene's dng_white, the light the game shows as white.
-        const double exposure = stops - std::log2(dng_white());
         IfdEntry tile_offsets { 324, kLong, {} }, tile_bytes { 325, kLong, {} };
         for (const std::vector<uint8_t> &t : tiles)
         {
@@ -584,7 +579,7 @@ namespace enhancements
             rationals(50721, kSrational, { { 3240454, 1000000 }, { -1537138, 1000000 }, { -498531, 1000000 }, { -969266, 1000000 },
                 { 1876011, 1000000 }, { 41556, 1000000 }, { 55643, 1000000 }, { -204026, 1000000 }, { 1057225, 1000000 } }),
             rationals(50728, kRational, { { 1, 1 }, { 1, 1 }, { 1, 1 } }),     // AsShotNeutral
-            rationals(50730, kSrational, { { static_cast<int32_t>(std::lround(exposure * 1000)), 1000 } }),  // BaselineExposure
+            rationals(50730, kSrational, { { 0, 1 } }),  // BaselineExposure: the profile's curve holds the game's white
             shorts(50778, { 21 }),              // CalibrationIlluminant1: D65
             ascii(50936, "CameraTools Game"),   // ProfileName
             std::move(curve),                   // ProfileToneCurve

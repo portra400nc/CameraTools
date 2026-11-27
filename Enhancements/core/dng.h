@@ -26,22 +26,21 @@ namespace enhancements
     // shots keep their precision and a lamp up to 16 keeps its color. Values above 16 clip. Not finite reads as 1.
     float dng_headroom(float largest);
 
-    // The scene light the game's filmic curve x(1.36x + 0.047) / (x(0.93x + 0.56) + 0.14) shows as white, about 1.422: the
-    // file's linear values are the scene's over it, so nothing the game shows short of white clips.
-    double dng_white();
-
-    // The profile's tone curve: the game's filmic curve of dng_white times the file's value, 257 points, linear in and
-    // out, at x = (i / 256)^2 so the shadows get most of them.
-    std::vector<std::pair<float, float>> dng_tone_curve();
+    // The profile's tone curve: the game's filmic curve x(1.36x + 0.047) / (x(0.93x + 0.56) + 0.14) of headroom times the
+    // file's value, up to 1 at the game's white, about 1.422, 257 points, linear in and out, at x = (i / 256)^2 so the
+    // shadows get most of them. The file's 1 is the headroom, not the game's white, so with no BaselineExposure no light
+    // reaches Adobe's raw processing above 1, where its exposure ramp clips each ProPhoto channel and paled the sky.
+    std::vector<std::pair<float, float>> dng_tone_curve(float headroom);
 
     // The profile's look table, which Adobe's raw processing applies in ProPhoto linear HSV before the tone curve, which it
     // applies to the largest and smallest channel and the middle one at its share (the DNG SDK's RefBaselineRGBTone): each
     // node holds the hue shift in degrees, the saturation scale and the value scale that take its color to the one that
     // curve turns into the game's, which applies the curve to each Rec. 709 channel; without it the sky went lavender and
-    // pale. kDngLookHues x kDngLookSats x kDngLookVals nodes, value outermost, then hue, saturation innermost, as
-    // ProfileLookTableData stores them, the value divisions sRGB-encoded.
+    // pale. The value scale applies to the sRGB-encoded value, as Adobe applies it. kDngLookHues x kDngLookSats x
+    // kDngLookVals nodes, value outermost, then hue, saturation innermost, as ProfileLookTableData stores them, the value
+    // divisions sRGB-encoded.
     constexpr uint32_t kDngLookHues = 36, kDngLookSats = 16, kDngLookVals = 32;
-    std::vector<float> dng_look_table();
+    std::vector<float> dng_look_table(float headroom);
 
     // The camera the shot was taken with, for the file's EXIF. A value of 0, or an empty date, leaves its tag out.
     struct DngExif
@@ -59,7 +58,7 @@ namespace enhancements
 
     // The whole file: a little-endian TIFF whose IFD holds LinearRaw, three 16-bit samples a pixel with white at 65535 in
     // kDngTile tiles, each a lossless JPEG (ITU T.81 process 14, predictor 1, its own optimal Huffman table), edge tiles
-    // padded with their last row and column; BaselineExposure log2 of the headroom over dng_white, Rec. 709 primaries with
+    // padded with their last row and column; BaselineExposure 0, Rec. 709 primaries with
     // D65 white as shot, and the embedded profile "CameraTools Game" with dng_tone_curve and dng_look_table; then the EXIF
     // IFD of exif. Non-finite and
     // negative channels store 0. Lightroom opened this layout on 2026-10-29 with the profile selected and the pixels of
