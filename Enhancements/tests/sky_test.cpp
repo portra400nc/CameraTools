@@ -379,11 +379,11 @@ int main()
         check("with the sun 6 degrees down there is no sunlight and the exposed sky keeps a quarter of a day's, 0.247",
             luminance(blue_hour.sun) == 0 && near(blue_hour.sky_share, 0.24674f));
         const WorldLight full = lit(-30, 40, 0);
-        check("a full moon 40 degrees up lights a white surface 0.909 and the sky's share is 0.189: the night is exposed by its light on a surface facing it, 17% under its light on the ground",
-            near(luminance(full.moon), 0.90893f) && near(full.sky_share, 0.18912f));
+        check("a full moon 40 degrees up lights a white surface 0.303 and the sky's share is 0.189: the night is exposed by its light on a surface facing it, 17% under its light on the ground",
+            near(luminance(full.moon), 0.90893f / 3) && near(full.sky_share, 0.18912f));
         const WorldLight rising = lit(-30, 4, 0), high = lit(-30, 60, 0);
-        check("a full moon 4 degrees up lights what faces it less than one 60 degrees up, through more air: 0.143 against 0.894",
-            near(luminance(rising.moon), 0.14262f) && near(luminance(high.moon), 0.89372f));
+        check("a full moon 4 degrees up lights what faces it less than one 60 degrees up, through more air: 0.0475 against 0.298",
+            near(luminance(rising.moon), 0.14262f / 3) && near(luminance(high.moon), 0.89372f / 3));
         const WorldLight moonless = lit(-30, -30, 0);
         check("with no moon only the night's glow is left, the sky's share 0.00323, held by the 17 stops' limit", luminance(moonless.moon) == 0 && near(moonless.sky_share, 0.0032304f));
         check("auto exposure works fully till the sun is 6 degrees down, half at 9 and not at all from 12",

@@ -133,9 +133,10 @@ namespace enhancements
         float sunset = 0;           // SkySettings::sunset
     };
 
-    // The moon's direct light on the world over its real light: at its real light the moonlit ground showed black under a
-    // bright moonlit sky, so the world takes more of it, which the drawn sky and the exposure do not.
-    constexpr float kMoonOnWorld = 3;
+    // The moon's direct light on the world over its real light. It was 3 from 2026-11-16, when the moonlit ground showed black
+    // under a bright moonlit sky: CameraTools then wrote the main light's intensity without the game's 2.2 gamma, so a moon
+    // below 1 reached the world as its intensity to the power 2.2. Since that write is right (2026-11-27), the real light.
+    constexpr float kMoonOnWorld = 1;
 
     // How the physical sky lights the world, in the game's units at sky_scale, so the world takes the drawn sky's exposure.
     // The moon's direct light is kMoonOnWorld times its real light.
