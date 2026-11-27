@@ -131,11 +131,33 @@ float cloud_towers(float2 c)
     return w;
 }
 
+static const float kMappedType = 5;     // ENHANCEMENTS_CLOUD_TYPE_MAPPED
+
+// The mapped type's weather, after Bauer's (SIGGRAPH 2019, Red Dead Redemption 2): broad masses and scattered small clouds
+// whose noise changes in place as the wind carries them, so clouds form, grow and dissolve on their own instead of
+// sliding by as fixed shapes. The masses, some twelve cloud sizes across, turn over in about forty cloud sizes of
+// travel; the small clouds, two across, in ten, and drift a little across the wind. Coverage sets how much of the noise
+// clears the thresholds.
+float mapped_weather(float2 c)
+{
+    float2 wind = float2(cos(radians(cloud_pad)), sin(radians(cloud_pad)));
+    float2 p = float2(dot(c, wind) / (layer_size * layer_stretch), dot(c, float2(-wind.y, wind.x)) / layer_size);
+    float t = cloud_evolve / max(layer_size, 1);
+    float big = cloud_fbm(float3(p / 12, t / 40), 4);
+    float small = cloud_fbm(float3(p / 2.2 + float2(0, t * 0.02), t / 10 + 11.3), 3);
+    float low = 0.58 - layer_coverage * 0.3;
+    float masses = smoothstep(low, low + 0.16, big);
+    float scattered = smoothstep(0.66 - layer_coverage * 0.25, 0.8, small) * 0.5;
+    return saturate(masses * (0.55 + 0.45 * smoothstep(0.3, 0.7, small)) + scattered * (1 - masses));
+}
+
 // The weather map's value at a point of cloud space (world x and z plus the drift): 0 clear sky to 1 where the clouds
 // stand thickest and tallest, as Coverage spreads or thins them. Broad warped patches some six cells across, drawn out
 // along the wind; the shape noise gives the clouds inside them their bodies.
 float cloud_weather(float2 c)
 {
+    if (layer_type == kMappedType)
+        return mapped_weather(c);
     if (layer_type >= 3)    // ENHANCEMENTS_CLOUD_TYPE_CUMULONIMBUS and _TOWERING
         return cloud_towers(c);
     float2 wind = float2(cos(radians(cloud_pad)), sin(radians(cloud_pad)));

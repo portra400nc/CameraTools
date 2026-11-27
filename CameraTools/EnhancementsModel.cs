@@ -561,11 +561,15 @@ namespace CameraTools
         public static readonly ProbeCloudKind[] ProbeCloudKinds =
         {
             new("towering cumulus", EnhancementsCloudType.Towering, 2000f, 9000f, 3000f, 0.3f, 0.4f),
+            new("mapped (prototype)", EnhancementsCloudType.Mapped, 1500f, 3000f, 600f, 0.1f, 0.45f),
             new("cumulus", EnhancementsCloudType.Cumulus, 2000f, 1500f, 400f, 0.04f, 0.5f),
             new("altocumulus", EnhancementsCloudType.Stratocumulus, 3000f, 700f, 500f, 0.04f, 0.75f),
             new("stratus", EnhancementsCloudType.Stratus, 1300f, 400f, 1000f, 0.08f, 0.88f),
             new("layered: cumulus under altocumulus and cirrus", EnhancementsCloudType.Cumulus, 2000f, 1500f, 400f, 0.1f, 0.4f),
         };
+
+        // The mapped prototype's index plus one in ProbeCloudKinds.
+        public const int MappedProbeCloud = 2;
 
         // The kind's index plus one; 0 leaves the clouds as Type and Weather chose them.
         public static int ProbeCloud { get; set; }

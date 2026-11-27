@@ -41,7 +41,7 @@ namespace enhancements
     };
 
     // EnhancementsSky's.
-    enum class CloudType : uint8_t { cumulus, stratocumulus, stratus, cumulonimbus, towering, count };  // ENHANCEMENTS_CLOUD_TYPE_*
+    enum class CloudType : uint8_t { cumulus, stratocumulus, stratus, cumulonimbus, towering, mapped, count };  // ENHANCEMENTS_CLOUD_TYPE_*
     enum class CloudPattern : uint8_t { noise, heaps, broken, overcast, puffs, patches, streaks, count };  // ENHANCEMENTS_CLOUD_PATTERN_*
 
     // One volume cloud layer's shape: EnhancementsCloudLayer's.

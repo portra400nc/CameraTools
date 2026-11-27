@@ -18,7 +18,7 @@ Texture2D<float4> cloud_types : register(t12);  // core/clouds.h's table: a row 
 Texture3D<float> cloud_volume : register(t13);  // data/wdas_cloud: Disney's cloud, x across, y up, z along, with mips
 
 static const float kShapeTile = 6;     // cloud sizes the shape noise spans before it repeats
-static const float kCloudTypes = 5;    // ENHANCEMENTS_CLOUD_TYPE_COUNT
+static const float kCloudTypes = 6;    // ENHANCEMENTS_CLOUD_TYPE_COUNT
 
 // What a type marches by, beside its height profile in cloud_types.
 struct CloudKind
@@ -46,7 +46,7 @@ struct CloudKind
 // leaned 3 km, a slanted slab). Their erosion cells run from some 400 m down to 25 m.
 // Every type stands Disney's cloud since the user found it the real one; volume 0 brings a type's noise clouds back (the
 // git tag clouds-noise has them as they were tuned).
-static const CloudKind kKinds[5] =
+static const CloudKind kKinds[6] =
 {
     { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.15, 1, float2(0.4, 0.55), float2(0.3, 0.55), 0, 0, 6, 0 },     // cumulus
     // Altocumulus: the noise's soft overlapping puffs matched the user's photo, where Disney cloudlets read as stamps and
@@ -58,6 +58,7 @@ static const CloudKind kKinds[5] =
     { 0.8, float2(0.35, 1.6), 0.55, 0.3, 0.5, 0.1, 0, float2(0.98, 0.98), float2(0.6, 1), 1, 0, 6, 0 },      // stratus
     { 0.6, float2(1.5, 1.5), 0.4, 0.6, 0.15, 0.25, 1, float2(0.4, 0.45), float2(0.55, 0.8), 0, 0.6, 6, 0 },  // cumulonimbus
     { 0.6, float2(1.5, 1.5), 0.3, 1.0, 0.1, 0.25, 3, float2(0.4, 0.55), float2(0.45, 1), 0, 0, 6, 0 },        // towering cumulus: a cluster (3)
+    { 0.8, float2(1, 1), 0.3, 0.3, 0.12, 0.1, 0, float2(1, 1), float2(1, 1), 0, 0, 6, 0 },                     // mapped: only its lean counts
 };
 static CloudKind kind_look;  // this type's, set by main
 
@@ -251,6 +252,35 @@ float cloud_volume_at(float2 c, float y)
     return best;
 }
 
+// The mapped type's body, after Bauer (SIGGRAPH 2019, slides 16 to 18): the weather map cut by a threshold that rises
+// with height, so a cloud stands on a broad flat base, its shelf, and rounds off higher up where only strong weather
+// still clears the threshold. Strong weather stands tall, weak weather stays a low flat cloud.
+float mapped_body(float2 c, float h)
+{
+    float weather = weather_at(c) + coverage_boost;
+    if (weather <= 0.01)
+        return 0;
+    float threshold = 0.08 + 0.3 * smoothstep(0.05, 0.35, h) + 0.45 * smoothstep(0.35, 1, h);
+    return smoothstep(threshold, threshold + 0.18, weather) * smoothstep(0, 0.04, h);
+}
+
+// The mapped type's detail: Perlin-Worley noise, read through a displacement made of two planar reads (the xy and xz
+// planes, as Bauer builds a quasi 3D vector from two 2D lookups), which churns slowly as the clouds travel, carved out of
+// the body by an inverse lerp whose softness grows toward the top, so bases stay crisp and tops soft.
+float mapped_carve(float3 c, float h, float body)
+{
+    float t = cloud_evolve / max(layer_size, 1);
+    float3 q = c / (layer_size * kShapeTile);
+    float2 xy = float2(erosion_noise.SampleLevel(linear_wrap, float3(q.xy * 0.7, t * 0.01), 0),
+        erosion_noise.SampleLevel(linear_wrap, float3(q.xy * 0.7 + 0.43, t * 0.01 + 0.5), 0)) - 0.5;
+    float2 xz = float2(erosion_noise.SampleLevel(linear_wrap, float3(q.xz * 0.7 + 0.17, t * 0.013), 0),
+        erosion_noise.SampleLevel(linear_wrap, float3(q.xz * 0.7 + 0.61, t * 0.013 + 0.5), 0)) - 0.5;
+    float3 displacement = float3(xy.x + xz.x, xy.y, xz.y) * 0.5;
+    float n = shape_noise.SampleLevel(linear_wrap, q * 2 + displacement - float3(0, t * 0.004, 0), 0) * 0.85 * layer_detail * detail_weight;
+    float soft = lerp(0.35, 0.95, h);
+    return saturate((body - n) / max(soft - n, 0.05));
+}
+
 // Without the erosion: the cloud body at p, 0 to 1, and the height in the layer and how much the type erodes there.
 float cloud_body(float3 p, out float h, out float erosion)
 {
@@ -259,6 +289,8 @@ float cloud_body(float3 p, out float h, out float erosion)
     if (h < 0 || h > 1)
         return 0;
     float3 c = cloud_space(p, h);
+    if (layer_type == kMappedType)
+        return mapped_body(c.xz, h);
     // Disney's cloud carries its own detail, smooth and soft as a real cloud's: the noise's erosion only roughened it.
     if (kind_look.volume > 0)
         return cloud_volume_at(c.xz, p.y);
@@ -282,6 +314,8 @@ float cloud_extinction(float3 p, out float h)
     float body = cloud_body(p, h, erosion);
     if (body <= 0)
         return 0;
+    if (layer_type == kMappedType)
+        return mapped_carve(cloud_space(p, h), h, body) * layer_density;
     float3 q = cloud_space(p, h) / (layer_size * kind_look.detail_tile);
     // Turbulence, as Horizon Zero Dawn's clouds swirl their detail: the erosion read through a slow warp of itself, so
     // small billows tumble and fray at the rims instead of sitting as round balls.
@@ -411,7 +445,7 @@ bool layer_span(float3 origin, float3 dir, out float t0, out float t1)
 // Marches the current layer between t0 and t1 into m.
 void march_layer(float3 origin, float3 dir, float t0, float t1, float jitter, bool physical, inout MarchState m)
 {
-    kind_look = kKinds[min((uint)layer_type, 4u)];
+    kind_look = kKinds[min((uint)layer_type, 5u)];
     light_scale = min(layer_size, layer_thickness * 0.5);
     // Large steps through clear air; at the first body met, a step back and small steps, which resolve the cloud's skin
     // and its detail; back to large steps after a run of empty small ones. At most twice cloud_steps samples. A large

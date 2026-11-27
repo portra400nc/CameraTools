@@ -406,6 +406,8 @@ namespace enhancements
         float dof_focus = 0;
         // Meters the clouds drifted along world x and z, wrapped well inside float precision.
         float cloud_wind[2] = { 0, 0 };
+        // Meters the wind has carried the clouds in all, wrapped at a thousand kilometers: the mapped type's weather evolves by it.
+        float cloud_travel = 0;
         // The auto exposure's stops ReShade.log last named, and when; it names them again once they move half a stop, at
         // most every 5 seconds.
         std::optional<float> logged_exposure;
@@ -1401,6 +1403,8 @@ namespace enhancements
                         const float radians = settings.clouds.wind_direction * 0.01745329f, step = settings.clouds.wind_speed * frame_seconds;
                         cloud_wind[0] = std::fmod(cloud_wind[0] + std::cos(radians) * step, 1.0e5f);
                         cloud_wind[1] = std::fmod(cloud_wind[1] + std::sin(radians) * step, 1.0e5f);
+                        cloud_travel = std::fmod(cloud_travel + step, 1.0e6f);
+                        gpu.set_cloud_travel(cloud_travel);
                         // A screenshot's frames, summed for its supersampling, march the clouds at the full size.
                         CloudSettings lit = settings.clouds;
                         lit.sun *= overcast_sky();

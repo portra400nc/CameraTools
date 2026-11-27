@@ -15,7 +15,7 @@ namespace enhancements
         static_assert(ENHANCEMENTS_COMPARE_MAX == kCompareMax && sizeof(EnhancementsVariant) == 32 + sizeof(EnhancementsSettings));
         const char *const kCloudPatternNames[] = { "noise", "heaps", "broken", "overcast", "puffs", "patches", "streaks" };
         static_assert(std::size(kCloudPatternNames) == static_cast<size_t>(CloudPattern::count));
-        const char *const kCloudTypeNames[] = { "cumulus", "stratocumulus", "stratus", "cumulonimbus", "towering" };
+        const char *const kCloudTypeNames[] = { "cumulus", "stratocumulus", "stratus", "cumulonimbus", "towering", "mapped" };
         static_assert(std::size(kCloudTypeNames) == static_cast<size_t>(CloudType::count));
         static_assert(sizeof(EnhancementsSettings) == 612, "settings_tsv writes every field: give a new one a column");
         // compare_remaining took the padding at the end, so a caller built before it still sends 72 bytes. The accumulator's

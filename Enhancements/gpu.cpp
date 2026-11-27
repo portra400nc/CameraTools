@@ -171,7 +171,7 @@ namespace enhancements
         float cloud_layers;         // 1 the main layer alone, 2 with the middle one
         float flare_clouds;         // 1 while this frame's volume clouds are in their history
         uint32_t water_stamp;       // this frame's number for water_ps.hlsl's marks, never 0
-        float cloud_layers_pad;
+        float cloud_evolve;
         float accum_chromatic[2];
         float accum_swirl;
         float accum_lift;
@@ -2316,6 +2316,13 @@ namespace enhancements
         }
     }
 
+    float Gpu::cloud_evolve(const CloudSettings &settings) const
+    {
+        const bool mapped = settings.type == CloudType::mapped || (settings.middle && settings.middle->type == CloudType::mapped);
+        const float step = std::max(settings.size, 1.0f) * 0.02f;
+        return mapped ? std::floor(cloud_travel_ / step) * step : 0.0f;
+    }
+
     std::optional<GameCall> Gpu::run_cloud_shadows(const FrameMap &map, const CloudSettings &settings, const Camera &camera, const float wind[2], bool flip)
     {
         // Until the clouds have baked their weather map and made their noise, there is nothing to shade with.
@@ -2329,6 +2336,7 @@ namespace enhancements
             || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false) || !pass_constants(camera, map.render, flip, constants))
             return std::nullopt;
         put_clouds(settings, camera, wind, constants);
+        constants.cloud_evolve = cloud_evolve(settings);
         // The game's sun, whose light the shadow mask scales.
         for (int k = 0; k < 3; k++)
             constants.cloud_toward_sun[k] = camera.toward_sun[k];
@@ -2392,6 +2400,7 @@ namespace enhancements
             || !pass_constants(camera, map.render, flip, constants))
             return std::nullopt;
         const float eye_y = put_clouds(settings, camera, wind, constants);
+        constants.cloud_evolve = cloud_evolve(settings);
         // The noise needs no texture: leaving the cached one keeps a layered sky's cirrus texture loaded across frames.
         constants.cloud_pattern = settings.pattern != CloudPattern::noise && sync_cloud_pattern(settings.pattern) ? static_cast<float>(settings.pattern) : 0.0f;
         // The march's sample offsets turn by the golden ratio each frame, and the history follows the camera's turn and keeps
@@ -2479,7 +2488,8 @@ namespace enhancements
         scene_in_.copy_from(c, native(scene));
         depth_.copy_from(c, native(depth));
         const CloudMapKey key = { cloud_map_.texture(), { constants.cloud_map_center[0], constants.cloud_map_center[1] }, constants.cloud_map_extent,
-            settings.coverage, settings.size, settings.stretch, settings.wind_direction, constants.cloud_pattern, constants.cloud_type, settings.middle };
+            settings.coverage, settings.size, settings.stretch, settings.wind_direction, constants.cloud_pattern, constants.cloud_type, settings.middle,
+            constants.cloud_evolve };
         if (!(key == cloud_map_key_))
         {
             ID3D11ShaderResourceView *const bake[] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, lattice_srv_.Get() };

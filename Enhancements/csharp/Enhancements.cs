@@ -295,7 +295,7 @@ namespace CameraToolsEnhancements
     }
 
     // ENHANCEMENTS_CLOUD_TYPE_* in enhancements.h, in order.
-    internal enum EnhancementsCloudType : uint { Cumulus, Stratocumulus, Stratus, Cumulonimbus, Towering }
+    internal enum EnhancementsCloudType : uint { Cumulus, Stratocumulus, Stratus, Cumulonimbus, Towering, Mapped }
 
     // ENHANCEMENTS_CLOUD_PATTERN_* in enhancements.h, in order.
     internal enum EnhancementsCloudPatternKind : uint { Noise, Heaps, Broken, Overcast, Puffs, Patches, Streaks }

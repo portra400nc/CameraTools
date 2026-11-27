@@ -556,6 +556,7 @@ enum
     ENHANCEMENTS_CLOUD_TYPE_STRATUS,           // a flat, smooth sheet
     ENHANCEMENTS_CLOUD_TYPE_CUMULONIMBUS,      // towers through the whole layer that spread into an anvil at the top
     ENHANCEMENTS_CLOUD_TYPE_TOWERING,          // towering cumulus (congestus): tall towers of round billows, solid inside; version 52
+    ENHANCEMENTS_CLOUD_TYPE_MAPPED,            // prototype, the probe only: shapes from an evolving weather map and a height profile
     ENHANCEMENTS_CLOUD_TYPE_COUNT,
 };
 
