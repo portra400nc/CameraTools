@@ -561,7 +561,9 @@ namespace CameraTools
         public static readonly ProbeCloudKind[] ProbeCloudKinds =
         {
             new("towering cumulus", EnhancementsCloudType.Towering, 2000f, 9000f, 3000f, 0.3f, 0.4f),
-            new("mapped (prototype)", EnhancementsCloudType.Mapped, 1500f, 3000f, 600f, 0.1f, 0.45f),
+            // Its own density, not the towers' look's: at 0.1 a meter one of the march's 60 m steps was opaque, and the light
+            // of each ray's first sample banded the tops (.work/deck-screens/mapped15.png against mapped16-thin.png).
+            new("mapped (prototype)", EnhancementsCloudType.Mapped, 1500f, 3000f, 600f, 0.005f, 0.45f),
             new("cumulus", EnhancementsCloudType.Cumulus, 2000f, 1500f, 400f, 0.04f, 0.5f),
             new("altocumulus", EnhancementsCloudType.Stratocumulus, 3000f, 700f, 500f, 0.04f, 0.75f),
             new("stratus", EnhancementsCloudType.Stratus, 1300f, 400f, 1000f, 0.08f, 0.88f),
@@ -601,7 +603,7 @@ namespace CameraTools
                 };
             settings.Clouds.Sun *= ProbeTowersLooks[ProbeTowersLook].Sun;
             settings.Clouds.Ambient *= ProbeTowersLooks[ProbeTowersLook].SkyLight;
-            settings.Clouds.Density = ProbeTowersLooks[ProbeTowersLook].Density;
+            settings.Clouds.Density = kind.Type == EnhancementsCloudType.Mapped ? kind.Density : ProbeTowersLooks[ProbeTowersLook].Density;
         }
 
         // The add-on's pattern for a cloud type: its own, or its Azurite painting while the probe asks for the fallback.

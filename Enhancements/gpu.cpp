@@ -2395,7 +2395,7 @@ namespace enhancements
         Constants constants;
         if (!scene_in_.sync(d, native(scene), scene_format, false) || !scene_out_.sync(d, native(scene), scene_format, true)
             || !depth_.sync(d, native(depth), static_cast<DXGI_FORMAT>(depth.format), false)
-            || !cloud_map_.sync(d, { kCloudMapSize, kCloudMapSize }, DXGI_FORMAT_R16G16_FLOAT) || !cloud_rays_.sync(d, rays, DXGI_FORMAT_R16G16B16A16_FLOAT)
+            || !cloud_map_.sync(d, { kCloudMapSize, kCloudMapSize }, DXGI_FORMAT_R32G32_FLOAT) || !cloud_rays_.sync(d, rays, DXGI_FORMAT_R16G16B16A16_FLOAT)
             || !cloud_history_[0].sync(d, history, DXGI_FORMAT_R16G16B16A16_FLOAT) || !cloud_history_[1].sync(d, history, DXGI_FORMAT_R16G16B16A16_FLOAT)
             || !pass_constants(camera, map.render, flip, constants))
             return std::nullopt;

@@ -69,9 +69,27 @@ float weather_at(float2 c)
     return layer_index == 0 ? w.x : w.y;
 }
 
+// The weather map through a cubic B-spline in four bilinear taps (Sigg and Hadwiger, GPU Gems 2, 20): its slope is smooth
+// across texels. The mapped type stands its clouds' surface on the map's value, and bilinear's slope, constant in each
+// 59 m texel and jumping at its edges, shaded the tops in ripples (.work/deck-screens/stripes6.png).
+float weather_at_smooth(float2 c)
+{
+    float2 texel = (c - cloud_map_center) / cloud_map_extent * kCloudMapSize + kCloudMapSize * 0.5 - 0.5;
+    float2 i = floor(texel), f = texel - i;
+    float2 w0 = (1 - f) * (1 - f) * (1 - f) / 6, w1 = (4 - 6 * f * f + 3 * f * f * f) / 6;
+    float2 w2 = (1 + 3 * f + 3 * f * f - 3 * f * f * f) / 6, w3 = f * f * f / 6;
+    float2 g0 = w0 + w1, g1 = w2 + w3;
+    float2 h0 = i - 1 + w1 / g0 + 0.5, h1 = i + 1 + w3 / g1 + 0.5;
+    float2 a = cloud_map.SampleLevel(linear_clamp, h0 / kCloudMapSize, 0), b = cloud_map.SampleLevel(linear_clamp, float2(h1.x, h0.y) / kCloudMapSize, 0);
+    float2 d = cloud_map.SampleLevel(linear_clamp, float2(h0.x, h1.y) / kCloudMapSize, 0), e = cloud_map.SampleLevel(linear_clamp, h1 / kCloudMapSize, 0);
+    float2 w = g0.y * (g0.x * a + g1.x * b) + g1.y * (g0.x * d + g1.x * e);
+    return layer_index == 0 ? w.x : w.y;
+}
+
 float remap(float x, float a, float b, float c, float d) { return c + (x - a) / (b - a) * (d - c); }
 
 static float2 skew_direction;
+static float march_fine = 60;   // this ray's small step, which the mapped type's detail must not be finer than
 static float detail_weight = 1;
 static float coverage_boost = 0;
 
@@ -257,7 +275,7 @@ float cloud_volume_at(float2 c, float y)
 // still clears the threshold. Strong weather stands tall, weak weather stays a low flat cloud.
 float mapped_body(float2 c, float h)
 {
-    float weather = weather_at(c) + coverage_boost;
+    float weather = weather_at_smooth(c) + coverage_boost;
     if (weather <= 0.01)
         return 0;
     float threshold = 0.08 + 0.3 * smoothstep(0.05, 0.35, h) + 0.45 * smoothstep(0.35, 1, h);
@@ -266,19 +284,27 @@ float mapped_body(float2 c, float h)
 
 // The mapped type's detail: Perlin-Worley noise, read through a displacement made of two planar reads (the xy and xz
 // planes, as Bauer builds a quasi 3D vector from two 2D lookups), which churns slowly as the clouds travel, carved out of
-// the body by an inverse lerp whose softness grows toward the top, so bases stay crisp and tops soft.
+// the body over a width that grows toward the top, so bases stay crisp and tops soft.
 float mapped_carve(float3 c, float h, float body)
 {
     float t = cloud_evolve / max(layer_size, 1);
     float3 q = c / (layer_size * kShapeTile);
-    float2 xy = float2(erosion_noise.SampleLevel(linear_wrap, float3(q.xy * 0.7, t * 0.01), 0),
-        erosion_noise.SampleLevel(linear_wrap, float3(q.xy * 0.7 + 0.43, t * 0.01 + 0.5), 0)) - 0.5;
-    float2 xz = float2(erosion_noise.SampleLevel(linear_wrap, float3(q.xz * 0.7 + 0.17, t * 0.013), 0),
-        erosion_noise.SampleLevel(linear_wrap, float3(q.xz * 0.7 + 0.61, t * 0.013 + 0.5), 0)) - 0.5;
-    float3 displacement = float3(xy.x + xz.x, xy.y, xz.y) * 0.5;
-    float n = shape_noise.SampleLevel(linear_wrap, q * 2 + displacement - float3(0, t * 0.004, 0), 0) * 0.85 * layer_detail * detail_weight;
-    float soft = lerp(0.35, 0.95, h);
-    return saturate((body - n) / max(soft - n, 0.05));
+    // The displacement is smooth, a few cloud sizes across: the erosion noise's fine cells, read for it, laid the clouds in
+    // thin horizontal strata (.work/deck-screens/mapped1.png).
+    float2 xy = float2(shape_noise.SampleLevel(linear_wrap, float3(q.xy * 0.4, t * 0.01), 2),
+        shape_noise.SampleLevel(linear_wrap, float3(q.xy * 0.4 + 0.43, t * 0.01 + 0.5), 2)) - 0.5;
+    float2 xz = float2(shape_noise.SampleLevel(linear_wrap, float3(q.xz * 0.4 + 0.17, t * 0.013), 2),
+        shape_noise.SampleLevel(linear_wrap, float3(q.xz * 0.4 + 0.61, t * 0.013 + 0.5), 2)) - 0.5;
+    float3 displacement = float3(xy.x + xz.x, xy.y, xz.y) * 0.3;
+    // At the mip whose texels span two of the ray's small steps: detail finer than the steps aliased into contour bands
+    // over the tops, which the pixels' random offsets did not average away (.work/deck-screens/mapped4.png; with 15 m
+    // steps, mapped14-fine.png, they were gone).
+    float lod = clamp(log2(2 * march_fine * 128 / (layer_size * kShapeTile)), 0, 5);
+    float n = shape_noise.SampleLevel(linear_wrap, q + displacement - float3(0, t * 0.004, 0), lod) * 0.85 * layer_detail * detail_weight;
+    // The carve's width, not Bauer's upper bound: (body - n) / (soft - n) turned negative wherever the noise passed the
+    // softness and emptied the inside of the cloud along contours of height (.work/deck-screens/stripes-crop.png).
+    float width = lerp(0.12, 0.5, h);
+    return saturate((body - n) / width);
 }
 
 // Without the erosion: the cloud body at p, 0 to 1, and the height in the layer and how much the type erodes there.
@@ -455,6 +481,7 @@ void march_layer(float3 origin, float3 dir, float t0, float t1, float jitter, bo
     // Small steps of at most 60 m, or a twentieth of a cloud for big ones: a towering cumulus's long flat base, 3 km clouds,
     // took every sample of rays that grazed it at 60 m, and the turrets behind it never drew.
     float fine = clamp(budget * 0.12, 10, max(60, layer_size * 0.05));
+    march_fine = fine;
     detail_weight = saturate(3 * layer_size * kind_look.detail_tile / 32 / fine);
     float3 l = cloud_toward_sun;
     float c = dot(dir, l);
