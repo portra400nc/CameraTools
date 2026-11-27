@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <array>
 #include <optional>
 #include <string>
 #include <vector>
@@ -87,6 +88,14 @@ namespace enhancements
     // start to start + count - 1 counted from the element's first, as DXVK reads an entry. Otherwise empty, with missing
     // naming the entry, such as "TEXCOORD4.w": DXVK skips an entry it cannot find, and its stride would hold garbage.
     std::optional<SoDeclaration> so_declaration(const OutputSignature &signature, const std::vector<SoEntry> &extra, std::string &missing);
+
+    // The container's checksum, the 16 bytes at 4: MD5 over everything after them, with DXBC's own last block (the length
+    // in bits first, and the length over 4 with its low bit set last). DXVK refuses a shader whose checksum is wrong.
+    std::array<uint8_t, 16> dxbc_checksum(const uint8_t *code, size_t size);
+
+    // A copy of the container with one more chunk, "CTSL" holding salt, and its checksum made again: the same shader in
+    // other bytes. Empty when the bytes are not a container.
+    std::string salted_container(const std::string &code, uint64_t salt);
 
     // extra, entries of a domain shader's signature, as shaders/stream_attributes_gs.hlsl's outputs: each element's register
     // as ATTR<register>, its components counted from x. Empty when an entry names no element, or one outside registers 1 to 7.

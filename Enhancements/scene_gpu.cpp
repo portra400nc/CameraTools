@@ -255,13 +255,6 @@ namespace enhancements
         }
     }
 
-    bool SceneGpu::same_entries(const std::vector<SoEntry> &a, const std::vector<SoEntry> &b)
-    {
-        return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(), [](const SoEntry &x, const SoEntry &y) {
-            return x.semantic == y.semantic && x.index == y.index && x.start == y.start && x.count == y.count && x.slot == y.slot;
-        });
-    }
-
     const SceneGpu::CachedGs &SceneGpu::geometry_shader(uint64_t key, const std::string &bytes, const std::vector<SoEntry> &extra)
     {
         // The key of a declaration with extra entries mixes them in, so each set of inputs has its own shader.
@@ -272,7 +265,14 @@ namespace enhancements
         CachedGs &cached = it->second;
         if (!made)
             return cached;
-        const std::optional<OutputSignature> signature = parse_output_signature(reinterpret_cast<const uint8_t *>(bytes.data()), bytes.size());
+        // DXVK keeps the first stream layout it made for a bytecode and streams every later declaration of the same
+        // bytes in it: build 207's equal-depth draws and, until 2026-11-27, every draw whose alpha program wanted inputs
+        // its vertex shader's first draw had not streamed, which cast whole (the ground petals' opaque sheet, 177 draws
+        // in one capture). Each declaration therefore gets its own bytes: the container with its key as one more chunk.
+        std::string salted = salted_container(bytes, key);
+        if (salted.empty())
+            salted = bytes;
+        const std::optional<OutputSignature> signature = parse_output_signature(reinterpret_cast<const uint8_t *>(salted.data()), salted.size());
         std::string missing;
         const std::optional<SoDeclaration> declaration = signature ? so_declaration(*signature, extra, missing) : std::nullopt;
         if (!declaration)
@@ -284,7 +284,7 @@ namespace enhancements
         for (const SoEntry &e : declaration->entries)
             entries.push_back({ 0, e.semantic.c_str(), e.index, e.start, e.count, e.slot });
         const UINT stride = declaration->stride;
-        cached.result = device_->CreateGeometryShaderWithStreamOutput(bytes.data(), bytes.size(), entries.data(), static_cast<UINT>(entries.size()), &stride,
+        cached.result = device_->CreateGeometryShaderWithStreamOutput(salted.data(), salted.size(), entries.data(), static_cast<UINT>(entries.size()), &stride,
             1, D3D11_SO_NO_RASTERIZED_STREAM, nullptr, cached.shader.GetAddressOf());
         if (FAILED(cached.result))
         {
@@ -598,18 +598,6 @@ namespace enhancements
         // The key of our own shader: a census hash is FNV-1a of bytecode, never 0.
         static const std::string triangles_gs(reinterpret_cast<const char *>(kStreamTrianglesGs), sizeof kStreamTrianglesGs);
         static const std::string attributes_gs(reinterpret_cast<const char *>(kStreamAttributesGs), sizeof kStreamAttributesGs);
-        // One stream layout per source shader, the first a capture made for it: build 207's equal-depth vegetation draws
-        // asked for the position alone after their prepass draws had streamed the same vertex shader with an alpha
-        // program's inputs, and their data came back in the prepass's layout, read as garbage. A later draw therefore
-        // streams with the first layout and is read with it; one whose own program wants other inputs casts whole.
-        const auto first = ds ? layouts_.end() : layouts_.find(source->hash);
-        if (first != layouts_.end() && !same_entries(first->second.extra, extra))
-        {
-            if (!extra.empty())
-                r.alpha = DrawAlpha::stream;
-            extra = first->second.extra;
-            r.stride = first->second.stride;
-        }
         std::optional<std::vector<SoEntry>> attributes;
         if (ds && !extra.empty())
         {
@@ -624,7 +612,7 @@ namespace enhancements
         }
         const CachedGs *found = attributes ? &geometry_shader(1, attributes_gs, *attributes) : ds ? &geometry_shader(0, triangles_gs, {})
                                            : &geometry_shader(source->hash, *source->code, extra);
-        if (!extra.empty() && found->skip != DrawSkip::none && first == layouts_.end())
+        if (!extra.empty() && found->skip != DrawSkip::none)
         {
             // Without its alpha program's inputs, the draw still streams its triangles, whole.
             r.alpha = DrawAlpha::stream;
@@ -632,8 +620,6 @@ namespace enhancements
             extra.clear();
             found = ds ? &geometry_shader(0, triangles_gs, {}) : &geometry_shader(source->hash, *source->code, {});
         }
-        if (!ds && found->skip == DrawSkip::none)
-            layouts_.try_emplace(source->hash, StreamLayoutOf { extra, r.stride });
         const CachedGs &so_gs = *found;
         if (so_gs.result == DXGI_ERROR_INVALID_CALL && !ds)
         {

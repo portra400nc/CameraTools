@@ -2,6 +2,7 @@
 // declaration each gets, and broken containers that must give nothing.
 #include "../core/dxbc.h"
 
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -186,6 +187,34 @@ int main()
         }
         check("the domain shader cut at every 4-byte boundary gives tri or nothing, never another domain", none);
         check("a null pointer declares no domain", !tessellator_domain(nullptr, 100));
+    }
+    {
+        // DXVK refuses a container whose checksum is wrong, so the scene capture's salted copies of a shader carry their own.
+        bool sums = true;
+        for (const char *name : { "a54d4773bdfcf885.vs.dxbc", "258b2bebb4f71cc6.vs.dxbc", "44041f47a8b7383f.vs.dxbc", "2adc971cc2058b7a.ds.dxbc",
+                 "0a48f0bb29e3c15d.ps.dxbc", "0a2e8968a7a6bcde.vs.dxbc" })
+        {
+            const std::vector<uint8_t> code = load(name);
+            const std::array<uint8_t, 16> sum = dxbc_checksum(code.data(), code.size());
+            sums &= std::memcmp(sum.data(), code.data() + 4, 16) == 0;
+        }
+        check("the checksum of six of the game's shaders is the one their containers hold", sums);
+        const std::vector<uint8_t> vertex = load("a54d4773bdfcf885.vs.dxbc");
+        const std::string original(vertex.begin(), vertex.end());
+        const std::string one = salted_container(original, 1), two = salted_container(original, 2);
+        const auto *a = reinterpret_cast<const uint8_t *>(one.data());
+        const std::array<uint8_t, 16> sum = dxbc_checksum(a, one.size());
+        uint32_t total = 0, chunks = 0, old_chunks = 0;
+        std::memcpy(&total, a + 24, 4);
+        std::memcpy(&chunks, a + 28, 4);
+        std::memcpy(&old_chunks, vertex.data() + 28, 4);
+        check("a salted copy is 20 bytes longer, holds one more chunk and says its own size",
+            one.size() == original.size() + 20 && chunks == old_chunks + 1 && total == one.size());
+        check("a salted copy's checksum is right", !one.empty() && std::memcmp(sum.data(), a + 4, 16) == 0);
+        check("two salts give two containers", one != two);
+        const auto salted = parse_output_signature(a, one.size()), plain = parse(vertex);
+        check("a salted copy has the same output signature", salted && plain && names(*salted) == names(*plain));
+        check("bytes that are no container give no salted copy", salted_container("DXBC", 1).empty() && salted_container(std::string(64, 'x'), 1).empty());
     }
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;
