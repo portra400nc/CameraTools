@@ -29,6 +29,7 @@ namespace CameraTools
         public static float NightStops { get; set; } = 30f;
 
         private static MelonPreferences_Entry<int> savedDays;
+        private static MelonPreferences_Entry<bool> gammaFix;
         private static int days;
         private static float? lastHour;
 
@@ -42,6 +43,8 @@ namespace CameraTools
         private static Color gameColor, ourColor;
         private static float gameIntensity, ourIntensity;
         private static float dayLight = MeasuredDayLight;
+        private static Color dayColor;
+        private static float dayIntensity = -1f;
         private static float dayAmbient = AmbientLuminance(MeasuredDayAmbientSky, MeasuredDayAmbientGround);
 
         // The sky whose fog we switched off: the game's distance and height fog take its painted time-of-day colors (gold at
@@ -59,6 +62,33 @@ namespace CameraTools
             savedDays = MelonPreferences.CreateCategory("CameraToolsEnhancements").CreateEntry("SkyDays", 0,
                 description: "The physical sky's day count, which the moon's phase follows. It gains a day each time the sky's hour passes midnight.");
             days = savedDays.Value;
+            gammaFix = MelonPreferences.CreateCategory("CameraToolsEnhancements").CreateEntry("LightGammaFix", true,
+                description: "Whether the main light is read and written through the game's 2.2 gamma; off is the bright sun of before 2026-11-27. The probe toggles it.");
+        }
+
+        // The A/B test of the main light's gamma: off, the sun and the moon light the world as before 2026-11-27.
+        public static bool LightGammaFix
+        {
+            get => gammaFix?.Value ?? true;
+            set
+            {
+                if (gammaFix == null)
+                    return;
+                gammaFix.Value = value;
+                MelonPreferences.Save();
+                if (dayIntensity >= 0f)
+                    dayLight = DayLightOf(dayColor, dayIntensity);
+                Log($"the main light's gamma fix is {(value ? "on" : "off")}; the game's day light {dayLight:0.###}.");
+            }
+        }
+
+        // Before the gamma fix the moon lit the world three times its real light, which made up for the gamma it lacked.
+        private const float MoonBoostWithoutGammaFix = 3f;
+
+        private static float DayLightOf(Color color, float intensity)
+        {
+            var linear = color.linear * LinearIntensity(intensity);
+            return 0.2126f * linear.r + 0.7152f * linear.g + 0.0722f * linear.b;
         }
 
         // Sets the day count, for the probe until the World tab has a row.
@@ -136,7 +166,8 @@ namespace CameraTools
             var running = EnhancementsControl.RunningValues;
             bool layered = EnhancementsModel.CloudsRun(running) && (int)running[Enhancement.CloudType] == EnhancementsModel.LayeredClouds;
             float cover = WeatherFollow.Sun * (layered ? LayeredSky.SunShare(LayeredSky.Current) : 1f);
-            Light = CelestialLight.Of(known, new Vec3(world.SunR, world.SunG, world.SunB) * cover, new Vec3(world.MoonR, world.MoonG, world.MoonB) * cover);
+            Light = CelestialLight.Of(known, new Vec3(world.SunR, world.SunG, world.SunB) * cover, new Vec3(world.MoonR, world.MoonG, world.MoonB) * cover
+                * (LightGammaFix ? 1f : MoonBoostWithoutGammaFix));
             Drive();
             // The game keeps its ambient light up through the night, so the ambient pass takes it at the physical sky's
             // share of a day's sky light over the game's own share.
@@ -243,7 +274,7 @@ namespace CameraTools
         private const float LightGamma = 2.2f;
 
         // The linear light a main light of intensity i gives per unit of its linear color.
-        public static float LinearIntensity(float i) => MathF.Pow(Math.Max(i, 0f), LightGamma);
+        public static float LinearIntensity(float i) => LightGammaFix ? MathF.Pow(Math.Max(i, 0f), LightGamma) : Math.Max(i, 0f);
 
         private static Vec3 Linear(Color c)
         {
@@ -332,9 +363,12 @@ namespace CameraTools
             {
                 gameColor = main.color;
                 gameIntensity = main.intensity;
-                var linear = main.color.linear * LinearIntensity(main.intensity);
                 if (!sky.IsNight)
-                    dayLight = 0.2126f * linear.r + 0.7152f * linear.g + 0.0722f * linear.b;
+                {
+                    dayColor = main.color;
+                    dayIntensity = main.intensity;
+                    dayLight = DayLightOf(dayColor, dayIntensity);
+                }
             }
             if (towardSun.Y > DaySun)
                 dayAmbient = AmbientLuminance(RenderSettings.ambientSkyColor, RenderSettings.ambientGroundColor);
@@ -353,7 +387,7 @@ namespace CameraTools
             ourRotation = Quaternion.LookRotation(-ToUnity(light.Toward));
             held.transform.rotation = ourRotation;
             held.color = ourColor;
-            held.intensity = MathF.Pow(ourIntensity, 1f / LightGamma);
+            held.intensity = LightGammaFix ? MathF.Pow(ourIntensity, 1f / LightGamma) : ourIntensity;
             // Read back, as Unity stores them, so the next frame tells the game's writes from ours.
             ourColor = held.color;
             ourIntensity = held.intensity;
