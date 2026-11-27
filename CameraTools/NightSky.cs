@@ -280,8 +280,9 @@ namespace CameraTools
             if (clock != null && clock._playerGameTimeSynced)
             {
                 // Held while a traced shot or live tracing runs: the server's day goes on under the held hour, and its turn
-                // moved the moon a day's 12 degrees, which built the trace's sky again and started its samples over.
-                if (days != (int)clock.GameDay && !EnhancementsShot.Busy && !LiveTrace.On)
+                // moved the moon a day's 12 degrees, which built the trace's sky again and started its samples over. A hold
+                // that ended at convergence let the day catch up as the lens samples began (2026-11-27).
+                if (days != (int)clock.GameDay && !EnhancementsShot.HoldsSky && !LiveTrace.On)
                 {
                     days = (int)clock.GameDay;
                     Save();

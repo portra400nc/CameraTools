@@ -218,6 +218,10 @@ namespace CameraTools
         // When the phase began: the hold, the scene's request, the trace or the converged light.
         public static float PhaseBegan => run?.PhaseBegan ?? 0f;
 
+        // From the scene's request until the shot ends, lens samples included: the sky must hold still, or its new map
+        // starts the trace's samples over under the picture.
+        public static bool HoldsSky => run is { Phase: not ShotPhase.Settling };
+
         // The shot captures or traces: no time limit holds meanwhile.
         public static bool Busy => run is { Phase: ShotPhase.Requesting or ShotPhase.Capturing or ShotPhase.Tracing or ShotPhase.Finishing };
 
