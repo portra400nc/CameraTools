@@ -1,10 +1,16 @@
-// Auto exposure's meter: each pixel of a 64x32 target takes 4x4 points of its share of the HDR scene and writes the sum of
-// their log2 luminance and their count, the sky's points (reversed-Z depth 0) left out. The target's mips then average it.
+// Auto exposure's meter: each pixel of a 64x32 target takes 4x4 points of its share of the HDR scene and writes the weighted
+// sum of their log2 luminance and their weight, the sky's points (reversed-Z depth 0) at kSkyWeight. The target's mips
+// then average it.
 #include "common.hlsli"
 #include "exposure.hlsli"
 
 Texture2D<float3> scene : register(t0);     // mirror of the game's HDR scene
 Texture2D<float> depth : register(t1);      // mirror of the main depth, reversed Z; unbound, every point counts
+
+// The sky's points count a quarter, as a photographer exposes for the land and some of the sky: left out, the physical sky and
+// its sunlit clouds, about three times the ground's light since the main light's gamma fix (2026-11-27), burned to white
+// while the meter brightened the ground.
+static const float kSkyWeight = 0.25;
 
 float2 main(float4 position : SV_Position) : SV_Target0
 {
@@ -17,10 +23,9 @@ float2 main(float4 position : SV_Position) : SV_Target0
         [unroll] for (int x = 0; x < 4; x++)
         {
             int3 p = int3(corner + (float2(x, y) + 0.5) * block / 4, 0);
-            if (width > 0 && depth.Load(p) <= 0)
-                continue;
-            sum += exposure_log_luminance(scene.Load(p));
-            count += 1;
+            float weight = width > 0 && depth.Load(p) <= 0 ? kSkyWeight : 1;
+            sum += exposure_log_luminance(scene.Load(p)) * weight;
+            count += weight;
         }
     return float2(sum, count) / 16;
 }
