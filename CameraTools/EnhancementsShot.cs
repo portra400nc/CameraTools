@@ -515,13 +515,22 @@ namespace CameraTools
             Log($"ended {Time.unscaledTime - ended.Began:0.0} s after the hold; {string.Join("; ", notes)}.");
         }
 
-        // Every frame: the kept scene goes as soon as it may no longer be this world's. A shot that holds the world
-        // watches it itself.
+        // Every frame: the kept scene goes as soon as it may no longer be this world's, the next shot could not trace it
+        // again, or the memory it holds is wanted: a kept scene holds about 3 GB, and the game crashed on the Deck while
+        // one stayed kept at 2 GB free. A shot that holds the world watches it itself.
         public static void Watch()
         {
             if (kept == null || run != null)
                 return;
-            if (TracedShot.Release(Enhancements.Connected, freecamActive, Time.timeScale == 0f) is not { } why)
+            string why = TracedShot.Release(Enhancements.Connected, freecamActive, Time.timeScale == 0f);
+            if (why == null)
+            {
+                var status = Enhancements.Status;
+                why = saveScene.Value ? "the next shot saves its scene for the Mac"
+                    : TracedShot.Unusable(kept.Value, Facts(status.TraceGeneration), status.TraceState)
+                    ?? (FreeMemory.Low ? "free memory is low" : null);
+            }
+            if (why == null)
                 return;
             Log($"released scene generation {kept.Value.Generation}: {why}.");
             kept = null;
