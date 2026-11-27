@@ -143,9 +143,9 @@ float mapped_weather(float2 c)
     float2 wind = float2(cos(radians(cloud_pad)), sin(radians(cloud_pad)));
     float2 p = float2(dot(c, wind) / (layer_size * layer_stretch), dot(c, float2(-wind.y, wind.x)) / layer_size);
     float t = cloud_evolve / max(layer_size, 1);
-    float big = cloud_fbm(float3(p / 12, t / 40), 4);
+    float big = cloud_fbm(float3(p / 9, t / 40), 4);
     float small = cloud_fbm(float3(p / 2.2 + float2(0, t * 0.02), t / 10 + 11.3), 3);
-    float low = 0.58 - layer_coverage * 0.3;
+    float low = 0.66 - layer_coverage * 0.3;
     float masses = smoothstep(low, low + 0.16, big);
     float scattered = smoothstep(0.66 - layer_coverage * 0.25, 0.8, small) * 0.5;
     return saturate(masses * (0.55 + 0.45 * smoothstep(0.3, 0.7, small)) + scattered * (1 - masses));

@@ -69,23 +69,6 @@ float weather_at(float2 c)
     return layer_index == 0 ? w.x : w.y;
 }
 
-// The weather map through a cubic B-spline in four bilinear taps (Sigg and Hadwiger, GPU Gems 2, 20): its slope is smooth
-// across texels. The mapped type stands its clouds' surface on the map's value, and bilinear's slope, constant in each
-// 59 m texel and jumping at its edges, shaded the tops in ripples (.work/deck-screens/stripes6.png).
-float weather_at_smooth(float2 c)
-{
-    float2 texel = (c - cloud_map_center) / cloud_map_extent * kCloudMapSize + kCloudMapSize * 0.5 - 0.5;
-    float2 i = floor(texel), f = texel - i;
-    float2 w0 = (1 - f) * (1 - f) * (1 - f) / 6, w1 = (4 - 6 * f * f + 3 * f * f * f) / 6;
-    float2 w2 = (1 + 3 * f + 3 * f * f - 3 * f * f * f) / 6, w3 = f * f * f / 6;
-    float2 g0 = w0 + w1, g1 = w2 + w3;
-    float2 h0 = i - 1 + w1 / g0 + 0.5, h1 = i + 1 + w3 / g1 + 0.5;
-    float2 a = cloud_map.SampleLevel(linear_clamp, h0 / kCloudMapSize, 0), b = cloud_map.SampleLevel(linear_clamp, float2(h1.x, h0.y) / kCloudMapSize, 0);
-    float2 d = cloud_map.SampleLevel(linear_clamp, float2(h0.x, h1.y) / kCloudMapSize, 0), e = cloud_map.SampleLevel(linear_clamp, h1 / kCloudMapSize, 0);
-    float2 w = g0.y * (g0.x * a + g1.x * b) + g1.y * (g0.x * d + g1.x * e);
-    return layer_index == 0 ? w.x : w.y;
-}
-
 float remap(float x, float a, float b, float c, float d) { return c + (x - a) / (b - a) * (d - c); }
 
 static float2 skew_direction;
@@ -275,7 +258,7 @@ float cloud_volume_at(float2 c, float y)
 // still clears the threshold. Strong weather stands tall, weak weather stays a low flat cloud.
 float mapped_body(float2 c, float h)
 {
-    float weather = weather_at_smooth(c) + coverage_boost;
+    float weather = weather_at(c) + coverage_boost;
     if (weather <= 0.01)
         return 0;
     float threshold = 0.08 + 0.3 * smoothstep(0.05, 0.35, h) + 0.45 * smoothstep(0.35, 1, h);
@@ -380,6 +363,7 @@ bool cloud_near(float3 p)
 // Beyond this many meters the light samples thin to three.
 static const float kNearLight = 8000;
 static const float kLightTaps[6] = { 0.03, 0.085, 0.19, 0.38, 0.77, 1.54 };
+static const float kMappedLightDepth = 20;
 // What the taps and the sky's samples are spaced by: a cloud's size, or its layer's thickness when that is smaller, so a
 // flat layer is not stepped through in one tap and shaded in bands.
 static float light_scale = 1000;
@@ -391,14 +375,20 @@ static float light_spread = 1;
 float depth_toward_light(float3 p, float3 l, bool far)
 {
     float depth = 0, from = 0;
-    [loop] for (int j = far ? 1 : 0; j < 6; j += far ? 2 : 1)
+    // The mapped type skips the two nearest taps: thickened, they swung its shade over 18 to 51 m, finer than the march's
+    // steps resolve, and banded its tops (.work/deck-screens/mapped20.png).
+    bool mapped = layer_type == kMappedType;
+    [loop] for (int j = mapped ? (far ? 3 : 2) : far ? 1 : 0; j < 6; j += far ? 2 : 1)
     {
         float at = kLightTaps[j] * light_scale * light_spread, h;
         float sigma = j < 2 && !far ? cloud_extinction(p + l * at, h) : cloud_extinction_coarse(p + l * at);
         depth += sigma * (at - from);
         from = at;
     }
-    return depth;
+    // The mapped type is seen thin and shaded thick, as Bauer's clouds take their sun's transmittance from a lookup tuned
+    // apart from the view: at one density, 0.1 a meter banded the tops at the march's steps (.work/deck-screens/mapped15.png)
+    // and 0.005 left them flat white (mapped18.png).
+    return mapped ? depth * kMappedLightDepth : depth;
 }
 
 // Sunlight scattered toward the eye after Frostbite (Hillaire 2016, 5.6): octaves of multiple scattering, each through
@@ -494,6 +484,8 @@ void march_layer(float3 origin, float3 dir, float t0, float t1, float jitter, bo
     uint empty = 0, lit_samples = 0;
     float od = 0;
     float found = 0;
+    float clear = t0;  // the last sample in clear air, which the mapped type refines its entry from
+    bool was_clear = true;
     // With the physical sky's air over them, the clouds fade over the far two thirds of the march, which ends at 0.35 of
     // the map: the air takes the far ones into the haze, where the old fade thinned them from the start, and a fade over
     // only the last 30% left a bright band of layer ending above the horizon (.work/clouds/kinds round14).
@@ -513,6 +505,7 @@ void march_layer(float3 origin, float3 dir, float t0, float t1, float jitter, bo
             empty = 0;
             found = t;
             t = max(t - coarse, t0) + jitter * fine;
+            clear = t;
             continue;
         }
         // Deeper in, less of what a sample adds reaches the eye: the steps grow to four times as the light through falls,
@@ -520,8 +513,28 @@ void march_layer(float3 origin, float3 dir, float t0, float t1, float jitter, bo
         float step = fine * min(rcp(max(m.transmittance, 0.25)), 4);
         float h;
         float sigma = cloud_extinction(p, h);
+        // The mapped type's smooth surfaces show where each ray enters them: entered anywhere within a small step, their
+        // light banded the tops. As Bauer refines his steps (SIGGRAPH 2019, slide 50), three halvings between the last
+        // clear sample and this one find the skin to an eighth of a step.
+        if (layer_type == kMappedType && sigma > 0 && was_clear && t > clear)
+        {
+            float a = clear, b = t;
+            [unroll] for (int k = 0; k < 3; k++)
+            {
+                float mid = 0.5 * (a + b), hm;
+                if (cloud_extinction(origin + dir * mid, hm) > 0)
+                    b = mid;
+                else
+                    a = mid;
+            }
+            t = b;
+            p = origin + dir * t;
+            sigma = cloud_extinction(p, h);
+        }
+        was_clear = sigma <= 0;
         if (sigma <= 0)
         {
+            clear = t;
             // Small steps go on at least to where the large step found the cloud: giving up short of it skipped the cloud
             // for some pixels' offsets, which left dark specks.
             if (++empty > 8 && t > found)

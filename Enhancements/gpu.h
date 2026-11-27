@@ -792,7 +792,7 @@ namespace enhancements
         bool clouds_drawn_ = false;     // the volume clouds drew into their history since the flare last read it
         ComPtr<ID3D11ShaderResourceView> cloud_pattern_srv_;    // BC7 with its mips, as the pattern's DDS file holds it, for clouds_painted_ps_
         CloudPattern cloud_pattern_ = CloudPattern::noise;      // the one cloud_pattern_srv_ holds
-        Scratch cloud_map_;         // kCloudMapSize square, R32G32_FLOAT: the weather around the camera; at 16 bits its steps terraced the mapped type's tops
+        Scratch cloud_map_;         // kCloudMapSize square, R16G16_FLOAT: the weather around the camera
         Scratch cloud_shadow_map_;  // kCloudShadowMapSide square, R16G16_FLOAT: the light through the clouds toward the sun
         // What cloud_map_ was last baked for; the bake runs again only when any of it changes.
         struct CloudMapKey
