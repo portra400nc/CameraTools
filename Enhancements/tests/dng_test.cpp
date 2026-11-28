@@ -74,6 +74,9 @@ namespace
         return v.type == 3 ? u16(v.data, index * 2) : u32(v.data, index * 4);
     }
 
+    // The first SubIFD, the raw image's.
+    Tiff raw_of(const std::vector<uint8_t> &b) { return parse(b, value(parse(b), 330, 0)); }
+
     std::string text(const Tiff &t, uint16_t tag)
     {
         const Tag &v = t.tags.at(tag);
@@ -220,18 +223,39 @@ int main(int argc, char **argv)
         };
         const std::vector<uint8_t> file = encode_dng({ stored, 2, 2, 4, true });
         const Tiff t = parse(file);
-        check("the file is a little-endian TIFF whose IFD is the only one", t.little_endian && t.next_ifd == 0);
-        const std::vector<uint16_t> expected_order = { 254, 256, 257, 258, 259, 262, 271, 272, 274, 277, 284, 322, 323, 324, 325, 339, 34665,
-            50706, 50707, 50708, 50717, 50721, 50728, 50730, 50778, 50936, 50940, 50941, 50981, 50982, 51108 };
-        check("its 31 tags come in ascending order", t.order == expected_order);
-        check("it is 2x2 LinearRaw, lossless JPEG, three 16-bit unsigned samples side by side, in one tile of 256x256",
-            value(t, 254) == 0 && value(t, 256) == 2 && value(t, 257) == 2 && value(t, 258, 0) == 16 && value(t, 258, 1) == 16 && value(t, 258, 2) == 16
-            && value(t, 259) == 7 && value(t, 262) == 34892 && value(t, 274) == 1 && value(t, 277) == 3 && value(t, 284) == 1 && value(t, 322) == 256
-            && value(t, 323) == 256 && t.tags.at(324).count == 1 && t.tags.at(325).count == 1 && value(t, 339, 0) == 1 && value(t, 339, 1) == 1
-            && value(t, 339, 2) == 1 && value(t, 50717) == 65535);
-        check("its tile ends the file, and is a lossless JPEG stream from SOI to EOI", value(t, 324) + value(t, 325) == file.size()
-            && file[value(t, 324)] == 0xFF && file[value(t, 324) + 1] == 0xD8 && file[value(t, 324) + 2] == 0xFF && file[value(t, 324) + 3] == 0xC3
+        const Tiff raw = parse(file, value(t, 330, 0)), preview = parse(file, value(t, 330, 1));
+        check("the file is a little-endian TIFF of one IFD with two SubIFDs", t.little_endian && t.next_ifd == 0 && t.tags.at(330).count == 2
+            && raw.next_ifd == 0 && preview.next_ifd == 0);
+        const std::vector<uint16_t> expected_order = { 254, 256, 257, 258, 259, 262, 271, 272, 273, 274, 277, 278, 279, 284, 330, 34665,
+            50706, 50707, 50708, 50721, 50728, 50730, 50778, 50936, 50940, 50941, 50981, 50982, 51108 };
+        check("IFD0's 29 tags come in ascending order", t.order == expected_order);
+        check("the raw SubIFD's 14 tags and the preview's 13 come in ascending order",
+            raw.order == std::vector<uint16_t> { 254, 256, 257, 258, 259, 262, 277, 284, 322, 323, 324, 325, 339, 50717 }
+            && preview.order == std::vector<uint16_t> { 254, 256, 257, 258, 259, 262, 273, 277, 278, 279, 284, 530, 50970 });
+        check("the raw image is 2x2 LinearRaw, lossless JPEG, three 16-bit unsigned samples side by side, in one tile of 256x256",
+            value(raw, 254) == 0 && value(raw, 256) == 2 && value(raw, 257) == 2 && value(raw, 258, 0) == 16 && value(raw, 258, 1) == 16
+            && value(raw, 258, 2) == 16 && value(raw, 259) == 7 && value(raw, 262) == 34892 && value(t, 274) == 1 && value(raw, 277) == 3
+            && value(raw, 284) == 1 && value(raw, 322) == 256 && value(raw, 323) == 256 && raw.tags.at(324).count == 1 && raw.tags.at(325).count == 1
+            && value(raw, 339, 0) == 1 && value(raw, 339, 1) == 1 && value(raw, 339, 2) == 1 && value(raw, 50717) == 65535);
+        check("its tile ends the file, and is a lossless JPEG stream from SOI to EOI", value(raw, 324) + value(raw, 325) == file.size()
+            && file[value(raw, 324)] == 0xFF && file[value(raw, 324) + 1] == 0xD8 && file[value(raw, 324) + 2] == 0xFF && file[value(raw, 324) + 3] == 0xC3
             && file[file.size() - 2] == 0xFF && file[file.size() - 1] == 0xD9);
+        // The game's curve of 4 times each sample over 65535, sRGB-encoded: 1 -> 239, 2 -> 255, 0.5 -> 197, 0.25 -> 146.
+        const std::vector<uint8_t> shown = { 239, 255, 255, 0, 0, 255, 197, 239, 255, 255, 146, 0 };
+        check("IFD0 is the thumbnail, the 2x2 picture as the game shows it in uncompressed 8-bit RGB",
+            value(t, 254) == 1 && value(t, 256) == 2 && value(t, 257) == 2 && value(t, 258, 0) == 8 && value(t, 258, 2) == 8 && value(t, 259) == 1
+            && value(t, 262) == 2 && value(t, 277) == 3 && value(t, 278) == 2 && value(t, 279) == 12 && value(t, 284) == 1
+            && std::vector<uint8_t>(file.begin() + value(t, 273), file.begin() + value(t, 273) + 12) == shown);
+        const size_t jpeg = value(preview, 273), jpeg_size = value(preview, 279);
+        size_t sof = jpeg + 2;
+        while (sof + 9 < jpeg + jpeg_size && !(file[sof] == 0xFF && file[sof + 1] == 0xC0))
+            sof += 2 + (size_t(file[sof + 2]) << 8 | file[sof + 3]);
+        check("the preview is a 2x2 baseline JPEG in YCbCr 4:2:0, sRGB, from SOI to EOI",
+            value(preview, 254) == 1 && value(preview, 256) == 2 && value(preview, 257) == 2 && value(preview, 258, 0) == 8 && value(preview, 259) == 7
+            && value(preview, 262) == 6 && value(preview, 277) == 3 && value(preview, 278) == 2 && value(preview, 284) == 1
+            && value(preview, 530, 0) == 2 && value(preview, 530, 1) == 2 && value(preview, 50970) == 2
+            && file[jpeg] == 0xFF && file[jpeg + 1] == 0xD8 && file[jpeg + jpeg_size - 2] == 0xFF && file[jpeg + jpeg_size - 1] == 0xD9
+            && sof + 9 < jpeg + jpeg_size && file[sof + 5] == 0 && file[sof + 6] == 2 && file[sof + 7] == 0 && file[sof + 8] == 2 && file[sof + 9] == 3);
         const Tiff exif = parse(file, value(t, 34665));
         check("with no camera given, its EXIF IFD holds only ExifVersion 0231", exif.order == std::vector<uint16_t> { 36864 }
             && exif.tags.at(36864).type == 7 && text(exif, 36864) == "0231" && exif.next_ifd == 0);
@@ -262,7 +286,7 @@ int main(int argc, char **argv)
             8192, 16384, 32768,     52428, 4096, 0,         // 0.5, 1, 2; 3.2 (52428.0), 0.25 (4095.94), 0
         };
         check("the samples are each channel over the headroom times 65535, rounded, top row first, with alpha left out and nothing not finite or "
-              "below 0 above 0", samples(file, t) == expected);
+              "below 0 above 0", samples(file, raw) == expected);
     }
     {
         const float one[] = { 0.5f, 0.5f, 0.5f };
@@ -324,16 +348,18 @@ int main(int argc, char **argv)
         for (size_t i = 0; i < rgb.size(); i++)
             rgb[i] = float((i * 7919) % 1000) / 1000.0f;
         const std::vector<uint8_t> file = encode_dng({ rgb.data(), width, height });
-        const Tiff t = parse(file);
+        const Tiff t = raw_of(file), thumbnail = parse(file), preview = parse(file, value(thumbnail, 330, 1));
         const std::vector<uint32_t> got = samples(file, t);
         bool same = got.size() == rgb.size();
         for (size_t i = 0; same && i < rgb.size(); i++)
             same = got[i] == uint32_t(double(rgb[i]) * 65535.0 + 0.5);
         check("a 300x260 picture takes 2x2 tiles, and every pixel comes back from them", t.tags.at(324).count == 4 && same);
+        check("its thumbnail is 256x222 and its preview 300x260", value(thumbnail, 256) == 256 && value(thumbnail, 257) == 222
+            && value(thumbnail, 279) == 256 * 222 * 3 && value(preview, 256) == 300 && value(preview, 257) == 260);
     }
     {
         const float bright[] = { 40.0f, 16.0f, 8.0f };
-        const Tiff t = parse(encode_dng({ bright, 1, 1 }));
+        const Tiff t = raw_of(encode_dng({ bright, 1, 1 }));
         check("a channel of 40 clips at the largest headroom, 16, which a channel of 16 fills and one of 8 halves",
             samples(encode_dng({ bright, 1, 1 }), t) == std::vector<uint32_t> { 65535, 65535, 32768 });
     }

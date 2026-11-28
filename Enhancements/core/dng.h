@@ -56,13 +56,35 @@ namespace enhancements
     // The side of the square tiles the pixels are compressed in.
     constexpr uint32_t kDngTile = 256;
 
-    // The whole file: a little-endian TIFF whose IFD holds LinearRaw, three 16-bit samples a pixel with white at 65535 in
-    // kDngTile tiles, each a lossless JPEG (ITU T.81 process 14, predictor 1, its own optimal Huffman table), edge tiles
-    // padded with their last row and column; BaselineExposure 0, Rec. 709 primaries with
-    // D65 white as shot, and the embedded profile "CameraTools Game" with dng_tone_curve and dng_look_table; then the EXIF
-    // IFD of exif. Non-finite and
-    // negative channels store 0. Lightroom opened this layout on 2026-10-29 with the profile selected and the pixels of
-    // the uncompressed file of 2026-10-28.
+    // The preview's JPEG quality, and the most pixels across or down of the thumbnail.
+    constexpr int kDngPreviewQuality = 90;
+    constexpr uint32_t kDngThumbnail = 256;
+
+    // The pictures a DNG carries for viewers that do not develop raw images, as a camera's JPEG: samples, three a pixel
+    // top row first, each scene_per_sample times the light the game's filmic curve takes, shown as the game shows them
+    // through that curve and the sRGB curve. The preview is a baseline JPEG at kDngPreviewQuality, the thumbnail 8-bit RGB
+    // averaged into at most kDngThumbnail pixels across and down.
+    struct DngThumbnail
+    {
+        std::vector<uint8_t> pixels;
+        uint32_t width = 0, height = 0;
+    };
+    struct DngPreview
+    {
+        std::vector<uint8_t> jpeg;
+        DngThumbnail thumbnail;
+    };
+    DngPreview dng_preview(const uint16_t *samples, uint32_t width, uint32_t height, double scene_per_sample);
+
+    // The whole file, a little-endian TIFF laid out as Adobe's DNG Converter lays one out. IFD0 is the thumbnail, 8-bit RGB
+    // at most kDngThumbnail pixels across, and holds BaselineExposure 0, Rec. 709 primaries with D65 white as shot, the
+    // embedded profile "CameraTools Game" with dng_tone_curve and dng_look_table, and the EXIF IFD of exif. Its SubIFDs are
+    // the raw image, LinearRaw with three 16-bit samples a pixel and white at 65535 in kDngTile tiles, each a lossless JPEG
+    // (ITU T.81 process 14, predictor 1, its own optimal Huffman table), edge tiles padded with their last row and column;
+    // then the preview, dng_preview's JPEG at full size, which Finder, Photos and Google Drive show where they would
+    // otherwise develop the raw image with their own contrast.
+    // Non-finite and negative channels store 0. Lightroom opened the raw image's layout on 2026-10-29 with the profile
+    // selected and the pixels of the uncompressed file of 2026-10-28.
     std::vector<uint8_t> encode_dng(const DngImage &image, const DngExif &exif = {});
 
     // encode_dng into a file. false when it could not be written.

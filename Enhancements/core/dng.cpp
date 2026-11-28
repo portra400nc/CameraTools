@@ -1,6 +1,7 @@
 #include "dng.h"
 
 #include "../enhancements.h"
+#include "jpeg.h"
 
 #include <algorithm>
 #include <array>
@@ -90,6 +91,22 @@ namespace enhancements
                 if (e.data.size() > 4)
                     size += static_cast<uint32_t>(e.data.size() + e.data.size() % 2);
             return size;
+        }
+
+        // Replaces the entry of e's tag.
+        void set(std::vector<IfdEntry> &entries, IfdEntry e)
+        {
+            for (IfdEntry &old : entries)
+                if (old.tag == e.tag)
+                    old = std::move(e);
+        }
+
+        // Appends bytes padded to an even length.
+        void put_bytes(std::vector<uint8_t> &out, const std::vector<uint8_t> &bytes)
+        {
+            out.insert(out.end(), bytes.begin(), bytes.end());
+            if (bytes.size() % 2)
+                out.push_back(0);
         }
 
         // Appends an IFD where out ends, its values longer than 4 bytes right after it in entry order, each padded to an
@@ -253,6 +270,36 @@ namespace enhancements
             const double share = std::min(double(value) / headroom, 1.0);
             const double scaled = share * 65535.0;
             return static_cast<uint16_t>(scaled + 0.5);
+        }
+
+        uint8_t srgb_byte(double linear)
+        {
+            const double encoded = linear <= 0.0031308 ? 12.92 * linear : 1.055 * std::pow(linear, 1 / 2.4) - 0.055;
+            return static_cast<uint8_t>(std::lround(std::clamp(encoded, 0.0, 1.0) * 255));
+        }
+
+        // rgb's pixels averaged over boxes into an image at most side pixels across and down.
+        DngThumbnail shrink(const std::vector<uint8_t> &rgb, uint32_t width, uint32_t height, uint32_t side)
+        {
+            const double scale = std::min(1.0, double(side) / std::max(width, height));
+            DngThumbnail out { {}, std::max(1u, uint32_t(std::lround(width * scale))), std::max(1u, uint32_t(std::lround(height * scale))) };
+            out.pixels.resize(size_t(out.width) * out.height * 3);
+            for (uint32_t y = 0; y < out.height; y++)
+                for (uint32_t x = 0; x < out.width; x++)
+                {
+                    const uint32_t x0 = x * width / out.width, x1 = (x + 1) * width / out.width;
+                    const uint32_t y0 = y * height / out.height, y1 = (y + 1) * height / out.height;
+                    for (uint32_t k = 0; k < 3; k++)
+                    {
+                        uint32_t sum = 0;
+                        for (uint32_t sy = y0; sy < y1; sy++)
+                            for (uint32_t sx = x0; sx < x1; sx++)
+                                sum += rgb[(size_t(sy) * width + sx) * 3 + k];
+                        const uint32_t count = (x1 - x0) * (y1 - y0);
+                        out.pixels[(size_t(y) * out.width + x) * 3 + k] = static_cast<uint8_t>((sum + count / 2) / count);
+                    }
+                }
+            return out;
         }
     }
 
@@ -495,6 +542,16 @@ namespace enhancements
         return out;
     }
 
+    DngPreview dng_preview(const uint16_t *samples, uint32_t width, uint32_t height, double scene_per_sample)
+    {
+        std::vector<uint8_t> level(65536), shown(size_t(width) * height * 3);
+        for (uint32_t s = 0; s < 65536; s++)
+            level[s] = srgb_byte(std::min(1.0, game_tone(s * scene_per_sample)));
+        for (size_t i = 0; i < shown.size(); i++)
+            shown[i] = level[samples[i]];
+        return { encode_jpeg(shown.data(), width, height, kDngPreviewQuality), shrink(shown, width, height, kDngThumbnail) };
+    }
+
     std::vector<uint8_t> encode_dng(const DngImage &image, const DngExif &exif)
     {
         const uint32_t width = image.width, height = image.height, channels = image.channels;
@@ -550,31 +607,36 @@ namespace enhancements
             put32(tile_offsets.data, 0);
             put32(tile_bytes.data, static_cast<uint32_t>(t.size()));
         }
+
+        const DngPreview shown = dng_preview(picture.data(), width, height, headroom / 65535.0);
+        const std::vector<uint8_t> &preview = shown.jpeg;
+        const DngThumbnail &thumbnail = shown.thumbnail;
+
+        // IFD0 is the thumbnail and holds the camera and the profile, its SubIFDs the raw image and then the preview, as
+        // Adobe's DNG Converter lays a file out. Each IFD in tag order, as TIFF requires. The offsets of the thumbnail (273),
+        // the SubIFDs (330), the EXIF IFD (34665), the preview (273) and the tiles (324) get their values once the layout is known.
         IfdEntry version { 50706, kByte, { 1, 4, 0, 0 } };
         IfdEntry backward { 50707, kByte, { 1, 4, 0, 0 } };
-        // In tag order, as TIFF requires. TileOffsets (324) and ExifIFD (34665) get their values once the layout is known.
         std::vector<IfdEntry> entries = {
-            longs(254, { 0 }),
-            longs(256, { width }),
-            longs(257, { height }),
-            shorts(258, { 16, 16, 16 }),
-            shorts(259, { 7 }),                 // lossless JPEG
-            shorts(262, { 34892 }),             // LinearRaw
+            longs(254, { 1 }),                  // a reduced-resolution image
+            longs(256, { thumbnail.width }),
+            longs(257, { thumbnail.height }),
+            shorts(258, { 8, 8, 8 }),
+            shorts(259, { 1 }),                 // uncompressed
+            shorts(262, { 2 }),                 // RGB
             ascii(271, "CameraTools"),
             ascii(272, "Genshin Impact"),
+            longs(273, { 0 }),
             shorts(274, { 1 }),                 // rows top to bottom, columns left to right
             shorts(277, { 3 }),
+            longs(278, { thumbnail.height }),
+            longs(279, { static_cast<uint32_t>(thumbnail.pixels.size()) }),
             shorts(284, { 1 }),                 // the three samples of a pixel side by side
-            longs(322, { kDngTile }),
-            longs(323, { kDngTile }),
-            std::move(tile_offsets),
-            std::move(tile_bytes),
-            shorts(339, { 1, 1, 1 }),           // unsigned integers
+            longs(330, { 0, 0 }),
             longs(34665, { 0 }),
             version,
             backward,
             ascii(50708, "Genshin Impact"),
-            longs(50717, { 65535 }),            // WhiteLevel
             // ColorMatrix1, XYZ (D65) to linear Rec. 709 in millionths: the game's primaries, so As Shot white is D65.
             rationals(50721, kSrational, { { 3240454, 1000000 }, { -1537138, 1000000 }, { -498531, 1000000 }, { -969266, 1000000 },
                 { 1876011, 1000000 }, { 41556, 1000000 }, { 55643, 1000000 }, { -204026, 1000000 }, { 1057225, 1000000 } }),
@@ -588,35 +650,67 @@ namespace enhancements
             std::move(look),                    // ProfileLookTableData
             longs(51108, { 1 }),                // ProfileLookTableEncoding: the value divisions sRGB-encoded
         };
+        std::vector<IfdEntry> raw_entries = {
+            longs(254, { 0 }),
+            longs(256, { width }),
+            longs(257, { height }),
+            shorts(258, { 16, 16, 16 }),
+            shorts(259, { 7 }),                 // lossless JPEG
+            shorts(262, { 34892 }),             // LinearRaw
+            shorts(277, { 3 }),
+            shorts(284, { 1 }),
+            longs(322, { kDngTile }),
+            longs(323, { kDngTile }),
+            std::move(tile_offsets),
+            std::move(tile_bytes),
+            shorts(339, { 1, 1, 1 }),           // unsigned integers
+            longs(50717, { 65535 }),            // WhiteLevel
+        };
+        std::vector<IfdEntry> preview_entries = {
+            longs(254, { 1 }),
+            longs(256, { width }),
+            longs(257, { height }),
+            shorts(258, { 8, 8, 8 }),
+            shorts(259, { 7 }),                 // JPEG
+            shorts(262, { 6 }),                 // YCbCr
+            longs(273, { 0 }),
+            shorts(277, { 3 }),
+            longs(278, { height }),
+            longs(279, { static_cast<uint32_t>(preview.size()) }),
+            shorts(284, { 1 }),
+            shorts(530, { 2, 2 }),              // YCbCrSubSampling: 4:2:0
+            longs(50970, { 2 }),                // PreviewColorSpace: sRGB
+        };
         const std::vector<IfdEntry> exif_entries = exif_ifd(exif);
 
-        // The header, the IFD and its values, the EXIF IFD and its values, then the tiles, each padded to an even length.
-        const uint32_t exif_at = 8 + ifd_size(entries);
-        uint32_t tile_at = exif_at + ifd_size(exif_entries);
-        for (IfdEntry &e : entries)
-            if (e.tag == 34665)
-                e = longs(34665, { exif_at });
-            else if (e.tag == 324)
-            {
-                e.data.clear();
-                for (const std::vector<uint8_t> &t : tiles)
-                {
-                    put32(e.data, tile_at);
-                    tile_at += static_cast<uint32_t>(t.size() + t.size() % 2);
-                }
-            }
+        // The header, the four IFDs with their values, the thumbnail, the preview, then the tiles, each padded to an even length.
+        const auto padded = [](size_t size) { return static_cast<uint32_t>(size + size % 2); };
+        const uint32_t exif_at = 8 + ifd_size(entries), raw_at = exif_at + ifd_size(exif_entries), preview_at = raw_at + ifd_size(raw_entries);
+        const uint32_t thumbnail_at = preview_at + ifd_size(preview_entries), preview_jpeg_at = thumbnail_at + padded(thumbnail.pixels.size());
+        uint32_t tile_at = preview_jpeg_at + padded(preview.size());
+        set(entries, longs(273, { thumbnail_at }));
+        set(entries, longs(330, { raw_at, preview_at }));
+        set(entries, longs(34665, { exif_at }));
+        set(preview_entries, longs(273, { preview_jpeg_at }));
+        IfdEntry offsets { 324, kLong, {} };
+        for (const std::vector<uint8_t> &t : tiles)
+        {
+            put32(offsets.data, tile_at);
+            tile_at += padded(t.size());
+        }
+        set(raw_entries, std::move(offsets));
 
         std::vector<uint8_t> out = { 'I', 'I', 42, 0 };
         out.reserve(tile_at);
         put32(out, 8);
         put_ifd(out, entries);
         put_ifd(out, exif_entries);
+        put_ifd(out, raw_entries);
+        put_ifd(out, preview_entries);
+        put_bytes(out, thumbnail.pixels);
+        put_bytes(out, preview);
         for (const std::vector<uint8_t> &t : tiles)
-        {
-            out.insert(out.end(), t.begin(), t.end());
-            if (t.size() % 2)
-                out.push_back(0);
-        }
+            put_bytes(out, t);
         return out;
     }
 

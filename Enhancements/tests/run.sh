@@ -35,7 +35,7 @@ for test in *_test.cpp; do mv "$out/core/${test%.cpp}.o" "$out/tests/"; done
 strip=
 [ "$(uname)" = Darwin ] && strip=-Wl,-dead_strip
 ls *_test.cpp | sed 's/\.cpp$//' | xargs -P "$jobs" -I {} sh -c 'c++ $1 $4 "$3/tests/$2.o" "$3/fixture.o" "$3"/core/*.o -o "$3/$2"' _ "$flags" {} "$out" "$strip"
-for tool in render_dof render_flare render_sky trace_reference bake_light check_bvh frame_dng; do echo "$tool"; done \
+for tool in render_dof render_flare render_sky trace_reference bake_light check_bvh frame_dng dng_add_preview; do echo "$tool"; done \
     | xargs -P "$jobs" -I {} sh -c 'c++ $1 $4 "$2.cpp" "$3"/core/*.o -o "$3/$2"' _ "$flags" {} "$out" "$strip"
 # A check that renders saved frames or a whole scene again runs only when its tool's binary, its arguments or its inputs
 # differ from those of its last pass, which ENHANCEMENTS_TEST_CACHE records. FULL=1 runs them all.
@@ -71,6 +71,7 @@ if command -v sips > /dev/null; then
     sips -s format png "$out/ramp.dng" --out "$out/ramp.png" > /dev/null 2>&1 || true
     python3 -c "$png_size" "$out/ramp.png" 320 200 2> /dev/null || { echo "FAIL sips does not decode the DNG writer's ramp into a 320x200 PNG"; exit 1; }
     echo "PASS sips decodes the DNG writer's ramp into a 320x200 PNG"
+    python3 check_dng_preview.py ramp "$out/ramp.dng"
 else
     echo "SKIP the DNG's decode by sips: no sips"
 fi
@@ -253,21 +254,24 @@ if [ -n "$frames" ] && [ -f "$lens_ref/ref.npy" ] && python3 -c 'import numpy, P
 else
     echo "SKIP the lens reference: no .work/dof/lens-reference, or no numpy or PIL"
 fi
-# The harbor, frame-20261024-134128, written as a DNG with frame_dng's test EXIF: byte for byte the reference file
-# (.work/dng/lightroom-test/harbor-headroom.dng, the layout the user opened in Lightroom on 2026-10-29 with the look table
-# of 2026-11-16 and the curve over the headroom of 2026-11-27), which sips must decode at the frame's size.
+# The harbor, frame-20261024-134128, written as a DNG with frame_dng's test EXIF: the raw image, profile and EXIF of the
+# reference file byte for byte (.work/dng/lightroom-test/harbor-headroom.dng, the layout the user opened in Lightroom on
+# 2026-10-29 with the look table of 2026-11-16 and the curve over the headroom of 2026-11-27, before the file carried a
+# preview), which sips must decode at the frame's size.
 harbor=$frames/frame-20261024-134128
 prototype=${frames%/dof/frames}/dng/lightroom-test/harbor-headroom.dng
 if [ -n "$frames" ] && [ -f "$harbor/frame.tsv" ] && [ -f "$prototype" ]; then
     "$out/frame_dng" "$harbor" "$out/harbor.dng" exif > /dev/null
-    cmp -s "$out/harbor.dng" "$prototype" || { echo "FAIL frame_dng's DNG of the harbor differs from the reference file"; exit 1; }
-    echo "PASS frame_dng writes the harbor's DNG byte for byte as the reference file"
+    python3 check_dng_preview.py same-raw "$out/harbor.dng" "$prototype"
+    "$out/dng_add_preview" "$prototype" "$out/harbor-retrofit.dng" > /dev/null
+    cmp -s "$out/harbor-retrofit.dng" "$out/harbor.dng" || { echo "FAIL dng_add_preview's copy of the reference file differs from frame_dng's DNG"; exit 1; }
+    echo "PASS dng_add_preview gives the reference file the preview frame_dng writes, byte for byte"
     if command -v sips > /dev/null; then
         sips -s format png "$out/harbor.dng" --out "$out/harbor.png" > /dev/null 2>&1 || true
         python3 -c "$png_size" "$out/harbor.png" 1152 720 2> /dev/null || { echo "FAIL sips does not decode the harbor's DNG into a 1152x720 PNG"; exit 1; }
         echo "PASS sips decodes the harbor's DNG into a 1152x720 PNG"
     fi
-    rm -f "$out/harbor.dng" "$out/harbor.png"
+    rm -f "$out/harbor.dng" "$out/harbor.png" "$out/harbor-retrofit.dng"
 else
     echo "SKIP the harbor's DNG: no .work/dof/frames/frame-20261024-134128 or .work/dng/lightroom-test/harbor-headroom.dng"
 fi
