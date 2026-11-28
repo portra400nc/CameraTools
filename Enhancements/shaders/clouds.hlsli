@@ -149,20 +149,24 @@ struct RdrLook
     float anvil;        // and near the top, spreading it into an anvil
     float carve;        // how deep the detail eats into the body
     float2 width;       // the carve's softness at the base and at the top
-    float light;        // how much thicker the light lookup sees the cloud than the march
+    float light;        // how much thicker than the layer's density the light lookup sees the cloud
     float cells;        // how far the small noise breaks the masses into cells: a layer's lumpy rolls; 0 for the heaps,
                         // whose height it would raise into spires (.work/deck-screens/headings.png)
+    float skirt;        // a storm's broad low weather around each cell, which only the shelf's low threshold clears: the
+                        // weather falling off as fast as the cell left the shelf barely wider than the tower
+    float view;         // its density over the layer's, as the eye sees it: thin puffs see-through at their rims, as soft as
+                        // the talk's; at the heaps' density they stood as hard-edged stickers (.work/rdr-clouds/compare-rolls.png)
 };
 
 // Cumulus, stratocumulus, stratus, cumulonimbus, altocumulus. A threshold rising with the square of the height stands a
 // dome over each rounded peak of the weather; a linear rise tapers it; a rise mostly linear and steep flattens a roll.
 static const RdrLook kRdrLooks[5] =
 {
-    { 7, 1.4, 0.22, 0.12, 0, float3(0.08, 0.25, 0.65), 0, 0, 2.4, float2(0.1, 0.4), 20, 0 },
-    { 4, 2.2, 0.3, 0.15, 0.15, float3(0.06, 0.6, 0.3), 0, 0, 2.0, float2(0.1, 0.35), 15, 0.55 },
-    { 9, 2.0, 0.15, 0, 0.45, float3(0.05, 0.3, 0.2), 0, 0, 1.6, float2(0.12, 0.45), 45, 0.4 },
-    { 10, 1.0, 0.25, 0, 0.1, float3(0.12, 0.2, 0.55), 0.85, 0.5, 2.0, float2(0.1, 0.4), 25, 0 },
-    { 2.5, 1.6, 0.35, 0.6, -0.1, float3(0.1, 0.5, 0.35), 0, 0, 2.2, float2(0.18, 0.45), 10, 0.3 },
+    { 7, 1.4, 0.22, 0.12, 0, float3(0.08, 0.25, 0.65), 0, 0, 2.4, float2(0.14, 0.45), 20, 0, 0, 4 },
+    { 4, 2.2, 0.3, 0.15, 0.15, float3(0.06, 0.6, 0.3), 0, 0, 2.0, float2(0.14, 0.4), 15, 0.55, 0, 4 },
+    { 9, 2.0, 0.3, 0, 0.45, float3(0.05, 0.3, 0.2), 0, 0, 2.0, float2(0.12, 0.45), 80, 0.7, 0, 6 },
+    { 10, 1.0, 0.25, 0, 0.1, float3(0.12, 0.2, 0.55), 0.85, 0.5, 2.0, float2(0.1, 0.4), 25, 0, 0.18, 6 },
+    { 2.5, 1.6, 0.35, 0.45, -0.1, float3(0.1, 0.5, 0.35), 0, 0, 2.2, float2(0.25, 0.5), 10, 0.3, 0, 1.5 },
 };
 
 RdrLook rdr_look() { return kRdrLooks[clamp((int)layer_type - (int)kRdrFirst, 0, 4)]; }
@@ -187,7 +191,8 @@ float rdr_weather(float2 c)
     float low = 0.68 - coverage * 0.3;
     float masses = saturate((big - low) / k.ramp) * (1 - k.cells * (1 - smoothstep(0.35, 0.65, small)));
     float scattered = saturate((small - (0.7 - coverage * 0.25)) / 0.12) * k.speckle;
-    return max(masses, scattered);
+    float skirt = k.skirt * smoothstep(low - 0.4, low, big);
+    return max(max(masses, scattered), skirt);
 }
 
 // The weather map's value at a point of cloud space (world x and z plus the drift): 0 clear sky to 1 where the clouds

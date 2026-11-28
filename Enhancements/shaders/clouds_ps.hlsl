@@ -78,11 +78,6 @@ float remap(float x, float a, float b, float c, float d) { return c + (x - a) / 
 
 static float2 skew_direction;
 static float march_fine = 60;   // this ray's small step, which the RDR2 style's detail must not be finer than
-// The RDR2 style's density over the layer's: CameraTools sends it thin, 0.005 a meter, as before the entry was bisected
-// 0.1 banded the tops (.work/deck-screens/mapped15.png); at that thinness the eye saw some 200 m into every cloud, which
-// averaged its shade away and stood every cloud flat white (.work/rdr-clouds/v3-mix1.png). The light lookup's thickening
-// is over this.
-static const float kRdrView = 6;
 static const float kRdrBrightness = 0.55;
 static float detail_weight = 1;
 static float coverage_boost = 0;
@@ -341,7 +336,7 @@ float cloud_extinction(float3 p, out float h)
     if (body <= 0)
         return 0;
     if (is_rdr())
-        return rdr_carve(cloud_space(p, h), h, body) * layer_density * kRdrView;
+        return rdr_carve(cloud_space(p, h), h, body) * layer_density * rdr_look().view;
     float3 q = cloud_space(p, h) / (layer_size * kind_look.detail_tile);
     // Turbulence, as Horizon Zero Dawn's clouds swirl their detail: the erosion read through a slow warp of itself, so
     // small billows tumble and fray at the rims instead of sitting as round balls.
@@ -360,7 +355,7 @@ float cloud_extinction_coarse(float3 p)
     volume_lod = 1;
     float body = cloud_body(p, h, erosion);
     volume_lod = 0;
-    return body * layer_density * (is_rdr() ? kRdrView : 1);
+    return body * layer_density * (is_rdr() ? rdr_look().view : 1);
 }
 
 // Whether a large step's sample may be in a cloud: the body grown a little, so a sample beside a thin part still finds it.
@@ -402,7 +397,7 @@ float depth_toward_light(float3 p, float3 l, bool far)
     // The RDR2 style is seen thin and shaded thick, as Bauer's clouds take their sun's transmittance from a lookup tuned
     // apart from the view: at one density, 0.1 a meter banded the tops at the march's steps (.work/deck-screens/mapped15.png)
     // and 0.005 left them flat white (mapped18.png).
-    return rdr ? depth * rdr_look().light / kRdrView : depth;
+    return rdr ? depth * rdr_look().light / rdr_look().view : depth;
 }
 
 // Sunlight scattered toward the eye after Frostbite (Hillaire 2016, 5.6): octaves of multiple scattering, each through
@@ -438,7 +433,7 @@ float sky_reaching(float3 p, float h)
     // The RDR2 style's cloud over a point hides the sky as thick as it hides the sun: seen at the march's thin density,
     // the undersides took the whole sky's light and every cloud stood flat white (.work/rdr-clouds/v1-mix1.png).
     if (is_rdr())
-        above *= rdr_look().light / kRdrView;
+        above *= rdr_look().light / rdr_look().view;
     return (0.25 + 0.75 * pow(saturate(h), 0.7)) * lerp(0.3, 1, exp(-above * 0.3)) + 0.25 * (1 - h);
 }
 
