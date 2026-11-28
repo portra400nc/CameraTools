@@ -459,8 +459,6 @@ namespace CameraTools
                 settings.Clouds = Clouds(values, lens.GameSpeed);
                 LayeredSky.Apply(ref settings, LayeredSky.Current);
             }
-            if (ProbeCloud > 0)
-                ApplyProbeCloud(ref settings, ProbeCloudKinds[ProbeCloud - 1]);
             if (ProbeRdrMix > 0)
                 ApplyRdrMix(ref settings, RdrMixes[ProbeRdrMix - 1]);
             if (settings.Enabled == 0 && (settings.DepthOfField.Enabled != 0 || settings.LensSoftness.Radius > 0f))
@@ -556,52 +554,8 @@ namespace CameraTools
         // For the probe only: Azurite's painted patterns in place of the volume clouds, the fallback the user keeps.
         public static bool ProbePaintedClouds { get; set; }
 
-        // For the probe only while the volume clouds' types are tuned: one type's clouds at its own heights, size, density and
-        // coverage, whatever Type and Weather chose.
-        public readonly record struct ProbeCloudKind(string Name, EnhancementsCloudType Type, float Base, float Thickness, float Size, float Density,
-            float Coverage);
-
-        public static readonly ProbeCloudKind[] ProbeCloudKinds =
-        {
-            new("towering cumulus", EnhancementsCloudType.Towering, 2000f, 9000f, 3000f, 0.3f, 0.4f),
-            new("cumulus", EnhancementsCloudType.Cumulus, 2000f, 1500f, 400f, 0.04f, 0.5f),
-            new("altocumulus", EnhancementsCloudType.Stratocumulus, 3000f, 700f, 500f, 0.04f, 0.75f),
-            new("stratus", EnhancementsCloudType.Stratus, 1300f, 400f, 1000f, 0.08f, 0.88f),
-            new("layered: cumulus under altocumulus and cirrus", EnhancementsCloudType.Cumulus, 2000f, 1500f, 400f, 0.1f, 0.4f),
-        };
-
-        // The kind's index plus one; 0 leaves the clouds as Type and Weather chose them.
-        public static int ProbeCloud { get; set; }
-
-        // The coverage in place of the kind's own, or null.
+        // For the probe only: the coverage in place of the RDR2 sky's own, or null.
         public static float? ProbeCoverage { get; set; }
-
-        // The probe's sunlight, sky light and density for its clouds, by ProbeTowersLook.
-        public static readonly (float Sun, float SkyLight, float Density)[] ProbeTowersLooks =
-            { (1f, 1f, 0.1f), (2f, 1f, 0.1f), (2f, 1.5f, 0.1f), (2f, 1f, 0.04f), (3f, 1.5f, 0.1f) };
-        public static int ProbeTowersLook { get; set; }
-
-        private static void ApplyProbeCloud(ref EnhancementsSettings settings, ProbeCloudKind kind)
-        {
-            settings.Clouds.Type = kind.Type;
-            settings.Clouds.Base = kind.Base;
-            settings.Clouds.Thickness = kind.Thickness;
-            settings.Clouds.Size = kind.Size;
-            settings.Clouds.Density = kind.Density;
-            settings.Clouds.Coverage = ProbeCoverage ?? kind.Coverage;
-            settings.Clouds.Stretch = 1f;
-            settings.CloudPattern.Pattern = EnhancementsCloudPatternKind.Noise;
-            settings.CloudLayers = default;
-            if (kind.Name.StartsWith("layered"))
-                settings.CloudLayers = new EnhancementsCloudLayers
-                {
-                    Middle = 1, Cirrus = 0.5f,
-                    MiddleLayer = new EnhancementsCloudLayer { Coverage = 0.6f, Base = 3500f, Thickness = 700f, Size = 500f, Stretch = 1f, Density = 0.04f, Detail = 0.8f, Type = EnhancementsCloudType.Stratocumulus },
-                };
-            settings.Clouds.Sun *= ProbeTowersLooks[ProbeTowersLook].Sun;
-            settings.Clouds.Ambient *= ProbeTowersLooks[ProbeTowersLook].SkyLight;
-            settings.Clouds.Density = ProbeTowersLooks[ProbeTowersLook].Density;
-        }
 
         // For the probe only until the style picker: the RDR2 style's skies (Bauer, SIGGRAPH 2019), each a low layer, a middle
         // layer over it or none, and the painted cirrus, as his cloud map holds two layers under a cirrus. Wide and flat but

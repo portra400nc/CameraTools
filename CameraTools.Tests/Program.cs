@@ -238,11 +238,11 @@ Check("the table holds 118 fields, each at its own id's place, with the master s
         EnhancementsModel.Settings(cloudStratus, cloudLens) is { CloudPattern.Pattern: EnhancementsCloudPatternKind.Overcast, Clouds.Type: EnhancementsCloudType.RdrStratus }
         && EnhancementsModel.Settings(cloudCirrus, cloudLens).CloudPattern.Pattern == EnhancementsCloudPatternKind.Streaks);
     EnhancementsModel.ProbePaintedClouds = false;
-    EnhancementsModel.ProbeCloud = 1;
-    Check("the probe's towering cumulus stands 2000 to 11000 m high as round volume clouds at its own coverage",
+    EnhancementsModel.ProbeRdrMix = 3;
+    Check("the probe's RDR2 storm cell stands 1300 to 8300 m high, alone, under the painted cirrus",
         EnhancementsModel.Settings(cloudStratus, cloudLens) is { CloudPattern.Pattern: EnhancementsCloudPatternKind.Noise,
-            Clouds: { Type: EnhancementsCloudType.Towering, Base: 2000f, Thickness: 9000f, Coverage: 0.4f, Stretch: 1f } });
-    EnhancementsModel.ProbeCloud = 0;
+            Clouds: { Type: EnhancementsCloudType.RdrCumulonimbus, Base: 1300f, Thickness: 7000f, Coverage: 0.35f }, CloudLayers: { Middle: 0, Cirrus: 0.5f } });
+    EnhancementsModel.ProbeRdrMix = 0;
     EnhancementsModel.ProbeCoverage = null;
     Check("moving Sunlight or Wind leaves Type as it is",
         (int)EnhancementsModel.Edit(cloudStratus, Enhancement.CloudSunlight, 3f)[Enhancement.CloudType] == 2 && (int)EnhancementsModel.Edit(cloudStratus, Enhancement.CloudWind, 20f)[Enhancement.CloudType] == 2);
