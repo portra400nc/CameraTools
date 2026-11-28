@@ -2,10 +2,12 @@
 // ours, added to the target as the change it makes to the opaque scene: the bed, dimmed by the water's depth and filled
 // with the water's own color as Clarity sets it,
 // and, by Fresnel's law, what the surface mirrors on small waves: the scene in front of it where the frame shows it,
-// else the physical sky, and the sun's and the moon's glints. Everything is in the physical sky's units, so the water
-// darkens with the night as the sky does.
+// else the physical sky and the clouds in it, and the sun's and the moon's glints. The glints and the sunlight in the
+// water's own color take the shadow mask's light at the pixel: the bed's under it, which a traced shot's mask holds
+// traced. Everything is in the physical sky's units, so the water darkens with the night as the sky does.
 #include "common.hlsli"
 #include "sky.hlsli"
+#include "sky_octahedron.hlsli"
 
 Texture2D<float> game_depth : register(t0);         // the game's own copy of the opaque scene's depth, which its water reads
 Texture2D<float3> scene : register(t16);            // the HDR scene as the first water draw found it
@@ -14,6 +16,8 @@ Texture2D<float4> view_sun_mie : register(t18);
 Texture2D<float4> view_moon_rayleigh : register(t19);
 Texture2D<float4> view_moon_mie : register(t20);
 Texture2D<float4> view_rest : register(t21);
+Texture2D<float4> cloud_sky : register(t22);        // cloud_sky_ps.hlsl's: the clouds' light and opacity by direction
+Texture2D<float2> shadow_mask : register(t23);      // the game's shadow mask as the first water draw found it: .x the light
 SamplerState linear_wrap : register(s3);
 
 static const float kWaterF0 = 0.02;                 // Fresnel at normal incidence, water against air
@@ -225,7 +229,9 @@ float4 main(float4 position : SV_Position) : SV_Target0
     r_world.y = max(r_world.y, 0.5 * max(v_world.y, 0));
     r_world = normalize(r_world);
     float3 r = mul(to_view, r_world);
-    float3 sky = air_light(normalize(float3(r_world.x, max(r_world.y, 0.01), r_world.z))) * sky_scale;
+    float3 toward_sky = normalize(float3(r_world.x, max(r_world.y, 0.01), r_world.z));
+    float4 clouds = cloud_sky.SampleLevel(linear_wrap, octahedron_uv(toward_sky), 0);
+    float3 sky = air_light(toward_sky) * sky_scale * (1 - saturate(clouds.a)) + max(clouds.rgb, 0);
     float4 met = reflected_scene(at, r);
     float3 mirrored = lerp(sky, met.rgb, met.a);
 
@@ -252,15 +258,19 @@ float4 main(float4 position : SV_Position) : SV_Target0
     }
     float3 absorb = float3(0.45, 0.07, 0.035) * (6 / water_clarity) + 0.01;
     float3 through = exp(-absorb * path);
+    // The sun's or the moon's light here, whichever the game's shadows follow, from the mask; 1 without one.
+    uint2 mask_size;
+    shadow_mask.GetDimensions(mask_size.x, mask_size.y);
+    float lit = mask_size.x > 0 ? shadow_mask.Load(int3(pixel, 0)).x : 1;
     // The water's own color: the sky's and the sun's light scattered back by the water it lies in.
-    float3 lit_by = (air_light(float3(0, 1, 0)) * kSkyPi + sky_light_at(sky_viewer_radius(), sky_toward_sun.y) * max(sky_toward_sun.y, 0)
-        + sky_light_at(sky_viewer_radius(), sky_toward_moon.y) * sky_moon_illuminance * max(sky_toward_moon.y, 0)) * sky_scale;
+    float3 lit_by = (air_light(float3(0, 1, 0)) * kSkyPi + lit * (sky_light_at(sky_viewer_radius(), sky_toward_sun.y) * max(sky_toward_sun.y, 0)
+        + sky_light_at(sky_viewer_radius(), sky_toward_moon.y) * sky_moon_illuminance * max(sky_toward_moon.y, 0))) * sky_scale;
     float3 body = lit_by * float3(0.004, 0.012, 0.014) * (1 - through);
     float3 bed = scene.Load(int3(pixel, 0));
 
     float3 sun = sky_light_at(sky_viewer_radius(), sky_toward_sun.y) * sky_scale;
     float3 moon = sky_light_at(sky_viewer_radius(), sky_toward_moon.y) * sky_moon_illuminance * sky_scale;
-    float3 glints = glint(n_world, v_world, sky_toward_sun, sun) + glint(n_world, v_world, sky_toward_moon, moon);
+    float3 glints = lit * (glint(n_world, v_world, sky_toward_sun, sun) + glint(n_world, v_world, sky_toward_moon, moon));
     // The blend adds the change the water makes to the opaque scene, so what the game drew over that scene first, such as
     // ice it sorts before the water in some frames and after it in others, stays as it was.
     float3 water = min(fresnel * mirrored + glints + (1 - fresnel) * (body + bed * through), 60000);

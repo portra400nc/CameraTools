@@ -870,6 +870,8 @@ namespace enhancements
             && SUCCEEDED(device->CreatePixelShader(kAtmospherePs, sizeof kAtmospherePs, nullptr, &made.atmosphere_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCloudMapPs, sizeof kCloudMapPs, nullptr, &made.cloud_map_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCloudsPs, sizeof kCloudsPs, nullptr, &made.clouds_ps_))
+            && SUCCEEDED(device->CreatePixelShader(kCloudSkyPs, sizeof kCloudSkyPs, nullptr, &made.cloud_sky_ps_))
+            && SUCCEEDED(device->CreateComputeShader(kCloudSkyCs, sizeof kCloudSkyCs, nullptr, &made.cloud_sky_cs_))
             && SUCCEEDED(device->CreatePixelShader(kCloudShadowsPs, sizeof kCloudShadowsPs, nullptr, &made.cloud_shadows_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCloudsApplyPs, sizeof kCloudsApplyPs, nullptr, &made.clouds_apply_ps_))
             && SUCCEEDED(device->CreatePixelShader(kCloudsResolvePs, sizeof kCloudsResolvePs, nullptr, &made.clouds_resolve_ps_))
@@ -2470,6 +2472,12 @@ namespace enhancements
         ID3D11ShaderResourceView *const march[] = { nullptr, nullptr, depth_.srv(), nullptr, nullptr, cloud_map_.srv(), lattice_srv_.Get(),
             cloud_shape_srv_.Get(), nullptr, sky_transmittance_srv_.Get(), sky_multiple_srv_.Get() };
         draw_fullscreen(clouds_ps_.Get(), march, 11, cloud_rays_.rtv(), rays);
+        // The map of the clouds in every direction, whole when their look changed or they were away for a while.
+        const bool whole = !cloud_sky_look_ || !(*cloud_sky_look_ == look) || cloud_sky_frame_ + 8 < frame;
+        draw_cloud_sky(constants, march, whole);
+        cloud_sky_look_ = look;
+        cloud_sky_frame_ = frame;
+        upload(constants);
         Scratch &old = cloud_history_[cloud_history_at_], &now = cloud_history_[cloud_history_at_ ^ 1];
         cloud_history_at_ ^= 1;
         ID3D11ShaderResourceView *const resolve[] = { nullptr, nullptr, nullptr, nullptr, nullptr, cloud_rays_.srv(), old.srv() };
@@ -2478,7 +2486,96 @@ namespace enhancements
         draw_fullscreen(clouds_apply_ps_.Get(), apply, 6, scene_out_.rtv(), map.render);
         clouds_drawn_ = true;
         scene_out_.copy_to(c, native(scene));
+        fold_cloud_sky();
         return GameCall::keep;
+    }
+
+    void Gpu::draw_cloud_sky(const Constants &constants, ID3D11ShaderResourceView *const *march, bool whole)
+    {
+        constexpr Size kSide = { 256, 256 };    // kCloudSkySide in shaders/sky_octahedron.hlsli
+        if (!cloud_sky_.sync(device_.Get(), kSide, DXGI_FORMAT_R16G16B16A16_FLOAT))
+            return;
+        Constants k = constants;
+        k.cloud_block = whole ? 8.0f : static_cast<float>(frame_ & 7);
+        upload(k);
+        draw_fullscreen(cloud_sky_ps_.Get(), march, 11, cloud_sky_.rtv(), kSide);
+    }
+
+    void Gpu::set_physical_sky(const std::vector<float> &texels, uint64_t version)
+    {
+        if (texels.empty())
+        {
+            physical_sky_srv_.Reset();
+            physical_sky_version_ = 0;
+            return;
+        }
+        if (version == physical_sky_version_ && physical_sky_srv_)
+            return;
+        physical_sky_srv_.Reset();
+        physical_sky_version_ = 0;
+        if (texels.size() != size_t(kSkyMapSide) * kSkyMapSide * 4)
+            return;
+        D3D11_BUFFER_DESC desc = { static_cast<UINT>(texels.size() * sizeof(float)), D3D11_USAGE_IMMUTABLE, D3D11_BIND_SHADER_RESOURCE, 0,
+            D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS, 0 };
+        const D3D11_SUBRESOURCE_DATA data = { texels.data(), 0, 0 };
+        ComPtr<ID3D11Buffer> buffer;
+        D3D11_SHADER_RESOURCE_VIEW_DESC view = {};
+        view.Format = DXGI_FORMAT_R32_TYPELESS;
+        view.ViewDimension = D3D11_SRV_DIMENSION_BUFFEREX;
+        view.BufferEx.NumElements = desc.ByteWidth / 4;
+        view.BufferEx.Flags = D3D11_BUFFEREX_SRV_FLAG_RAW;
+        if (SUCCEEDED(device_->CreateBuffer(&desc, &data, &buffer)) && SUCCEEDED(device_->CreateShaderResourceView(buffer.Get(), &view, &physical_sky_srv_)))
+            physical_sky_version_ = version;
+        else
+            physical_sky_srv_.Reset();
+    }
+
+    void Gpu::fold_cloud_sky()
+    {
+        if (!physical_sky_srv_ || !cloud_sky_.srv())
+            return;
+        if (!traced_cloud_sky_)
+        {
+            const UINT bytes = kSkyMapSide * kSkyMapSide * 16;
+            D3D11_BUFFER_DESC desc = { bytes, D3D11_USAGE_DEFAULT, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, 0,
+                D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS, 0 };
+            D3D11_SHADER_RESOURCE_VIEW_DESC view = {};
+            view.Format = DXGI_FORMAT_R32_TYPELESS;
+            view.ViewDimension = D3D11_SRV_DIMENSION_BUFFEREX;
+            view.BufferEx.NumElements = bytes / 4;
+            view.BufferEx.Flags = D3D11_BUFFEREX_SRV_FLAG_RAW;
+            D3D11_UNORDERED_ACCESS_VIEW_DESC access = {};
+            access.Format = DXGI_FORMAT_R32_TYPELESS;
+            access.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+            access.Buffer.NumElements = bytes / 4;
+            access.Buffer.Flags = D3D11_BUFFER_UAV_FLAG_RAW;
+            if (FAILED(device_->CreateBuffer(&desc, nullptr, &traced_cloud_sky_))
+                || FAILED(device_->CreateShaderResourceView(traced_cloud_sky_.Get(), &view, &traced_cloud_sky_srv_))
+                || FAILED(device_->CreateUnorderedAccessView(traced_cloud_sky_.Get(), &access, &traced_cloud_sky_uav_)))
+            {
+                traced_cloud_sky_.Reset();
+                traced_cloud_sky_srv_.Reset();
+                traced_cloud_sky_uav_.Reset();
+                return;
+            }
+        }
+        ID3D11DeviceContext1 *c = context_.Get();
+        ID3D11ShaderResourceView *const srvs[] = { cloud_sky_.srv(), physical_sky_srv_.Get() };
+        ID3D11UnorderedAccessView *const uavs[] = { traced_cloud_sky_uav_.Get() };
+        c->CSSetShader(cloud_sky_cs_.Get(), nullptr, 0);
+        c->CSSetShaderResources(0, 2, srvs);
+        c->CSSetUnorderedAccessViews(0, 1, uavs, nullptr);
+        c->Dispatch(kSkyMapSide / 8, kSkyMapSide / 8, 1);
+        ID3D11ShaderResourceView *const no_srvs[2] = {};
+        ID3D11UnorderedAccessView *const no_uavs[1] = {};
+        c->CSSetShaderResources(0, 2, no_srvs);
+        c->CSSetUnorderedAccessViews(0, 1, no_uavs, nullptr);
+        traced_cloud_sky_frame_ = frame_;
+    }
+
+    ID3D11ShaderResourceView *Gpu::traced_cloud_sky() const
+    {
+        return physical_sky_srv_ && traced_cloud_sky_frame_ != 0 && traced_cloud_sky_frame_ + 8 >= frame_ ? traced_cloud_sky_srv_.Get() : nullptr;
     }
 
     bool Gpu::sync_sky_tables(const std::shared_ptr<const Atmosphere> &air)
@@ -3214,6 +3311,10 @@ namespace enhancements
             return;
         water_scene_.copy_from(context_.Get(), native(*hdr));
         water_frame_ = frame;
+        const std::optional<Texture> &mask = map[Entry::shadow_mask];
+        water_mask_copied_ = mask && water_mask_.sync(device_.Get(), native(*mask), static_cast<DXGI_FORMAT>(mask->format), false);
+        if (water_mask_copied_)
+            water_mask_.copy_from(context_.Get(), native(*mask));
     }
 
     bool Gpu::save_keep(ID3D11Resource *back_buffer, const std::array<float, 4> &rect)
@@ -3302,6 +3403,8 @@ namespace enhancements
         ours[19] = sky_view_[2].srv();
         ours[20] = sky_view_[3].srv();
         ours[21] = sky_view_[4].srv();
+        ours[22] = cloud_sky_frame_ + 8 >= frame && cloud_sky_frame_ != 0 ? cloud_sky_.srv() : nullptr;
+        ours[23] = water_mask_copied_ ? water_mask_.srv() : nullptr;
         // The game draws some water in overlapping meshes, and the change added twice drew a straight, deeper blue strip
         // where two met (2026-11-24, Inazuma's harbor): the marks let each surface's water into a pixel once a frame. The
         // UAV takes the last slot, after any render target the game's water draw binds.

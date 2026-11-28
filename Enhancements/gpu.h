@@ -512,8 +512,15 @@ namespace enhancements
         // Whether the bound draw blends into resource as its first render target: a see-through draw into the scene.
         bool blends_into(uint64_t resource) const;
         uint64_t bound_vertex_shader() const;
-        // The HDR scene physical water sees through and mirrors, copied at the forward step of frame.
+        // The HDR scene physical water sees through and mirrors, and the shadow mask that lights its glints, copied at
+        // the forward step of frame.
         void copy_water_scene(const FrameMap &map, uint64_t frame);
+        // The physical sky's map (core/sky.h's physical_sky_map) that the clouds' sky map folds into the traced shot's, put
+        // up again when version changed; no texels takes it down.
+        void set_physical_sky(const std::vector<float> &texels, uint64_t version);
+        // The traced shot's sky map with the clouds, kSkyMapSide square float4 texels as core/light.h's, while the volume
+        // clouds drew in the last few frames over the physical sky's map; else null.
+        ID3D11ShaderResourceView *traced_cloud_sky() const;
         // A draw of the game's, to draw again with a pixel shader of ours.
         struct GameDraw
         {
@@ -630,7 +637,7 @@ namespace enhancements
 
     private:
         // The pixel shader resource slots a draw of the game's binds, which draw_in_place saves and puts back.
-        static constexpr UINT kGameSlots = 22;
+        static constexpr UINT kGameSlots = 24;
         // The stops the last tone map added, or null when it metered none.
         ID3D11ShaderResourceView *last_auto_exposure() const { return exposure_kept_ ? exposure_[exposure_at_ ^ 1].srv() : nullptr; }
         // Draws the game's draw with ps and srvs (kGameSlots of them) and our samplers and constants, at blend, or at the
@@ -675,8 +682,8 @@ namespace enhancements
         Scratch sky_view_[5];       // sky_view_ps.hlsl's tables, kSkyViewSize, R32G32B32A32_FLOAT
         // The physical sky's tables from atmosphere when it is not the one uploaded. false when a texture failed.
         bool sync_sky_tables(const std::shared_ptr<const Atmosphere> &atmosphere);
-        ComPtr<ID3D11ComputeShader> dof_scatter_cs_, cloud_shape_cs_;
-        ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, ambient_specular_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_, cloud_map_ps_, clouds_ps_, cloud_shadows_ps_, clouds_apply_ps_, clouds_resolve_ps_, clouds_painted_ps_,
+        ComPtr<ID3D11ComputeShader> dof_scatter_cs_, cloud_shape_cs_, cloud_sky_cs_;
+        ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, ambient_specular_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_, cloud_map_ps_, clouds_ps_, cloud_sky_ps_, cloud_shadows_ps_, clouds_apply_ps_, clouds_resolve_ps_, clouds_painted_ps_,
             tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, lift_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, character_light_ps_, character_shadow_ps_, character_sun_ps_, grass_capture_ps_, grass_ps_, grass_apply_ps_, character_balance_ps_, character_balance_adapt_ps_, sky_dome_view_ps_, sky_direction_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
             apply_gather_ps_, reflect_apply_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_, dof_soften_ps_, dof_behind_ps_,
             dof_sprite_ps_, dof_lift_ps_, dof_display_in_ps_, dof_display_out_ps_, dof_near_ps_, dof_near_mask_ps_, dof_near_fill_ps_, flare_visibility_ps_, flare_ps_,
@@ -723,6 +730,8 @@ namespace enhancements
         uint64_t water_frame_ = ~0ull;          // the frame whose HDR scene copy_water_scene copied
         uint64_t marks_frame_ = ~0ull;          // the frame whose water marks draw_water cleared
         Mirror water_scene_;
+        Mirror water_mask_;
+        bool water_mask_copied_ = false;        // water_mask_ holds water_frame_'s shadow mask
         Scratch water_marks_;
         uint64_t leaves_missed_ = 0;                // leaf passes that found no leaves of their frame
     public:
@@ -834,6 +843,20 @@ namespace enhancements
                     && pattern == o.pattern && texture == o.texture && middle == o.middle && cirrus == o.cirrus;
             }
         } cloud_look_;
+        // The clouds in every direction (cloud_sky_ps.hlsl), 256 square, R16G16B16A16_FLOAT: rgb their light, a their
+        // opacity. An eighth of it is marched again a frame, all of it when the clouds' look changed.
+        Scratch cloud_sky_;
+        std::optional<CloudLook> cloud_sky_look_;
+        uint64_t cloud_sky_frame_ = 0;      // the frame the volume clouds last marched the map, 0 before
+        // The physical sky's map and its version; the traced shot's sky map folded from it and cloud_sky_.
+        ComPtr<ID3D11ShaderResourceView> physical_sky_srv_;
+        uint64_t physical_sky_version_ = 0;
+        ComPtr<ID3D11Buffer> traced_cloud_sky_;
+        ComPtr<ID3D11UnorderedAccessView> traced_cloud_sky_uav_;
+        ComPtr<ID3D11ShaderResourceView> traced_cloud_sky_srv_;
+        uint64_t traced_cloud_sky_frame_ = 0;   // the frame the traced shot's sky map was last folded, 0 before
+        void draw_cloud_sky(const struct Constants &constants, ID3D11ShaderResourceView *const *march, bool whole);
+        void fold_cloud_sky();
         Scratch trace_view_;        // R8G8B8A8_UNORM: the trace's averages, for the trace view
         // R16G16B16A16_FLOAT: the gather's averages (the bounce and the far term; the sky met and the occlusion), the
         // filter's other pair, and the gather views' picture.

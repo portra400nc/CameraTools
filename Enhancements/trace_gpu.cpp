@@ -897,7 +897,7 @@ namespace enhancements
         // An anchored move traces only the pixels its reprojection listed, in as many group rows as it counted.
         ID3D11ShaderResourceView *const srvs[] = { node_srv_.Get(), triangle_srv_.Get(), normals, depth, stencil,
             holes ? hole_list_srv_.Get() : tiles_srv_.Get(), alpha_srv_.Get(),
-            frame.gathering ? sky_srv_.Get() : nullptr, frame.gathering ? faces_srv_.Get() : nullptr,
+            frame.gathering ? sky_srv() : nullptr, frame.gathering ? faces_srv_.Get() : nullptr,
             frame.reflecting ? smoothness : nullptr, frame.reflecting ? material : nullptr };
         ID3D11UnorderedAccessView *const uavs[] = { history_uav_.Get(), counters_uav_.Get(), frame.gathering ? gather_hit_uav_.Get() : nullptr,
             frame.gathering ? gather_sky_uav_.Get() : nullptr, frame.lights.info[0] != 0 ? light_history_uav_.Get() : nullptr,

@@ -320,29 +320,12 @@ void march_layer(float3 origin, float3 dir, float t0, float t1, float jitter, bo
     }
 }
 
-#ifndef CLOUD_LIBRARY
-float4 main(float4 position : SV_Position) : SV_Target0
+// The light the clouds send back along a ray from origin along dir, rgb, and their opacity, a: the layers it crosses,
+// nearest first, as the layered sky's middle layer lies over the main one.
+float4 cloud_ray(float3 origin, float3 dir, float jitter, bool physical)
 {
-    // This frame's pixel of the 2x2 block of the half-size history that this quarter-size pixel covers, or with block 4
-    // this half-size pixel itself, with block 5 this full-size one.
-    uint block = (uint)cloud_block;
-    float2 pixel = block > 3 ? floor(position.xy) + 0.5 : floor(position.xy) * 2 + float2(block & 1, block >> 1) + 0.5;
-    float2 uv = pixel * (block > 4 ? 1 : 2) * render_size.zw;
-    // The camera from our own constants, so the clouds draw also when the game renders no sun shadows, as after sunset.
-    float3x3 to_world = transpose((float3x3)world_to_view);
-    float3 origin = mul(to_world, -float3(world_to_view[0].w, world_to_view[1].w, world_to_view[2].w));
-    float3 dir = normalize(sky_world_from_view(view_position(uv, 1)));
     skew_direction = float2(cos(radians(cloud_pad)), sin(radians(cloud_pad)));
-    bool physical = sky_cloud_physical > 0.5;
-    // A random offset for each pixel and frame: a patterned one left its pattern, diagonal stripes, wherever the march
-    // found or missed an edge by it.
-    int seed = int(cloud_phase * 65536);
-    uint2 noise = cloud_hash(int2(pixel) + int2(seed * 7919, seed * 104729));
-    float jitter = (noise.x & 0xffffu) / 65535.0;
-    light_spread = 0.6 + 0.8 * (noise.y & 0xffffu) / 65535.0;
-
     MarchState m = { float3(0, 0, 0), 1, 0, 0, 0 };
-    // The layers the ray crosses, nearest first: the layered sky's middle layer lies over the main one.
     float s0, s1, u0 = 0, u1 = 0;
     use_layer(0);
     bool main_hit = layer_span(origin, dir, s0, s1);
@@ -367,6 +350,32 @@ float4 main(float4 position : SV_Position) : SV_Target0
         float3 air = aerial_light(m.weighted / m.taken_all * 0.001, dir, 1, through);
         m.inscatter = m.inscatter * through + air * m.opacity;
     }
-    return float4(m.inscatter, 1 - m.opacity);
+    return float4(m.inscatter, m.opacity);
+}
+
+// The game's camera, from our own constants, so the clouds draw also when the game renders no sun shadows, as after sunset.
+float3 cloud_eye()
+{
+    float3x3 to_world = transpose((float3x3)world_to_view);
+    return mul(to_world, -float3(world_to_view[0].w, world_to_view[1].w, world_to_view[2].w));
+}
+
+#ifndef CLOUD_LIBRARY
+float4 main(float4 position : SV_Position) : SV_Target0
+{
+    // This frame's pixel of the 2x2 block of the half-size history that this quarter-size pixel covers, or with block 4
+    // this half-size pixel itself, with block 5 this full-size one.
+    uint block = (uint)cloud_block;
+    float2 pixel = block > 3 ? floor(position.xy) + 0.5 : floor(position.xy) * 2 + float2(block & 1, block >> 1) + 0.5;
+    float2 uv = pixel * (block > 4 ? 1 : 2) * render_size.zw;
+    float3 dir = normalize(sky_world_from_view(view_position(uv, 1)));
+    // A random offset for each pixel and frame: a patterned one left its pattern, diagonal stripes, wherever the march
+    // found or missed an edge by it.
+    int seed = int(cloud_phase * 65536);
+    uint2 noise = cloud_hash(int2(pixel) + int2(seed * 7919, seed * 104729));
+    float jitter = (noise.x & 0xffffu) / 65535.0;
+    light_spread = 0.6 + 0.8 * (noise.y & 0xffffu) / 65535.0;
+    float4 c = cloud_ray(cloud_eye(), dir, jitter, sky_cloud_physical > 0.5);
+    return float4(c.rgb, 1 - c.a);
 }
 #endif

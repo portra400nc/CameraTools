@@ -1100,6 +1100,8 @@ namespace enhancements
                 if (trace_gpu.sky_version() != 0 && trace_gpu.light() && trace_gpu.set_sky(trace_gpu.light()->sky, 0))
                     log(reshade::log::level::info, "the traced scene's sky is its own again.");
                 live_sky.reset();
+                gpu.set_physical_sky({}, 0);
+                trace_gpu.set_cloud_sky(nullptr);
                 return;
             }
             // The sky's sun from the bodies, or from the camera's sky sun before any came.
@@ -1146,6 +1148,9 @@ namespace enhancements
             draw.overcast = overcast();
             game_lights_box.take(game_lights, game_lights_seen);
             sky_draw = draw;
+            // The traced shot's rays meet the clouds over the physical sky.
+            gpu.set_physical_sky(live_sky->map.texels, live_sky->version);
+            trace_gpu.set_cloud_sky(gpu.traced_cloud_sky());
             if (live_sky->version != trace_gpu.sky_version() && trace_gpu.set_sky(live_sky->map, live_sky->version))
             {
                 const Vec3f &h = live_sky->horizon;

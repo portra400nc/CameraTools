@@ -131,7 +131,11 @@ namespace enhancements
         ID3D11Buffer *lights_constants() const { return lights_constants_.Get(); }
         ID3D11ShaderResourceView *gather_hit_srv() const { return gather_hit_srv_.Get(); }
         ID3D11ShaderResourceView *gather_sky_srv() const { return gather_sky_srv_.Get(); }
-        ID3D11ShaderResourceView *sky_srv() const { return sky_srv_.Get(); }
+        // The sky map the gather's rays meet: the clouds' over the physical sky's (Gpu::traced_cloud_sky) while the physical
+        // sky's is up and the clouds gave one, else the one set last.
+        ID3D11ShaderResourceView *sky_srv() const { return cloud_sky_ && sky_version_ != 0 ? cloud_sky_.Get() : sky_srv_.Get(); }
+        // The clouds' sky map for this frame's rays, or null for none.
+        void set_cloud_sky(ID3D11ShaderResourceView *srv) { cloud_sky_ = srv; }
         ID3D11Buffer *constants() const { return constants_.Get(); }
 
         // At present: what the finished dispatches measured, read without waiting. The next frame's tiles follow
@@ -236,6 +240,7 @@ namespace enhancements
         ComPtr<ID3D11Buffer> sky_buffer_;
         ComPtr<ID3D11ShaderResourceView> sky_srv_;
         uint64_t sky_version_ = 0;
+        ComPtr<ID3D11ShaderResourceView> cloud_sky_;
         ComPtr<ID3D11Texture2D> faces_;
         ComPtr<ID3D11ShaderResourceView> faces_srv_;
         ComPtr<ID3D11Buffer> faces_constants_;
