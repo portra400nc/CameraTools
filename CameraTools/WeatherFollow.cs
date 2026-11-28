@@ -6,7 +6,7 @@ namespace CameraTools
     // seconds of real time, so a weather picked while the game is paused for a shot still comes in.
     internal static class WeatherFollow
     {
-        private const float BlendSeconds = 3f;
+        private const float BlendSeconds = LayeredSky.WeatherBlendSeconds;
 
         private static WeatherKind target = WeatherKind.Sunny;
         private static WeatherLook from;

@@ -33,6 +33,8 @@ namespace CameraTools
     {
         private const int Altocumulus = 0, Stratocumulus = 1, Stratus = 2, Cumulus = 3, Towering = 7;
         private const float BlendSeconds = 180f;
+        // The seconds a new weather's look takes to blend in (WeatherFollow), its clouds' too.
+        internal const float WeatherBlendSeconds = 3f;
 
         // Each layer at its Type's shape (EnhancementsModel.CloudKinds), the RDR2 style's.
         private static SkyLayer Low(int kind, float coverage)
@@ -156,7 +158,8 @@ namespace CameraTools
         // The mix shown or blending in, the look the blend started from, and how far it has come.
         private static int rolls, shown = -1;
         private static SkyLook from;
-        private static float share = 1f;
+        private static float share = 1f, blendSeconds = BlendSeconds;
+        private static WeatherKind? shownWeather;
 
         // The look the Layered type shows now, and whether it changed this frame.
         public static SkyLook Current { get; private set; }
@@ -180,9 +183,10 @@ namespace CameraTools
         private static int rollsShown;
 
         // Once a frame while the Layered type runs: days is the sky's day count (NightSky.Days), weather the game's while
-        // Weather runs, seconds the frame's. A new day's mix, or the weather's, blends in from what the sky shows now; New
-        // sky's replaces it at once, as the button promises, where a three-minute blend showed the old clouds and, half way,
-        // an empty sky under the new name.
+        // Weather runs, seconds the frame's. A new day's mix blends in from what the sky shows now over three minutes, and
+        // the mix of a new weather in the weather's own seconds, with its mist and rain: over three minutes the old clouds
+        // stood under the rain for a minute and more. New sky's replaces it at once, as the button promises, where a
+        // three-minute blend showed the old clouds and, half way, an empty sky under the new name.
         public static void Update(double days, WeatherKind? weather, float seconds)
         {
             var before = Current;
@@ -191,16 +195,19 @@ namespace CameraTools
             var scales = Scales(days, today, rolls);
             bool rolled = rolls != rollsShown;
             rollsShown = rolls;
+            bool newWeather = weather != shownWeather;
+            shownWeather = weather;
             if (shown < 0 || rolled)
                 share = 1f;
             else if (pick != shown)
             {
                 from = Current;
                 share = 0f;
+                blendSeconds = newWeather ? WeatherBlendSeconds : BlendSeconds;
             }
             shown = pick;
             if (share < 1f)
-                share = Math.Min(share + seconds / BlendSeconds, 1f);
+                share = Math.Min(share + seconds / blendSeconds, 1f);
             var target = Of(Mixes[shown], scales);
             Current = share < 1f ? Between(from, target, share) : target;
             Changed = Current != before;

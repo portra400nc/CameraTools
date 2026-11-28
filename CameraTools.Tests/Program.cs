@@ -321,6 +321,16 @@ Check("the table holds 118 fields, each at its own id's place, with the master s
         LayeredSky.Update(change + 1.001, null, 1f);
     Check("a new day's mix blends in over minutes from the sky shown, and is shown whole after",
         firstSecond != dawnTarget && firstSecond != lastNight && LayeredSky.Current == dawnTarget);
+    int sunnyDay = Enumerable.Range(10, 200).First(d => LayeredSky.Mixes[LayeredSky.Pick(d, 20, WeatherKind.Sunny)].Name != "Nimbostratus");
+    LayeredSky.Update(sunnyDay + 0.5, WeatherKind.Sunny, 1f);
+    for (int second = 0; second < 200; second++)
+        LayeredSky.Update(sunnyDay + 0.5, WeatherKind.Sunny, 1f);
+    var deck = LayeredSky.Of(LayeredSky.Mixes.First(mix => mix.Name == "Nimbostratus"), LayeredSky.Scales(sunnyDay + 0.5, sunnyDay, 20));
+    LayeredSky.Update(sunnyDay + 0.5, WeatherKind.Rain, 1f);
+    var rainSecond = LayeredSky.Current;
+    for (int second = 0; second < 3; second++)
+        LayeredSky.Update(sunnyDay + 0.5, WeatherKind.Rain, 1f);
+    Check("rain's deck blends in over the weather's three seconds, not a day's minutes", rainSecond != deck && LayeredSky.Current == deck);
     var overcast = LayeredSky.Mixes.First(mix => mix.Name == "Overcast stratus");
     Check("the overcast keeps its whole coverage whatever the day's scale", LayeredSky.Of(overcast, new SkyScales(0.5f, 0.5f, 0.5f)).Low?.Coverage == 0.95f);
     var keptDays = Enumerable.Range(1, 300).Count(day => LayeredSky.Pick(day, 0, null) == LayeredSky.Pick(day - 1, 0, null));
