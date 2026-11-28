@@ -78,6 +78,12 @@ float remap(float x, float a, float b, float c, float d) { return c + (x - a) / 
 
 static float2 skew_direction;
 static float march_fine = 60;   // this ray's small step, which the RDR2 style's detail must not be finer than
+// The RDR2 style's density over the layer's: CameraTools sends it thin, 0.005 a meter, as before the entry was bisected
+// 0.1 banded the tops (.work/deck-screens/mapped15.png); at that thinness the eye saw some 200 m into every cloud, which
+// averaged its shade away and stood every cloud flat white (.work/rdr-clouds/v3-mix1.png). The light lookup's thickening
+// is over this.
+static const float kRdrView = 6;
+static const float kRdrBrightness = 0.55;
 static float detail_weight = 1;
 static float coverage_boost = 0;
 
@@ -270,7 +276,9 @@ float rdr_body(float2 c, float h)
     RdrLook k = rdr_look();
     float threshold = k.rise.x + k.rise.y * h + k.rise.z * h * h;
     threshold *= 1 - k.shelf * (1 - smoothstep(0.06, 0.22, h)) - k.anvil * smoothstep(0.72, 0.9, h);
-    return smoothstep(threshold, threshold + 0.18, weather) * smoothstep(0, 0.04, h);
+    // A soft body, rising over a third of the weather past the threshold, so the carve cuts billows deep into it: solid
+    // within a thin rim, the carve only frayed the rim and the clouds stood as smooth lozenges (.work/rdr-clouds/v4-mix1.png).
+    return saturate((weather - threshold) / 0.35) * smoothstep(0, 0.04, h);
 }
 
 // The RDR2 style's detail: Perlin-Worley noise, read through a displacement made of two planar reads (the xy and xz
@@ -288,9 +296,12 @@ float rdr_carve(float3 c, float h, float body)
     float2 xz = float2(shape_noise.SampleLevel(linear_wrap, float3(q.xz * 0.4 + 0.17, t * 0.013), 2),
         shape_noise.SampleLevel(linear_wrap, float3(q.xz * 0.4 + 0.61, t * 0.013 + 0.5), 2)) - 0.5;
     float3 displacement = float3(xy.x + xz.x, xy.y, xz.y) * 0.3;
-    // At the mip whose texels span two of the ray's small steps, so the march resolves the detail it carves.
-    float lod = clamp(log2(2 * march_fine * 128 / (layer_size * kShapeTile)), 0, 5);
-    float n = shape_noise.SampleLevel(linear_wrap, q + displacement - float3(0, t * 0.004, 0), lod) * k.carve * layer_detail * detail_weight;
+    // At the mip whose texels span one of the ray's small steps, so the march resolves the billows it carves; with the
+    // entry bisected, finer detail no longer bands. A second octave, half as deep, frays the rims.
+    float lod = clamp(log2(march_fine * 128 / (layer_size * kShapeTile)), 0, 5);
+    float n = shape_noise.SampleLevel(linear_wrap, q + displacement - float3(0, t * 0.004, 0), lod);
+    n = n * 0.7 + 0.3 * shape_noise.SampleLevel(linear_wrap, q * 2.7 + displacement * 1.6 + float3(0.31, 0.17 - t * 0.008, 0.53), lod);
+    n *= k.carve * layer_detail;
     // The carve's width, not Bauer's upper bound: (body - n) / (soft - n) turned negative wherever the noise passed the
     // softness and emptied the inside of the cloud along contours of height (.work/deck-screens/stripes-crop.png).
     return saturate((body - n) / lerp(k.width.x, k.width.y, h));
@@ -330,7 +341,7 @@ float cloud_extinction(float3 p, out float h)
     if (body <= 0)
         return 0;
     if (is_rdr())
-        return rdr_carve(cloud_space(p, h), h, body) * layer_density;
+        return rdr_carve(cloud_space(p, h), h, body) * layer_density * kRdrView;
     float3 q = cloud_space(p, h) / (layer_size * kind_look.detail_tile);
     // Turbulence, as Horizon Zero Dawn's clouds swirl their detail: the erosion read through a slow warp of itself, so
     // small billows tumble and fray at the rims instead of sitting as round balls.
@@ -349,7 +360,7 @@ float cloud_extinction_coarse(float3 p)
     volume_lod = 1;
     float body = cloud_body(p, h, erosion);
     volume_lod = 0;
-    return body * layer_density;
+    return body * layer_density * (is_rdr() ? kRdrView : 1);
 }
 
 // Whether a large step's sample may be in a cloud: the body grown a little, so a sample beside a thin part still finds it.
@@ -380,10 +391,8 @@ static float light_spread = 1;
 float depth_toward_light(float3 p, float3 l, bool far)
 {
     float depth = 0, from = 0;
-    // The RDR2 style skips the two nearest taps: thickened, they swung its shade over 18 to 51 m, finer than the march's
-    // steps resolve, and banded its tops (.work/deck-screens/mapped20.png).
     bool rdr = is_rdr();
-    [loop] for (int j = rdr ? (far ? 3 : 2) : far ? 1 : 0; j < 6; j += far ? 2 : 1)
+    [loop] for (int j = far ? 1 : 0; j < 6; j += far ? 2 : 1)
     {
         float at = kLightTaps[j] * light_scale * light_spread, h;
         float sigma = j < 2 && !far ? cloud_extinction(p + l * at, h) : cloud_extinction_coarse(p + l * at);
@@ -393,7 +402,7 @@ float depth_toward_light(float3 p, float3 l, bool far)
     // The RDR2 style is seen thin and shaded thick, as Bauer's clouds take their sun's transmittance from a lookup tuned
     // apart from the view: at one density, 0.1 a meter banded the tops at the march's steps (.work/deck-screens/mapped15.png)
     // and 0.005 left them flat white (mapped18.png).
-    return rdr ? depth * rdr_look().light : depth;
+    return rdr ? depth * rdr_look().light / kRdrView : depth;
 }
 
 // Sunlight scattered toward the eye after Frostbite (Hillaire 2016, 5.6): octaves of multiple scattering, each through
@@ -426,6 +435,10 @@ float sky_reaching(float3 p, float h)
 {
     float near = light_scale * 0.1 * light_spread, far = light_scale * 0.33 * light_spread;
     float above = cloud_extinction_coarse(p + float3(0, near, 0)) * near + cloud_extinction_coarse(p + float3(0, far, 0)) * (far - near);
+    // The RDR2 style's cloud over a point hides the sky as thick as it hides the sun: seen at the march's thin density,
+    // the undersides took the whole sky's light and every cloud stood flat white (.work/rdr-clouds/v1-mix1.png).
+    if (is_rdr())
+        above *= rdr_look().light / kRdrView;
     return (0.25 + 0.75 * pow(saturate(h), 0.7)) * lerp(0.3, 1, exp(-above * 0.3)) + 0.25 * (1 - h);
 }
 
@@ -556,6 +569,10 @@ void march_layer(float3 origin, float3 dir, float t0, float t1, float jitter, bo
             od = depth_toward_light(p, l, t > kNearLight);
         float lit = volume_scattered(c, od);
         float3 light = (physical ? physical_sunlight(origin, p) : sun) * lit + sky * sky_reaching(p, h);
+        // The RDR2 style's clouds stand bright but short of white, so their gray shading shows: at full light they burned
+        // to flat white over the sky (.work/rdr-clouds/v6-mix1.png).
+        if (is_rdr())
+            light *= kRdrBrightness;
         float through = exp(-sigma * step);
         float fade = physical ? 1 - smoothstep(0.3, 1, t / reach) : exp(-t / cloud_fade);
         float taken = m.transmittance * (1 - through);
