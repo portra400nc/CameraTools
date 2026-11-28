@@ -131,26 +131,60 @@ float cloud_towers(float2 c)
     return w;
 }
 
-static const float kMappedType = 5;     // ENHANCEMENTS_CLOUD_TYPE_MAPPED
+static const float kRdrFirst = 5;   // ENHANCEMENTS_CLOUD_TYPE_RDR_CUMULUS, the first of the RDR2 style's five
 
-// The mapped type's weather, after Bauer's (SIGGRAPH 2019, Red Dead Redemption 2): broad masses and scattered small clouds
-// whose noise changes in place as the wind carries them, so clouds form, grow and dissolve on their own instead of
-// sliding by as fixed shapes. The masses, some seven cloud sizes across, turn over in about forty cloud sizes of
-// travel; the small clouds, two across, in ten, and drift a little across the wind. Coverage sets how much of the noise
-// clears the thresholds.
-float mapped_weather(float2 c)
+bool is_rdr() { return layer_type >= kRdrFirst; }
+
+// One type of the RDR2 style (Bauer, SIGGRAPH 2019, "Creating the Atmospheric World of Red Dead Redemption 2"): its
+// weather, and the height profile a cloud stands by over it, as his cloud map and height LUT shape them.
+struct RdrLook
 {
+    float mass;         // the masses' noise cell, in cloud sizes
+    float stretch;      // how much longer than wide the masses are along the wind
+    float ramp;         // the weather's rise past the coverage threshold: a small ramp stands crisp heaps, a large one soft
+    float speckle;      // how far up the scattered small clouds' weather reaches, 0 none
+    float cover;        // added to Coverage: an overcast closes, a storm cell stands alone
+    float3 rise;        // the threshold over the layer's height h: x + y h + z h^2
+    float shelf;        // a storm's shelf: how far the threshold falls near the base, spreading it wide
+    float anvil;        // and near the top, spreading it into an anvil
+    float carve;        // how deep the detail eats into the body
+    float2 width;       // the carve's softness at the base and at the top
+    float light;        // how much thicker the light lookup sees the cloud than the march
+};
+
+// Cumulus, stratocumulus, stratus, cumulonimbus, altocumulus. A threshold rising with the square of the height stands a
+// dome over each rounded peak of the weather; a linear rise tapers it; a rise mostly linear and steep flattens a roll.
+static const RdrLook kRdrLooks[5] =
+{
+    { 6, 1.4, 0.22, 0.32, 0, float3(0.08, 0.25, 0.65), 0, 0, 1.0, float2(0.08, 0.4), 20 },
+    { 4, 3.0, 0.3, 0.2, 0.15, float3(0.06, 0.6, 0.3), 0, 0, 1.1, float2(0.1, 0.35), 15 },
+    { 9, 2.0, 0.45, 0, 0.35, float3(0.05, 0.35, 0.35), 0, 0, 0.7, float2(0.12, 0.45), 30 },
+    { 12, 1.0, 0.25, 0, -0.15, float3(0.12, 0.2, 0.55), 0.6, 0.35, 0.9, float2(0.08, 0.4), 25 },
+    { 2.5, 1.6, 0.25, 0.6, 0.05, float3(0.1, 0.5, 0.35), 0, 0, 1.3, float2(0.06, 0.3), 10 },
+};
+
+RdrLook rdr_look() { return kRdrLooks[clamp((int)layer_type - (int)kRdrFirst, 0, 4)]; }
+
+// The RDR2 style's weather: broad masses, warped so they wander, and scattered small clouds, whose noise changes in place
+// as the wind carries them, so clouds form, grow and dissolve on their own instead of sliding by as fixed shapes. The
+// masses turn over in about forty cloud sizes of travel, the small clouds, two across, in ten, drifting a little across
+// the wind. The masses rise straight from the noise, falling off from each peak as a dome needs: through a smoothstep
+// they stood flat-topped and the threshold cut columns from them (.work/deck-screens/headings2.png); the small noise makes
+// only low clouds of its own, as riding on the masses its narrow peaks rose as spires (headings.png).
+float rdr_weather(float2 c)
+{
+    RdrLook k = rdr_look();
     float2 wind = float2(cos(radians(cloud_pad)), sin(radians(cloud_pad)));
-    float2 p = float2(dot(c, wind) / (layer_size * layer_stretch), dot(c, float2(-wind.y, wind.x)) / layer_size);
+    float2 p = float2(dot(c, wind) / (layer_size * layer_stretch * k.stretch), dot(c, float2(-wind.y, wind.x)) / layer_size);
     float t = cloud_evolve / max(layer_size, 1);
-    float big = cloud_fbm(float3(p / 7, t / 40), 4);
+    float2 q = p / k.mass;
+    q += (float2(cloud_fbm(float3(q * 0.5, 0.5 + t / 90), 2), cloud_fbm(float3(q * 0.5 + float2(5.2, 7.1), 1.8 + t / 90), 2)) - 0.5) * 0.8;
+    float big = cloud_fbm(float3(q, t / 40), 4);
     float small = cloud_fbm(float3(p / 2.2 + float2(0, t * 0.02), t / 10 + 11.3), 3);
-    // The masses rise straight from the noise, falling off from each peak as a dome needs: through a smoothstep they stood
-    // flat-topped and the threshold cut columns from them (.work/deck-screens/headings2.png). The small noise makes only
-    // low clouds of its own: riding on the masses its narrow peaks rose as spires (headings.png).
-    float low = 0.68 - layer_coverage * 0.3;
-    float masses = saturate((big - low) / 0.2);
-    float scattered = saturate((small - (0.7 - layer_coverage * 0.25)) / 0.12) * 0.3;
+    float coverage = saturate(layer_coverage + k.cover);
+    float low = 0.68 - coverage * 0.3;
+    float masses = saturate((big - low) / k.ramp);
+    float scattered = saturate((small - (0.7 - coverage * 0.25)) / 0.12) * k.speckle;
     return max(masses, scattered);
 }
 
@@ -159,8 +193,8 @@ float mapped_weather(float2 c)
 // along the wind; the shape noise gives the clouds inside them their bodies.
 float cloud_weather(float2 c)
 {
-    if (layer_type == kMappedType)
-        return mapped_weather(c);
+    if (is_rdr())
+        return rdr_weather(c);
     if (layer_type >= 3)    // ENHANCEMENTS_CLOUD_TYPE_CUMULONIMBUS and _TOWERING
         return cloud_towers(c);
     float2 wind = float2(cos(radians(cloud_pad)), sin(radians(cloud_pad)));

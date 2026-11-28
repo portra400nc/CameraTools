@@ -2318,9 +2318,10 @@ namespace enhancements
 
     float Gpu::cloud_evolve(const CloudSettings &settings) const
     {
-        const bool mapped = settings.type == CloudType::mapped || (settings.middle && settings.middle->type == CloudType::mapped);
+        const auto rdr = [](CloudType t) { return t >= CloudType::rdr_cumulus && t < CloudType::count; };
+        const bool evolves = rdr(settings.type) || (settings.middle && rdr(settings.middle->type));
         const float step = std::max(settings.size, 1.0f) * 0.02f;
-        return mapped ? std::floor(cloud_travel_ / step) * step : 0.0f;
+        return evolves ? std::floor(cloud_travel_ / step) * step : 0.0f;
     }
 
     std::optional<GameCall> Gpu::run_cloud_shadows(const FrameMap &map, const CloudSettings &settings, const Camera &camera, const float wind[2], bool flip)

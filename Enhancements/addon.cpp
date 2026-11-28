@@ -406,7 +406,7 @@ namespace enhancements
         float dof_focus = 0;
         // Meters the clouds drifted along world x and z, wrapped well inside float precision.
         float cloud_wind[2] = { 0, 0 };
-        // Meters the wind has carried the clouds in all, wrapped at a thousand kilometers: the mapped type's weather evolves by it.
+        // Meters the wind has carried the clouds in all, wrapped at a thousand kilometers: the RDR2 style's weather evolves by it.
         float cloud_travel = 0;
         // The auto exposure's stops ReShade.log last named, and when; it names them again once they move half a stop, at
         // most every 5 seconds.

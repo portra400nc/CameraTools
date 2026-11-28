@@ -460,6 +460,8 @@ namespace CameraTools
             }
             if (ProbeCloud > 0)
                 ApplyProbeCloud(ref settings, ProbeCloudKinds[ProbeCloud - 1]);
+            if (ProbeRdrMix > 0)
+                ApplyRdrMix(ref settings, RdrMixes[ProbeRdrMix - 1]);
             if (settings.Enabled == 0 && (settings.DepthOfField.Enabled != 0 || settings.LensSoftness.Radius > 0f))
             {
                 settings.Enabled = 1;
@@ -561,17 +563,11 @@ namespace CameraTools
         public static readonly ProbeCloudKind[] ProbeCloudKinds =
         {
             new("towering cumulus", EnhancementsCloudType.Towering, 2000f, 9000f, 3000f, 0.3f, 0.4f),
-            // Its own density, not the towers' look's: at 0.1 a meter one of the march's 60 m steps was opaque, and the light
-            // of each ray's first sample banded the tops (.work/deck-screens/mapped15.png against mapped16-thin.png).
-            new("mapped (prototype)", EnhancementsCloudType.Mapped, 1500f, 3000f, 600f, 0.005f, 0.45f),
             new("cumulus", EnhancementsCloudType.Cumulus, 2000f, 1500f, 400f, 0.04f, 0.5f),
             new("altocumulus", EnhancementsCloudType.Stratocumulus, 3000f, 700f, 500f, 0.04f, 0.75f),
             new("stratus", EnhancementsCloudType.Stratus, 1300f, 400f, 1000f, 0.08f, 0.88f),
             new("layered: cumulus under altocumulus and cirrus", EnhancementsCloudType.Cumulus, 2000f, 1500f, 400f, 0.1f, 0.4f),
         };
-
-        // The mapped prototype's index plus one in ProbeCloudKinds.
-        public const int MappedProbeCloud = 2;
 
         // The kind's index plus one; 0 leaves the clouds as Type and Weather chose them.
         public static int ProbeCloud { get; set; }
@@ -603,7 +599,57 @@ namespace CameraTools
                 };
             settings.Clouds.Sun *= ProbeTowersLooks[ProbeTowersLook].Sun;
             settings.Clouds.Ambient *= ProbeTowersLooks[ProbeTowersLook].SkyLight;
-            settings.Clouds.Density = kind.Type == EnhancementsCloudType.Mapped ? kind.Density : ProbeTowersLooks[ProbeTowersLook].Density;
+            settings.Clouds.Density = ProbeTowersLooks[ProbeTowersLook].Density;
+        }
+
+        // For the probe only until the style picker: the RDR2 style's skies (Bauer, SIGGRAPH 2019), each a low layer, a middle
+        // layer over it or none, and the painted cirrus, as his cloud map holds two layers under a cirrus. Wide and flat but
+        // for the storm: his clouds stand several kilometers across and about one tall.
+        public readonly record struct RdrLayer(EnhancementsCloudType Type, float Base, float Thickness, float Size, float Coverage);
+        public readonly record struct RdrMix(string Name, RdrLayer Low, RdrLayer? Middle, float Cirrus);
+
+        public static readonly RdrMix[] RdrMixes =
+        {
+            new("fair cumulus under altocumulus", new(EnhancementsCloudType.RdrCumulus, 1400f, 1300f, 500f, 0.45f),
+                new(EnhancementsCloudType.RdrAltocumulus, 4300f, 500f, 260f, 0.4f), 0.4f),
+            new("stratocumulus rolls", new(EnhancementsCloudType.RdrStratocumulus, 1200f, 700f, 600f, 0.5f),
+                new(EnhancementsCloudType.RdrAltocumulus, 4000f, 450f, 300f, 0.3f), 0.3f),
+            new("storm cell", new(EnhancementsCloudType.RdrCumulonimbus, 1300f, 7000f, 1100f, 0.35f), null, 0.5f),
+            new("overcast with gaps", new(EnhancementsCloudType.RdrStratus, 1100f, 900f, 800f, 0.55f),
+                new(EnhancementsCloudType.RdrStratocumulus, 3200f, 600f, 500f, 0.35f), 0f),
+            new("high puffs", new(EnhancementsCloudType.RdrAltocumulus, 3600f, 500f, 260f, 0.5f), null, 0.6f),
+        };
+
+        // The mix's index plus one; 0 leaves the clouds as the rest chose them.
+        public static int ProbeRdrMix { get; set; }
+
+        // Seen thin and shaded thick: at 0.1 a meter one of the march's 60 m steps was opaque and banded the tops
+        // (.work/deck-screens/mapped15.png against mapped16-thin.png); the add-on's light lookup thickens it per type.
+        private const float RdrDensity = 0.005f;
+
+        private static EnhancementsCloudLayer RdrLayerOf(RdrLayer layer) => new()
+        {
+            Coverage = ProbeCoverage ?? layer.Coverage, Base = layer.Base, Thickness = layer.Thickness, Size = layer.Size, Stretch = 1f,
+            Density = RdrDensity, Detail = 1f, Type = layer.Type,
+        };
+
+        private static void ApplyRdrMix(ref EnhancementsSettings settings, RdrMix mix)
+        {
+            var low = RdrLayerOf(mix.Low);
+            settings.Clouds.Type = low.Type;
+            settings.Clouds.Base = low.Base;
+            settings.Clouds.Thickness = low.Thickness;
+            settings.Clouds.Size = low.Size;
+            settings.Clouds.Coverage = low.Coverage;
+            settings.Clouds.Stretch = 1f;
+            settings.Clouds.Density = RdrDensity;
+            settings.CloudPattern.Pattern = EnhancementsCloudPatternKind.Noise;
+            settings.CloudLayers = new EnhancementsCloudLayers { Cirrus = mix.Cirrus };
+            if (mix.Middle is { } middle)
+            {
+                settings.CloudLayers.Middle = 1;
+                settings.CloudLayers.MiddleLayer = RdrLayerOf(middle);
+            }
         }
 
         // The add-on's pattern for a cloud type: its own, or its Azurite painting while the probe asks for the fallback.

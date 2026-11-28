@@ -23,7 +23,7 @@ float shadow_depth(float3 p, float3 l)
     [loop] for (uint layer = 0; layer < (cloud_layers > 1.5 ? 2u : 1u); layer++)
     {
         use_layer(layer);
-        kind_look = kKinds[min((uint)layer_type, 5u)];
+        kind_look = kKinds[min((uint)layer_type, 9u)];
         float t0 = max((layer_base - p.y) / l.y, 0), t1 = (layer_base + layer_thickness - p.y) / l.y;
         if (t1 <= t0)
             continue;

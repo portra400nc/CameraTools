@@ -40,7 +40,11 @@ namespace enhancements
             // Full from a flat base nearly to the top, so its tops end crisp in billows rather than thinning into a veil.
             return { column(h, 0.04f, 0.85f, 1.0f), 0.75f, 0 };
         case CloudType::cumulus:
-        case CloudType::mapped:     // shaped in clouds_ps.hlsl's mapped_body, not by this table
+        case CloudType::rdr_cumulus:        // the RDR2 style is shaped in clouds_ps.hlsl's rdr_body, not by this table
+        case CloudType::rdr_stratocumulus:
+        case CloudType::rdr_stratus:
+        case CloudType::rdr_cumulonimbus:
+        case CloudType::rdr_altocumulus:
         case CloudType::count:
             break;
         }

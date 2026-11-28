@@ -556,7 +556,13 @@ enum
     ENHANCEMENTS_CLOUD_TYPE_STRATUS,           // a flat, smooth sheet
     ENHANCEMENTS_CLOUD_TYPE_CUMULONIMBUS,      // towers through the whole layer that spread into an anvil at the top
     ENHANCEMENTS_CLOUD_TYPE_TOWERING,          // towering cumulus (congestus): tall towers of round billows, solid inside; version 52
-    ENHANCEMENTS_CLOUD_TYPE_MAPPED,            // prototype, the probe only: shapes from an evolving weather map and a height profile
+    // The RDR2 style (Bauer, SIGGRAPH 2019): each shaped by an evolving weather map and a height profile. The probe only, until
+    // the style picker.
+    ENHANCEMENTS_CLOUD_TYPE_RDR_CUMULUS,       // heaps on flat bases with rounded tops, small ones scattered between
+    ENHANCEMENTS_CLOUD_TYPE_RDR_STRATOCUMULUS, // low rolls drawn out along the wind
+    ENHANCEMENTS_CLOUD_TYPE_RDR_STRATUS,       // a dark overcast deck, open in gaps
+    ENHANCEMENTS_CLOUD_TYPE_RDR_CUMULONIMBUS,  // lone storm towers on a wide shelf, spreading at the top
+    ENHANCEMENTS_CLOUD_TYPE_RDR_ALTOCUMULUS,   // fields of small puffs, high and thin
     ENHANCEMENTS_CLOUD_TYPE_COUNT,
 };
 

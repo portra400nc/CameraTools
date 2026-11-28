@@ -422,7 +422,7 @@ namespace enhancements
         // The clouds' shadows over the world's sun visibility, from last frame's weather map; keeps the game's mask until the
         // clouds have drawn once.
         std::optional<GameCall> run_cloud_shadows(const FrameMap &map, const CloudSettings &settings, const Camera &camera, const float wind[2], bool flip);
-        // Meters the wind has carried the clouds in all, which the mapped type's weather evolves by.
+        // Meters the wind has carried the clouds in all, which the RDR2 style's weather evolves by.
         void set_cloud_travel(float meters) { cloud_travel_ = meters; }
         // With physical, the clouds take its sunlight or moonlight at their height in place of the camera's sun. With
         // full, as while a screenshot accumulates, they march every pixel at the full size.
@@ -809,7 +809,7 @@ namespace enhancements
             }
         } cloud_map_key_;
         float cloud_travel_ = 0;
-        // The travel the mapped type's weather map is baked at: in steps of a fiftieth of a cloud size, so the 2048 square map
+        // The travel the RDR2 style's weather map is baked at: in steps of a fiftieth of a cloud size, so the 2048 square map
         // is baked again a couple of times a second in a strong wind, not every frame; 0 for the other types.
         float cloud_evolve(const CloudSettings &settings) const;
         Scratch cloud_rays_;        // half size, R16G16B16A16_FLOAT: rgb the clouds' in-scatter, a their transmittance

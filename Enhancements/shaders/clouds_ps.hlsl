@@ -18,7 +18,7 @@ Texture2D<float4> cloud_types : register(t12);  // core/clouds.h's table: a row 
 Texture3D<float> cloud_volume : register(t13);  // data/wdas_cloud: Disney's cloud, x across, y up, z along, with mips
 
 static const float kShapeTile = 6;     // cloud sizes the shape noise spans before it repeats
-static const float kCloudTypes = 6;    // ENHANCEMENTS_CLOUD_TYPE_COUNT
+static const float kCloudTypes = 10;   // ENHANCEMENTS_CLOUD_TYPE_COUNT
 
 // What a type marches by, beside its height profile in cloud_types.
 struct CloudKind
@@ -46,7 +46,7 @@ struct CloudKind
 // leaned 3 km, a slanted slab). Their erosion cells run from some 400 m down to 25 m.
 // Every type stands Disney's cloud since the user found it the real one; volume 0 brings a type's noise clouds back (the
 // git tag clouds-noise has them as they were tuned).
-static const CloudKind kKinds[6] =
+static const CloudKind kKinds[10] =
 {
     { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.15, 1, float2(0.4, 0.55), float2(0.3, 0.55), 0, 0, 6, 0 },     // cumulus
     // Altocumulus: the noise's soft overlapping puffs matched the user's photo, where Disney cloudlets read as stamps and
@@ -58,7 +58,12 @@ static const CloudKind kKinds[6] =
     { 0.8, float2(0.35, 1.6), 0.55, 0.3, 0.5, 0.1, 0, float2(0.98, 0.98), float2(0.6, 1), 1, 0, 6, 0 },      // stratus
     { 0.6, float2(1.5, 1.5), 0.4, 0.6, 0.15, 0.25, 1, float2(0.4, 0.45), float2(0.55, 0.8), 0, 0.6, 6, 0 },  // cumulonimbus
     { 0.6, float2(1.5, 1.5), 0.3, 1.0, 0.1, 0.25, 3, float2(0.4, 0.55), float2(0.45, 1), 0, 0, 6, 0 },        // towering cumulus: a cluster (3)
-    { 0.8, float2(1, 1), 0.3, 0.3, 0.12, 0.1, 0, float2(1, 1), float2(1, 1), 0, 0, 6, 0 },                     // mapped: only its lean counts
+    // The RDR2 style's five, shaped by kRdrLooks: only their lean counts here.
+    { 0.8, float2(1, 1), 0.3, 0.3, 0.12, 0.1, 0, float2(1, 1), float2(1, 1), 0, 0, 6, 0 },
+    { 0.8, float2(1, 1), 0.3, 0.3, 0.2, 0.1, 0, float2(1, 1), float2(1, 1), 0, 0, 6, 0 },
+    { 0.8, float2(1, 1), 0.3, 0.3, 0.1, 0.1, 0, float2(1, 1), float2(1, 1), 0, 0, 6, 0 },
+    { 0.8, float2(1, 1), 0.3, 0.3, 0.06, 0.1, 0, float2(1, 1), float2(1, 1), 0, 0, 6, 0 },
+    { 0.8, float2(1, 1), 0.3, 0.3, 0.15, 0.1, 0, float2(1, 1), float2(1, 1), 0, 0, 6, 0 },
 };
 static CloudKind kind_look;  // this type's, set by main
 
@@ -72,7 +77,7 @@ float weather_at(float2 c)
 float remap(float x, float a, float b, float c, float d) { return c + (x - a) / (b - a) * (d - c); }
 
 static float2 skew_direction;
-static float march_fine = 60;   // this ray's small step, which the mapped type's detail must not be finer than
+static float march_fine = 60;   // this ray's small step, which the RDR2 style's detail must not be finer than
 static float detail_weight = 1;
 static float coverage_boost = 0;
 
@@ -253,24 +258,27 @@ float cloud_volume_at(float2 c, float y)
     return best;
 }
 
-// The mapped type's body, after Bauer (SIGGRAPH 2019, slides 16 to 18): the weather map cut by a threshold that rises
-// with height, so a cloud stands on a broad flat base and rounds off higher up where only strong weather still clears
-// the threshold. Strong weather stands tall, weak weather stays a low flat cloud. The threshold rises with the square of
-// the height, so over the weather's rounded peaks a cloud rises as a dome.
-float mapped_body(float2 c, float h)
+// The RDR2 style's body, after Bauer (SIGGRAPH 2019, slides 16 to 18): the weather map cut by a threshold that rises with
+// height as the type's profile says, so a cloud stands on a broad flat base and rounds off higher up where only strong
+// weather still clears the threshold. Strong weather stands tall, weak weather stays a low flat cloud. A storm's
+// threshold falls near the base, spreading a wide shelf under the tower, and near the top, spreading its anvil.
+float rdr_body(float2 c, float h)
 {
     float weather = weather_at(c) + coverage_boost;
     if (weather <= 0.01)
         return 0;
-    float threshold = 0.08 + 0.9 * h * h;
+    RdrLook k = rdr_look();
+    float threshold = k.rise.x + k.rise.y * h + k.rise.z * h * h;
+    threshold *= 1 - k.shelf * (1 - smoothstep(0.06, 0.22, h)) - k.anvil * smoothstep(0.72, 0.9, h);
     return smoothstep(threshold, threshold + 0.18, weather) * smoothstep(0, 0.04, h);
 }
 
-// The mapped type's detail: Perlin-Worley noise, read through a displacement made of two planar reads (the xy and xz
+// The RDR2 style's detail: Perlin-Worley noise, read through a displacement made of two planar reads (the xy and xz
 // planes, as Bauer builds a quasi 3D vector from two 2D lookups), which churns slowly as the clouds travel, carved out of
 // the body over a width that grows toward the top, so bases stay crisp and tops soft.
-float mapped_carve(float3 c, float h, float body)
+float rdr_carve(float3 c, float h, float body)
 {
+    RdrLook k = rdr_look();
     float t = cloud_evolve / max(layer_size, 1);
     float3 q = c / (layer_size * kShapeTile);
     // The displacement is smooth, a few cloud sizes across: the erosion noise's fine cells, read for it, laid the clouds in
@@ -280,15 +288,12 @@ float mapped_carve(float3 c, float h, float body)
     float2 xz = float2(shape_noise.SampleLevel(linear_wrap, float3(q.xz * 0.4 + 0.17, t * 0.013), 2),
         shape_noise.SampleLevel(linear_wrap, float3(q.xz * 0.4 + 0.61, t * 0.013 + 0.5), 2)) - 0.5;
     float3 displacement = float3(xy.x + xz.x, xy.y, xz.y) * 0.3;
-    // At the mip whose texels span two of the ray's small steps: detail finer than the steps aliased into contour bands
-    // over the tops, which the pixels' random offsets did not average away (.work/deck-screens/mapped4.png; with 15 m
-    // steps, mapped14-fine.png, they were gone).
+    // At the mip whose texels span two of the ray's small steps, so the march resolves the detail it carves.
     float lod = clamp(log2(2 * march_fine * 128 / (layer_size * kShapeTile)), 0, 5);
-    float n = shape_noise.SampleLevel(linear_wrap, q + displacement - float3(0, t * 0.004, 0), lod) * layer_detail * detail_weight;
+    float n = shape_noise.SampleLevel(linear_wrap, q + displacement - float3(0, t * 0.004, 0), lod) * k.carve * layer_detail * detail_weight;
     // The carve's width, not Bauer's upper bound: (body - n) / (soft - n) turned negative wherever the noise passed the
     // softness and emptied the inside of the cloud along contours of height (.work/deck-screens/stripes-crop.png).
-    float width = lerp(0.08, 0.4, h);
-    return saturate((body - n) / width);
+    return saturate((body - n) / lerp(k.width.x, k.width.y, h));
 }
 
 // Without the erosion: the cloud body at p, 0 to 1, and the height in the layer and how much the type erodes there.
@@ -299,8 +304,8 @@ float cloud_body(float3 p, out float h, out float erosion)
     if (h < 0 || h > 1)
         return 0;
     float3 c = cloud_space(p, h);
-    if (layer_type == kMappedType)
-        return mapped_body(c.xz, h);
+    if (is_rdr())
+        return rdr_body(c.xz, h);
     // Disney's cloud carries its own detail, smooth and soft as a real cloud's: the noise's erosion only roughened it.
     if (kind_look.volume > 0)
         return cloud_volume_at(c.xz, p.y);
@@ -324,8 +329,8 @@ float cloud_extinction(float3 p, out float h)
     float body = cloud_body(p, h, erosion);
     if (body <= 0)
         return 0;
-    if (layer_type == kMappedType)
-        return mapped_carve(cloud_space(p, h), h, body) * layer_density;
+    if (is_rdr())
+        return rdr_carve(cloud_space(p, h), h, body) * layer_density;
     float3 q = cloud_space(p, h) / (layer_size * kind_look.detail_tile);
     // Turbulence, as Horizon Zero Dawn's clouds swirl their detail: the erosion read through a slow warp of itself, so
     // small billows tumble and fray at the rims instead of sitting as round balls.
@@ -364,7 +369,6 @@ bool cloud_near(float3 p)
 // Beyond this many meters the light samples thin to three.
 static const float kNearLight = 8000;
 static const float kLightTaps[6] = { 0.03, 0.085, 0.19, 0.38, 0.77, 1.54 };
-static const float kMappedLightDepth = 20;
 // What the taps and the sky's samples are spaced by: a cloud's size, or its layer's thickness when that is smaller, so a
 // flat layer is not stepped through in one tap and shaded in bands.
 static float light_scale = 1000;
@@ -376,20 +380,20 @@ static float light_spread = 1;
 float depth_toward_light(float3 p, float3 l, bool far)
 {
     float depth = 0, from = 0;
-    // The mapped type skips the two nearest taps: thickened, they swung its shade over 18 to 51 m, finer than the march's
+    // The RDR2 style skips the two nearest taps: thickened, they swung its shade over 18 to 51 m, finer than the march's
     // steps resolve, and banded its tops (.work/deck-screens/mapped20.png).
-    bool mapped = layer_type == kMappedType;
-    [loop] for (int j = mapped ? (far ? 3 : 2) : far ? 1 : 0; j < 6; j += far ? 2 : 1)
+    bool rdr = is_rdr();
+    [loop] for (int j = rdr ? (far ? 3 : 2) : far ? 1 : 0; j < 6; j += far ? 2 : 1)
     {
         float at = kLightTaps[j] * light_scale * light_spread, h;
         float sigma = j < 2 && !far ? cloud_extinction(p + l * at, h) : cloud_extinction_coarse(p + l * at);
         depth += sigma * (at - from);
         from = at;
     }
-    // The mapped type is seen thin and shaded thick, as Bauer's clouds take their sun's transmittance from a lookup tuned
+    // The RDR2 style is seen thin and shaded thick, as Bauer's clouds take their sun's transmittance from a lookup tuned
     // apart from the view: at one density, 0.1 a meter banded the tops at the march's steps (.work/deck-screens/mapped15.png)
     // and 0.005 left them flat white (mapped18.png).
-    return mapped ? depth * kMappedLightDepth : depth;
+    return rdr ? depth * rdr_look().light : depth;
 }
 
 // Sunlight scattered toward the eye after Frostbite (Hillaire 2016, 5.6): octaves of multiple scattering, each through
@@ -462,7 +466,7 @@ bool layer_span(float3 origin, float3 dir, out float t0, out float t1)
 // Marches the current layer between t0 and t1 into m.
 void march_layer(float3 origin, float3 dir, float t0, float t1, float jitter, bool physical, inout MarchState m)
 {
-    kind_look = kKinds[min((uint)layer_type, 5u)];
+    kind_look = kKinds[min((uint)layer_type, 9u)];
     light_scale = min(layer_size, layer_thickness * 0.5);
     // Large steps through clear air; at the first body met, a step back and small steps, which resolve the cloud's skin
     // and its detail; back to large steps after a run of empty small ones. At most twice cloud_steps samples. A large
@@ -485,7 +489,7 @@ void march_layer(float3 origin, float3 dir, float t0, float t1, float jitter, bo
     uint empty = 0, lit_samples = 0;
     float od = 0;
     float found = 0;
-    float clear = t0;  // the last sample in clear air, which the mapped type refines its entry from
+    float clear = t0;  // the last sample in clear air, which the RDR2 style refines its entry from
     bool was_clear = true;
     // With the physical sky's air over them, the clouds fade over the far two thirds of the march, which ends at 0.35 of
     // the map: the air takes the far ones into the haze, where the old fade thinned them from the start, and a fade over
@@ -514,10 +518,10 @@ void march_layer(float3 origin, float3 dir, float t0, float t1, float jitter, bo
         float step = fine * min(rcp(max(m.transmittance, 0.25)), 4);
         float h;
         float sigma = cloud_extinction(p, h);
-        // The mapped type's smooth surfaces show where each ray enters them: entered anywhere within a small step, their
+        // The RDR2 style's smooth surfaces show where each ray enters them: entered anywhere within a small step, their
         // light banded the tops. As Bauer refines his steps (SIGGRAPH 2019, slide 50), three halvings between the last
         // clear sample and this one find the skin to an eighth of a step.
-        if (layer_type == kMappedType && sigma > 0 && was_clear && t > clear)
+        if (is_rdr() && sigma > 0 && was_clear && t > clear)
         {
             float a = clear, b = t;
             [unroll] for (int k = 0; k < 3; k++)

@@ -140,7 +140,7 @@ cbuffer Constants : register(b0)
     float cloud_layers;         // 1 the main layer alone, 2 with the middle one
     float flare_clouds;         // 1 while this frame's volume clouds are in their history, which dims the flare's sun
     uint water_stamp;           // this frame's number for water_ps.hlsl's marks, never 0
-    float cloud_evolve;         // meters the wind has carried the clouds, for the mapped type's weather, which changes with it
+    float cloud_evolve;         // meters the wind has carried the clouds, for the RDR2 style's weather, which changes with it
     float2 accum_chromatic;     // EnhancementsAccumulate.chromatic
     float accum_swirl;          // EnhancementsAccumulate.swirl
     float accum_lift;           // the highlight lift's strength (lift.hlsli); 0 off

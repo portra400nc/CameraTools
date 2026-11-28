@@ -25,7 +25,7 @@ namespace CameraTools
         private static LensView lens;
         private static EnhancementsView view;
         private static bool volume;
-        private static int probeCloud;
+        private static int probeCloud, probeRdrMix;
         private static float? probeCoverage;
         private static int towersLook;
         private static float? saveAt;
@@ -211,12 +211,13 @@ namespace CameraTools
                 ulong generation = Enhancements.Apply(EnhancementsModel.Settings(Running, lens, WeatherFollow.Current));
                 Log($"the add-on connected and runs {Describe(Running)}, as its settings {generation}.");
             }
-            else if (now != lens || view != EnhancementsModel.ProbeView || volume != EnhancementsModel.ProbePaintedClouds || LayeredSky.Changed || probeCloud != EnhancementsModel.ProbeCloud || probeCoverage != EnhancementsModel.ProbeCoverage || towersLook != EnhancementsModel.ProbeTowersLook || WeatherFollow.Changed && Time.unscaledTime >= weatherSentAt + WeatherEvery)
+            else if (now != lens || view != EnhancementsModel.ProbeView || volume != EnhancementsModel.ProbePaintedClouds || LayeredSky.Changed || probeCloud != EnhancementsModel.ProbeCloud || probeRdrMix != EnhancementsModel.ProbeRdrMix || probeCoverage != EnhancementsModel.ProbeCoverage || towersLook != EnhancementsModel.ProbeTowersLook || WeatherFollow.Changed && Time.unscaledTime >= weatherSentAt + WeatherEvery)
             {
                 lens = now;
                 view = EnhancementsModel.ProbeView;
                 volume = EnhancementsModel.ProbePaintedClouds;
                 probeCloud = EnhancementsModel.ProbeCloud;
+                probeRdrMix = EnhancementsModel.ProbeRdrMix;
                 probeCoverage = EnhancementsModel.ProbeCoverage;
                 towersLook = EnhancementsModel.ProbeTowersLook;
                 weatherSentAt = Time.unscaledTime;
