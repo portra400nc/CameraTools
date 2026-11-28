@@ -254,14 +254,15 @@ float cloud_volume_at(float2 c, float y)
 }
 
 // The mapped type's body, after Bauer (SIGGRAPH 2019, slides 16 to 18): the weather map cut by a threshold that rises
-// with height, so a cloud stands on a broad flat base, its shelf, and rounds off higher up where only strong weather
-// still clears the threshold. Strong weather stands tall, weak weather stays a low flat cloud.
+// with height, so a cloud stands on a broad flat base and rounds off higher up where only strong weather still clears
+// the threshold. Strong weather stands tall, weak weather stays a low flat cloud. The threshold rises with the square of
+// the height, so over the weather's rounded peaks a cloud rises as a dome.
 float mapped_body(float2 c, float h)
 {
     float weather = weather_at(c) + coverage_boost;
     if (weather <= 0.01)
         return 0;
-    float threshold = 0.08 + 0.3 * smoothstep(0.05, 0.35, h) + 0.45 * smoothstep(0.35, 1, h);
+    float threshold = 0.08 + 0.9 * h * h;
     return smoothstep(threshold, threshold + 0.18, weather) * smoothstep(0, 0.04, h);
 }
 
@@ -283,10 +284,10 @@ float mapped_carve(float3 c, float h, float body)
     // over the tops, which the pixels' random offsets did not average away (.work/deck-screens/mapped4.png; with 15 m
     // steps, mapped14-fine.png, they were gone).
     float lod = clamp(log2(2 * march_fine * 128 / (layer_size * kShapeTile)), 0, 5);
-    float n = shape_noise.SampleLevel(linear_wrap, q + displacement - float3(0, t * 0.004, 0), lod) * 0.85 * layer_detail * detail_weight;
+    float n = shape_noise.SampleLevel(linear_wrap, q + displacement - float3(0, t * 0.004, 0), lod) * layer_detail * detail_weight;
     // The carve's width, not Bauer's upper bound: (body - n) / (soft - n) turned negative wherever the noise passed the
     // softness and emptied the inside of the cloud along contours of height (.work/deck-screens/stripes-crop.png).
-    float width = lerp(0.12, 0.5, h);
+    float width = lerp(0.08, 0.4, h);
     return saturate((body - n) / width);
 }
 

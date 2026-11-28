@@ -135,7 +135,7 @@ static const float kMappedType = 5;     // ENHANCEMENTS_CLOUD_TYPE_MAPPED
 
 // The mapped type's weather, after Bauer's (SIGGRAPH 2019, Red Dead Redemption 2): broad masses and scattered small clouds
 // whose noise changes in place as the wind carries them, so clouds form, grow and dissolve on their own instead of
-// sliding by as fixed shapes. The masses, some twelve cloud sizes across, turn over in about forty cloud sizes of
+// sliding by as fixed shapes. The masses, some seven cloud sizes across, turn over in about forty cloud sizes of
 // travel; the small clouds, two across, in ten, and drift a little across the wind. Coverage sets how much of the noise
 // clears the thresholds.
 float mapped_weather(float2 c)
@@ -143,12 +143,15 @@ float mapped_weather(float2 c)
     float2 wind = float2(cos(radians(cloud_pad)), sin(radians(cloud_pad)));
     float2 p = float2(dot(c, wind) / (layer_size * layer_stretch), dot(c, float2(-wind.y, wind.x)) / layer_size);
     float t = cloud_evolve / max(layer_size, 1);
-    float big = cloud_fbm(float3(p / 9, t / 40), 4);
+    float big = cloud_fbm(float3(p / 7, t / 40), 4);
     float small = cloud_fbm(float3(p / 2.2 + float2(0, t * 0.02), t / 10 + 11.3), 3);
-    float low = 0.66 - layer_coverage * 0.3;
-    float masses = smoothstep(low, low + 0.16, big);
-    float scattered = smoothstep(0.66 - layer_coverage * 0.25, 0.8, small) * 0.5;
-    return saturate(masses * (0.55 + 0.45 * smoothstep(0.3, 0.7, small)) + scattered * (1 - masses));
+    // The masses rise straight from the noise, falling off from each peak as a dome needs: through a smoothstep they stood
+    // flat-topped and the threshold cut columns from them (.work/deck-screens/headings2.png). The small noise makes only
+    // low clouds of its own: riding on the masses its narrow peaks rose as spires (headings.png).
+    float low = 0.68 - layer_coverage * 0.3;
+    float masses = saturate((big - low) / 0.2);
+    float scattered = saturate((small - (0.7 - layer_coverage * 0.25)) / 0.12) * 0.3;
+    return max(masses, scattered);
 }
 
 // The weather map's value at a point of cloud space (world x and z plus the drift): 0 clear sky to 1 where the clouds
