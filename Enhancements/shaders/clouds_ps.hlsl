@@ -270,7 +270,9 @@ float rdr_body(float2 c, float h)
         return 0;
     RdrLook k = rdr_look();
     float threshold = k.rise.x + k.rise.y * h + k.rise.z * h * h;
-    threshold *= 1 - k.shelf * (1 - smoothstep(0.06, 0.22, h)) - k.anvil * smoothstep(0.72, 0.9, h);
+    // The shelf only in a thin band at the base, under a high threshold elsewhere, so the storm's skirt stands as a flat disc
+    // around the tower, as the talk's storm does (slide 19), rather than a thick skirt (.work/rdr-clouds/compare-storm.png).
+    threshold *= 1 - k.shelf * (1 - smoothstep(0.04, 0.1, h)) - k.anvil * smoothstep(0.72, 0.9, h);
     // A soft body, rising over a third of the weather past the threshold, so the carve cuts billows deep into it: solid
     // within a thin rim, the carve only frayed the rim and the clouds stood as smooth lozenges (.work/rdr-clouds/v4-mix1.png).
     return saturate((weather - threshold) / 0.35) * smoothstep(0, 0.04, h);

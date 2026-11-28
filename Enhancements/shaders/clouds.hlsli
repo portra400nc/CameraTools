@@ -165,7 +165,7 @@ static const RdrLook kRdrLooks[5] =
     { 7, 1.4, 0.22, 0.12, 0, float3(0.08, 0.25, 0.65), 0, 0, 2.4, float2(0.14, 0.45), 20, 0, 0, 4 },
     { 4, 2.2, 0.3, 0.15, 0.15, float3(0.06, 0.6, 0.3), 0, 0, 2.0, float2(0.14, 0.4), 15, 0.55, 0, 4 },
     { 9, 2.0, 0.3, 0, 0.7, float3(0.05, 0.3, 0.2), 0, 0, 2.0, float2(0.12, 0.45), 80, 0.3, 0, 6 },
-    { 10, 1.0, 0.25, 0, 0.1, float3(0.12, 0.2, 0.55), 0.85, 0.5, 2.0, float2(0.1, 0.4), 25, 0, 0.18, 6 },
+    { 10, 1.0, 0.25, 0, 0.1, float3(0.35, 0.1, 0.45), 0.92, 0.5, 2.0, float2(0.1, 0.4), 25, 0, 0.3, 6 },
     { 2.5, 1.6, 0.35, 0.45, -0.1, float3(0.1, 0.5, 0.35), 0, 0, 2.2, float2(0.25, 0.5), 10, 0.3, 0, 1.5 },
 };
 
@@ -191,7 +191,7 @@ float rdr_weather(float2 c)
     float low = 0.68 - coverage * 0.3;
     float masses = saturate((big - low) / k.ramp) * (1 - k.cells * (1 - smoothstep(0.35, 0.65, small)));
     float scattered = saturate((small - (0.7 - coverage * 0.25)) / 0.12) * k.speckle;
-    float skirt = k.skirt * smoothstep(low - 0.4, low, big);
+    float skirt = k.skirt * smoothstep(low - 0.16, low - 0.04, big);
     return max(max(masses, scattered), skirt);
 }
 
