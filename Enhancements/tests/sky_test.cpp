@@ -270,9 +270,9 @@ int main()
     check("the clouds read their block and clamp it: coverage to 1, detail to 3, thickness to 10 m, size to 20 m, stretch to 6, density to 0, steps to 64, stratocumulus kept",
         clouds.enabled && clouds.coverage == 1 && clouds.base == 3000 && clouds.thickness == 10 && clouds.size == 20 && clouds.stretch == 6
             && clouds.density == 0 && clouds.detail == 0.5f && detail == 3 && clouds.wind_speed == 10 && clouds.wind_direction == 45 && clouds.sun == 2
-            && clouds.ambient == 0.5f && clouds.steps == 64 && clouds.type == CloudType::stratocumulus && kPasses[11].id == PassId::clouds && kPasses[11].wanted(parse_settings(raw)));
+            && clouds.ambient == 0.5f && clouds.steps == 64 && clouds.type == CloudType::rdr_stratocumulus && kPasses[11].id == PassId::clouds && kPasses[11].wanted(parse_settings(raw)));
     raw.clouds.type = 3;
-    check("type 3 reads as cumulonimbus", parse_settings(raw).clouds.type == CloudType::cumulonimbus);
+    check("type 3, the old cumulonimbus, reads as the RDR2 storm cell", parse_settings(raw).clouds.type == CloudType::rdr_cumulonimbus);
     raw.clouds.type = 9;
     check("type 9 reads as the RDR2 style's altocumulus", parse_settings(raw).clouds.type == CloudType::rdr_altocumulus);
     check("no middle layer and no cirrus unless the caller asks", !parse_settings(raw).clouds.middle && parse_settings(raw).clouds.cirrus == 0);
@@ -280,7 +280,7 @@ int main()
     const CloudSettings layered = parse_settings(raw).clouds;
     check("a layered sky reads its middle layer, coverage clamped to 1 and an unknown type as cumulus, and its cirrus clamped to 1",
         layered.middle && layered.middle->coverage == 1 && layered.middle->base == 3000 && layered.middle->thickness == 700 && layered.middle->size == 500
-            && layered.middle->type == CloudType::cumulus && layered.cirrus == 1);
+            && layered.middle->type == CloudType::rdr_cumulus && layered.cirrus == 1);
     raw.cloud_layers = {};
     raw.cloud_pattern.pattern = ENHANCEMENTS_CLOUD_PATTERN_OVERCAST;
     check("pattern 3 reads as the painted overcast", parse_settings(raw).clouds.pattern == CloudPattern::overcast);
@@ -292,10 +292,10 @@ int main()
     raw.size = sizeof raw;
     raw.cloud_pattern.pattern = 0;
     raw.clouds.type = 17;
-    check("an unknown type reads as cumulus", parse_settings(raw).clouds.type == CloudType::cumulus);
+    check("an unknown type reads as the RDR2 cumulus", parse_settings(raw).clouds.type == CloudType::rdr_cumulus);
     raw.clouds.type = 1;
     raw.size = offsetof(EnhancementsSettings, clouds) + offsetof(EnhancementsClouds, type);
-    check("a caller built before the type draws cumulus", parse_settings(raw).clouds.enabled && parse_settings(raw).clouds.type == CloudType::cumulus);
+    check("a caller built before the type draws cumulus", parse_settings(raw).clouds.enabled && parse_settings(raw).clouds.type == CloudType::rdr_cumulus);
     raw.size = offsetof(EnhancementsSettings, clouds);
     check("a caller built before the clouds draws none", !parse_settings(raw).clouds.enabled && parse_settings(raw).clouds.coverage == 0.5f);
     {

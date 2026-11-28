@@ -45,6 +45,9 @@ namespace enhancements
         rdr_cumulonimbus, rdr_altocumulus, count };  // ENHANCEMENTS_CLOUD_TYPE_*
     enum class CloudPattern : uint8_t { noise, heaps, broken, overcast, puffs, patches, streaks, count };  // ENHANCEMENTS_CLOUD_PATTERN_*
 
+    // A volume cloud type as the add-on draws it: one of the RDR2 style's.
+    CloudType volume_cloud_type(uint32_t raw);
+
     // One volume cloud layer's shape: EnhancementsCloudLayer's.
     struct CloudLayer
     {
@@ -55,7 +58,7 @@ namespace enhancements
         float stretch = 1.5f;
         float density = 0.06f;
         float detail = 0.8f;
-        CloudType type = CloudType::cumulus;
+        CloudType type = CloudType::rdr_cumulus;
 
         bool operator==(const CloudLayer &o) const
         {
@@ -79,7 +82,7 @@ namespace enhancements
         float sun = 1.0f;
         float ambient = 1.0f;
         uint32_t steps = 16;
-        CloudType type = CloudType::cumulus;
+        CloudType type = CloudType::rdr_cumulus;
         CloudPattern pattern = CloudPattern::noise;     // EnhancementsCloudPattern's
         std::optional<CloudLayer> middle;               // EnhancementsCloudLayers': the layered sky's middle layer
         float cirrus = 0;                               // and its painted cirrus's coverage

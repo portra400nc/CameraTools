@@ -9,6 +9,20 @@
 
 namespace enhancements
 {
+    CloudType volume_cloud_type(uint32_t raw)
+    {
+        // The volume clouds are the RDR2 style's since 2026-11-28: the types before it, the noise and Disney's cloud, draw as
+        // their RDR2 counterparts, and an unknown type as its cumulus.
+        switch (raw)
+        {
+        case ENHANCEMENTS_CLOUD_TYPE_STRATOCUMULUS: return CloudType::rdr_stratocumulus;
+        case ENHANCEMENTS_CLOUD_TYPE_STRATUS: return CloudType::rdr_stratus;
+        case ENHANCEMENTS_CLOUD_TYPE_CUMULONIMBUS: case ENHANCEMENTS_CLOUD_TYPE_TOWERING: return CloudType::rdr_cumulonimbus;
+        default: break;
+        }
+        return raw >= ENHANCEMENTS_CLOUD_TYPE_RDR_CUMULUS && raw < ENHANCEMENTS_CLOUD_TYPE_COUNT ? static_cast<CloudType>(raw) : CloudType::rdr_cumulus;
+    }
+
     namespace
     {
         bool ambient_wanted(const Settings &s) { return s.ambient.enabled; }
@@ -535,7 +549,7 @@ namespace enhancements
             s.clouds.ambient = finite_or(c.ambient, d.ambient, 0.0f, 20.0f);
             s.clouds.steps = std::clamp<uint32_t>(c.steps, 8, 64);
             if (knows(offsetof(EnhancementsSettings, clouds) + offsetof(EnhancementsClouds, type), sizeof c.type))
-                s.clouds.type = c.type < static_cast<uint32_t>(CloudType::count) ? static_cast<CloudType>(c.type) : CloudType::cumulus;
+                s.clouds.type = volume_cloud_type(c.type);
         }
         if (knows(offsetof(EnhancementsSettings, cloud_pattern), sizeof raw.cloud_pattern))
         {
@@ -577,7 +591,7 @@ namespace enhancements
                 s.clouds.middle = CloudLayer { finite_or(m.coverage, d.coverage, 0.0f, 1.0f), finite_or(m.base, d.base, -2000.0f, 20000.0f),
                     finite_or(m.thickness, d.thickness, 10.0f, 10000.0f), finite_or(m.size, d.size, 20.0f, 20000.0f), finite_or(m.stretch, d.stretch, 1.0f, 6.0f),
                     finite_or(m.density, d.density, 0.0f, 1.0f), finite_or(m.detail, d.detail, 0.0f, 3.0f),
-                    m.type < static_cast<uint32_t>(CloudType::count) ? static_cast<CloudType>(m.type) : CloudType::cumulus };
+                    volume_cloud_type(m.type) };
             }
             s.clouds.cirrus = finite_or(l.cirrus, 0.0f, 0.0f, 1.0f);
         }

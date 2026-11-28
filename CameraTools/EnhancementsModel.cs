@@ -196,18 +196,19 @@ namespace CameraTools
         public const float ChromaticRed = 0.0005f, ChromaticBlue = 0.0012f;
         // Light shafts' Quality: Low, Medium and High as samples along each ray.
         private static readonly uint[] ShaftSteps = { 24, 48, 96 };
-        // Clouds' Types, by index (Last type's value). The volume types draw the add-on's clouds, Disney's cloud or our
-        // noise; High patches and Cirrus stay Azurite's paintings. Layered rolls its layers (LayeredSky) and sets no rows.
+        // Clouds' Types, by index (Last type's value). The volume types draw the add-on's RDR2-style clouds (since
+        // 2026-11-28, in place of our noise and Disney's cloud), wide and flat as Bauer's but for the storm; High patches
+        // and Cirrus stay Azurite's paintings. Layered rolls its layers (LayeredSky) and sets no rows.
         public static readonly CloudKind[] CloudKinds =
         {
-            new("Altocumulus", 75f, 3000f, 700f, 500f, 0.1f, 0.8f, 1f, EnhancementsCloudType.Stratocumulus, EnhancementsCloudPatternKind.Noise, EnhancementsCloudPatternKind.Puffs),
-            new("Stratocumulus", 75f, 2200f, 700f, 500f, 0.1f, 0.8f, 1f, EnhancementsCloudType.Stratocumulus, EnhancementsCloudPatternKind.Noise, EnhancementsCloudPatternKind.Broken),
-            new("Stratus", 88f, 1300f, 400f, 1000f, 0.1f, 0.5f, 1.3f, EnhancementsCloudType.Stratus, EnhancementsCloudPatternKind.Noise, EnhancementsCloudPatternKind.Overcast),
-            new("Cumulus", 50f, 2000f, 1500f, 400f, 0.1f, 0.8f, 1f, EnhancementsCloudType.Cumulus, EnhancementsCloudPatternKind.Noise, EnhancementsCloudPatternKind.Heaps),
-            new("High patches", 45f, 4500f, 400f, 200f, 0.03f, 0.9f, 2.5f, EnhancementsCloudType.Stratocumulus, EnhancementsCloudPatternKind.Patches, EnhancementsCloudPatternKind.Patches),
-            new("Cirrus", 55f, 8000f, 300f, 800f, 0.002f, 1f, 3f, EnhancementsCloudType.Stratus, EnhancementsCloudPatternKind.Streaks, EnhancementsCloudPatternKind.Streaks),
-            new("Layered", 50f, 2000f, 1500f, 400f, 0.1f, 0.8f, 1f, EnhancementsCloudType.Cumulus, EnhancementsCloudPatternKind.Noise, EnhancementsCloudPatternKind.Heaps),
-            new("Towering cumulus", 40f, 2000f, 9000f, 3000f, 0.1f, 0.8f, 1f, EnhancementsCloudType.Towering, EnhancementsCloudPatternKind.Noise, EnhancementsCloudPatternKind.Heaps),
+            new("Altocumulus", 50f, 3600f, 500f, 260f, 0.1f, 1f, 1f, EnhancementsCloudType.RdrAltocumulus, EnhancementsCloudPatternKind.Noise, EnhancementsCloudPatternKind.Puffs),
+            new("Stratocumulus", 50f, 1200f, 700f, 600f, 0.1f, 1f, 1f, EnhancementsCloudType.RdrStratocumulus, EnhancementsCloudPatternKind.Noise, EnhancementsCloudPatternKind.Broken),
+            new("Stratus", 55f, 1100f, 900f, 800f, 0.1f, 1f, 1f, EnhancementsCloudType.RdrStratus, EnhancementsCloudPatternKind.Noise, EnhancementsCloudPatternKind.Overcast),
+            new("Cumulus", 45f, 1400f, 1300f, 500f, 0.1f, 1f, 1f, EnhancementsCloudType.RdrCumulus, EnhancementsCloudPatternKind.Noise, EnhancementsCloudPatternKind.Heaps),
+            new("High patches", 45f, 4500f, 400f, 200f, 0.03f, 0.9f, 2.5f, EnhancementsCloudType.RdrAltocumulus, EnhancementsCloudPatternKind.Patches, EnhancementsCloudPatternKind.Patches),
+            new("Cirrus", 55f, 8000f, 300f, 800f, 0.002f, 1f, 3f, EnhancementsCloudType.RdrStratus, EnhancementsCloudPatternKind.Streaks, EnhancementsCloudPatternKind.Streaks),
+            new("Layered", 45f, 1400f, 1300f, 500f, 0.1f, 1f, 1f, EnhancementsCloudType.RdrCumulus, EnhancementsCloudPatternKind.Noise, EnhancementsCloudPatternKind.Heaps),
+            new("Storm cell", 35f, 1300f, 7000f, 1100f, 0.1f, 1f, 1f, EnhancementsCloudType.RdrCumulonimbus, EnhancementsCloudPatternKind.Noise, EnhancementsCloudPatternKind.Heaps),
         };
         // Type's values: a kind's index, but Custom, the user's own shape, keeps value 6 where presets saved it, and the kinds
         // from Layered on follow it.
@@ -623,9 +624,8 @@ namespace CameraTools
         // The mix's index plus one; 0 leaves the clouds as the rest chose them.
         public static int ProbeRdrMix { get; set; }
 
-        // Seen thin and shaded thick: at 0.1 a meter one of the march's 60 m steps was opaque and banded the tops
-        // (.work/deck-screens/mapped15.png against mapped16-thin.png); the add-on's light lookup thickens it per type.
-        private const float RdrDensity = 0.005f;
+        // The Types' Density: the add-on sees it thinner and shades it thicker, per type (kRdrDensity, kRdrLooks).
+        private const float RdrDensity = 0.1f;
 
         private static EnhancementsCloudLayer RdrLayerOf(RdrLayer layer) => new()
         {

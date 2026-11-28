@@ -34,16 +34,14 @@ namespace CameraTools
         private const int Altocumulus = 0, Stratocumulus = 1, Stratus = 2, Cumulus = 3, Towering = 7;
         private const float BlendSeconds = 180f;
 
-        private static SkyLayer Low(int kind, float coverage) => kind switch
+        // Each layer at its Type's shape (EnhancementsModel.CloudKinds), the RDR2 style's.
+        private static SkyLayer Low(int kind, float coverage)
         {
-            Cumulus => new(kind, coverage, 2000f, 1500f, 400f, 0.1f),
-            Towering => new(kind, coverage, 2000f, 9000f, 3000f, 0.1f),
-            Stratocumulus => new(kind, coverage, 2200f, 700f, 500f, 0.1f),
-            Stratus => new(kind, coverage, 1300f, 400f, 1000f, 0.1f),
-            _ => new(kind, coverage, 3000f, 700f, 500f, 0.1f),
-        };
+            var k = EnhancementsModel.CloudKinds[kind];
+            return new(kind, coverage, k.Height, k.Thickness, k.Size, k.Density);
+        }
 
-        private static SkyLayer Middle(float coverage) => new(Altocumulus, coverage, 3500f, 700f, 500f, 0.1f);
+        private static SkyLayer Middle(float coverage) => new(Altocumulus, coverage, 4300f, 500f, 260f, 0.1f);
 
         private static readonly WeatherKind Sunny = WeatherKind.Sunny, Cloudy = WeatherKind.Cloudy, Rain = WeatherKind.Rain,
             Storm = WeatherKind.Thunderstorm, Snow = WeatherKind.Snow, Mist = WeatherKind.Mist;
@@ -58,14 +56,14 @@ namespace CameraTools
             new("Cumulus", Low(Cumulus, 0.45f), null, 0f, 2f, Sunny, Cloudy),
             new("Altocumulus", Low(Altocumulus, 0.7f), null, 0f, 1f, Sunny, Cloudy),
             new("Altocumulus over cumulus", Low(Cumulus, 0.3f), Middle(0.6f), 0f, 1.2f, Sunny, Cloudy),
-            new("Towering cumulus", Low(Towering, 0.35f), null, 0.3f, 1f, Sunny),
-            new("Towering cumulus under altocumulus", Low(Towering, 0.3f), Middle(0.5f), 0f, 0.8f, Sunny, Cloudy),
+            new("Storm cell", Low(Towering, 0.35f), null, 0.3f, 1f, Sunny),
+            new("Storm cell under altocumulus", Low(Towering, 0.3f), Middle(0.5f), 0f, 0.8f, Sunny, Cloudy),
             new("Stratocumulus", Low(Stratocumulus, 0.75f), null, 0f, 1f, Cloudy, Snow),
             new("Overcast stratus", Low(Stratus, 0.95f), null, 0f, 0.6f, Cloudy, Snow, Mist) { Whole = true },
             // Rain and thunderstorms fall from a whole gray deck, low and a kilometer and a half thick so its base is dark:
             // under white towers, rain read as a sunny day's.
-            new("Nimbostratus", new SkyLayer(Stratus, 1f, 800f, 1500f, 1000f, 0.1f), null, 0f, 1f, Rain, Storm) { Whole = true },
-            new("Towering cumulus building", Low(Towering, 0.45f), Middle(0.5f), 0f, 0.5f, Cloudy),
+            new("Nimbostratus", new SkyLayer(Stratus, 1f, 800f, 1500f, 900f, 0.1f), null, 0f, 1f, Rain, Storm) { Whole = true },
+            new("Storm cells building", Low(Towering, 0.45f), Middle(0.5f), 0f, 0.5f, Cloudy),
         };
 
         // The mix for a game day, the times New sky was pressed, and the game's weather (null with Weather off): drawn by

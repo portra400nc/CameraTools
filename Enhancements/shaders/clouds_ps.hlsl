@@ -79,6 +79,9 @@ float remap(float x, float a, float b, float c, float d) { return c + (x - a) / 
 static float2 skew_direction;
 static float march_fine = 60;   // this ray's small step, which the RDR2 style's detail must not be finer than
 static const float kRdrBrightness = 0.55;
+// The Density row's 0.1, the types' preset, over the 0.005 a meter the RDR2 style was tuned at: one of the march's 60 m
+// steps at 0.1 was opaque and banded the tops (.work/deck-screens/mapped15.png).
+static const float kRdrDensity = 0.05;
 static float detail_weight = 1;
 static float coverage_boost = 0;
 
@@ -338,7 +341,7 @@ float cloud_extinction(float3 p, out float h)
     if (body <= 0)
         return 0;
     if (is_rdr())
-        return rdr_carve(cloud_space(p, h), h, body) * layer_density * rdr_look().view;
+        return rdr_carve(cloud_space(p, h), h, body) * layer_density * kRdrDensity * rdr_look().view;
     float3 q = cloud_space(p, h) / (layer_size * kind_look.detail_tile);
     // Turbulence, as Horizon Zero Dawn's clouds swirl their detail: the erosion read through a slow warp of itself, so
     // small billows tumble and fray at the rims instead of sitting as round balls.
@@ -357,7 +360,7 @@ float cloud_extinction_coarse(float3 p)
     volume_lod = 1;
     float body = cloud_body(p, h, erosion);
     volume_lod = 0;
-    return body * layer_density * (is_rdr() ? rdr_look().view : 1);
+    return body * layer_density * (is_rdr() ? kRdrDensity * rdr_look().view : 1);
 }
 
 // Whether a large step's sample may be in a cloud: the body grown a little, so a sample beside a thin part still finds it.

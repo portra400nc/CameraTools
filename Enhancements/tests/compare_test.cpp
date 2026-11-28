@@ -201,13 +201,13 @@ int main()
                "\t0\t1\t1\t1\t1\t0\t2\t1\t0.0093\t1\t64\t32\t20\t0\t128\tvisibility\t2\t1\t0.5"
                "\t0\t2.8\t24\t0\t0.5\t0.5\t0.9\t0.03\t0\t0.5\t0\t0.6\t0\t0\t1\t0\t49\t2\t2\t1\t1\tscene\t0\t0.015"
                "\t0\tsun\t0.8\t0.12\t1\t1\t1\t1\t1\t1\t0.5\t1\t0.15\t1\tscene\t0.5\t1\t0\t0\t0\t0\t0\t0\t0.1"
-               "\t0\t0.5\t2500\t400\t380\t1.5\t0.035\t0.8\t8\t30\t1\t1\t16\tcumulus\t0\t0\t0.5\t0\t0.25\t0\tnoise\t0\t0\t0\t40\t0\t0\t0\t0\t0\t1\t1\t0\tnone\t\t\t\t\t\t\t\t0\t1\t1\t0\n"
+               "\t0\t0.5\t2500\t400\t380\t1.5\t0.035\t0.8\t8\t30\t1\t1\t16\trdr_cumulus\t0\t0\t0.5\t0\t0.25\t0\tnoise\t0\t0\t0\t40\t0\t0\t0\t0\t0\t1\t1\t0\tnone\t\t\t\t\t\t\t\t0\t1\t1\t0\n"
                "1\tshadows\t1\tshadow-mask\t1\t1\t0.6\t0.5\t1\t0.5\t1\t1.2\t0.7\t0.3\t0.4\t1\t0.001\t0.05\t2\t0.5\t1\t0.5\tagx\t1.5\t0.9\t1.2"
                "\t1\t0.05\t0.1\t0.8\t1\t0.75\t0.5\t0.6\t1\t2\t0.02\t25\t0.8\t300\t0.25\t12\t0.5\t96"
                "\t1\t0\t1\t0\t1\t0\t5\t0.5\t0.03\t0.75\t16\t8\t30\t1\t256\tmap\t1\t2\t0.25"
                "\t1\t1.4\t36\t3\t0.25\t0.75\t0\t0.05\t5\t1\t15\t-1\t0.6\t0.3\t1.33\t1\t100\t4\t0\t0\t1\tdisplay\t0.42\t0.02"
                "\t1\tmanual\t1.2\t-0.1\t2\t0.5\t1.5\t0\t3\t1.25\t0.9\t2\t0.4\t0.6\tdisplay\t2\t0.25\t0.75\t0.4\t-0.3\t0.8\t0.6\t1\t0.25"
-               "\t1\t0.6\t3000\t300\t200\t2\t0.02\t0.5\t4\t90\t1.5\t0.75\t24\tstratocumulus\t0\t0\t0.5\t0\t0.25\t0\tstreaks\t0\t0\t0\t40\t0\t0\t0\t0\t0\t1\t1\t0\tnone\t\t\t\t\t\t\t\t0\t1\t1\t0\n");
+               "\t1\t0.6\t3000\t300\t200\t2\t0.02\t0.5\t4\t90\t1.5\t0.75\t24\trdr_stratocumulus\t0\t0\t0.5\t0\t0.25\t0\tstreaks\t0\t0\t0\t40\t0\t0\t0\t0\t0\t1\t1\t0\tnone\t\t\t\t\t\t\t\t0\t1\t1\t0\n");
     }
     std::printf("%s: %d failed\n", __FILE__, failures);
     return failures == 0 ? 0 : 1;
