@@ -675,7 +675,7 @@ namespace enhancements
         Scratch sky_view_[5];       // sky_view_ps.hlsl's tables, kSkyViewSize, R32G32B32A32_FLOAT
         // The physical sky's tables from atmosphere when it is not the one uploaded. false when a texture failed.
         bool sync_sky_tables(const std::shared_ptr<const Atmosphere> &atmosphere);
-        ComPtr<ID3D11ComputeShader> dof_scatter_cs_, cloud_shape_cs_, cloud_detail_cs_;
+        ComPtr<ID3D11ComputeShader> dof_scatter_cs_, cloud_shape_cs_;
         ComPtr<ID3D11PixelShader> ao_ps_, ambient_ps_, ambient_specular_ps_, contact_ps_, contact_shadows_ps_, sun_ps_, sun_shadows_ps_, atmosphere_ps_, cloud_map_ps_, clouds_ps_, cloud_shadows_ps_, clouds_apply_ps_, clouds_resolve_ps_, clouds_painted_ps_,
             tonemap_ps_, view_ps_, accumulate_ps_, present_ps_, lift_ps_, wetness_ps_, shafts_ps_, light_shafts_ps_, traced_lights_ps_, character_light_ps_, character_shadow_ps_, character_sun_ps_, grass_capture_ps_, grass_ps_, grass_apply_ps_, character_balance_ps_, character_balance_adapt_ps_, sky_dome_view_ps_, sky_direction_ps_, apply_trace_ps_, gather_average_ps_, gather_filter_ps_,
             apply_gather_ps_, reflect_apply_ps_, dof_focus_ps_, dof_prefilter_ps_, dof_tiles_ps_, dof_dilate_ps_, dof_gather_ps_, dof_post_ps_, dof_composite_ps_, dof_soften_ps_, dof_behind_ps_,
@@ -786,8 +786,8 @@ namespace enhancements
         Scratch shafts_;            // half size, R16G16B16A16_FLOAT: rgb the mist's raw in-scatter, a its transmittance
         Scratch shafts_meters_;     // half size, R16_FLOAT: the meters each ray marched
         Scratch shafts_view_;       // R16G16B16A16_FLOAT: the mist's in-scatter at full size, for the light-shafts view
-        ComPtr<ID3D11Texture3D> cloud_shape_, cloud_detail_;     // 128 and 32 a side, R8_UNORM
-        ComPtr<ID3D11ShaderResourceView> cloud_shape_srv_, cloud_detail_srv_, cloud_types_srv_, cloud_volume_srv_;  // cloud_volume_: data/wdas_cloud;     // cloud_types_: core/clouds.h's table
+        ComPtr<ID3D11Texture3D> cloud_shape_;       // 128 a side, R8_UNORM
+        ComPtr<ID3D11ShaderResourceView> cloud_shape_srv_;
         bool cloud_noise_ready_ = false;
         bool clouds_drawn_ = false;     // the volume clouds drew into their history since the flare last read it
         ComPtr<ID3D11ShaderResourceView> cloud_pattern_srv_;    // BC7 with its mips, as the pattern's DDS file holds it, for clouds_painted_ps_

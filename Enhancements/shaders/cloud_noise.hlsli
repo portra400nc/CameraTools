@@ -1,4 +1,4 @@
-// Tiling 3D noise for the volume clouds' two textures, generated once by cloud_shape_cs.hlsl and cloud_detail_cs.hlsl.
+// Tiling 3D noise for the volume clouds' shape texture, generated once by cloud_shape_cs.hlsl.
 // Every function takes a point of the unit cube and a cell count that divides the cube, and wraps at its faces.
 
 uint3 cloud_pcg3d(uint3 v)

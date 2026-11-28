@@ -1,7 +1,7 @@
 // The volume clouds' march, at a quarter of the size: each ray from the game's camera crosses the layer between layer_base
-// and layer_base + layer_thickness in cloud_steps samples. As Frostbite and Horizon Zero Dawn build them, the weather map
-// says where clouds stand, their type how dense they are up the layer, the shape noise gives them bodies and the erosion
-// noise eats their edges. Each sample inside a cloud looks toward the light through six samples spaced wider and wider,
+// and layer_base + layer_thickness in cloud_steps samples. In the RDR2 style (Bauer, SIGGRAPH 2019), the weather map
+// says where clouds stand, their type's height profile how tall they stand over it, and displaced noise carves their
+// billows. Each sample inside a cloud looks toward the light through six samples spaced wider and wider,
 // and is lit by the light through them with multiple scattering and by the sky. The result depends on the ray's direction
 // alone, so clouds_resolve_ps.hlsl averages it over frames and clouds_apply_ps.hlsl filters it to full size.
 #include "sun.hlsli"
@@ -13,59 +13,7 @@
 
 Texture2D<float2> cloud_map : register(t5);     // the weather map: x the main layer's, y the middle layer's
 Texture3D<float> shape_noise : register(t7);    // cloud_shape_cs.hlsl's
-Texture3D<float> erosion_noise : register(t8);  // cloud_detail_cs.hlsl's
-Texture2D<float4> cloud_types : register(t12);  // core/clouds.h's table: a row a type, r density, g erosion, b spread
-Texture3D<float> cloud_volume : register(t13);  // data/wdas_cloud: Disney's cloud, x across, y up, z along, with mips
-
 static const float kShapeTile = 6;     // cloud sizes the shape noise spans before it repeats
-static const float kCloudTypes = 10;   // ENHANCEMENTS_CLOUD_TYPE_COUNT
-
-// What a type marches by, beside its height profile in cloud_types.
-struct CloudKind
-{
-    float detail_tile;  // cloud sizes the erosion noise spans; its largest cells are half of it
-    float2 cover;       // how far full weather raises the cover at no and at full Coverage
-    float shortest;     // the share of the layer the weakest weather still raises a cloud through
-    float erosion;      // how deep the erosion noise eats into a body at full erosion and Edge detail
-    float lean;         // how far the tops lean downwind, as a share of the layer's thickness
-    float swirl;        // how far the erosion's turbulence moves it, in erosion tiles
-    // Disney's cloud in place of the noise (1), and how it stands: each a share of a grid cell long (packed: filling its
-    // cell, edge to edge, without turning), a share of the layer tall, and how far its top spreads into an anvil.
-    float volume;
-    float2 size;
-    float2 height;
-    float packed;
-    float anvil;
-    float cell;         // cloud sizes a grid cell spans
-    float masked;       // 1: the weather map, not Coverage alone, says which cells hold a cloud, in patches and bands
-};
-
-// By ENHANCEMENTS_CLOUD_TYPE_*. The towers (towering cumulus, cumulonimbus) stand on cloud_towers' domes: their cover
-// passes 1 at a tower's middle so it stands solid and the shape noise forms billows over its sides, Coverage says how
-// many towers stand, they reach many heights, and they stand nearly upright (at half the thickness a 6.5 km tower
-// leaned 3 km, a slanted slab). Their erosion cells run from some 400 m down to 25 m.
-// Every type stands Disney's cloud since the user found it the real one; volume 0 brings a type's noise clouds back (the
-// git tag clouds-noise has them as they were tuned).
-static const CloudKind kKinds[10] =
-{
-    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.15, 1, float2(0.4, 0.55), float2(0.3, 0.55), 0, 0, 6, 0 },     // cumulus
-    // Altocumulus: the noise's soft overlapping puffs matched the user's photo, where Disney cloudlets read as stamps and
-    // Disney's billows carved into the noise shredded the puffs at twice the cost (.work/clouds/kinds round12, round13).
-    { 0.8, float2(0.35, 0.85), 0.55, 0.35, 0.5, 0.15, 0, float2(0.55, 0.75), float2(0.15, 0.45), 0, 0, 1, 1 },  // stratocumulus
-    // Stratus: the noise's closed sheet. Disney's cloud packed one to a cell left the cells' corners open, blue gaps in
-    // a rain deck (.work/clouds/weather/rainlook3). Full Coverage raises the cover past 1 wherever the weather is but
-    // middling, so a whole deck closes: at 0.85 it kept dark holes (rainlook6).
-    { 0.8, float2(0.35, 1.6), 0.55, 0.3, 0.5, 0.1, 0, float2(0.98, 0.98), float2(0.6, 1), 1, 0, 6, 0 },      // stratus
-    { 0.6, float2(1.5, 1.5), 0.4, 0.6, 0.15, 0.25, 1, float2(0.4, 0.45), float2(0.55, 0.8), 0, 0.6, 6, 0 },  // cumulonimbus
-    { 0.6, float2(1.5, 1.5), 0.3, 1.0, 0.1, 0.25, 3, float2(0.4, 0.55), float2(0.45, 1), 0, 0, 6, 0 },        // towering cumulus: a cluster (3)
-    // The RDR2 style's five, shaped by kRdrLooks: only their lean counts here.
-    { 0.8, float2(1, 1), 0.3, 0.3, 0.12, 0.1, 0, float2(1, 1), float2(1, 1), 0, 0, 6, 0 },
-    { 0.8, float2(1, 1), 0.3, 0.3, 0.2, 0.1, 0, float2(1, 1), float2(1, 1), 0, 0, 6, 0 },
-    { 0.8, float2(1, 1), 0.3, 0.3, 0.1, 0.1, 0, float2(1, 1), float2(1, 1), 0, 0, 6, 0 },
-    { 0.8, float2(1, 1), 0.3, 0.3, 0.06, 0.1, 0, float2(1, 1), float2(1, 1), 0, 0, 6, 0 },
-    { 0.8, float2(1, 1), 0.3, 0.3, 0.15, 0.1, 0, float2(1, 1), float2(1, 1), 0, 0, 6, 0 },
-};
-static CloudKind kind_look;  // this type's, set by main
 
 // The weather map at a point of cloud space, for the layer the march is in.
 float weather_at(float2 c)
@@ -74,192 +22,19 @@ float weather_at(float2 c)
     return layer_index == 0 ? w.x : w.y;
 }
 
-float remap(float x, float a, float b, float c, float d) { return c + (x - a) / (b - a) * (d - c); }
-
 static float2 skew_direction;
 static float march_fine = 60;   // this ray's small step, which the RDR2 style's detail must not be finer than
 static const float kRdrBrightness = 0.55;
 // The Density row's 0.1, the types' preset, over the 0.005 a meter the RDR2 style was tuned at: one of the march's 60 m
 // steps at 0.1 was opaque and banded the tops (.work/deck-screens/mapped15.png).
 static const float kRdrDensity = 0.05;
-static float detail_weight = 1;
 static float coverage_boost = 0;
 
 // Where the noises read p: its world place with the drift, the tops leaning downwind.
 float3 cloud_space(float3 p, float h)
 {
-    float2 c = p.xz + cloud_wind + skew_direction * h * layer_thickness * kind_look.lean;
+    float2 c = p.xz + cloud_wind + skew_direction * h * layer_thickness * rdr_look().lean;
     return float3(c.x, p.y, c.y);
-}
-
-static const float3 kVolumeVoxels = float3(250, 170, 307);
-static float volume_lod = 0;    // the volume's mip the samples read: coarser for the search and the light far off
-
-// Disney's cloud (a real cumulus, modeled after a photograph) stood in each cell of a grid of six cloud sizes, in as
-// many cells as Coverage asks, as kind_look says: turned and mirrored, a share of the cell long and of the layer tall;
-// or packed, filling its cell edge to edge, only flipped, for the layers. A cumulonimbus's top spreads into an anvil.
-// Clouds built from noise read as sponge, popcorn or a cartoon's (.work/clouds/towers). Turned any way, the cloud's
-// footprint reaches at most 0.645 of its length from its middle, so a middle 0.35 to 0.65 across its cell keeps it
-// inside: one cell's lookup a sample, where nine cost the Deck 58 ms. c is the point in cloud space, y its height.
-float cloud_in_cell(int2 at, float2 c, float y, float cell)
-{
-    uint2 a = cloud_hash(at), b = cloud_hash(at + int2(7919, 104729));
-    float4 r = float4(a & 0xffffu, b & 0xffffu) / 65535.0;
-    // Masked, as altocumulus's cloudlets fill patches and bands of the sky, the weather at the cell's middle (which
-    // Coverage already thins or spreads) says how likely it holds one.
-    float chance = layer_coverage, grow = 1, stretch = 1, lift = 0;
-    if (kind_look.masked > 0)
-    {
-        // The weather's edges are sharpened, so the sky opens in clear gaps between the patches, and broad noise makes some
-        // patches of small cloudlets and some of big ones; each cloudlet is drawn out on its own and floats a little higher
-        // or lower, so no two look alike and the layer is no flat sheet.
-        float2 middle_of_cell = (at + 0.5) * cell;
-        chance = smoothstep(0.15, 0.5, weather_at(middle_of_cell));
-        grow = lerp(0.6, 1.2, cloud_fbm(float3(middle_of_cell / (cell * 5), 7.7), 2));
-        stretch = lerp(0.7, 1.4, frac(r.w * 5.3));
-        lift = frac(r.w * 11.9) * 0.4;
-    }
-    // A cloud grows in from small and thin as the coverage passes its cell's draw, and thins away as it falls back, as
-    // clouds form and evaporate: switched whole at the threshold, clouds popped in and out while the coverage drifted.
-    float forming = saturate((chance - r.x) / 0.12);
-    if (forming <= 0)
-        return 0;
-    float length = cell * lerp(kind_look.size.x, kind_look.size.y, frac(r.w * 2.9)) * grow * lerp(0.45, 1, forming);
-    float tall = layer_thickness * lerp(kind_look.height.x, kind_look.height.y, frac(r.w * 7.31)) * lerp(0.6, 1, grow) * lerp(0.5, 1, forming);
-    bool packed = kind_look.packed > 0;
-    float2 middle = packed || kind_look.anvil > 0 ? at + 0.5 : kind_look.masked > 0 ? at + 0.4 + 0.2 * r.yz : at + 0.35 + 0.3 * r.yz;
-    float turn = packed ? (frac(r.w * 13.7) > 0.5 ? 3.1415927 : 0) : frac(r.w * 13.7) * 6.2831853;
-    float2 d = c - middle * cell;
-    float2 local = float2(cos(turn) * d.x + sin(turn) * d.y, cos(turn) * d.y - sin(turn) * d.x);
-    local.x = frac(r.w * 3.1) > 0.5 ? -local.x : local.x;
-    // Meters a voxel across and along: packed, the footprint stretched to the cell; else the cloud's own proportions.
-    float2 across = packed ? length / kVolumeVoxels.xz : length / kVolumeVoxels.z;
-    // Each standing cloud is its own: squeezed or widened across by up to 40%, and cut from the cloud's top 70 to 100%, so
-    // some are flat-based caps (deeper cuts left spiky crowns, .work/clouds/sim variety2.png).
-    float aspect = packed || kind_look.masked > 0 ? 1 : 1 + 0.4 * (frac(r.w * 17.9) * 2 - 1);
-    float cap = packed || kind_look.masked > 0 ? 0 : frac(r.w * 23.3) * 0.3;
-    float3 uvw = float3(local.x / (across.x * kVolumeVoxels.x * stretch * aspect), (y - layer_base - lift * layer_thickness) / tall,
-        local.y / (across.y * kVolumeVoxels.z));
-    uvw.y = cap + uvw.y * (1 - cap);
-    uvw.xz = uvw.xz / (1 + kind_look.anvil * smoothstep(0.6, 0.9, uvw.y)) + 0.5;
-    // And bent by a slow noise of its own, so no two outlines match while the billows stay the cloud's; on the fine samples
-    // only, as it costs two reads.
-    if (!packed && kind_look.masked == 0 && volume_lod == 0)
-    {
-        float3 seed = float3(frac(r.w * 41.1), frac(r.w * 7.7), frac(r.w * 3.3)) * 4;
-        float2 bend = float2(shape_noise.SampleLevel(linear_wrap, uvw * 0.5 + seed, 2), shape_noise.SampleLevel(linear_wrap, uvw * 0.5 + seed + 0.37, 2)) - 0.5;
-        uvw.xz += bend * 0.25;
-    }
-    return all(uvw >= 0) && all(uvw <= 1) ? cloud_volume.SampleLevel(linear_clamp, uvw, volume_lod) * forming : 0;
-}
-
-// One cloud of a towering cumulus's wall (cloud_cluster): k 0 to 5 a broad, flat row of base clouds along the cell's
-// direction, 6 to 11 turrets rising from it along its length, 6 the tallest. The turrets stretch at most 1.7 times
-// up: at 2.4, narrow, they stood like cypress trees.
-static const int kWallBases = 6, kWallParts = 12;
-static const float kWallBaseShare = 0.24, kWallBaseStretch = 0.55, kWallSpan = 0.24, kWallTurretShare = 0.18, kWallTallest = 1.7;
-// A part's placement: its middle, its length, how far up it starts and how tall it is, and how it is turned and mirrored.
-struct WallPart
-{
-    float4 a;   // middle.xy, length, lift
-    float4 b;   // tall, cos(turn), sin(turn), mirror (1 or -1)
-};
-
-WallPart wall_part(int2 at, int k, float theta, float cell)
-{
-    uint2 ha = cloud_hash(at * 13 + k * 7), hb = cloud_hash(at + int2(7919, 104729) + k * int2(101, 37));
-    float4 r = float4(ha & 0xffffu, hb & 0xffffu) / 65535.0;
-    bool base = k < kWallBases;
-    // Along the wall and across it, as shares of the cell; its share of the cell, its height over its length as the
-    // Disney cloud's own 170 to 307 scaled, and how far up it stands, in the base's heights.
-    float slot = base ? float(k) / float(kWallBases - 1) : float(k - kWallBases) / float(kWallParts - kWallBases - 1);
-    float span = base ? kWallSpan : kWallSpan * 0.85;
-    float along = -span + 2 * span * slot + (r.y - 0.5) * (base ? 0.04 : 0.08);
-    float across = (r.z - 0.5) * (base ? 0.12 : 0.07);
-    float share = base ? kWallBaseShare : kWallTurretShare;
-    float stretch = base ? kWallBaseStretch : k == kWallBases ? kWallTallest : 1.0 + 0.6 * r.x;
-    float base_tall = cell * kWallBaseShare * (170.0 / 307.0) * kWallBaseStretch;
-    float length = cell * share * (0.85 + 0.3 * r.w);
-    float2 middle = (at + 0.5) * cell + float2(cos(theta) * along - sin(theta) * across, sin(theta) * along + cos(theta) * across) * cell;
-    float turn = frac(r.w * 13.7) * 6.2831853;
-    WallPart part;
-    part.a = float4(middle, length, base ? 0 : (0.35 + 0.3 * r.w) * base_tall);
-    part.b = float4(length * (170.0 / 307.0) * stretch * (0.9 + 0.2 * frac(r.w * 7.31)), cos(turn), sin(turn), frac(r.w * 3.1) > 0.5 ? -1 : 1);
-    return part;
-}
-
-// With bounds, only whether the point lies in the part's cylinder, 1 or 0, without reading the volume.
-float cluster_part(WallPart part, float2 c, float y, bool bounds)
-{
-    float2 d = c - part.a.xy;
-    float length = part.a.z, lift = part.a.w, tall = part.b.x;
-    // Outside the part's cylinder there is nothing to read; the search's samples ask no more than that.
-    bool inside = dot(d, d) < length * length * 0.42 && y - layer_base > lift && y - layer_base < lift + tall;
-    if (bounds || !inside)
-        return inside ? 1 : 0;
-    float2 local = float2(part.b.y * d.x + part.b.z * d.y, part.b.y * d.y - part.b.z * d.x);
-    local.x *= part.b.w;
-    float3 uvw = float3(local.x / (length * kVolumeVoxels.x / kVolumeVoxels.z) + 0.5, (y - layer_base - lift) / tall, local.y / length + 0.5);
-    return all(uvw >= 0) && all(uvw <= 1) ? cloud_volume.SampleLevel(linear_clamp, uvw, volume_lod) : 0;
-}
-
-// The towering cumulus: a long wall of Disney's cumulus a tower, merged into one mass as real ones build, in as many cells
-// of a grid as Coverage asks: a broad, flat base of six along a random direction and six turrets rising along it. One
-// stretched cloud a tower read as a slab, a round cluster as a lone heap, and a narrow base as turrets on stilts
-// (.work/clouds/sim cluster2.png, wall1-3.png); the wall reaches 0.5 of a cell from its middle, so the cell's lookup
-// holds it.
-float cloud_cluster(float2 c, float y)
-{
-    float cell = layer_size * kind_look.cell;
-    int2 at = int2(floor(c / cell));
-    uint h = cloud_hash(at).x;
-    float r = (h & 0xffffu) / 65535.0;
-    float forming = saturate((layer_coverage - r) / 0.12);
-    if (forming <= 0)
-        return 0;
-    // Outside the wall's reach, or above its tallest turret, there is nothing to read: each read a sample costs. The
-    // search's samples, which only ask whether a cloud may be near, take the bounds alone.
-    float reach = length(c - (at + 0.5) * cell) / cell;
-    float base_tall = cell * kWallBaseShare * (170.0 / 307.0) * kWallBaseStretch;
-    float top = base_tall * 0.65 + cell * kWallTurretShare * 1.15 * (170.0 / 307.0) * kWallTallest * 1.1;
-    float up = y - layer_base;
-    if (reach > 0.5 || up > top)
-        return 0;
-    float theta = ((h >> 16) & 0xffffu) / 65535.0 * 6.2831853;
-    // The search's samples ask only whether a cloud may be near: inside one part's cylinder, which costs no reads. The
-    // wall's whole outline, mostly air around the turrets, made rays spend their samples stepping back and forth in it
-    // and never reach the turrets.
-    bool bounds = volume_lod >= 3;
-    float best = 0;
-    bool above_base = up > base_tall * 1.1, below_turrets = up < base_tall * 0.35;
-    [loop] for (int k = 0; k < kWallParts; k++)
-    {
-        if ((k < kWallBases && above_base) || (k >= kWallBases && below_turrets))
-            continue;
-        best = max(best, cluster_part(wall_part(at, k, theta, cell), c, y, bounds));
-        if (bounds && best > 0)
-            break;
-    }
-    return best * forming;
-}
-
-float cloud_volume_at(float2 c, float y)
-{
-    float cell = layer_size * kind_look.cell;
-    if (kind_look.volume == 3)
-        return cloud_cluster(c, y);
-    if (kind_look.masked == 0)
-        return cloud_in_cell(int2(floor(c / cell)), c, y, cell);
-    // Masked cloudlets on a plain grid stood in rows like a lattice: their grid is bent by broad noise first. They are up
-    // to 0.9 of a cell long (0.75 grown by up to 1.2), drawn out up to 1.4 times, with middles 0.4 to 0.6 across it, so neighbors touch and merge
-    // into patches; a footprint then reaches 0.68 of a cell from its middle, under the 0.9 to the nearest cell the four
-    // cells nearest the point leave out, so they hold every cloudlet that can reach it.
-    c += (float2(cloud_fbm(float3(c / (cell * 7), 1.3), 2), cloud_fbm(float3(c / (cell * 7) + 5.1, 4.7), 2)) - 0.5) * cell * 3;
-    int2 near = int2(floor(c / cell - 0.5));
-    float best = 0;
-    [loop] for (int k = 0; k < 4; k++)
-        best = max(best, cloud_in_cell(near + int2(k & 1, k >> 1), c, y, cell));
-    return best;
 }
 
 // The RDR2 style's body, after Bauer (SIGGRAPH 2019, slides 16 to 18): the weather map cut by a threshold that rises with
@@ -289,7 +64,7 @@ float rdr_carve(float3 c, float h, float body)
     RdrLook k = rdr_look();
     float t = cloud_evolve / max(layer_size, 1);
     float3 q = c / (layer_size * kShapeTile);
-    // The displacement is smooth, a few cloud sizes across: the erosion noise's fine cells, read for it, laid the clouds in
+    // The displacement is smooth, a few cloud sizes across: a fine noise's cells, read for it, laid the clouds in
     // thin horizontal strata (.work/deck-screens/mapped1.png).
     float2 xy = float2(shape_noise.SampleLevel(linear_wrap, float3(q.xy * 0.4, t * 0.01), 2),
         shape_noise.SampleLevel(linear_wrap, float3(q.xy * 0.4 + 0.43, t * 0.01 + 0.5), 2)) - 0.5;
@@ -307,71 +82,36 @@ float rdr_carve(float3 c, float h, float body)
     return saturate((body - n) / lerp(k.width.x, k.width.y, h));
 }
 
-// Without the erosion: the cloud body at p, 0 to 1, and the height in the layer and how much the type erodes there.
-float cloud_body(float3 p, out float h, out float erosion)
+// Without the detail: the cloud body at p, 0 to 1, and the height in the layer.
+float cloud_body(float3 p, out float h)
 {
     h = (p.y - layer_base) / layer_thickness;
-    erosion = 0;
     if (h < 0 || h > 1)
         return 0;
-    float3 c = cloud_space(p, h);
-    if (is_rdr())
-        return rdr_body(c.xz, h);
-    // Disney's cloud carries its own detail, smooth and soft as a real cloud's: the noise's erosion only roughened it.
-    if (kind_look.volume > 0)
-        return cloud_volume_at(c.xz, p.y);
-    float weather = weather_at(c.xz);
-    if (weather <= 0.01)
-        return 0;
-    // Where the weather is weaker the clouds grow less tall: the type's profile is read higher up.
-    uint kind = min((uint)layer_type, 4u);
-    float4 type = cloud_types.SampleLevel(linear_clamp, float2(h / lerp(kind_look.shortest, 1, weather), (kind + 0.5) / kCloudTypes), 0);
-    erosion = type.g;
-    // Even under full weather the cover stays below 1, so the noise carves the body rather than the clouds turning into
-    // extruded slabs of the map; the type's spread adds to it.
-    float cover = saturate(weather * lerp(kind_look.cover.x, kind_look.cover.y, layer_coverage) + type.b + coverage_boost);
-    float n = shape_noise.SampleLevel(linear_wrap, c / (layer_size * kShapeTile), 0);
-    return saturate(remap(n * type.r, 1 - cover, 1, 0, 1)) * cover;
+    return rdr_body(cloud_space(p, h).xz, h);
 }
 
 float cloud_extinction(float3 p, out float h)
 {
-    float erosion;
-    float body = cloud_body(p, h, erosion);
+    float body = cloud_body(p, h);
     if (body <= 0)
         return 0;
-    if (is_rdr())
-        return rdr_carve(cloud_space(p, h), h, body) * layer_density * kRdrDensity * rdr_look().view;
-    float3 q = cloud_space(p, h) / (layer_size * kind_look.detail_tile);
-    // Turbulence, as Horizon Zero Dawn's clouds swirl their detail: the erosion read through a slow warp of itself, so
-    // small billows tumble and fray at the rims instead of sitting as round balls.
-    float3 swirl = float3(erosion_noise.SampleLevel(linear_wrap, q * 0.23 + float3(0.31, 0.57, 0.13), 0),
-        erosion_noise.SampleLevel(linear_wrap, q * 0.23 + float3(0.71, 0.19, 0.83), 0), 0.5) - 0.5;
-    float fine = erosion_noise.SampleLevel(linear_wrap, q + swirl.xzy * kind_look.swirl, 0);
-    // Wispy at the base, billowing toward the top.
-    fine = lerp(fine, 1 - fine, saturate(h * 4));
-    body = saturate(remap(body, fine * kind_look.erosion * erosion * layer_detail * detail_weight, 1, 0, 1));
-    return body * layer_density;
+    return rdr_carve(cloud_space(p, h), h, body) * layer_density * kRdrDensity * rdr_look().view;
 }
 
 float cloud_extinction_coarse(float3 p)
 {
-    float h, erosion;
-    volume_lod = 1;
-    float body = cloud_body(p, h, erosion);
-    volume_lod = 0;
-    return body * layer_density * (is_rdr() ? kRdrDensity * rdr_look().view : 1);
+    float h;
+    return cloud_body(p, h) * layer_density * kRdrDensity * rdr_look().view;
 }
 
 // Whether a large step's sample may be in a cloud: the body grown a little, so a sample beside a thin part still finds it.
 bool cloud_near(float3 p)
 {
     coverage_boost = 0.1;
-    volume_lod = 3;
-    float h, erosion;
-    bool near = cloud_body(p, h, erosion) > 0;
+    float h;
+    bool near = cloud_body(p, h) > 0;
     coverage_boost = 0;
-    volume_lod = 0;
     return near;
 }
 
@@ -391,7 +131,6 @@ static float light_spread = 1;
 float depth_toward_light(float3 p, float3 l, bool far)
 {
     float depth = 0, from = 0;
-    bool rdr = is_rdr();
     [loop] for (int j = far ? 1 : 0; j < 6; j += far ? 2 : 1)
     {
         float at = kLightTaps[j] * light_scale * light_spread, h;
@@ -402,7 +141,7 @@ float depth_toward_light(float3 p, float3 l, bool far)
     // The RDR2 style is seen thin and shaded thick, as Bauer's clouds take their sun's transmittance from a lookup tuned
     // apart from the view: at one density, 0.1 a meter banded the tops at the march's steps (.work/deck-screens/mapped15.png)
     // and 0.005 left them flat white (mapped18.png).
-    return rdr ? depth * rdr_look().light / rdr_look().view : depth;
+    return depth * rdr_look().light / rdr_look().view;
 }
 
 // Sunlight scattered toward the eye after Frostbite (Hillaire 2016, 5.6): octaves of multiple scattering, each through
@@ -437,8 +176,7 @@ float sky_reaching(float3 p, float h)
     float above = cloud_extinction_coarse(p + float3(0, near, 0)) * near + cloud_extinction_coarse(p + float3(0, far, 0)) * (far - near);
     // The RDR2 style's cloud over a point hides the sky as thick as it hides the sun: seen at the march's thin density,
     // the undersides took the whole sky's light and every cloud stood flat white (.work/rdr-clouds/v1-mix1.png).
-    if (is_rdr())
-        above *= rdr_look().light / rdr_look().view;
+    above *= rdr_look().light / rdr_look().view;
     return (0.25 + 0.75 * pow(saturate(h), 0.7)) * lerp(0.3, 1, exp(-above * 0.3)) + 0.25 * (1 - h);
 }
 
@@ -479,7 +217,6 @@ bool layer_span(float3 origin, float3 dir, out float t0, out float t1)
 // Marches the current layer between t0 and t1 into m.
 void march_layer(float3 origin, float3 dir, float t0, float t1, float jitter, bool physical, inout MarchState m)
 {
-    kind_look = kKinds[min((uint)layer_type, 9u)];
     light_scale = min(layer_size, layer_thickness * 0.5);
     // Large steps through clear air; at the first body met, a step back and small steps, which resolve the cloud's skin
     // and its detail; back to large steps after a run of empty small ones. At most twice cloud_steps samples. A large
@@ -490,7 +227,6 @@ void march_layer(float3 origin, float3 dir, float t0, float t1, float jitter, bo
     // took every sample of rays that grazed it at 60 m, and the turrets behind it never drew.
     float fine = clamp(budget * 0.12, 10, max(60, layer_size * 0.05));
     march_fine = fine;
-    detail_weight = saturate(3 * layer_size * kind_look.detail_tile / 32 / fine);
     float3 l = cloud_toward_sun;
     float c = dot(dir, l);
     float3 sun = physical ? sunset_glow(layer_sunlight(origin, dir)) : kPi * sun_color * cloud_sun;
@@ -534,7 +270,7 @@ void march_layer(float3 origin, float3 dir, float t0, float t1, float jitter, bo
         // The RDR2 style's smooth surfaces show where each ray enters them: entered anywhere within a small step, their
         // light banded the tops. As Bauer refines his steps (SIGGRAPH 2019, slide 50), three halvings between the last
         // clear sample and this one find the skin to an eighth of a step.
-        if (is_rdr() && sigma > 0 && was_clear && t > clear)
+        if (sigma > 0 && was_clear && t > clear)
         {
             float a = clear, b = t;
             [unroll] for (int k = 0; k < 3; k++)
@@ -571,8 +307,7 @@ void march_layer(float3 origin, float3 dir, float t0, float t1, float jitter, bo
         float3 light = (physical ? physical_sunlight(origin, p) : sun) * lit + sky * sky_reaching(p, h);
         // The RDR2 style's clouds stand bright but short of white, so their gray shading shows: at full light they burned
         // to flat white over the sky (.work/rdr-clouds/v6-mix1.png).
-        if (is_rdr())
-            light *= kRdrBrightness;
+        light *= kRdrBrightness;
         float through = exp(-sigma * step);
         float fade = physical ? 1 - smoothstep(0.3, 1, t / reach) : exp(-t / cloud_fade);
         float taken = m.transmittance * (1 - through);

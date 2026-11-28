@@ -23,13 +23,14 @@ float shadow_depth(float3 p, float3 l)
     [loop] for (uint layer = 0; layer < (cloud_layers > 1.5 ? 2u : 1u); layer++)
     {
         use_layer(layer);
-        kind_look = kKinds[min((uint)layer_type, 9u)];
         float t0 = max((layer_base - p.y) / l.y, 0), t1 = (layer_base + layer_thickness - p.y) / l.y;
         if (t1 <= t0)
             continue;
-        float dt = (t1 - t0) / kShadowSamples;
+        float dt = (t1 - t0) / kShadowSamples, layer_depth = 0;
         for (uint k = 0; k < kShadowSamples; k++)
-            depth += cloud_extinction_coarse(p + l * (t0 + (k + 0.5) * dt)) * dt;
+            layer_depth += cloud_extinction_coarse(p + l * (t0 + (k + 0.5) * dt)) * dt;
+        // As thick as the clouds' own light lookup sees them, so the shadows match their shaded undersides.
+        depth += layer_depth * rdr_look().light / rdr_look().view;
     }
     return depth;
 }

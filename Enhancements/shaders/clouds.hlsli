@@ -87,53 +87,7 @@ float2 pattern_at(float2 c)
     return float2(cover, dot(p.rgb, float3(0.2126, 0.7152, 0.0722)));
 }
 
-// The towers' weather (towering cumulus and cumulonimbus): towers scattered one to a cell of six cloud sizes, standing in as many cells as
-// Coverage asks, each a cluster of four domes around its middle, as a tower stacks turrets: a central one 0.55 to 1 high
-// and three broad shoulders beside it, 0.3 to 0.7 of its height, every rim warped by broad noise. The domes fall off as 1 - d^2 toward their
-// rims, so the shape noise forms billows over the sides. One dome a tower stood as the same bell everywhere, and a flat
-// one (1 - d^4) as a capsule; the broad patches of cloud_weather rise to a plateau, which left smooth blobs or an overcast.
-float cloud_towers(float2 c)
-{
-    float cell = layer_size * 6;
-    float2 warp = float2(cloud_fbm(float3(c / cell * 1.7, 3.1), 2), cloud_fbm(float3(c / cell * 1.7 + 4.3, 6.7), 2)) - 0.5;
-    float2 p = c / cell + warp * 0.35;
-    int2 home = int2(floor(p));
-    float w = 0;
-    for (int y = -1; y <= 1; y++)
-        for (int x = -1; x <= 1; x++)
-        {
-            int2 at = home + int2(x, y);
-            uint2 a = cloud_hash(at), b = cloud_hash(at + int2(7919, 104729));
-            float4 r = float4(a & 0xffffu, b & 0xffffu) / 65535.0;
-            if (r.x >= layer_coverage)
-                continue;
-            float2 center = at + 0.3 + 0.4 * r.yz;
-            float radius = 0.2 + 0.2 * r.w;
-            float height = lerp(0.55, 1, frac(r.w * 7.31));
-            for (int k = 0; k < 4; k++)
-            {
-                float4 q = float4(cloud_hash(at * 4 + int2(k * 31 + 5, k * 17 + 11)) & 0xffffu, cloud_hash(at * 4 + int2(k * 13 + 3, k * 29 + 7)) & 0xffffu) / 65535.0;
-                // The first is the central turret; the others are broad shoulders to its sides, up to its radius out.
-                float2 dome = center + (k == 0 ? 0 : (q.xy - 0.5) * 2.2 * radius);
-                float size = radius * (k == 0 ? 0.7 : lerp(0.55, 0.85, q.z));
-                float tall = height * (k == 0 ? 1 : lerp(0.3, 0.7, q.w));
-                float d = length(p - dome) / size;
-                w = max(w, tall * saturate(1 - d * d));
-            }
-            // A cumulonimbus's anvil: a thin, wide footprint around the tower, which the type's spread fills only near
-            // the top of the layer.
-            if (layer_type == 3)
-            {
-                float d = length(p - center) / (radius * 2.5);
-                w = max(w, 0.08 * saturate(1 - d * d));
-            }
-        }
-    return w;
-}
-
 static const float kRdrFirst = 5;   // ENHANCEMENTS_CLOUD_TYPE_RDR_CUMULUS, the first of the RDR2 style's five
-
-bool is_rdr() { return layer_type >= kRdrFirst; }
 
 // One type of the RDR2 style (Bauer, SIGGRAPH 2019, "Creating the Atmospheric World of Red Dead Redemption 2"): its
 // weather, and the height profile a cloud stands by over it, as his cloud map and height LUT shape them.
@@ -154,6 +108,7 @@ struct RdrLook
                         // whose height it would raise into spires (.work/deck-screens/headings.png)
     float skirt;        // a storm's broad low weather around each cell, which only the shelf's low threshold clears: the
                         // weather falling off as fast as the cell left the shelf barely wider than the tower
+    float lean;         // how far the tops lean downwind, as a share of the layer's thickness
     float view;         // its density over the layer's, as the eye sees it: thin puffs see-through at their rims, as soft as
                         // the talk's; at the heaps' density they stood as hard-edged stickers (.work/rdr-clouds/compare-rolls.png)
 };
@@ -162,11 +117,11 @@ struct RdrLook
 // dome over each rounded peak of the weather; a linear rise tapers it; a rise mostly linear and steep flattens a roll.
 static const RdrLook kRdrLooks[5] =
 {
-    { 7, 1.4, 0.22, 0.12, 0, float3(0.08, 0.25, 0.65), 0, 0, 2.4, float2(0.14, 0.45), 20, 0, 0, 4 },
-    { 4, 2.2, 0.3, 0.15, 0.15, float3(0.06, 0.6, 0.3), 0, 0, 2.0, float2(0.14, 0.4), 15, 0.55, 0, 4 },
-    { 9, 2.0, 0.3, 0, 0.7, float3(0.05, 0.3, 0.2), 0, 0, 2.0, float2(0.12, 0.45), 80, 0.3, 0, 6 },
-    { 10, 1.0, 0.25, 0, 0.1, float3(0.35, 0.1, 0.45), 0.92, 0.5, 2.0, float2(0.1, 0.4), 25, 0, 0.3, 6 },
-    { 2.5, 1.6, 0.35, 0.45, -0.1, float3(0.1, 0.5, 0.35), 0, 0, 2.2, float2(0.25, 0.5), 10, 0.3, 0, 1.5 },
+    { 7, 1.4, 0.22, 0.12, 0, float3(0.08, 0.25, 0.65), 0, 0, 2.4, float2(0.14, 0.45), 20, 0, 0, 0.12, 4 },
+    { 4, 2.2, 0.3, 0.15, 0.15, float3(0.06, 0.6, 0.3), 0, 0, 2.0, float2(0.14, 0.4), 15, 0.55, 0, 0.2, 4 },
+    { 9, 2.0, 0.3, 0, 0.7, float3(0.05, 0.3, 0.2), 0, 0, 2.0, float2(0.12, 0.45), 80, 0.3, 0, 0.1, 6 },
+    { 10, 1.0, 0.25, 0, 0.1, float3(0.35, 0.1, 0.45), 0.92, 0.5, 2.0, float2(0.1, 0.4), 25, 0, 0.3, 0.06, 6 },
+    { 2.5, 1.6, 0.35, 0.45, -0.1, float3(0.1, 0.5, 0.35), 0, 0, 2.2, float2(0.25, 0.5), 10, 0.3, 0, 0.15, 1.5 },
 };
 
 RdrLook rdr_look() { return kRdrLooks[clamp((int)layer_type - (int)kRdrFirst, 0, 4)]; }
@@ -196,20 +151,8 @@ float rdr_weather(float2 c)
 }
 
 // The weather map's value at a point of cloud space (world x and z plus the drift): 0 clear sky to 1 where the clouds
-// stand thickest and tallest, as Coverage spreads or thins them. Broad warped patches some six cells across, drawn out
-// along the wind; the shape noise gives the clouds inside them their bodies.
+// stand thickest and tallest, the RDR2 style's.
 float cloud_weather(float2 c)
 {
-    if (is_rdr())
-        return rdr_weather(c);
-    if (layer_type >= 3)    // ENHANCEMENTS_CLOUD_TYPE_CUMULONIMBUS and _TOWERING
-        return cloud_towers(c);
-    float2 wind = float2(cos(radians(cloud_pad)), sin(radians(cloud_pad)));
-    float2 p = float2(dot(c, wind) / (layer_size * layer_stretch), dot(c, float2(-wind.y, wind.x)) / layer_size) / 6;
-    float wx = cloud_fbm(float3(p * 0.5, 0.5), 2) - 0.5;
-    float wz = cloud_fbm(float3(p * 0.5 + float2(5.2, 7.1), 1.8), 2) - 0.5;
-    p += float2(wx, wz) * 1.5;
-    float f = cloud_fbm(float3(p, 2.5), 5);
-    float low = 0.5 + (0.5 - layer_coverage) * 0.45 - 0.12;
-    return smoothstep(low, low + 0.35, f);
+    return rdr_weather(c);
 }
